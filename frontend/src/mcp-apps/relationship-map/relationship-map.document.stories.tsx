@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { builtDocument, DocumentHost } from "../document-host";
+import { builtDocument, DocumentHost } from "../story-hosts";
 import { relationshipMapFixture } from "./fixture";
 
 // LAZY, via import.meta.glob — see document-host.tsx.

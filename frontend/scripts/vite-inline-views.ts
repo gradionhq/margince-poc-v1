@@ -174,7 +174,17 @@ export function inlineDocument(html: string, js: string, css: string): string {
     "</body>",
     js === "" ? "" : `<script>\n${js}\n</script>\n`,
   );
-  return stampLicence(shell);
+  return stampRevision(stampLicence(shell), buildRevision());
+}
+
+/**
+ * buildRevision is the commit both images are built from, passed identically to
+ * the api and the web builds so the two halves can be compared. Read from the
+ * environment rather than a vite `define`, because this runs in the build
+ * process itself rather than in the bundled code.
+ */
+export function buildRevision(): string {
+  return process.env.MARGINCE_BUILD_REVISION ?? "";
 }
 
 /**
@@ -185,6 +195,31 @@ export function inlineDocument(html: string, js: string, css: string): string {
  * applied. The header has to be the first thing a human reads, not the first
  * thing the parser does.
  */
+/**
+ * stampRevision writes the build this document came from into the document, as
+ * an HTML comment.
+ *
+ * A COMMENT, because there is nowhere else it can go: esbuild strips every
+ * comment out of the script, and a `<meta>` would be an element the parsed
+ * validator has to learn to allow. It is diagnostic metadata read by the api to
+ * report skew — never an integrity signature, and never a reason to refuse.
+ *
+ * An absent revision writes nothing. A local build has no meaningful SHA (the
+ * worktree is dirty), and a stamp of "" or "dev" would be a value the api then
+ * has to special-case on the read side as well as the write side.
+ */
+function stampRevision(shell: string, revision: string): string {
+  if (revision === "" || revision === "dev") return shell;
+  return shell.replace(
+    LICENCE_END,
+    `${LICENCE_END}\n<!-- ${REVISION_MARKER}${revision} -->`,
+  );
+}
+
+/** The marker the api reads the revision back out of. One spelling, here. */
+const REVISION_MARKER = "margince-build-revision: ";
+const LICENCE_END = "-->";
+
 function stampLicence(shell: string): string {
   const doctype = /^\s*<!doctype[^>]*>/i.exec(shell);
   if (doctype === null) {

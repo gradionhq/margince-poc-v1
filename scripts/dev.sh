@@ -38,6 +38,13 @@ case "${3:-}" in
 esac
 
 cd "$(git rev-parse --show-toplevel)"
+
+# The revision both halves of the stack are stamped with. It is the commit
+# because that is what CI passes to both images, and a local stack should
+# exercise the same comparison rather than a permanently-disabled one. Export it
+# before `make dev` to force a mismatch on purpose — a matching pair proves only
+# the quiet case, and the skew path is the one worth seeing work.
+export MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION:-$(git rev-parse HEAD 2>/dev/null || echo dev)}"
 repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
@@ -314,7 +321,14 @@ up)
     # and build the role binaries against it, so an enabled extension set
     # under extensions/ reaches the dev stack; vanilla composes empty.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
-    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
+    # ONE revision for both halves of the stack, so the api and the documents it
+    # fetches can be compared exactly as they are in a deployed installation.
+    # Overridable: setting MARGINCE_BUILD_REVISION before `make dev` is how the
+    # skew path is exercised deliberately, since a matching pair proves only the
+    # quiet case.
+    ( cd backend && GOWORK="$PWD/../build/composition/go.work" \
+        go build -ldflags "-X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=${MARGINCE_BUILD_REVISION}" \
+        -o ../bin/api ./cmd/api )
     echo "=== servers ==="
   } > >(log_as boot) 2>&1
 
@@ -519,7 +533,8 @@ up)
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
+  BACKEND_PORT="${api_port}" MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION}" \
+    pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
   fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \

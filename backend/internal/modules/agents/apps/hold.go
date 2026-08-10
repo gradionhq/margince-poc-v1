@@ -34,9 +34,12 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 )
 
 const (
@@ -210,7 +213,44 @@ func (p *Provider) read(ctx context.Context, v view) (string, error) {
 		p.log.Warn("mcp apps: the served document's title differs from the catalog's",
 			"uri", v.uri, "catalog_title", v.title)
 	}
+	p.noteSkew(v.uri, doc)
 	return doc, nil
+}
+
+// revisionPattern reads the build stamp the inliner wrote into the document.
+var revisionPattern = regexp.MustCompile(`<!--\s*margince-build-revision:\s*(\S+)\s*-->`)
+
+// noteSkew reports whether this document came from a different build than this
+// api — and REPORTS is the whole of it.
+//
+// It does not refuse: the api and the web tier deploy separately, so a rolling
+// deploy would otherwise take the views down for the length of the rollout, which
+// is a self-inflicted outage in exchange for a signal. It is diagnostic
+// metadata, not an integrity signature; transport integrity rests on HTTPS and
+// on control of the origin.
+//
+// An unknown revision on EITHER side disables the comparison. A developer's
+// binary is built from a dirty worktree that no commit SHA describes, so
+// equality there would mean nothing and inequality would alarm on every local
+// run.
+func (p *Provider) noteSkew(uri, doc string) {
+	theirs := documentRevision(doc)
+	if !buildinfo.SkewBetween(buildinfo.Revision, theirs) {
+		return
+	}
+	p.log.Warn("mcp apps: the served view was built from a different revision than this api; "+
+		"expected during a rollout, worth alerting on once one has finished",
+		"uri", uri, "api_revision", buildinfo.Revision, "document_revision", theirs)
+}
+
+// documentRevision reads the build stamp out of a document, or the empty string
+// for one that carries none.
+func documentRevision(doc string) string {
+	found := revisionPattern.FindStringSubmatch(doc)
+	if found == nil {
+		return ""
+	}
+	return found[1]
 }
 
 // report logs one view's failure at most once per logInterval.
@@ -260,4 +300,21 @@ func (p *Provider) WriteMetrics(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "# HELP margince_mcp_app_title_mismatches_total Served documents whose title differs from the catalog's.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE margince_mcp_app_title_mismatches_total counter\n")
 	_, _ = fmt.Fprintf(w, "margince_mcp_app_title_mismatches_total %d\n", p.titleMismatches.Load())
+	// DERIVED from the documents currently held rather than recorded as one
+	// process-wide flag. Skew is per-view — a rollout replaces one document
+	// before the other — and a single reading would be whichever view was read
+	// last, which is a number that changes for reasons nobody can trace.
+	_, _ = fmt.Fprintf(w, "# HELP margince_mcp_app_build_skew The held view was built from a different revision than this api.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_mcp_app_build_skew gauge\n")
+	for _, v := range catalog {
+		doc, holding := p.served(v.uri)
+		if !holding {
+			continue
+		}
+		skewed := 0
+		if buildinfo.SkewBetween(buildinfo.Revision, documentRevision(doc)) {
+			skewed = 1
+		}
+		_, _ = fmt.Fprintf(w, "margince_mcp_app_build_skew{uri=%q} %d\n", v.uri, skewed)
+	}
 }

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -398,5 +399,99 @@ func TestTheMetricsSectionNamesEachViewSeparately(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("the metrics section does not say %s (%q missing)\n---\n%s", why, want, body)
 		}
+	}
+}
+
+// stampedBrief is the account brief's document carrying a build revision, the
+// way the inliner writes one.
+func stampedBrief(revision string) string {
+	return strings.Replace(documentFor(AccountBriefURI), "-->",
+		"-->\n<!-- margince-build-revision: "+revision+" -->", 1)
+}
+
+func TestAStampMismatchIsReportedAndTheViewStillServes(t *testing.T) {
+	// A rolling deploy puts the api and the web tier on different revisions for
+	// the length of the rollout. Refusing there would be a self-inflicted outage
+	// in exchange for a signal that is diagnostic, not an integrity check.
+	restore := buildinfo.Revision
+	t.Cleanup(func() { buildinfo.Revision = restore })
+	buildinfo.Revision = "aaaaaaaa"
+
+	tier, p := newWebTier(t)
+	tier.answer(AccountBriefURI, ok(stampedBrief("bbbbbbbb")))
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	if !p.Holds(AccountBriefURI) {
+		t.Fatal("a build-revision mismatch took the view down")
+	}
+	var out strings.Builder
+	p.WriteMetrics(&out)
+	body := out.String()
+	// Per URI, because a rollout replaces one document before the other: a
+	// single process-wide reading would be whichever view was read last.
+	if !strings.Contains(body, `margince_mcp_app_build_skew{uri="`+AccountBriefURI+`"} 1`) {
+		t.Errorf("the metrics section does not report the skewed view:\n%s", body)
+	}
+	if !strings.Contains(body, `margince_mcp_app_build_skew{uri="`+RelationshipMapURI+`"} 0`) {
+		t.Errorf("the unstamped view is reported as skewed:\n%s", body)
+	}
+}
+
+func TestAMatchingStampClearsTheSkewGauge(t *testing.T) {
+	// A gauge, not a counter: the rollout ends and the reading has to follow it
+	// down, or an alert on it never clears.
+	restore := buildinfo.Revision
+	t.Cleanup(func() { buildinfo.Revision = restore })
+	buildinfo.Revision = "aaaaaaaa"
+
+	tier, p := newWebTier(t)
+	tier.answer(AccountBriefURI, ok(stampedBrief("bbbbbbbb")))
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	tier.answer(AccountBriefURI, ok(stampedBrief("aaaaaaaa")))
+	p.Refresh(t.Context())
+	var out strings.Builder
+	p.WriteMetrics(&out)
+	if !strings.Contains(out.String(), `margince_mcp_app_build_skew{uri="`+AccountBriefURI+`"} 0`) {
+		t.Fatalf("the skew gauge stayed raised after the rollout finished:\n%s", out.String())
+	}
+}
+
+func TestAnUnknownStampOnEitherSideSkipsTheComparison(t *testing.T) {
+	// A developer's binary is built from a dirty worktree that no commit SHA
+	// describes, so equality would mean nothing and inequality would alarm on
+	// every local run.
+	for _, tc := range []struct{ name, api, document string }{
+		{"neither side stamped", "", ""},
+		{"only the api stamped", "aaaaaaaa", ""},
+		{"only the document stamped", "", "bbbbbbbb"},
+		{"the api is a local build", buildinfo.Unknown, "bbbbbbbb"},
+		{"the document is a local build", "aaaaaaaa", buildinfo.Unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			restore := buildinfo.Revision
+			t.Cleanup(func() { buildinfo.Revision = restore })
+			buildinfo.Revision = tc.api
+
+			tier, p := newWebTier(t)
+			body := documentFor(AccountBriefURI)
+			if tc.document != "" {
+				body = stampedBrief(tc.document)
+			}
+			tier.answer(AccountBriefURI, ok(body))
+			if err := p.Prime(t.Context()); err != nil {
+				t.Fatalf("priming: %v", err)
+			}
+			if !p.Holds(AccountBriefURI) {
+				t.Fatal("an unknown revision took the view down")
+			}
+			var out strings.Builder
+			p.WriteMetrics(&out)
+			if !strings.Contains(out.String(), `margince_mcp_app_build_skew{uri="`+AccountBriefURI+`"} 0`) {
+				t.Errorf("an unknown revision on one side raised the skew gauge:\n%s", out.String())
+			}
+		})
 	}
 }

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ViewHost } from "../view-host";
+import { ViewHost } from "../story-hosts";
 import { accountBriefFixture } from "./fixture";
 import { render } from "./main";
 

@@ -162,3 +162,34 @@ describe("inlining folds the entry chunk and the stylesheet into the document", 
     ).toThrow(/style/i);
   });
 });
+
+describe("the build revision travels with the document", () => {
+  it("writes the revision the build was given, so the api can report skew", () => {
+    const doc = withRevision("abc123", () =>
+      inlineDocument(SHELL, "const a = 1;", ""),
+    );
+    expect(doc).toContain("margince-build-revision: abc123");
+    expect(validateDocument(doc)).toEqual([]);
+    expect(inspectDocument(doc)).toEqual([]);
+  });
+
+  it("writes nothing for a local build, whose worktree no SHA describes", () => {
+    for (const revision of ["", "dev"]) {
+      const doc = withRevision(revision, () =>
+        inlineDocument(SHELL, "const a = 1;", ""),
+      );
+      expect(doc).not.toContain("margince-build-revision");
+    }
+  });
+});
+
+function withRevision<T>(revision: string, run: () => T): T {
+  const before = process.env.MARGINCE_BUILD_REVISION;
+  process.env.MARGINCE_BUILD_REVISION = revision;
+  try {
+    return run();
+  } finally {
+    if (before === undefined) delete process.env.MARGINCE_BUILD_REVISION;
+    else process.env.MARGINCE_BUILD_REVISION = before;
+  }
+}

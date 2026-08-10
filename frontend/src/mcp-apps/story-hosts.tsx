@@ -1,5 +1,40 @@
 import { useEffect, useRef } from "react";
-import type { Envelope } from "./types";
+import type { Envelope, Warning } from "./types";
+import "./view.css";
+
+// The two wrappers the MCP App stories mount their subjects into.
+//
+// ONE FILE because it is one thing: Storybook-only scaffolding, never shipped
+// UI. Keeping it together is also what lets the i18n copy rule exempt it by NAME
+// rather than by a pattern — the developer-facing panel below is not copy a user
+// ever reads, and the gate has no way to tell a story helper from a screen.
+
+/**
+ * The wrapper the renderer stories mount the REAL render() into. One wrapper for
+ * both views, taking the renderer as a prop, because two copies of twelve lines
+ * is two places for the mount to drift from what the document does.
+ *
+ * A CAVEAT THAT BELONGS IN THE FILE, not in a review comment: .storybook/
+ * preview.tsx imports app.css, so these stories render against ambient Tailwind
+ * and base element styles the standalone document does NOT have. A rule that
+ * only works because app.css was loaded looks correct here and breaks inside a
+ * host — the document stories beside these are what catch that.
+ */
+export function ViewHost({
+  render,
+  data,
+  warnings = [],
+}: {
+  render: (root: HTMLElement, data: unknown, warnings: Warning[]) => void;
+  data: unknown;
+  warnings?: Warning[];
+}) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (ref.current !== null) render(ref.current, data, warnings);
+  }, [render, data, warnings]);
+  return <main ref={ref} />;
+}
 
 /**
  * The wrapper the document stories put the REAL built bytes into, and then play
