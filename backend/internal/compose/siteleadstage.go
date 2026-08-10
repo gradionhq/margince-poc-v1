@@ -49,7 +49,20 @@ func (w *siteDeepReadWorker) stageSiteLeads(ctx context.Context, readID ids.UUID
 
 // stageSiteLeadsInTx is stageSiteLeads on the caller's transaction, for an act
 // that stages more than leads and must commit all of it at once.
+//
+// It takes every row lock the loop will need up front, in the canonical order,
+// for the reason approvals.lockOrder gives: the loop below joins one pending row
+// at a time in the order the site listed its team page, and a human deciding the
+// previous read's bundle walks those same rows in (created_at, id). One shared
+// set locked in two orders deadlocks, and the loser gets a 500 on a re-read that
+// was otherwise fine.
 func (w *siteDeepReadWorker) stageSiteLeadsInTx(ctx context.Context, tx pgx.Tx, readID ids.UUID, claim people.SiteReadClaim, found []sitePerson, bundleID ids.UUID) ([]ids.UUID, error) {
+	if claim.OrganizationID == nil {
+		return nil, fmt.Errorf("compose: site read %s claims no account to file its leads under", readID)
+	}
+	if err := w.approvals.LockPendingGroupInTx(ctx, tx, siteLeadProposalKind, *claim.OrganizationID); err != nil {
+		return nil, err
+	}
 	var proposalIDs []ids.UUID
 	for _, person := range found {
 		approvalID, staged, err := w.stageSiteLead(ctx, tx, readID, claim, person, bundleID)

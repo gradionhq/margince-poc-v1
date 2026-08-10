@@ -191,6 +191,16 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 	// under, so a confirmed onboarding read reaches the inbox as one question
 	// about this company rather than as one per person it published.
 	bundleID := ids.NewV7()
+	// Every row lock the loop below will need, taken here in the canonical
+	// order. The loop takes them one at a time in the order the site listed its
+	// team page, which is nobody's order in particular — and the rows it joins
+	// are exactly the rows a human deciding the PREVIOUS read's bundle walks in
+	// (created_at, id). Two transactions, one shared set, two orders: whichever
+	// loses the deadlock gets a 500 on a confirmation that was otherwise fine.
+	// Taking the set up front means the loop acquires nothing new.
+	if err := e.approvals.LockPendingGroupInTx(execCtx, tx, siteLeadProposalKind, orgID.UUID); err != nil {
+		return nil, err
+	}
 	proposalIDs := make([]ids.UUID, 0, len(found))
 	for _, person := range found {
 		// A published person the workspace already reaches by email is not a
