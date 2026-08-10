@@ -14,12 +14,25 @@ package backendarch
 // direction); this gate pins the half that is statically checkable.
 //
 // Gatedness is resolved transitively over same-package calls, matched
-// by name: a name shared by several functions counts as gated when ANY
-// of them references auth — optimistic on purpose, so the gate never
-// cries wolf on dispatch it cannot resolve.
+// by name within the RECEIVER the entry point is declared on, plus the
+// package-level functions every receiver may call. Bucketing by receiver
+// is what stops an unrelated same-named method from vouching for a store:
+// *Store and Handlers in one module routinely spell the same names
+// (GetActivity, ListActivities, SendEmail), and a flat by-name index let
+// the handler's gate answer for the store's.
+//
+// Optimism is kept where dispatch is genuinely unresolvable rather than
+// merely unbucketed: a name held by BOTH the receiver and the package
+// level merges, because a bare `foo(...)` and a `s.foo(...)` are the same
+// token in the index this gate builds, so it cannot tell which was meant.
 //
 // Exceptions are explicit, keyed by "package-dir:FuncName", each with
-// the rationale that ratified it; a reasonless or stale waiver fails.
+// the rationale that ratified it; a reasonless or stale waiver fails. The
+// key stays coarser than the resolution above — it names the FUNCTION, not
+// the receiver — so if two receivers in one package ever hold the same
+// ungated name, one waiver ratifies both. No pair does today, and the
+// stale-waiver check would not notice if one appeared, so a receiver-keyed
+// waiver is the change to make when one does.
 //
 // The tree the gate reads is itself proven rather than assumed:
 // storeEntryPointScope sweeps the whole module for the same entry-point
@@ -54,6 +67,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/capture:CorrectResolution":             "sweep correction of a verdict it wrote itself, inside the caller's transaction",
 	"internal/modules/capture:Defer":                         "sweep bookkeeping for a claimed row — reschedule with backoff; reached only from the same system-principal loop as ClaimDue",
 	"internal/modules/capture:ExpireExhausted":               "auto-enrich sweep expiring exhausted budget slots",
+	"internal/modules/capture:Get":                           "SettingsStore.Get reads one capture setting through platform/settings.Get, which delegates to Store.Raw — and Raw takes the object grant PER SETTING against the object the entry declares (auth.Require(def.Object(), ActionRead)). internal/platform/settings is one of THIS gate's roots, so that gate is judged here directly rather than assumed; re-gating in the wrapper would re-check the same read against a coarser object, the same shape as identity:GetInstallation",
 	"internal/modules/capture:LinkProposal":                  "sweep bookkeeping: binds the staged proposal to the pending row it was raised from",
 	"internal/modules/capture:ListDueOrgs":                   "auto-enrich sweep (compose/captureautoenrich.go) under the system principal",
 	"internal/modules/capture:MarkQueued":                    "auto-enrich sweep bookkeeping for an org it just queued",
@@ -75,6 +89,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/identity:Put":                          "the write half of the same self-scoped wizard state; onboardingActor is the gate and the row is keyed on the acting user",
 	"internal/modules/overlay:BlockAutoMap":                  "same: only usermapservice.go calls it, behind requireUserMapAdmin",
 	"internal/modules/finance:SyncConnection":                "the finance sweep's mirror write, under the worker's system principal; the accounting source is the authority for what it says, there is no request and no human actor on this path, and the module exposes no other write at all",
+	"internal/modules/overlay:Get":                           "MirrorStore.Get is List's single-row twin and row-scoped the same way: resolveActingMirrorUserID + visibilityJoin put the mirror_visibility deny-join in the query itself, so an unmapped principal is answered ErrNotFound before the row is read rather than refused by auth.Require, and the datasource provider above it takes the object grant",
 	"internal/modules/overlay:Ingest":                        "the sync sweep's mirror write (backfill + refetch jobs) under the worker's system principal; the incumbent connection is the authority, and no human actor exists on this path",
 	"internal/modules/overlay:List":                          "row-scoped by the mirror_visibility deny-join rather than auth.Require: resolveActingMirrorUserID + visibilityJoin answer ErrNotFound for an unmapped principal BEFORE the page query runs, and the datasource provider above it takes the object grant",
 	"internal/modules/overlay:ListUserMap":                   "reached only through usermapservice.go, whose every entry point takes requireUserMapAdmin (overlay_connection:update + RequireHuman) — the sanctioned Handlers->Service shape, where the service owns the gate and the store beneath it is module-internal",
@@ -84,6 +99,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/overlay:RecomputeForOwner":             "recomputes mirror_visibility for one incumbent owner after a mapping change; driven by the mapping writes above, which are themselves gated",
 	"internal/modules/overlay:RecordSweepFailure":            "the failure half of the same backoff bookkeeping",
 	"internal/modules/overlay:RecordSweepSuccess":            "sweep health bookkeeping (backoff state) written by the sweep about itself",
+	"internal/modules/overlay:RequestSweep":                  "MirrorStore.RequestSweep is the store half of the sanctioned Service-owns-the-gate shape (same as ListUserMap): the ONLY caller is Service.RequestSweep, which takes auth.Require(overlay_connection, ActionUpdate) and fences the store against a racing disconnect before delegating. The store method itself writes overlay_sync_state — a due-at and a failure ladder, not a record — and until this gate became receiver-aware the service's grant was silently answering for it",
 	"internal/modules/overlay:RevalidateEmailMappings":       "sweep revalidation of owner email mappings; no request path reaches it",
 	"internal/modules/overlay:SaveBackfillCursor":            "sweep checkpoint write — the backfill's own resume cursor, not a record",
 	"internal/modules/overlay:SaveReconcileWatermark":        "reconcile-poller checkpoint write; sweep state, not a record",
@@ -201,6 +217,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/people:SetOrganizationLifecycleTx":      "the same CAS on the caller's transaction, called by the lifecycle_change accept executor AFTER the approvals service admitted the deciding human against the organization:update grant and the target's row scope",
 	"internal/modules/people:PromoteOrgNameTx":                "the same CAS on the caller's transaction, called by the org_name_promotion accept executor AFTER the approvals service admitted the deciding human against the organization:update grant and the target's row scope",
 	"internal/modules/people:ApplySignatureFields":            "evidence-gated fill-only-empty write driven by the worker sweep under the workspace GUC (§2.9): NULL-predicate CAS on title, first-phone-only insert, PO-DDL-12 evidence rows — a human's answer is structurally untouchable (GATE-AI-4)",
+	"internal/modules/privacy:EvaluateWorkspace":              "the retention pass: its one production caller is the privacy-retention River worker (compose/jobs_privacyretention.go), which builds a PrincipalSystem actor onto the context before the call, so no human principal exists here to admit. Gating it on one would be wrong rather than merely redundant — a retention obligation outlives any seat, and a workspace whose reviewer lost access must still age out the data it promised to",
 
 	// comms: delivery machinery, not the message. StageTx runs inside the
 	// caller's own transaction, alongside the activity write that already
@@ -316,14 +333,53 @@ type gateFnInfo struct {
 	calls map[string]bool
 }
 
-// gateEntry is one exported *Store/*Service method — a store entry point
-// the gate must prove reaches auth.
-type gateEntry struct{ dir, name string }
+// gatePkg is one package's function index, bucketed by the receiver each
+// function is declared on. The "" bucket holds package-level functions,
+// which every receiver in the package may call.
+type gatePkg map[string]map[string]*gateFnInfo
 
-// collectStoreEntryPoints returns, per package dir, the function index (a
-// name shared across receivers merges optimistically — see the package
-// comment) plus the list of exported *Store/*Service methods to check.
-func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, []gateEntry) {
+// visibleTo returns the functions an entry point on recv can reach by name:
+// its own receiver's methods, plus the package-level ones. A name held by
+// both buckets is merged rather than shadowed — see the package comment on
+// where this gate stays optimistic and why.
+func (p gatePkg) visibleTo(recv string) map[string]*gateFnInfo {
+	fns := make(map[string]*gateFnInfo, len(p[""])+len(p[recv]))
+	for name, info := range p[""] {
+		fns[name] = info
+	}
+	for name, info := range p[recv] {
+		if pkgLevel, both := fns[name]; both {
+			fns[name] = mergeGateFnInfo(pkgLevel, info)
+			continue
+		}
+		fns[name] = info
+	}
+	return fns
+}
+
+// mergeGateFnInfo unions two same-named functions the index cannot tell
+// apart at a call site. It builds a THIRD value rather than mutating
+// either: the buckets are shared across every entry point on the package,
+// so folding one into the other would leak this receiver's edges into the
+// next receiver's view.
+func mergeGateFnInfo(a, b *gateFnInfo) *gateFnInfo {
+	merged := &gateFnInfo{auth: a.auth || b.auth, calls: make(map[string]bool, len(a.calls)+len(b.calls))}
+	for _, src := range []*gateFnInfo{a, b} {
+		for name := range src.calls {
+			merged.calls[name] = true
+		}
+	}
+	return merged
+}
+
+// gateEntry is one exported *Store/*Service method — a store entry point
+// the gate must prove reaches auth. recv carries the receiver type name so
+// resolution is scoped to it.
+type gateEntry struct{ dir, recv, name string }
+
+// collectStoreEntryPoints returns, per package dir, the receiver-bucketed
+// function index plus the list of exported *Store/*Service methods to check.
+func collectStoreEntryPoints(t *testing.T) (map[string]gatePkg, []gateEntry) {
 	t.Helper()
 	var entries []gateEntry
 	for _, src := range storeEntryPointScope.Files(t) {
@@ -333,20 +389,42 @@ func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, [
 			if !ok || !isStoreEntryPoint(fn) {
 				continue
 			}
-			entries = append(entries, gateEntry{dir, fn.Name.Name})
+			entries = append(entries, gateEntry{dir, receiverName(fn), fn.Name.Name})
 		}
 	}
 	return packageFunctionIndex(t), entries
 }
 
+// receiverName is the receiver's type name with any pointer stripped, or ""
+// for a package-level function. Both spellings are collected because the
+// index holds whole packages: a value-receiver type (Handlers) is a bucket
+// this gate must keep separate just as much as a pointer one.
+func receiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	switch typ := fn.Recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if ident, ok := typ.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	case *ast.Ident:
+		return typ.Name
+	}
+	return ""
+}
+
 // packageFunctionIndex indexes every function in every package under the
-// scope's roots. It reads WHOLE packages, not only the files that hold an
-// entry point, because the auth call that gates a method routinely sits in
-// a same-package helper in another file — indexing only the entry-point
-// files would report those methods ungated.
-func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
+// scope's roots, bucketed by receiver. It reads WHOLE packages, not only the
+// files that hold an entry point, because the auth call that gates a method
+// routinely sits in a same-package helper in another file — indexing only the
+// entry-point files would report those methods ungated.
+//
+// Two functions can still land in one bucket under the same name when build
+// tags mean only one of them ever compiles, so the merge below stays.
+func packageFunctionIndex(t *testing.T) map[string]gatePkg {
 	t.Helper()
-	pkgs := map[string]map[string]*gateFnInfo{}
+	pkgs := map[string]gatePkg{}
 	fset := token.NewFileSet()
 	for _, root := range storeEntryPointScope.Roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -361,17 +439,21 @@ func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
 				return parseErr
 			}
 			if pkgs[dir] == nil {
-				pkgs[dir] = map[string]*gateFnInfo{}
+				pkgs[dir] = gatePkg{}
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
 				if !ok || fn.Body == nil {
 					continue
 				}
-				info := pkgs[dir][fn.Name.Name]
+				recv := receiverName(fn)
+				if pkgs[dir][recv] == nil {
+					pkgs[dir][recv] = map[string]*gateFnInfo{}
+				}
+				info := pkgs[dir][recv][fn.Name.Name]
 				if info == nil {
 					info = &gateFnInfo{calls: map[string]bool{}}
-					pkgs[dir][fn.Name.Name] = info
+					pkgs[dir][recv][fn.Name.Name] = info
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
 					if sel, ok := n.(*ast.SelectorExpr); ok {
@@ -395,8 +477,9 @@ func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
 	return pkgs
 }
 
-// reachesAuthGate resolves gatedness transitively over same-package
-// calls, matched by name; seen breaks recursion cycles.
+// reachesAuthGate resolves gatedness transitively over the calls a name can
+// reach, matched by name within the view visibleTo built for one receiver;
+// seen breaks recursion cycles.
 func reachesAuthGate(fns map[string]*gateFnInfo, name string, seen map[string]bool) bool {
 	if seen[name] {
 		return false
@@ -424,7 +507,7 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 	pkgs, entries := collectStoreEntryPoints(t)
 
 	for _, e := range entries {
-		if reachesAuthGate(pkgs[e.dir], e.name, map[string]bool{}) {
+		if reachesAuthGate(pkgs[e.dir].visibleTo(e.recv), e.name, map[string]bool{}) {
 			continue
 		}
 		key := e.dir + ":" + e.name
