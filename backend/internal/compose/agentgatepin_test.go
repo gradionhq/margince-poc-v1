@@ -17,6 +17,7 @@ package compose
 // middleware produces rather than what a hand-set context claims.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -149,26 +150,53 @@ func TestACallerIfMatchTheGateDidNotReadIsRefused(t *testing.T) {
 
 // A call whose tier was not decided from a record has nothing to pin, and a
 // header invented here would refuse writes for a reason nobody can act on.
+//
+// It goes through the real Admit against the real create policy, so the absent
+// header is the STATIC tier's doing rather than a context no gate produced.
+// Handing this a request the gate never touched would have proved only that
+// admitAgentCall invents nothing out of thin air — and it would have kept
+// passing if pin forwarding regressed for every static call on the surface.
 func TestAWriteWithNoAdmittedPinIsForwardedUnconditioned(t *testing.T) {
 	stage := ids.NewV7()
-	reg, spec := advanceSpec(t, tierDeps{
+	deps := tierDeps{
 		stages:  reopenStages{semantics: map[ids.UUID]string{stage: "open"}},
 		records: versionedDeal{stageID: stage, version: 12},
-	})
-	// A create carries no id and no record to read, so its tier is static and
-	// the gate proved nothing about any row.
-	r := httptest.NewRequest(http.MethodPost, "/v1/people", http.NoBody)
+	}
+	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+	agents.RegisterCoreTools(reg, deps.records, deps.stages, nil, nil)
+	// A create names no record and reads none, so its tool twin is static-tier:
+	// there is nothing for the gate to have proved anything about.
+	pol := agentPolicies["POST /v1/people"]
+	spec, _, ok := operationSpec(pol, reg)
+	if !ok {
+		t.Fatal("the registry serves no create_record spec for the REST twin to admit against")
+	}
+	if spec.Tier == mcp.TierDynamic {
+		t.Fatalf("%s resolved a dynamic spec, so this case is not about a static tier", pol.Op)
+	}
+
+	body := []byte(`{"display_name":"Ada"}`)
+	r := httptest.NewRequest(http.MethodPost, "/v1/people", bytes.NewReader(body))
 	r = r.WithContext(agentRequestCtx(r.Context()))
+	resolve, known := tierInput(r.Context(), spec, pol, deps, r, body)
+	if !known {
+		t.Fatal("the gate has no tier input for a static-tier create")
+	}
+	ctx, err := auth.NewGate(fullSeat{}).Admit(r.Context(), spec, resolve)
+	if err != nil {
+		t.Fatalf("the create was refused: %v", err)
+	}
+	r = r.WithContext(ctx)
 
 	var seen string
 	next := http.HandlerFunc(func(_ http.ResponseWriter, got *http.Request) {
 		seen = got.Header.Get("If-Match")
 	})
-
 	admitAgentCall(httptest.NewRecorder(), r, next, admissionOutcome{
-		pol: agentPolicies["POST /v1/people"], spec: spec, registry: reg,
+		pol: pol, spec: spec, registry: reg,
 	})
 	if seen != "" {
-		t.Errorf("the handler saw If-Match %q, want none", seen)
+		t.Errorf("the handler saw If-Match %q, want none — a static tier read no record, so a "+
+			"precondition here would refuse writes for a reason nobody can act on", seen)
 	}
 }
