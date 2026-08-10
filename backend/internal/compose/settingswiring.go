@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -134,14 +135,6 @@ func yamlPaths(t reflect.Type, prefix string) map[string]bool {
 }
 
 // DealsInstallation is the installation seam the deals module reads through.
-//
-// Named HERE because it is a cross-module edge: deals may not import identity
-// (ADR-0054), so compose is where the two meet. identity owns the readers
-// themselves — it owns the settings they resolve.
-func DealsInstallation() deals.Installation {
-	return deals.Installation{
-		Name:         identity.NameOf,
-		BaseCurrency: identity.BaseCurrencyOf,
-		Timezone:     identity.TimezoneOf,
-	}
-}
+// The wiring itself lives in installseam, which the integration harness can
+// also reach; this stays as the name compose's own call sites use.
+func DealsInstallation() deals.Installation { return installseam.Deals() }

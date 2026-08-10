@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -109,7 +110,7 @@ func Setup(t *testing.T) *Env {
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool, harnessInstallation())
+	e.Deals = deals.NewStore(pool, installseam.Deals())
 	e.Activities = activities.NewStore(pool)
 	return e
 }

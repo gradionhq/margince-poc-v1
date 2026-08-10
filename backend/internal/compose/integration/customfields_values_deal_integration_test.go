@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -58,7 +59,7 @@ func setupDealCFV(t *testing.T) dealCFVFixture {
 	return dealCFVFixture{
 		e:        e,
 		svc:      svc,
-		store:    deals.NewStore(e.Pool, harnessInstallation()).WithFieldCatalog(svc),
+		store:    deals.NewStore(e.Pool, installseam.Deals()).WithFieldCatalog(svc),
 		ctx:      e.As(e.Rep1, nil, dealCFVPerms),
 		pipeline: pipeline,
 		stage:    open,

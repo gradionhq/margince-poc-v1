@@ -6,6 +6,7 @@ package deals
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -105,17 +106,31 @@ func unreachableBaseCurrency(context.Context, pgx.Tx) (string, error) {
 	return "", errors.New("prepareFxRate resolved the base currency; it is meant to run before any connection")
 }
 
-// A store built without the base-currency seam fails CLOSED at the first money
-// operation, rather than dereferencing a nil function inside an open
-// transaction. The field's doc calls the seam required; this is what makes
-// that a check rather than a claim.
-func TestAStoreWithNoBaseCurrencySeamRefusesRatherThanPanicking(t *testing.T) {
+// EVERY installation seam a store can be built without must fail closed, and
+// the obligation is derived from the struct rather than listed: a field added
+// later that orRefusing forgets would otherwise reintroduce exactly the nil
+// dereference — inside an open transaction, on a money path — that function
+// exists to prevent, and no test would notice.
+func TestEveryUninjectedInstallationSeamRefuses(t *testing.T) {
 	t.Parallel()
-	_, err := NewStore(nil, Installation{}).installation.BaseCurrency(context.Background(), nil)
-	if err == nil {
-		t.Fatal("an un-injected seam resolved a base currency; it must refuse")
-	}
-	if !strings.Contains(err.Error(), "BaseCurrency") {
-		t.Errorf("the refusal should name which seam is missing, got %q", err)
+	inst := reflect.ValueOf(Installation{}.orRefusing())
+	for i := range inst.NumField() {
+		field := inst.Type().Field(i).Name
+		t.Run(field, func(t *testing.T) {
+			seam, ok := inst.Field(i).Interface().(InstallationValue)
+			if !ok || seam == nil {
+				t.Fatalf("%s is nil after orRefusing; an un-injected seam must refuse, not panic", field)
+			}
+			_, err := seam(context.Background(), nil)
+			if err == nil {
+				t.Fatalf("%s resolved a value with nothing injected", field)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Errorf("the refusal should name which seam is missing, got %q", err)
+			}
+			if !strings.Contains(err.Error(), "installseam.Deals()") {
+				t.Errorf("the refusal should name the wiring that fixes it, got %q", err)
+			}
+		})
 	}
 }

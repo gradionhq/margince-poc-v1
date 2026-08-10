@@ -144,7 +144,7 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No closed deal on this account yet: an honest zero in the
 		// installation's own currency, not a missing figure.
-		return installationZero(ctx, tx)
+		return installationZero(baseCurrency)
 	}
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
@@ -152,11 +152,7 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	return crmcontracts.Money{AmountMinor: &wonMinor, Currency: &baseCurrency}, lost, nil
 }
 
-func installationZero(ctx context.Context, tx pgx.Tx) (crmcontracts.Money, int, error) {
-	baseCurrency, err := identity.BaseCurrencyOf(ctx, tx)
-	if err != nil {
-		return crmcontracts.Money{}, 0, err
-	}
+func installationZero(baseCurrency string) (crmcontracts.Money, int, error) {
 	zero := int64(0)
 	return crmcontracts.Money{AmountMinor: &zero, Currency: &baseCurrency}, 0, nil
 }

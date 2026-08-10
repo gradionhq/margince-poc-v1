@@ -135,6 +135,10 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 		return fmt.Errorf("settings: serializing writes to %s: %w", key, err)
 	}
 	{
+		stored, err := hasRow(ctx, tx, key)
+		if err != nil {
+			return err
+		}
 		before, err := currentJSON(ctx, tx, def)
 		if err != nil {
 			return err
@@ -143,7 +147,16 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 		if err != nil {
 			return err
 		}
-		if string(canonical) == string(next) {
+		// An unchanged value is a no-op — but ONLY once a row exists to be
+		// unchanged. Without that second condition, writing a setting its
+		// registered default already reports (currentJSON falls back to it)
+		// short-circuits before the INSERT, so the row is never materialized
+		// and the write reports success. That is unrecoverable for the
+		// readers that refuse an absent row (RequireTx): the settings screen
+		// shows the default, the operator re-saves it, nothing changes, and
+		// every money path keeps refusing. Reachable wherever 0191's
+		// conditional backfill wrote nothing (issue #521).
+		if stored && string(canonical) == string(next) {
 			return nil
 		}
 		// Probed only for a REAL change: re-asserting the value a frozen
@@ -220,6 +233,18 @@ func Seed(ctx context.Context, tx pgx.Tx, def Definition, raw json.RawMessage) e
 		return fmt.Errorf("settings: seeding %s: %w", def.Key(), err)
 	}
 	return nil
+}
+
+// hasRow reports whether the setting has a stored row at all, which is a
+// different question from what its value reads as: an absent row reads as the
+// registered default everywhere except the readers that refuse it.
+func hasRow(ctx context.Context, tx pgx.Tx, key string) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM setting WHERE key = $1)`, key).Scan(&exists); err != nil {
+		return false, fmt.Errorf("settings: checking whether %s is stored: %w", key, err)
+	}
+	return exists, nil
 }
 
 // currentJSON reads the value inside an open transaction, falling back to the

@@ -66,7 +66,7 @@ type Installation struct {
 }
 
 // NewStore binds the store to the pool every tenant query runs through, and
-// to the seam that answers what the installation reports in.
+// to the seam that answers the installation's own values.
 func NewStore(pool *pgxpool.Pool, inst Installation) *Store {
 	return &Store{pool: pool, clock: time.Now, installation: inst.orRefusing()}
 }
@@ -90,8 +90,9 @@ func (i Installation) orRefusing() Installation {
 
 func refusing(field string) InstallationValue {
 	return func(context.Context, pgx.Tx) (string, error) {
-		return "", errors.New("deals: no installation " + field + " seam was injected; " +
-			"compose wires identity's readers into this store")
+		return "", errors.New("deals: the installation " + field + " seam was not injected; " +
+			"construct this store with installseam.Deals(), which binds identity's " +
+			"NameOf/BaseCurrencyOf/TimezoneOf")
 	}
 }
 

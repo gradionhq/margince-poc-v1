@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+//go:build integration
+
 package integration
 
 // The installation half of the harness: the settings rows that make the
@@ -12,9 +14,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 )
 
 // seedInstallationIdentity writes the installation's own settings rows.
@@ -38,20 +37,5 @@ func seedInstallationIdentity(ctx context.Context, t *testing.T, owner *pgx.Conn
 			('installation.timezone', '"UTC"'::jsonb)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// harnessInstallation is compose.DealsInstallation, spelled again.
-//
-// It cannot be shared: this file is a NON-test file in the integration
-// package, and compose's own tests import this package — so importing compose
-// here is an import cycle. The readers themselves are still identity's, which
-// is what keeps the duplication to the shape of the struct rather than to how
-// a setting is read.
-func harnessInstallation() deals.Installation {
-	return deals.Installation{
-		Name:         identity.NameOf,
-		BaseCurrency: identity.BaseCurrencyOf,
-		Timezone:     identity.TimezoneOf,
 	}
 }

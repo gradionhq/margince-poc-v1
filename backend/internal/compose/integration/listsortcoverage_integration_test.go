@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -64,7 +65,7 @@ func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest, seedMiddle)
 	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest, seedLatest)
 
-	store := deals.NewStore(e.Pool, harnessInstallation())
+	store := deals.NewStore(e.Pool, installseam.Deals())
 	for _, tc := range []struct {
 		sort  string
 		order []string
@@ -102,7 +103,7 @@ func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest, seedMiddle)
 	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest, seedLatest)
 
-	store := deals.NewStore(e.Pool, harnessInstallation())
+	store := deals.NewStore(e.Pool, installseam.Deals())
 	for _, tc := range []struct {
 		sort  string
 		order []string

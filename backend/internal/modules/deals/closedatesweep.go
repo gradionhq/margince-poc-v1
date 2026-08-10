@@ -90,21 +90,20 @@ type CloseDateCorrector struct {
 	// now is the corrector's clock so the fixed-clock invariant test
 	// ("no open deal survives the run with a past date") can pin a day.
 	now func() time.Time
-	// timezone resolves the zone this sweep computes its dates in. A close
-	// date is a DATE, so the zone decides which day a deal is late on.
-	timezone InstallationValue
+	// installation answers which zone this sweep computes its dates in. A
+	// close date is a DATE, so the zone decides which day a deal is late on.
+	installation Installation
 }
 
 // NewCloseDateCorrector assembles the sweep over the pool it reads through,
 // the stager it raises corrections into, and the seam that answers which zone
 // its dates are computed in.
 func NewCloseDateCorrector(pool *pgxpool.Pool, stager CorrectionStager, log *slog.Logger,
-	timezone InstallationValue,
+	inst Installation,
 ) *CloseDateCorrector {
-	if timezone == nil {
-		timezone = refusing("Timezone")
+	return &CloseDateCorrector{
+		pool: pool, stager: stager, log: log, now: time.Now, installation: inst.orRefusing(),
 	}
-	return &CloseDateCorrector{pool: pool, stager: stager, log: log, now: time.Now, timezone: timezone}
 }
 
 // SweepWorkspace is one close-date hygiene pass over the workspace already
@@ -137,7 +136,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 	now := c.now().UTC()
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
 		var err error
-		if tzName, err = c.timezone(ctx, tx); err != nil {
+		if tzName, err = c.installation.Timezone(ctx, tx); err != nil {
 			return fmt.Errorf("read the installation's timezone: %w", err)
 		}
 		// The pre-filter is a deliberate superset of the §11 flags — a
@@ -178,7 +177,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
-		return fmt.Errorf("workspace timezone %q: %w", tzName, err)
+		return fmt.Errorf("the installation's timezone %q: %w", tzName, err)
 	}
 
 	velocities := map[ids.PipelineID]float64{}

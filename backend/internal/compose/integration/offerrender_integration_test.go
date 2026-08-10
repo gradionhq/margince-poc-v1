@@ -29,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -489,7 +490,7 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
 	blob := &spyBlobStore{Store: blobstore.NewMemory()}
-	h := deals.NewHandlers(e.Pool, harnessInstallation()).WithBlobstore(blob)
+	h := deals.NewHandlers(e.Pool, installseam.Deals()).WithBlobstore(blob)
 
 	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)

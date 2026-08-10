@@ -273,8 +273,6 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	// second table keyed the same way would be the same fact under a second
 	// name, and the two would answer "when did you last look at this?"
 	// differently the first time one write path changed.
-	"internal/compose/integration:setting": "the integration harness builds its installation by raw SQL — bootstrap never runs there — so it writes the installation-identity settings rows the same way it writes the workspace row beside them. It is a fixture standing in for bootstrap, not a second writer of the table: nothing in the product writes `setting` from here, and the readers under test resolve it through platform/settings as always (issue #521)",
-
 	"internal/compose/person360:user_record_view": "the person view's visit acknowledgement rides org360's table because since-last-visit is one fact per (user, record) — migration 0184 widened its entity_type CHECK to admit a person rather than adding a parallel table that would drift",
 
 	// people's merge/promotion relink rows across aggregates inside their

@@ -136,7 +136,7 @@ func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID
 	return result, nil
 }
 
-// rollupWorkspaceMeta reads the workspace's base currency and reporting
+// rollupInstallationMeta reads the installation's base currency and reporting
 // timezone. A stored zone the host cannot resolve degrades the quarter
 // window to UTC rather than failing the read — the zone was validated
 // at write time, so this only fires when the host lost its tzdata, and

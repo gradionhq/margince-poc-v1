@@ -111,9 +111,12 @@ func (s *InstallationSettingsStore) baseCurrencyLock(ctx context.Context) (bool,
 // Every field commits in ONE transaction, together with a mirror write onto
 // the `workspace` columns. The mirror is TRANSITIONAL and load-bearing until
 // it goes. What still reads the columns directly, and so still depends on it:
-// the company roll-up and the org-360 reads, the brief ranker, the close-date
-// sweep's timezone, and the base-currency freeze probe below — deals, quotas
-// and finance have moved to the settings row (issue #521). Without
+// the forecast's slipped-category dimension (compose/report.go), the brief
+// ranker's revenue factor (compose/briefs), the reset confirmation's name
+// (compose/datareset.go), the session read that names the installation before
+// any principal exists to gate a settings read (identity/service.go),
+// bootstrap's own backfill (compose/installation.go), and the base-currency
+// freeze probe below. Everything else has moved (issue #521). Without
 // it, this surface would report a base currency that nothing computes in —
 // changing it would move the number on this screen and leave every roll-up on
 // the old basis, which is worse than not offering the control. The mirror
