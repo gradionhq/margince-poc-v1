@@ -42,14 +42,28 @@ var currencyMinorDigits = map[string]int{
 	"BHD": 3, "IQD": 3, "JOD": 3, "KWD": 3, "LYD": 3, "OMR": 3, "TND": 3,
 	// Four, and both are index units a contract may legitimately price in.
 	"CLF": 4, "UYW": 4,
+	// ISO assigns these NO minor unit — the precious metals, the IMF's drawing
+	// right, the "no currency" and test codes. Named rather than left to the
+	// default, because the default is a claim about a currency that HAS a minor
+	// unit, and these do not: the integer IS the amount.
+	"XAU": 0, "XAG": 0, "XPT": 0, "XPD": 0, "XDR": 0, "XXX": 0, "XTS": 0,
 }
 
 // MinorUnitDigits reports how many minor-unit digits a currency code carries.
 //
-// An unknown code answers 2 — the common case, and the only shape a code
-// nobody has heard of can honestly be assumed to have. It is a guess, and it is
-// the guess that is wrong least often; a caller that cannot afford a guess
-// should not be rendering money it cannot identify.
+// A code the table does not name answers 2, and that is the right answer rather
+// than a fallback: the table holds the EXCEPTIONS, so GBP, CHF, SEK, AUD, INR
+// and every other ordinary currency reach this line and two digits is what they
+// carry. Two is also ISO-4217's own default.
+//
+// Refusing an unnamed code instead would suppress the amount for nearly every
+// currency on earth while admitting the two dozen exceptions — the opposite of
+// the intent, since the exceptions are the ones we enumerated precisely because
+// they are unusual.
+//
+// The residue is a code that is genuinely an exception and missing from the
+// table: it renders at two digits and is wrong for that code. The repair for
+// that is one line in the table above, not a guess withheld from everybody else.
 func MinorUnitDigits(currency string) int {
 	if digits, ok := currencyMinorDigits[strings.ToUpper(strings.TrimSpace(currency))]; ok {
 		return digits

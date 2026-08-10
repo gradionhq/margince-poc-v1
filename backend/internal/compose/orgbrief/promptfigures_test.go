@@ -123,23 +123,27 @@ func TestATaskOnTheTimelineCarriesWhetherItIsDone(t *testing.T) {
 	open, done := false, true
 	canceled := crmcontracts.ActivityMeetingStatusCanceled
 	subject := "Contract walkthrough"
+	// One fixed instant for every row: nothing here asks what time it is, and a
+	// test that reads the wall clock can only answer differently on a slow
+	// machine.
+	occurredAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	view := crmcontracts.Organization360{
 		Organization: crmcontracts.Organization{DisplayName: "Nordwind AG"},
 		Activities: &crmcontracts.ActivityListResponse{Data: []crmcontracts.Activity{
 			{
 				Id: openapi_types.UUID(ids.NewV7()), Kind: crmcontracts.ActivityKindTask,
-				Subject: &subject, IsDone: &open, OccurredAt: time.Now().UTC(),
+				Subject: &subject, IsDone: &open, OccurredAt: occurredAt,
 			},
 			{
 				Id: openapi_types.UUID(ids.NewV7()), Kind: crmcontracts.ActivityKindTask,
-				Subject: &subject, IsDone: &done, OccurredAt: time.Now().UTC(),
+				Subject: &subject, IsDone: &done, OccurredAt: occurredAt,
 			},
 			// A kind that cannot BE finished says nothing rather than false: a
 			// call happened, and answering whether it is "done" invents a state
 			// the record does not have.
 			{
 				Id: openapi_types.UUID(ids.NewV7()), Kind: crmcontracts.ActivityKindCall,
-				Subject: &subject, OccurredAt: time.Now().UTC(),
+				Subject: &subject, OccurredAt: occurredAt,
 			},
 			// A meeting CAN be finished, in its own vocabulary — and it is
 			// dated at its SLOT, so a cancelled or still-upcoming one arrives
@@ -147,7 +151,7 @@ func TestATaskOnTheTimelineCarriesWhetherItIsDone(t *testing.T) {
 			// mechanism as the task, on the kind whose dates run forward.
 			{
 				Id: openapi_types.UUID(ids.NewV7()), Kind: crmcontracts.ActivityKindMeeting,
-				Subject: &subject, MeetingStatus: &canceled, OccurredAt: time.Now().UTC(),
+				Subject: &subject, MeetingStatus: &canceled, OccurredAt: occurredAt,
 			},
 		}},
 	}

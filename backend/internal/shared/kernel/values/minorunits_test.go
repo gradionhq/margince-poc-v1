@@ -23,6 +23,13 @@ func TestMajorUnitsRendersEachCurrencyInItsOwnScale(t *testing.T) {
 		// defaulting it to two digits overstates it a hundredfold.
 		{"four digits", "CLF", "1800.0000"},
 		{"lower case and padding are the same code", " eur ", "180000.00"},
+		// ISO assigns no minor unit to the metals, so the integer IS the
+		// amount and two digits would invent a scale the code does not have.
+		{"a code with no minor unit at all", "XAU", "18000000"},
+		// The ordinary currencies are NOT in the table — it holds the
+		// exceptions — so this is the answer for most of the world's money,
+		// and it must not become a refusal.
+		{"an ordinary currency the table does not name", "GBP", "180000.00"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := MajorUnits(18_000_000, tc.currency); got != tc.want {
