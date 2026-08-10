@@ -105,20 +105,24 @@ func admit(doc string, wantTitle string) (findings []string, titleMismatch bool)
 	return findings, wantTitle != "" && documentTitle(doc) != wantTitle
 }
 
-// contains matches a token against the document, case-INSENSITIVELY for the
-// HTML-shaped ones.
+// contains matches a token against the document, case-INSENSITIVELY unless the
+// token itself carries an uppercase letter.
 //
-// HTML element and attribute names are case-insensitive, so `<LINK` and `SRC=`
-// are the same document as `<link` and `src=` — and a substituted document is
-// free to shout. JavaScript identifiers are not: `XMLHttpRequest` matched
-// loosely would also match text that merely reads like it, and this check
-// already false-positives readily enough on prose.
+// HTML and CSS are case-insensitive languages: `<LINK`, `SRCSET=`, `HTTP-EQUIV`,
+// `@IMPORT` and `URL(` are the same document as their lowercase spellings, and a
+// substituted document is free to shout. JavaScript is not, and the distinction
+// is load-bearing rather than tidy: `Function(` folded to lowercase would match
+// every `function(` in every view, and the check would refuse everything.
 //
-// The rule is derived from the token's own shape rather than from a second list
-// somebody keeps in step, and the frontend validator applies the same one.
+// So the rule reads the token rather than a second list somebody keeps in step —
+// a token spelled with an uppercase letter is a JS identifier and is matched
+// exactly; an all-lowercase token is markup or a URL scheme and is matched
+// loosely. The frontend validator applies the identical rule, because the whole
+// value of a shared vocabulary is that neither side can be stricter than the
+// other.
 func contains(doc, lowered, token string) bool {
-	if strings.HasPrefix(token, "<") || strings.HasSuffix(token, "=") {
-		return strings.Contains(lowered, strings.ToLower(token))
+	if strings.ToLower(token) == token {
+		return strings.Contains(lowered, token)
 	}
 	return strings.Contains(doc, token)
 }

@@ -25,13 +25,10 @@
 // by having no origin to name rather than by an allowlist someone maintains.
 //
 // WHERE THE DOCUMENTS COME FROM. They are authored in frontend/src/mcp-apps and
-// built by the frontend toolchain into one fully-inlined file each, which the
-// web tier serves and this package FETCHES over HTTP (fetch.go), admits
-// (validate.go) and holds (hold.go). They are no longer embedded, and the
-// tradeoff is stated rather than hidden: embedding would have required the built
-// document to exist before `go build` and `go test`, dragging node into every Go
-// CI job plus a build-order contract, a staleness stamp and a cache. This moves
-// that cost from CI into runtime, where §Availability is what pays it.
+// served by the web tier as one fully-inlined file each; this package FETCHES
+// them over HTTP (fetch.go), admits them (validate.go) and holds them (hold.go).
+// Nothing here is embedded, which is why availability is a runtime state this
+// package has to model rather than a property of the binary.
 package apps
 
 import (
@@ -64,9 +61,9 @@ type view struct {
 	description string
 }
 
-// catalog is every view this surface serves. Adding one is an entry here plus a
-// matching directory under frontend/src/mcp-apps; nothing else in this package
-// is per-view, and the document URL is derived from the URI rather than listed.
+// catalog bounds what this provider may ever publish. An entry is advertised
+// only once its document has been fetched and admitted, and the document's URL
+// is derived from the URI rather than listed beside it.
 var catalog = []view{
 	{
 		uri:  AccountBriefURI,
@@ -130,9 +127,15 @@ func (p *Provider) Resources(context.Context) []mcp.Resource {
 	// process-lifetime value shared by every caller, so handing out a retained
 	// slice would let one caller's mutation change what every later host is told
 	// — including the sandbox policy, which is the one security decision here.
-	out := make([]mcp.Resource, 0, p.heldCount())
+	// ONE load, and the whole answer derived from it. Asking per catalog entry
+	// would read the pointer once per view, so a refresh landing between two
+	// iterations could compose a listing out of two snapshots — advertising a
+	// pair no single immutable set ever contained, which is the exact property
+	// the snapshot exists to provide.
+	held := *p.held.Load()
+	out := make([]mcp.Resource, 0, len(held))
 	for _, v := range catalog {
-		if p.Holds(v.uri) {
+		if _, serving := held[v.uri]; serving {
 			out = append(out, describe(v))
 		}
 	}

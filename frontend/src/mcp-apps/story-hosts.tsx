@@ -75,6 +75,11 @@ export function DocumentHost({
     const frame = ref.current;
     if (frame === null || html === undefined) return;
     const child = frame.contentWindow;
+    // The listener goes on BEFORE the document is loaded, and the document is
+    // therefore loaded HERE rather than through a srcDoc prop. The bridge
+    // announces itself once, at import, and never retries — so a frame that
+    // loaded during render would post ui/initialize into a window with no
+    // listener yet, and the story would sit empty with nothing saying why.
     const onMessage = (e: MessageEvent) => {
       if (e.source !== child) return;
       const msg = e.data as { id?: unknown; method?: unknown } | null;
@@ -96,6 +101,7 @@ export function DocumentHost({
       }
     };
     window.addEventListener("message", onMessage);
+    frame.srcdoc = html;
     return () => window.removeEventListener("message", onMessage);
   }, [html, theme, answer]);
 
@@ -111,7 +117,6 @@ export function DocumentHost({
       ref={ref}
       title={title}
       sandbox="allow-scripts"
-      srcDoc={html}
       style={{ width: "100%", height: 420, border: 0 }}
     />
   );

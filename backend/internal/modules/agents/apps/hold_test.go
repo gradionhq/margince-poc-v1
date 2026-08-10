@@ -80,18 +80,6 @@ func (tier *webTier) answer(uri string, with func(http.ResponseWriter)) {
 	tier.answers[strings.TrimSuffix(strings.TrimPrefix(uri, "ui://margince/"), ".html")] = with
 }
 
-// primeBriefly primes with a deadline of its own, for the tests whose origin is
-// meant to STAY broken with a RETRYABLE failure. A permanent refusal needs no
-// such help — Prime stops re-asking it immediately.
-func primeBriefly(t *testing.T, p *Provider) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-	if err := p.Prime(ctx); err != nil {
-		t.Fatalf("priming: %v", err)
-	}
-}
-
 func ok(body string) func(http.ResponseWriter) {
 	return func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -122,8 +110,10 @@ func TestAViewThatFailsToFetchIsSimplyNotHeld(t *testing.T) {
 	// One view missing must not take the other down. Partial availability is the
 	// case that matters: the tool whose view is held keeps its panel.
 	tier, p := newWebTier(t)
-	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	primeBriefly(t, p)
+	tier.answer(RelationshipMapURI, broken(http.StatusNotFound))
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
 	if !p.Holds(AccountBriefURI) {
 		t.Error("the view that WAS served is not held")
 	}
@@ -135,7 +125,9 @@ func TestAViewThatFailsToFetchIsSimplyNotHeld(t *testing.T) {
 func TestARefusedDocumentIsNeverHeld(t *testing.T) {
 	tier, p := newWebTier(t)
 	tier.answer(AccountBriefURI, ok(documentFor(AccountBriefURI)+`<link rel="stylesheet" href="/a.css">`))
-	primeBriefly(t, p)
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
 	if p.Holds(AccountBriefURI) {
 		t.Fatal("a document the admission check refused is being served")
 	}
@@ -198,8 +190,10 @@ func TestARefreshNeverAddsAViewPrimeDidNotAdmit(t *testing.T) {
 	// to any host that listed at connect time, so a silent recovery would be a
 	// promise the transport cannot keep.
 	tier, p := newWebTier(t)
-	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	primeBriefly(t, p)
+	tier.answer(RelationshipMapURI, broken(http.StatusNotFound))
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
 	tier.answer(RelationshipMapURI, ok(documentFor(RelationshipMapURI)))
 	p.Refresh(t.Context())
 	if p.Holds(RelationshipMapURI) {
@@ -394,8 +388,10 @@ func TestTheMetricsSectionNamesEachViewSeparately(t *testing.T) {
 	// A gauge per URI rather than a total: the failure that matters is one view
 	// missing while the other is fine, and "1 of 2" is a number nobody can act on.
 	tier, p := newWebTier(t)
-	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	primeBriefly(t, p)
+	tier.answer(RelationshipMapURI, broken(http.StatusNotFound))
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
 	var out strings.Builder
 	p.WriteMetrics(&out)
 	body := out.String()
@@ -544,9 +540,19 @@ func TestPrimeGivesUpAtItsDeadlineRatherThanBlockingBoot(t *testing.T) {
 	// An api that will not start because a web tier is down is a worse failure
 	// than one that starts with a view missing and says so.
 	tier, p := newWebTier(t)
-	tier.answer(AccountBriefURI, broken(http.StatusServiceUnavailable))
-	deadline, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	deadline, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	// The bound "expires" after the retry rather than on a wall clock: what is
+	// under test is that Prime returns when its bound does, and a real deadline
+	// here would make the healthy view's fetch race a stopwatch on a loaded
+	// machine.
+	var attempts atomic.Int64
+	tier.answer(AccountBriefURI, func(w http.ResponseWriter) {
+		if attempts.Add(1) >= 2 {
+			cancel()
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
 	if err := p.Prime(deadline); err != nil {
 		t.Fatalf("priming against a down origin answered an error; only an operator-fixable condition should: %v", err)
 	}

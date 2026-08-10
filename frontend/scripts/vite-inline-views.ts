@@ -84,18 +84,24 @@ export function validateDocument(html: string): string[] {
 }
 
 /**
- * matches applies the token, case-INSENSITIVELY for the HTML-shaped ones.
+ * matches applies the token, case-INSENSITIVELY unless the token itself carries
+ * an uppercase letter.
  *
- * HTML element and attribute names are case-insensitive, so `<LINK` and `SRC=`
- * are the same document as their lowercase spellings. JavaScript identifiers are
- * not: `XMLHttpRequest` matched loosely would fire on text that merely reads
- * like it. The rule is derived from the token's own shape rather than from a
- * second list, and validate.go applies the identical one — the whole value of a
- * shared vocabulary is that neither side can be stricter than the other.
+ * HTML and CSS are case-insensitive languages: `<LINK`, `SRCSET=`, `HTTP-EQUIV`,
+ * `@IMPORT` and `URL(` are the same document as their lowercase spellings.
+ * JavaScript is not, and the distinction is load-bearing rather than tidy:
+ * `Function(` folded to lowercase would match every `function(` in every view,
+ * and the check would refuse everything.
+ *
+ * So the rule reads the token rather than a second list — an uppercase letter
+ * marks a JS identifier, matched exactly; an all-lowercase token is markup or a
+ * URL scheme, matched loosely. validate.go applies the identical rule, because
+ * the whole value of a shared vocabulary is that neither side can be stricter
+ * than the other.
  */
 function matches(html: string, lowered: string, token: string): boolean {
-  if (token.startsWith("<") || token.endsWith("=")) {
-    return lowered.includes(token.toLowerCase());
+  if (token.toLowerCase() === token) {
+    return lowered.includes(token);
   }
   return html.includes(token);
 }
@@ -283,35 +289,44 @@ function spliceBefore(shell: string, marker: string, insert: string): string {
  */
 function stripCSSComments(css: string): string {
   let out = "";
-  let quote = "";
-  for (let i = 0; i < css.length; i++) {
+  let i = 0;
+  while (i < css.length) {
     const c = css[i];
-    if (quote !== "") {
-      out += c;
-      if (c === "\\") {
-        // An escaped character cannot close the string, whatever it is.
-        i++;
-        if (i < css.length) out += css[i];
-      } else if (c === quote) {
-        quote = "";
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
-      out += c;
+      const end = endOfString(css, i);
+      out += css.slice(i, end);
+      i = end;
       continue;
     }
     if (c === "/" && css[i + 1] === "*") {
-      const end = css.indexOf("*/", i + 2);
-      // An unterminated comment swallows the rest, which is what a browser does
-      // with it too.
-      i = end < 0 ? css.length : end + 1;
+      i = endOfComment(css, i);
       continue;
     }
     out += c;
+    i++;
   }
   return out.trim();
+}
+
+/** endOfString answers the index just past the closing quote, honouring
+ *  escapes — an escaped quote does not end the literal. */
+function endOfString(css: string, start: number): number {
+  const quote = css[start];
+  for (let i = start + 1; i < css.length; i++) {
+    if (css[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (css[i] === quote) return i + 1;
+  }
+  return css.length;
+}
+
+/** endOfComment answers the index just past the closing delimiter. An
+ *  unterminated comment swallows the rest, which is what a browser does too. */
+function endOfComment(css: string, start: number): number {
+  const end = css.indexOf("*/", start + 2);
+  return end < 0 ? css.length : end + 2;
 }
 
 /**

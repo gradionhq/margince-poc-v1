@@ -206,6 +206,13 @@ func TestAdmitRefusesAnUppercasedHTMLConstruct(t *testing.T) {
 		`<IFRAME></IFRAME>`,
 		`<IMG SRC="/track">`,
 		`<BASE HREF="//elsewhere/">`,
+		// CSS is case-insensitive too, and these carry neither a `<` nor an `=`
+		// — the shape the first cut of this rule keyed on, which missed them.
+		`<style>@IMPORT URL("/x.css")</style>`,
+		`<style>.a{background:IMAGE-SET("/x.png")}</style>`,
+		`<img SRCSET="/x.png 2x">`,
+		`<meta HTTP-EQUIV="refresh" content="0">`,
+		`<a href="JAVASCRIPT:alert(1)">x</a>`,
 	} {
 		if findings, _ := admit(cleanDocument+doc, "Morning brief"); len(findings) == 0 {
 			t.Errorf("admit accepted the uppercased construct %q", doc)
@@ -219,6 +226,17 @@ func TestAdmitRefusesAnUppercasedHTMLConstruct(t *testing.T) {
 func TestAdmitDoesNotCaseFoldAJavaScriptIdentifier(t *testing.T) {
 	if findings, _ := admit(cleanDocument+"<!-- the xmlhttprequest era is over -->", "Morning brief"); len(findings) != 0 {
 		t.Errorf("admit refused prose that merely resembles an identifier: %v", findings)
+	}
+}
+
+// The reason the case rule reads the TOKEN rather than folding everything: the
+// markup-sink list carries `Function(`, and a document that declared an ordinary
+// `function(` would be refused by a check that folded it — which is every view
+// this build produces.
+func TestAdmitAcceptsAnOrdinaryFunctionDeclaration(t *testing.T) {
+	doc := cleanDocument + `<script>const f = function (x) { return x; };</script>`
+	if findings, _ := admit(doc, "Morning brief"); len(findings) != 0 {
+		t.Fatalf("admit refused a document for declaring a function: %v", findings)
 	}
 }
 

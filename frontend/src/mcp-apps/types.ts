@@ -21,12 +21,18 @@ export type Envelope = { data?: unknown; warnings?: Warning[] };
  */
 export function asWarnings(value: unknown): Warning[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (w): w is Warning =>
-      typeof w === "object" &&
-      w !== null &&
-      typeof (w as { code?: unknown }).code === "string",
-  );
+  // REBUILT, not filtered through. A type predicate over the original objects
+  // would hand a renderer whatever else the host attached, and would type
+  // `message` as a string without ever checking that it is one — which is the
+  // same "types are not validation" mistake this file exists to avoid, made by
+  // the function meant to prevent it.
+  return value.flatMap((entry) => {
+    const warning = asRecord(entry);
+    if (typeof warning.code !== "string") return [];
+    return typeof warning.message === "string"
+      ? [{ code: warning.code, message: warning.message }]
+      : [{ code: warning.code }];
+  });
 }
 
 /** asRecord answers an empty object for anything that is not one, arrays included. */

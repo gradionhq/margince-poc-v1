@@ -219,11 +219,15 @@ func local(host string) bool {
 // them answers 200 — so the media type is checked as well as the status.
 func requireHTMLDocument(resp *http.Response, target *url.URL) error {
 	if resp.StatusCode != http.StatusOK {
-		// A 5xx is left RETRYABLE: it is what a tier answers while it is coming
-		// up, or mid-rollout. Everything else — a 404 for a document that was
-		// not deployed, a 403 — will answer the same way for as long as this
-		// boot lasts.
-		if resp.StatusCode >= http.StatusInternalServerError {
+		// 5xx, 408 and 429 are left RETRYABLE: they are what a tier answers while
+		// it is coming up, mid-rollout, or under the load of everything else
+		// starting at once. Everything else — a 404 for a document that was not
+		// deployed, a 403 — will answer the same way for as long as this boot
+		// lasts, and re-asking it only delays the boot and inflates the counters
+		// an alert is set against.
+		if resp.StatusCode >= http.StatusInternalServerError ||
+			resp.StatusCode == http.StatusRequestTimeout ||
+			resp.StatusCode == http.StatusTooManyRequests {
 			return fmt.Errorf("crmapps: %s answered status %d %s, want 200",
 				target.Redacted(), resp.StatusCode, http.StatusText(resp.StatusCode))
 		}

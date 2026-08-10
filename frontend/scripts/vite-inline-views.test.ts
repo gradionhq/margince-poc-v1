@@ -52,11 +52,31 @@ describe("the built document is validated, not trusted", () => {
     ).toContain("Authorization");
   });
 
-  it("refuses an uppercased HTML construct, because element names are case-insensitive", () => {
+  it("refuses an uppercased HTML or CSS construct, because both languages are case-insensitive", () => {
     expect(validateDocument('<LINK REL="stylesheet" HREF="/a.css">')).toContain(
       "<link",
     );
     expect(validateDocument('<IMG SRC="/track">')).toContain("src=");
+    // None of these carries a `<` or an `=` — the shape the first cut of this
+    // rule keyed on, which missed every one of them.
+    expect(validateDocument('<style>@IMPORT URL("/x.css")</style>')).toContain(
+      "@import",
+    );
+    expect(validateDocument('<img SRCSET="/x.png 2x">')).toContain("srcset");
+    expect(validateDocument('<meta HTTP-EQUIV="refresh">')).toContain(
+      "http-equiv",
+    );
+  });
+
+  it("accepts an ordinary function declaration, which a blanket fold would refuse", () => {
+    // The markup-sink list carries `Function(`; folding it would match every
+    // `function(` in every view this build produces, and the check would refuse
+    // everything.
+    expect(
+      validateDocument(
+        "<script>const f = function (x) { return x; };</script>",
+      ),
+    ).toEqual([]);
   });
 
   it("does not case-fold a JavaScript identifier, which would fire on prose", () => {
