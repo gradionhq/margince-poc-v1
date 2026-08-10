@@ -5,7 +5,7 @@
 --
 -- Held back until now on purpose: 0190 kept the column so its own reverse had
 -- somewhere to put the value back, and so a rollback landed on a schema whose
--- readers still worked. That obligation ends here, and 0194's own reverse
+-- readers still worked. That obligation ends here, and 0205's own reverse
 -- restores both the column and its value.
 --
 -- Deliberately NOT dropping name, timezone or base_currency in the same

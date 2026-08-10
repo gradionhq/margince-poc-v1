@@ -1,4 +1,4 @@
--- Reverse of 0194: put the column back, and put the current value in it.
+-- Reverse of 0205: put the column back, and put the current value in it.
 --
 -- The default matches 0121's, so a workspace that never had a setting row
 -- lands on the posture it shipped with. The UPDATE then carries across

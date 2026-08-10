@@ -5,7 +5,7 @@
 
 package migrations
 
-// 0194's reverse carries data, and a reverse that carries data needs a test
+// 0205's reverse carries data, and a reverse that carries data needs a test
 // that carries data through it. The forward direction dropped
 // workspace.capture_auto_enrich once the value lived in `setting`; the reverse
 // re-adds the column and has to put the CURRENT value back — not the default,
@@ -52,9 +52,9 @@ func TestRollingBackTheAutoEnrichColumnRestoresTheCurrentPosture(t *testing.T) {
 		t.Fatalf("recording the operator's change: %v", err)
 	}
 
-	steps := stepsDownTo(t, core, "0194")
+	steps := stepsDownTo(t, core, "0205")
 	if _, err := dbmigrate.Down(ctx, conn, core, steps); err != nil {
-		t.Fatalf("reverting down to 0194: %v", err)
+		t.Fatalf("reverting down to 0205: %v", err)
 	}
 
 	var autoEnrich bool
@@ -94,9 +94,9 @@ func TestRollingBackTolerAtesASettingValueThisBuildCannotRead(t *testing.T) {
 		t.Fatalf("seeding an undecodable value: %v", err)
 	}
 
-	steps := stepsDownTo(t, core, "0194")
+	steps := stepsDownTo(t, core, "0205")
 	if _, err := dbmigrate.Down(ctx, conn, core, steps); err != nil {
-		t.Fatalf("reverting down to 0194 with an undecodable setting: %v — a rollback must not "+
+		t.Fatalf("reverting down to 0205 with an undecodable setting: %v — a rollback must not "+
 			"abort on a value it cannot read", err)
 	}
 
