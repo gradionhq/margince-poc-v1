@@ -3,27 +3,46 @@
 
 package compose
 
-// The overlay-mode SEARCH shadow, split out of overlayread.go when that file
-// reached the tree's file-length cap.
+// The overlay-mode SEARCH door, split from the get/list doors beside it in
+// overlayread.go when that file reached the size ceiling.
 //
-// It is its own concept rather than an arbitrary half: every get and list next
-// door narrows ONE entity type the caller named, while search walks the
-// mirrored types together and merges what they answer — a different scope
-// question (overlaySearchScope), a different bound (the shared Limit
-// parameter, clamped before it sizes an allocation), and a different wire shape
-// (SearchResult rather than the record itself).
+// Search is its own concept rather than a sixth read: the get/list handlers each
+// serve one entity type through one provider call, while this one walks every
+// mirrored type, holds its own limit policy, and folds heterogeneous hits into a
+// single ranked answer. It is the only read here that has to decide what a
+// result MEANS across types, which is why the vocabulary and the clamp live with
+// it rather than beside handlers that never consult them.
 
 import (
 	"errors"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
+
+// overlaySearchTypes is the entity-type order the overlay search walks. It is
+// the MODULE's own list rather than a copy: the provider refuses a class the
+// mirror cannot hold, and a second list here would let this door refuse one it
+// can, or admit one it cannot, the moment a sixth is mirrored.
+var overlaySearchTypes = overlay.MirroredEntityTypes()
+
+// overlayMirroredTypes is the set of record types the mirror holds, keyed by
+// the string form that is both datasource.EntityType and the generated
+// agentPolicy.RecordType. Derived from overlaySearchTypes rather than
+// re-listed, so reads and writes cannot drift.
+var overlayMirroredTypes = func() map[string]bool {
+	set := make(map[string]bool, len(overlaySearchTypes))
+	for _, et := range overlaySearchTypes {
+		set[string(et)] = true
+	}
+	return set
+}()
 
 // overlaySearchDefaultLimit sizes an overlay search page when the request
 // names no limit — the shared Limit parameter's own default (crm.yaml's

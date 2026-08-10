@@ -120,6 +120,30 @@ describe("the bridge announces itself", () => {
     ).toBe(PROTOCOL_VERSION);
   });
 
+  // The MEMBER NAMES, asserted by name and in both directions.
+  //
+  // A host validates this request against the extension's schema and refuses
+  // the wrong pair outright — after which the view loads, sandboxes, and sits
+  // blank forever, because a refused initialise produces no error anywhere the
+  // document can show. Asserting the method and the version alone is what let
+  // `clientInfo`/`capabilities` — the CORE protocol's names, and the obvious
+  // wrong guess — ship through a real host and render nothing.
+  it("announces itself with the extension's own member names, not the core protocol's", async () => {
+    const parent = stubParent();
+    await loadBridge(parent.win);
+    const params = parent.sent[0].msg.params as Record<string, unknown>;
+
+    expect(params.appInfo).toEqual({ name: "margince-view", version: "1" });
+    expect(params.appCapabilities).toEqual({});
+    // A view is a renderer. Every member of appCapabilities is a capability
+    // these documents do not have, and claiming one would invite the host to
+    // use it.
+    expect(Object.keys(params.appCapabilities as object)).toHaveLength(0);
+
+    expect(params.clientInfo).toBeUndefined();
+    expect(params.capabilities).toBeUndefined();
+  });
+
   it("pins the host origin from the initialize response and sends every later message to it", async () => {
     const parent = stubParent();
     await loadBridge(parent.win);
@@ -333,6 +357,40 @@ describe("the bridge refuses what it must", () => {
   });
 });
 
+describe("the bridge follows the host it is drawn inside", () => {
+  it("repaints when the host says its context changed", async () => {
+    // A host that switches theme notifies rather than re-initialising. A view
+    // that read the theme once at initialise sits in the old palette until it
+    // is closed and reopened, inside a host that has already repainted.
+    const parent = stubParent();
+    await loadBridge(parent.win);
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      id: parent.sent[0].msg.id,
+      result: { hostContext: { theme: "light" } },
+    });
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      method: "ui/notifications/host-context-changed",
+      params: { hostContext: { theme: "dark" } },
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("ignores a context change that arrives before the handshake", async () => {
+    const parent = stubParent();
+    await loadBridge(parent.win);
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      method: "ui/notifications/host-context-changed",
+      params: { hostContext: { theme: "dark" } },
+    });
+    expect(document.documentElement.dataset.theme).not.toBe("dark");
+  });
+});
+
 describe("the render helpers refuse to render nonsense", () => {
   it("renders a non-finite proportion as an em dash rather than NaN", async () => {
     const parent = stubParent();
@@ -363,13 +421,31 @@ describe("the render helpers refuse to render nonsense", () => {
   });
 });
 
+/** inCurrency is the expectation, rendered by the same formatter money uses —
+ *  so these assertions are about the SCALE rather than about how the machine
+ *  running them happens to group digits. */
+function inCurrency(major: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+  }).format(major);
+}
+
+const euros = (major: number) => inCurrency(major, "EUR");
+
 describe("money is scaled by the currency's own minor units", () => {
   it("scales a two-decimal currency by a hundred", async () => {
     const parent = stubParent();
     const bridge = await loadBridge(parent.win);
     // 24_000_000 minor EUR is 240,000 — not 24,000,000, which is the mistake
     // that made an account brief report every deal a hundred times too large.
-    expect(bridge.money(24_000_000, "EUR")).toContain("240,000");
+    //
+    // The EXPECTATION is derived from Intl with the same options, not written
+    // as English digits: money formats in the host's own locale, and a fixed
+    // "240,000" would pin this suite to a machine that groups that way. What
+    // is under test is the SCALE, which is locale-independent.
+    expect(bridge.money(24_000_000, "EUR")).toBe(euros(240_000));
+    expect(bridge.money(24_000_000, "EUR")).not.toBe(euros(24_000_000));
   });
 
   it("does not scale a zero-decimal currency at all", async () => {
@@ -377,9 +453,8 @@ describe("money is scaled by the currency's own minor units", () => {
     const bridge = await loadBridge(parent.win);
     // JPY stores 1234 minor units and means ¥1,234. A hard-coded /100 renders
     // ¥12.34 here and would pass every euro test in the suite.
-    const yen = bridge.money(1234, "JPY");
-    expect(yen).toContain("1,234");
-    expect(yen).not.toContain("12.34");
+    expect(bridge.money(1234, "JPY")).toBe(inCurrency(1234, "JPY"));
+    expect(bridge.money(1234, "JPY")).not.toBe(inCurrency(12.34, "JPY"));
   });
 
   it("renders an absent amount or currency as an em dash, never as zero", async () => {

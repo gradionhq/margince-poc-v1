@@ -163,7 +163,10 @@ function headline(answer: Record<string, unknown>): string {
 /** ownerLine says who is receiving the work. An unowned project is the gap the
  *  panel leads with, so the line agrees with it rather than going blank. */
 function ownerLine(answer: Record<string, unknown>): string {
-  const owner = asText(answer.owner_id);
+  // The name where the answer has one, the id where it does not — the same
+  // fallback the seats take, for the same reason: an id is a worse answer than
+  // a name and a far better one than a blank.
+  const owner = asText(answer.owner_name) || asText(answer.owner_id);
   return owner === "" ? "no owner" : `owner ${owner}`;
 }
 

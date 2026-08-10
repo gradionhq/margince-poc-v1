@@ -99,10 +99,12 @@ type PreparedHandoff struct {
 	// OrganizationID is the account the work is for — always present, since a
 	// project cannot exist without one.
 	OrganizationID ids.UUID `json:"organization_id"`
-	// OwnerID is absent for a project nobody owns, which is reported as a gap
-	// rather than left to be noticed. It carries no name, for the reason
-	// HandoffStakeholder gives.
+	// OwnerID and OwnerName are absent together for a project nobody owns,
+	// which is reported as a gap rather than left to be noticed. The name is
+	// here for the reason HandoffStakeholder's is: "who is receiving this
+	// work" answered as a UUID restates the question.
 	OwnerID       *ids.UUID            `json:"owner_id,omitempty"`
+	OwnerName     string               `json:"owner_name,omitempty"`
 	StartedAt     *time.Time           `json:"started_at,omitempty"`
 	TargetEndDate *time.Time           `json:"target_end_date,omitempty"`
 	Deals         []HandoffDeal        `json:"deals"`

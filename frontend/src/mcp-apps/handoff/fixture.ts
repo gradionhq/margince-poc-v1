@@ -19,7 +19,8 @@ export const handoffFixture: Envelope = {
     key: "ERP",
     phase: "delivering",
     organization_id: "1d2e3f4a-5b6c-4d7e-8f90-a1b2c3d4e5f6",
-    // No owner_id: nobody is receiving the work, which is the gap below.
+    // No owner_id and no owner_name: nobody is receiving the work, which is
+    // the gap below.
     started_at: "2026-05-01T00:00:00Z",
     as_of: "2026-06-10T12:00:00Z",
     deals: [

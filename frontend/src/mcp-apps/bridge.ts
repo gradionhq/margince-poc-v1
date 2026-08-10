@@ -101,6 +101,23 @@ function send(message: Record<string, unknown>): void {
   window.parent.postMessage({ jsonrpc: "2.0", ...message }, target);
 }
 
+/**
+ * announce opens the handshake.
+ *
+ * THE MEMBER NAMES ARE THE EXTENSION'S, NOT THE CORE PROTOCOL'S. A view
+ * announces itself with `appInfo` and `appCapabilities`; `clientInfo` and
+ * `capabilities` are what an MCP CLIENT sends on the transport below, and they
+ * are the obvious wrong guess because every other handshake in this system
+ * spells them that way. A host validating the request against the extension's
+ * schema refuses the wrong pair outright — the view then loads, sandboxes, and
+ * sits blank forever, because a refused initialise produces no error anywhere
+ * the document can show.
+ *
+ * `appCapabilities` is deliberately EMPTY. Every member of it — tools the host
+ * may call, display modes, experimental features — is a capability these views
+ * do not have and must not claim: a view here is a renderer, and the widest
+ * part of this extension's surface is the part where it stops being one.
+ */
 function announce(): number {
   const id = nextID++;
   send({
@@ -108,8 +125,8 @@ function announce(): number {
     method: "ui/initialize",
     params: {
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "margince-view", version: "1" },
+      appInfo: { name: "margince-view", version: "1" },
+      appCapabilities: {},
     },
   });
   return id;
@@ -217,6 +234,17 @@ function handle(event: MessageEvent): void {
     "result" in message
   ) {
     completeHandshake(event, message);
+    return;
+  }
+  // The host telling us it has been redrawn — a theme switch, a display-mode
+  // change. Followed rather than ignored: a view that read the theme once at
+  // initialise sits in the old palette until it is closed and reopened, inside
+  // a host that has already repainted around it.
+  if (
+    message.method === "ui/notifications/host-context-changed" &&
+    initialized
+  ) {
+    applyTheme(asRecord(message.params).hostContext);
     return;
   }
   // A result BEFORE the handshake is dropped rather than rendered. The view has

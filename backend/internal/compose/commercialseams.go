@@ -108,6 +108,7 @@ func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
 	dealStore := deals.NewStore(pool, identity.BaseCurrencyOf)
 	peopleStore := people.NewStore(pool)
 	taskStore := activities.NewStore(pool)
+	seats := identity.NewService(pool)
 	return func(ctx context.Context, projectID ids.UUID) (agents.HandoffFacts, error) {
 		project, err := dealStore.GetProject(ctx,
 			ids.From[ids.ProjectKind](projectID), storekit.LiveOnly)
@@ -115,6 +116,17 @@ func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
 			return agents.HandoffFacts{}, err
 		}
 		facts := agents.HandoffFacts{AsOf: clockNow(), Project: handoffProject(project)}
+		// The receiving side, named. "Who owns this work now" answered as a
+		// UUID restates the question — and unlike a stakeholder, the owner is a
+		// SEAT rather than a record, so it is named through identity's own read
+		// rather than the people store's.
+		if facts.Project.OwnerID != nil {
+			named, err := seats.SeatNames(ctx, []ids.UserID{ids.From[ids.UserKind](*facts.Project.OwnerID)})
+			if err != nil {
+				return agents.HandoffFacts{}, err
+			}
+			facts.Project.OwnerName = named[*facts.Project.OwnerID]
+		}
 		if facts.Deals, facts.DealsTruncated, err = handoffDeals(ctx, dealStore, projectID); err != nil {
 			return agents.HandoffFacts{}, err
 		}

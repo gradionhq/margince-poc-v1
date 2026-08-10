@@ -68,6 +68,7 @@ type HandoffProject struct {
 	Description    string
 	OrganizationID ids.UUID
 	OwnerID        *ids.UUID
+	OwnerName      string
 	StartedAt      *time.Time
 	TargetEndDate  *time.Time
 }
@@ -160,7 +161,8 @@ func assembleHandoff(facts HandoffFacts, commitments []CommitmentItem) PreparedH
 	out := PreparedHandoff{
 		ProjectID: p.ProjectID, Name: p.Name, Key: p.Key, Phase: p.Phase,
 		Description: p.Description, OrganizationID: p.OrganizationID,
-		OwnerID: p.OwnerID, StartedAt: p.StartedAt, TargetEndDate: p.TargetEndDate,
+		OwnerID: p.OwnerID, OwnerName: p.OwnerName,
+		StartedAt: p.StartedAt, TargetEndDate: p.TargetEndDate,
 		// Never null, for the reason every list-shaped answer on this surface
 		// gives: null reads as "unknown" where an empty array says "none".
 		Deals:           orEmpty(facts.Deals),

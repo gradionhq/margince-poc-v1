@@ -20,6 +20,7 @@ function ready(): Record<string, unknown> {
   const data = { ...(handoffFixture.data as Record<string, unknown>) };
   data.gaps = [];
   data.owner_id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  data.owner_name = "Dana Okafor";
   data.target_end_date = "2026-09-30T00:00:00Z";
   return data;
 }
@@ -85,6 +86,22 @@ describe("the handoff view renders what it was given", () => {
     render(el, handoffFixture.data, []);
     expect(el.querySelector(".meta")?.textContent).toContain(
       "no target end date",
+    );
+  });
+
+  // "Who is receiving this work" answered as a UUID restates the question.
+  it("names the owner receiving the work, and falls to the id for one it cannot name", () => {
+    const el = root();
+    render(el, ready(), []);
+    expect(el.querySelector(".meta")?.textContent).toContain(
+      "owner Dana Okafor",
+    );
+
+    const unnamed = { ...ready() };
+    unnamed.owner_name = "";
+    render(el, unnamed, []);
+    expect(el.querySelector(".meta")?.textContent).toContain(
+      "owner 0f8fad5b-d9cb-469f-a165-70867728950e",
     );
   });
 

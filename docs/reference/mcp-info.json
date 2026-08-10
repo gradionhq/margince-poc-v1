@@ -10,9 +10,9 @@
   "totals": {
     "tools": 37,
     "resources": 7,
-    "tool_catalog_bytes": 104973,
+    "tool_catalog_bytes": 105004,
     "resource_catalog_bytes": 2770,
-    "approx_wire_tokens_total": 26935,
+    "approx_wire_tokens_total": 26943,
     "largest_tool_bytes": 4151,
     "largest_tool": "run_report"
   },
@@ -3294,6 +3294,9 @@
                 },
                 "owner_id": {
                   "format": "uuid",
+                  "type": "string"
+                },
+                "owner_name": {
                   "type": "string"
                 },
                 "phase": {

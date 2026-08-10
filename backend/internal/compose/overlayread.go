@@ -27,7 +27,6 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -332,21 +331,3 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 			return crmcontracts.ActivityListResponse{Data: data, Page: page}
 		})
 }
-
-// overlaySearchTypes is the entity-type order the overlay search walks. It is
-// the MODULE's own list rather than a copy: the provider refuses a class the
-// mirror cannot hold, and a second list here would let this door refuse one it
-// can, or admit one it cannot, the moment a sixth is mirrored.
-var overlaySearchTypes = overlay.MirroredEntityTypes()
-
-// overlayMirroredTypes is the set of record types the mirror holds, keyed by
-// the string form that is both datasource.EntityType and the generated
-// agentPolicy.RecordType. Derived from overlaySearchTypes rather than
-// re-listed, so reads and writes cannot drift.
-var overlayMirroredTypes = func() map[string]bool {
-	set := make(map[string]bool, len(overlaySearchTypes))
-	for _, et := range overlaySearchTypes {
-		set[string(et)] = true
-	}
-	return set
-}()

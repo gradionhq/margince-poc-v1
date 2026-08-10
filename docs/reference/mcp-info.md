@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 7 |
 | Tool catalog | 102.5 KB |
 | Resource catalog | 2.7 KB |
-| Approx. wire tokens | 26935 |
+| Approx. wire tokens | 26943 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -59,7 +59,7 @@ budget in `agenttooldescriptions_test.go`.
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.1 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
-| [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.7 KB |
+| [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.5 KB |
@@ -3691,6 +3691,9 @@ Renders its result in [`ui://margince/handoff.html`](#handoff_view), visible to 
         },
         "owner_id": {
           "format": "uuid",
+          "type": "string"
+        },
+        "owner_name": {
           "type": "string"
         },
         "phase": {

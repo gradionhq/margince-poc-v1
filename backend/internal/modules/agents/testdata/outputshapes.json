@@ -2446,6 +2446,9 @@
             "type": "string",
             "format": "uuid"
           },
+          "owner_name": {
+            "type": "string"
+          },
           "phase": {
             "type": "string"
           },
