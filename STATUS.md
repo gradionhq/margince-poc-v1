@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
@@ -46,6 +47,33 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
+
+**Found from an unrelated PR's red integration shard, and it has a date on it.**
+`TestAfterASyncTheCardHasFiguresToShow` fails intermittently today and will fail
+on **every** run from **2026-09-01**.
+
+The offline ledger generator anchors every invoice to a fixed `offlineEpoch`
+(`2026-08-01`), while `TimelinessOver` measures its 180-day window from `now`.
+The window slides and the ledger does not, so the settled-invoice count inside it
+shrinks month by month past FIN-FORM-3's floor of five:
+
+| date | settled invoices in window | vs floor |
+|---|---|---|
+| 2026-08-10 | 5 | exactly at it |
+| 2026-09-01 | 4 | below |
+| 2026-10-01 | 3 | below |
+
+Today the margin is exactly ZERO — `openTail: 1` leaves precisely five — so a
+single dispute (the archetypes carry 30–40 per thousand) drops the sample to four
+and the run fails. It is a coin flip per run rather than deterministic because the
+test seeds a fresh workspace uuid each time, and that uuid is hashed into the
+generator's PCG seed.
+
+The fix is to anchor the generator to `now`, or to give the test a clock pinned
+near the epoch — and either way to restore a margin, because at zero any dispute
+fails the run. Detail and the arithmetic are in [#798].
 
 ## Open — two follow-ups left by the activity anchor (#686, 2026-08-09)
 
@@ -80,6 +108,7 @@ the runner's own system frame (a record id comes from something the run has
 read, never from the occurrence reference it was started with), which touches
 every task and needs its own certification pass.
 
+[#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
 
