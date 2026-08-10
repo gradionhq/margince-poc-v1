@@ -190,6 +190,14 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
         <ul className="co-growth-fit-scores">
           {fit.sub_scores.map((sub) => (
             <li key={sub.dimension} className="co-growth-fit-score">
+              {/* The label and the figure are DRAWN, not only announced:
+                  Meter carries its label to assistive tech as an aria-label
+                  and renders none, so a row of bare bars would say nothing
+                  about which dimension is which. */}
+              <span className="co-growth-fit-score-head">
+                <span>{t(SUB_SCORE_LABELS[sub.dimension])}</span>
+                <span className="co-growth-fit-score-value">{sub.score}</span>
+              </span>
               <Meter
                 value={sub.score}
                 max={100}
