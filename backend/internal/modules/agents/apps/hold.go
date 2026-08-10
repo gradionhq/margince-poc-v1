@@ -46,7 +46,22 @@ const (
 	// primeDeadline bounds the whole startup fetch. Boot does not block past it:
 	// an api that will not start because a web tier is slow is a worse failure
 	// than an api that starts with a view missing and says so.
-	primeDeadline = 20 * time.Second
+	// It is a boot cost when the origin is DOWN, so it is bounded tightly: the
+	// retry below exists for a tier that is still starting, not one that is
+	// absent, and `make dev` now starts the web tier first.
+	primeDeadline = 10 * time.Second
+	// primeRetryInterval is how often the startup fetch re-attempts a view that
+	// has not answered YET.
+	//
+	// Retrying inside the deadline is not the background recovery the design
+	// rules out — the advertised set is still frozen the moment Prime returns,
+	// and nothing is ever added after it. What it answers is a different
+	// problem: at boot the web tier is routinely not listening yet. `make dev`
+	// starts the api before vite, and a rolling deploy can bring an api up ahead
+	// of the tier it reads from. A single attempt against a cold dependency
+	// meant both views were permanently unadvertised in every dev stack —
+	// measured, not predicted.
+	primeRetryInterval = time.Second
 	// refreshInterval is how often a held document is re-read. The web tier and
 	// the api deploy separately, so a view replaced by a deploy reaches the api
 	// within this window rather than at the next restart.
@@ -125,16 +140,14 @@ func (p *Provider) Prime(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, primeDeadline)
 	defer cancel()
-	admitted := make(map[string]string, len(catalog))
-	for _, v := range catalog {
-		doc, err := p.read(ctx, v)
-		if err != nil {
-			p.report(v.uri, err)
-			continue
-		}
-		admitted[v.uri] = doc
-	}
+	admitted, refused := p.primeUntilDeadline(ctx)
 	p.held.Store(&admitted)
+	// Reported once, at the END, rather than per attempt: an origin that is
+	// merely still starting would otherwise log an alarming line describing a
+	// state the next second resolves.
+	for uri, err := range refused {
+		p.report(uri, err)
+	}
 	p.log.Info("mcp apps: view documents primed",
 		"held", len(admitted), "catalog", len(catalog), "origin", p.originForLog())
 	if len(admitted) < len(catalog) {
@@ -146,6 +159,36 @@ func (p *Provider) Prime(ctx context.Context) error {
 			"held", len(admitted), "catalog", len(catalog))
 	}
 	return nil
+}
+
+// primeUntilDeadline reads every catalog view, re-attempting the ones that have
+// not answered yet until they all have or the deadline passes. It answers what
+// was admitted, and the LAST failure for each view that was not.
+func (p *Provider) primeUntilDeadline(ctx context.Context) (map[string]string, map[string]error) {
+	admitted := make(map[string]string, len(catalog))
+	refused := map[string]error{}
+	for {
+		for _, v := range catalog {
+			if _, have := admitted[v.uri]; have {
+				continue
+			}
+			doc, err := p.read(ctx, v)
+			if err != nil {
+				refused[v.uri] = err
+				continue
+			}
+			delete(refused, v.uri)
+			admitted[v.uri] = doc
+		}
+		if len(admitted) == len(catalog) {
+			return admitted, refused
+		}
+		select {
+		case <-ctx.Done():
+			return admitted, refused
+		case <-time.After(primeRetryInterval):
+		}
+	}
 }
 
 // Refresh re-reads every view that is ALREADY held and republishes in one store.

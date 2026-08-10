@@ -458,6 +458,22 @@ up)
     echo "dev: mcp.connector_enabled off"
   fi
 
+  # THE FE STARTS FIRST, and the order is load-bearing rather than incidental.
+  # The api reads its MCP App view documents from this origin at boot; started
+  # after the api, it could never answer that read, and the advertised set is
+  # frozen once the api gives up — so both views were permanently unadvertised
+  # in every dev stack. Measured on a live run, not predicted.
+  #
+  # Nothing about vite needs the api first: the /v1 proxy resolves per request
+  # (BACKEND_PORT is configuration, not a live dependency), so a request that
+  # arrives before the api is up simply fails and is retried by the browser.
+  #
+  # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
+  # (a `(cd … & )` subshell would capture the subshell, not the server).
+  BACKEND_PORT="${api_port}" MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION}" \
+    pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
+  fe_pid=$!
+
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance. The api keeps its default inline
@@ -529,13 +545,6 @@ up)
   else
     echo "  worker   background relay + Surface-B runner + automation time-scan running"
   fi
-
-  # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
-  # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
-  # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION}" \
-    pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
-  fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \
     "$slug" "$api_port" "$fe_port" "$db" "$be_pid" "$fe_pid" "$worker_pid" "$log" >"$state"

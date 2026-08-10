@@ -76,6 +76,18 @@ func (tier *webTier) answer(uri string, with func(http.ResponseWriter)) {
 	tier.answers[strings.TrimSuffix(strings.TrimPrefix(uri, "ui://margince/"), ".html")] = with
 }
 
+// primeBriefly primes with a deadline of its own, for the tests whose origin is
+// meant to STAY broken. Prime re-attempts an unanswered view until its deadline,
+// so those would otherwise each wait the full production one.
+func primeBriefly(t *testing.T, p *Provider) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if err := p.Prime(ctx); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+}
+
 func ok(body string) func(http.ResponseWriter) {
 	return func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -107,9 +119,7 @@ func TestAViewThatFailsToFetchIsSimplyNotHeld(t *testing.T) {
 	// case that matters: the tool whose view is held keeps its panel.
 	tier, p := newWebTier(t)
 	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	if err := p.Prime(t.Context()); err != nil {
-		t.Fatalf("priming with one view broken returned an error; only an operator-fixable condition should: %v", err)
-	}
+	primeBriefly(t, p)
 	if !p.Holds(AccountBriefURI) {
 		t.Error("the view that WAS served is not held")
 	}
@@ -121,9 +131,7 @@ func TestAViewThatFailsToFetchIsSimplyNotHeld(t *testing.T) {
 func TestARefusedDocumentIsNeverHeld(t *testing.T) {
 	tier, p := newWebTier(t)
 	tier.answer(AccountBriefURI, ok(documentFor(AccountBriefURI)+`<link rel="stylesheet" href="/a.css">`))
-	if err := p.Prime(t.Context()); err != nil {
-		t.Fatalf("priming: %v", err)
-	}
+	primeBriefly(t, p)
 	if p.Holds(AccountBriefURI) {
 		t.Fatal("a document the admission check refused is being served")
 	}
@@ -187,9 +195,7 @@ func TestARefreshNeverAddsAViewPrimeDidNotAdmit(t *testing.T) {
 	// promise the transport cannot keep.
 	tier, p := newWebTier(t)
 	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	if err := p.Prime(t.Context()); err != nil {
-		t.Fatalf("priming: %v", err)
-	}
+	primeBriefly(t, p)
 	tier.answer(RelationshipMapURI, ok(documentFor(RelationshipMapURI)))
 	p.Refresh(t.Context())
 	if p.Holds(RelationshipMapURI) {
@@ -385,21 +391,25 @@ func TestTheMetricsSectionNamesEachViewSeparately(t *testing.T) {
 	// missing while the other is fine, and "1 of 2" is a number nobody can act on.
 	tier, p := newWebTier(t)
 	tier.answer(RelationshipMapURI, broken(http.StatusInternalServerError))
-	if err := p.Prime(t.Context()); err != nil {
-		t.Fatalf("priming: %v", err)
-	}
+	primeBriefly(t, p)
 	var out strings.Builder
 	p.WriteMetrics(&out)
 	body := out.String()
 	for want, why := range map[string]string{
 		`margince_mcp_app_view_held{uri="` + AccountBriefURI + `"} 1`:    "the held view reads as held",
 		`margince_mcp_app_view_held{uri="` + RelationshipMapURI + `"} 0`: "the missing view reads as missing",
-		"margince_mcp_app_fetch_failures_total 1":                        "the fetch failure is counted",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the metrics section does not say %s (%q missing)\n---\n%s", why, want, body)
 		}
 	}
+	// At LEAST one: Prime re-attempts an unanswered view until its deadline, so
+	// the count is however many attempts fitted inside it — a fixed number here
+	// would be asserting the retry cadence rather than that failures are counted.
+	if !strings.Contains(body, "margince_mcp_app_fetch_failures_total 0\n") {
+		return
+	}
+	t.Errorf("the fetch failures went uncounted:\n%s", body)
 }
 
 // stampedBrief is the account brief's document carrying a build revision, the
@@ -493,5 +503,51 @@ func TestAnUnknownStampOnEitherSideSkipsTheComparison(t *testing.T) {
 				t.Errorf("an unknown revision on one side raised the skew gauge:\n%s", out.String())
 			}
 		})
+	}
+}
+
+func TestPrimeWaitsForAnOriginThatIsStillStarting(t *testing.T) {
+	// MEASURED, not predicted: `make dev` starts the api before vite, and the
+	// first live run of this branch found both views permanently unadvertised
+	// in every dev stack because a single attempt met a cold origin. A rolling
+	// deploy can bring an api up ahead of the tier it reads from for the same
+	// reason.
+	tier, p := newWebTier(t)
+	tier.answer(AccountBriefURI, broken(http.StatusServiceUnavailable))
+	go func() {
+		// The tier comes up shortly after the api does.
+		time.Sleep(2 * primeRetryInterval)
+		tier.answer(AccountBriefURI, ok(documentFor(AccountBriefURI)))
+	}()
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	if !p.Holds(AccountBriefURI) {
+		t.Fatal("a view whose origin was merely still starting was left permanently unadvertised")
+	}
+}
+
+func TestPrimeGivesUpAtItsDeadlineRatherThanBlockingBoot(t *testing.T) {
+	// An api that will not start because a web tier is down is a worse failure
+	// than one that starts with a view missing and says so.
+	tier, p := newWebTier(t)
+	tier.answer(AccountBriefURI, broken(http.StatusServiceUnavailable))
+	deadline, cancel := context.WithTimeout(t.Context(), 2*primeRetryInterval)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- p.Prime(deadline) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("priming against a down origin answered an error; only an operator-fixable condition should: %v", err)
+		}
+	case <-time.After(primeDeadline):
+		t.Fatal("Prime did not return when its context was cancelled; boot would hang on a down web tier")
+	}
+	if p.Holds(AccountBriefURI) {
+		t.Error("a view the origin never served is being served")
+	}
+	if !p.Holds(RelationshipMapURI) {
+		t.Error("the view that WAS served is not held; one down view took the other with it")
 	}
 }
