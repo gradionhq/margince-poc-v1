@@ -20,6 +20,7 @@ needs the whole file to start a session.
 
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
+- [Company record page V2 — measured against the mockups, 2026-08-10](#company-record-page-v2--measured-against-the-mockups-2026-08-10)
 - [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
 - [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
@@ -111,6 +112,37 @@ every task and needs its own certification pass.
 [#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
+## Company record page V2 — measured against the mockups, 2026-08-10
+
+The page still did not look like the four checked-in PNGs, and every previous
+round had reported a match by reading the code. This arc built the instrument
+first: `make e2e-company` loads the real page against a live stack and asserts
+region ORDER and PRESENCE — never pixels, never the drawn German strings. It
+went **1/8 → 8/8**.
+
+| PR | What a user gets |
+|---|---|
+| #784 | The visual harness itself; it fails on today's page, which is the point |
+| #790 | KPI strip ABOVE the tabs; four tabs (Overview·People·History·Documents); the generated-prose block off the overview |
+| #797 | Six KPI slots + `net_invoiced_lifetime` (the same FIN-FORM-1 fold, wider window) |
+| #800 | Today's sixth tile — what was last said, filtered to real exchanges |
+| #803 | The right rail: advice, health, contacts, signals, recent activity |
+| #806 | **FIN-AC-3 was inverted** — the finance card hid itself from `unknown`, which every imported company carries |
+| #818 | The dossier reads as prose; the historical label holds in every card state |
+| #821 | **`--space-5` was never defined**, so every drawer rendered with no padding |
+
+Two of those are bugs the mockup work only happened to surface. The finance
+gate hid money from the majority of the book and failed silently (no card, so
+nobody was told). The missing spacing token resolved to nothing rather than to
+a smaller value, and six rules across the tree used it — now guarded by
+`make space-tokens`, a fitness check derived from the tree.
+
+**Open from this arc:** #789 (the header flashes the owner's raw UUID until the
+roster read lands), #791 (the page lost its one-line "some sections were
+withheld" summary), #792 (four components have no production caller), #815 (the
+finance summary has no coverage period, so FIN-AC-3's historical label is half
+implemented).
 
 ## Company record page V2 — the mockups, shipped 2026-08-10
 
