@@ -3,14 +3,21 @@
 
 //go:build integration
 
-package integration
-
-// The ceremony every fan-out suite shares: an extra tenant to fan out to, a
-// job runner subscribed before it starts, and the two awaits that read River's
-// event stream instead of polling a table. Each converted pass asserts the same
-// three things about itself — one row per tenant, each naming its tenant on the
-// wire, and only the failed tenant's row failing — so the reading of River's
-// events belongs here rather than once per suite.
+// Package jobtest is the ceremony every job fan-out suite shares: a River job
+// runner subscribed before it starts, and the awaits that read River's event
+// stream instead of polling a table. Each converted pass asserts the same three
+// things about itself — one row per tenant, each naming its tenant on the wire,
+// and only the failed tenant's row failing — so the reading of River's events
+// belongs here rather than once per suite.
+//
+// It is a package of its own for the reason apptest is, and the reason is narrower
+// than it first looks. Building a runner needs compose, and a NON-TEST file in
+// package integration may never import compose — compose's own white-box tests
+// import integration, so that would close a cycle. Test files there import compose
+// freely; it is only the non-test file that cannot, and a non-test file is exactly
+// what a sibling package is able to import. Suites on both sides of that line use
+// this, so everything here is exported.
+package jobtest
 
 import (
 	"context"
@@ -19,33 +26,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// seedExtraWorkspace mints an additional tenant. archived names a workspace
-// nobody looks at any more, which still holds everything it held the day it was
-// archived — some passes are owed on it and some deliberately skip it, so a
-// fan-out suite states which by seeding one.
-func seedExtraWorkspace(t *testing.T, owner *pgx.Conn, name string, archived bool) ids.UUID {
-	t.Helper()
-	ws := ids.NewV7()
-	archivedAt := "NULL"
-	if archived {
-		archivedAt = "now()"
-	}
-	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO workspace (id, name, slug, base_currency, archived_at)
-		VALUES ($1, $2, $3, 'EUR', `+archivedAt+`)`, ws, name, name+"-"+ws.String()); err != nil {
-		t.Fatalf("seeding the %s workspace: %v", name, err)
-	}
-	return ws
-}
+// DispatchInterval is the cadence a repeat-schedule suite configures, and
+// DispatchGapBound is what separates "scheduled on the configured interval"
+// from "scheduled on some larger constant": three times the interval, which
+// leaves a correct schedule ample slack while excluding every constant actually
+// in reach — the gmail_sync dispatcher's declared 30s scan, and the
+// tens-of-seconds defaults the interval flags themselves carry
+// (--runner-interval, --retention-interval, --webhook-retry-interval), which are
+// the likeliest miswiring of all. The bound is on the GAP
+// between two dispatches rather than on the whole run, because a deadline on the
+// run would also pass for any constant smaller than the deadline.
+const (
+	DispatchInterval = 2 * time.Second
+	DispatchGapBound = 3 * DispatchInterval
+)
 
 // recordWorkspaceJobOutcome files one workspace job's outcome under the tenant
 // its args name, reading the WIRE key rather than a decoded args struct — the
@@ -67,7 +68,7 @@ func recordWorkspaceJobOutcome(t *testing.T, into map[string]bool, ev *river.Eve
 	into[args.Workspace] = completed
 }
 
-// awaitWorkspaceJobOutcomes collects one outcome per tenant until want distinct
+// AwaitWorkspaceJobOutcomes collects one outcome per tenant until want distinct
 // workspaces have reported, or the deadline fires. No polling, no sleep.
 //
 // A tenant's LATEST report overwrites its earlier ones, and the wait ends the
@@ -78,7 +79,7 @@ func recordWorkspaceJobOutcome(t *testing.T, into map[string]bool, ev *river.Eve
 // PERMANENT faults, so the first report is also the only one and the verdict is
 // determined; a suite that plants a RETRYABLE fault needs a different collector,
 // not a longer deadline.
-func awaitWorkspaceJobOutcomes(ctx context.Context, t *testing.T, completed, failed <-chan *river.Event, kind string, want int) map[string]bool {
+func AwaitWorkspaceJobOutcomes(ctx context.Context, t *testing.T, completed, failed <-chan *river.Event, kind string, want int) map[string]bool {
 	t.Helper()
 	outcomes := make(map[string]bool, want)
 	for len(outcomes) < want {
@@ -94,9 +95,9 @@ func awaitWorkspaceJobOutcomes(ctx context.Context, t *testing.T, completed, fai
 	return outcomes
 }
 
-// awaitKindsCompleted blocks until every named kind has reported one
+// AwaitKindsCompleted blocks until every named kind has reported one
 // completion, or the deadline fires. No polling, no sleep.
-func awaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *river.Event, kinds ...string) {
+func AwaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *river.Event, kinds ...string) {
 	t.Helper()
 	pending := make(map[string]struct{}, len(kinds))
 	for _, kind := range kinds {
@@ -114,21 +115,7 @@ func awaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *ri
 	}
 }
 
-// dispatchInterval is the cadence a repeat-schedule suite configures, and
-// dispatchGapBound is what separates "scheduled on the configured interval"
-// from "scheduled on some larger constant": three times the interval, which
-// leaves a correct schedule ample slack while excluding every constant actually
-// in reach — the gmail_sync dispatcher's declared 30s scan, and the
-// tens-of-seconds defaults these flags carry, which are the likeliest
-// miswiring of all. The bound is on the GAP
-// between two dispatches rather than on the whole run, because a deadline on the
-// run would also pass for any constant smaller than the deadline.
-const (
-	dispatchInterval = 2 * time.Second
-	dispatchGapBound = 3 * dispatchInterval
-)
-
-// awaitTwoDispatchArrivals blocks until two DISTINCT jobs of kind have
+// AwaitTwoDispatchArrivals blocks until two DISTINCT jobs of kind have
 // completed, and reports when each arrived. It is the observer's clock, not the
 // job's own timestamps: what a repeat-schedule suite is asking is whether a
 // SECOND dispatch happened soon, and the reader can trust the arrival.
@@ -136,7 +123,7 @@ const (
 // RunOnStart fires once whatever the cadence is, so the first arrival proves
 // nothing about the schedule and every such suite needs the second — which is
 // why this waits here rather than once per pass.
-func awaitTwoDispatchArrivals(ctx context.Context, t *testing.T, completed <-chan *river.Event, kind string) (first, second time.Time) {
+func AwaitTwoDispatchArrivals(ctx context.Context, t *testing.T, completed <-chan *river.Event, kind string) (first, second time.Time) {
 	t.Helper()
 	seen := make(map[int64]struct{}, 2)
 	for len(seen) < 2 {
@@ -162,11 +149,11 @@ func awaitTwoDispatchArrivals(ctx context.Context, t *testing.T, completed <-cha
 	return first, second
 }
 
-// startTestJobRunner boots a worker-role job runner over cfg and returns it
+// StartTestJobRunner boots a worker-role job runner over cfg and returns it
 // with its completion and failure channels, subscribed BEFORE Start so the
 // RunOnStart round's outcomes are never missed. The runner is stopped in
 // cleanup.
-func startTestJobRunner(t *testing.T, pool *pgxpool.Pool, cfg compose.JobRunnerConfig) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
+func StartTestJobRunner(t *testing.T, pool *pgxpool.Pool, cfg compose.JobRunnerConfig) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
 	t.Helper()
 	runner, err := compose.NewJobRunner(pool, slog.New(slog.DiscardHandler), cfg)
 	if err != nil {

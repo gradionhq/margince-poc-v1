@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package jobfanout
 
 // The Surface-B runner end to end (architecture/07): a scheduled job
 // executes the reason-act-observe loop on the offline fake brain against
@@ -110,8 +110,9 @@ func setupRunner(t *testing.T) *runnerEnv {
 
 // tick runs ONE workspace's scheduler pass, under the bound context and the
 // clock reading the job worker hands it in production — the fan-out that puts
-// a tenant's pass on its own job row is agentscheduler_fanout's subject, not
-// this suite's.
+// a tenant's pass on its own job row is
+// TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant's
+// subject, not this suite's.
 func (re *runnerEnv) tick(t *testing.T) {
 	t.Helper()
 	if err := re.svc.TickWorkspace(re.wsCtx, time.Now()); err != nil {

@@ -118,7 +118,7 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	staleLead, heldLead, staleDeal, transcript := seedOverAgeRecords(t, e)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +164,7 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	}
 
 	// A second pass is idempotent: everything due is already acted.
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 	var second int
@@ -212,7 +212,7 @@ func TestRetentionErasesOverAgeVoiceSignalPlaintext(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
