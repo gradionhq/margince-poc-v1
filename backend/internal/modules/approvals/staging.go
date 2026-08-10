@@ -296,21 +296,25 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
+	// Locked first, in the canonical order, and only then written by id. An
+	// UPDATE takes its row locks in whatever order the scan hands rows over,
+	// which is nobody's order in particular — and a bundle decision walking the
+	// same rows in (created_at, id) is precisely the transaction on the other
+	// side of that. See lockOrder.
+	superseded, err := lockPendingUnderIdentity(ctx, tx, wsID, in, survivor)
+	if err != nil {
+		return err
+	}
+	if len(superseded) == 0 {
+		return nil
+	}
 	// Backdating a full day (not a second) keeps the row expired under the
 	// APP clock too: effectiveStatus judges expiry with the service clock,
 	// which may trail the database by ordinary NTP skew — never by a day.
-	rows, err := tx.Query(ctx, `
-		UPDATE approval SET expires_at = now() - interval '1 day'
-		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3
-		  AND status = 'pending' AND expires_at > now()
-		  AND id <> $4 AND proposed_change @> $5
-		RETURNING id`, wsID, in.Kind, nullUUID(in.TargetID), survivor, in.Identity)
-	if err != nil {
+	if _, err := tx.Exec(ctx,
+		`UPDATE approval SET expires_at = now() - interval '1 day' WHERE id = ANY($1)`,
+		superseded); err != nil {
 		return fmt.Errorf("supersede pending approvals: %w", err)
-	}
-	superseded, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-	if err != nil {
-		return fmt.Errorf("collect superseded approvals: %w", err)
 	}
 	for _, old := range superseded {
 		if _, err := s.audit(ctx, tx, p, "update", old, map[string]any{
@@ -320,6 +324,31 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 		}
 	}
 	return nil
+}
+
+// lockPendingUnderIdentity locks, in the canonical order, every OTHER live
+// pending proposal of this kind and target carrying this logical identity —
+// the set supersession is about to withdraw.
+//
+// Split from the write because the order is the point: the predicate is the
+// one that used to sit on the UPDATE itself, and reading it under lockOrder
+// first is what stops this transaction taking those locks in scan order.
+func lockPendingUnderIdentity(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) ([]ids.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id FROM approval
+		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3
+		   AND status = 'pending' AND expires_at > now()
+		   AND id <> $4 AND proposed_change @> $5
+		 `+lockOrder+`
+		 FOR UPDATE`, wsID, in.Kind, nullUUID(in.TargetID), survivor, in.Identity)
+	if err != nil {
+		return nil, fmt.Errorf("lock the proposals this one supersedes: %w", err)
+	}
+	superseded, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("collect superseded approvals: %w", err)
+	}
+	return superseded, nil
 }
 
 // resolveTargetVersion reads the staged target's CURRENT version inside the
