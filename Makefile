@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -170,6 +170,14 @@ icon-lint:
 ## the scale). Diff-scoped vs origin/main; use the --space-* scale or a layout class.
 ds-spacing:
 	frontend/scripts/check-ds-spacing.sh
+
+## space-tokens — every --space-* token a stylesheet USES is DEFINED. An
+## undefined custom property resolves to nothing rather than to a smaller
+## value, so the declaration is dropped silently and the element renders with
+## none: `--space-5` was missing while six rules spelled it, and the composer
+## drawer clipped its own heading against the viewport edge.
+space-tokens:
+	frontend/scripts/check-space-tokens.sh
 ## native-controls — no browser-drawn dropdown: `<select>`/`<option>` outside
 ## design-system/select.tsx, which is the ONE select this product renders.
 native-controls:
@@ -203,6 +211,7 @@ frontend-check:
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
+	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \

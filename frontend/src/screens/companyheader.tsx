@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import type { ReactElement } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -65,7 +65,17 @@ type UpdateOrganizationRequest =
 // activity to reply to.
 export function CompanyPrimaryActions({
   org,
-}: Readonly<{ org: Organization }>) {
+  composerOpen,
+  onComposerOpen,
+}: Readonly<{
+  org: Organization;
+  // The composer's open state belongs to the PAGE, not to this button: the
+  // drawer opens into the right rail's column, so the rail has to know it is
+  // open in order to stand down. Held here as a controlled pair rather than
+  // privately, which is what kept the rail rendering underneath it.
+  composerOpen: boolean;
+  onComposerOpen: (open: boolean) => void;
+}>) {
   // Archived records take no new activity: the write is refused server-side,
   // so offering the verb would only produce a modal that fails on save.
   if (org.archived_at) {
@@ -73,7 +83,7 @@ export function CompanyPrimaryActions({
   }
   return (
     <>
-      <WriteEmailAction org={org} />
+      <WriteEmailAction org={org} open={composerOpen} onOpen={onComposerOpen} />
       <LogActivityAction entityType="organization" entityId={org.id} />
       <LogActivityAction
         entityType="organization"
@@ -89,12 +99,19 @@ export function CompanyPrimaryActions({
 // the consent gate and the refusal vocabulary; this owns only whether the
 // surface is offered and the open/close state, so the account-started and
 // reply surfaces stay one component.
-function WriteEmailAction({ org }: Readonly<{ org: Organization }>) {
+function WriteEmailAction({
+  org,
+  open,
+  onOpen,
+}: Readonly<{
+  org: Organization;
+  open: boolean;
+  onOpen: (open: boolean) => void;
+}>) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="primary" onClick={() => setOpen(true)}>
+      <Button variant="primary" onClick={() => onOpen(true)}>
         {t("co.writeEmail")}
       </Button>
       {open && (
@@ -108,7 +125,7 @@ function WriteEmailAction({ org }: Readonly<{ org: Organization }>) {
           entityType="organization"
           entityId={org.id}
           open={open}
-          onClose={() => setOpen(false)}
+          onClose={() => onOpen(false)}
         />
       )}
     </>
