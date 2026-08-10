@@ -21,6 +21,90 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## G1 — the commercial reads, and three passes at proving they render (2026-08-10)
+
+**Merged as `086b08ad` (#825).** Two tools — `review_commitments` and
+`prepare_handoff` — plus three MCP App views. `render_pipeline_review` is a
+VIEW on the existing `whats_slipping_this_week` and registers nothing; every
+`render_*` name on this surface is a document hung off a tool that already
+answers, and reading PLAN.md's four names as four tools would have cost a
+listing slot and an admission surface to display an answer the caller already
+holds. It hangs off that tool ALONE and not also off `run_report`, which the
+product concept names beside it: a view reads one payload shape, and run_report
+answers a different `{columns, rows}` per report and per plan.
+
+`explain_forecast_change` was deliberately not built — `deal_stage_history` is
+written in two places, both stage transitions, so an amount revised in place or
+a close date slipped leaves no trace and a forecast rebuilt from it reconciles
+over stage movement while presenting itself as whole. That is **#823**, still
+open.
+
+**One derivation, two callers.** Open promises are read once, by a new gated
+store path in `modules/activities` whose predicate and order are exactly what
+core 0008's `idx_activity_tasks` was built for and nothing had asked. The clock
+lives on the compose side of the seam, so both tools are pure functions of (due
+date, an instant) and every state is reproducible in a test with no clock in it.
+There is no "due today": a calendar day needs a timezone this build does not
+store.
+
+### What the reviews found
+
+Fable and Codex independently found the same worst defect: `prepare_handoff`
+read at most fifty deals and then judged the whole project from them, so a
+project with fifty-one whose only won one sorted off the page was told "no won
+deal is rolled up to this project" — a gap firing about a field that is present.
+The two gaps that are claims of ABSENCE are withheld when a read was bounded
+now; the counts of what WAS read still stand.
+
+Fable also found that deleting the row-scope clause from the "about" projection
+left every test in the branch green while a colleague's deal name appeared in an
+answer. Both that guard and the narrowing gate Codex prompted now have
+real-Postgres tests, each verified by breaking the guard and watching it go red.
+
+### What three UAT passes found, and the pattern under it
+
+**Pass 1** — protocol, two independent clients: `resources/list` served the
+`ui://` documents to clients that cannot render them (#830, fixed here), and
+`prepare_handoff` answered "who to call at the client" as a UUID.
+
+**Pass 2** — the real Inspector: **no view on this surface had ever rendered in
+a spec-compliant host.** `ui/initialize` sent `clientInfo` and `capabilities` —
+the CORE protocol's names — where the App extension wants `appInfo` and
+`appCapabilities`. A host refuses the wrong pair, after which the document
+loads, sandboxes and sits blank forever, because a refused initialise produces
+no error anywhere the document can show. Two views had shipped that way.
+
+**Pass 3** — against that fix: the theme-following written DURING pass 2's fix
+was wrong twice. It read `params.hostContext` where the notification carries the
+context as `params`, and it treated "no theme stated" in a partial update as
+"delegated to the platform" — so the `containerDimensions`-only notification the
+Inspector sends after every open clobbered the theme the handshake had just
+resolved, and dark became unreachable. It was WORSE than not having been added.
+
+**The pattern is one thing, three times: the test asserted the assumption rather
+than the protocol.** The handshake test checked the method, the target and the
+version and never the member NAMES. The theme test used the shape I had guessed
+rather than the shape the Inspector sends. Both passed against the defect they
+were written to prevent. D3b's fallback harness accepted whatever the bridge
+sent, which is how the handshake bug survived two shipped views.
+
+Worth carrying: when a wire contract is involved, assert the member names, and
+get the shape from a capture rather than from the code you just wrote.
+
+### Smaller things worth keeping
+
+- Three sweeps stopped being hand-written view lists and derive from the catalog
+  (`apps.DeclaredViews`). Each would have gone on passing over a deployment
+  serving two views of five.
+- The Inspector's per-server **Protocol Era defaults to Legacy**, and this server
+  serves the App extension only in the modern per-request era. A default-
+  configured connection gets no Apps tab and nothing says why.
+- `@modelcontextprotocol/inspector` 2.0.0 and 2.1.0 both ship a tarball missing
+  `clients/web/static/sandbox_proxy.html`. Upstream defect; patch the npx cache.
+- The video CAN be attached programmatically after all — the file input on the
+  comment box accepts an upload and GitHub mints the `user-attachments` URL. The
+  roadmap's note that this is drag-and-drop only is stale.
+
 ## 2026-08-10 — the MCP App views move to `frontend/` (#742, PR #793)
 
 The two `ui://` views left `go:embed` and became a frontend build target. The api

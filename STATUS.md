@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — the agent_loop records are stale, and one paid pass clears four things (2026-08-11)](#open--the-agent_loop-records-are-stale-and-one-paid-pass-clears-four-things-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
@@ -49,6 +50,30 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the agent_loop records are stale, and one paid pass clears four things (2026-08-11)
+
+**Owed, not blocking.** `make check-backend` is green with stale records and
+always has been; this is debt with a price tag, and the price is one paid lane
+run.
+
+Nineteen of the 21 `agent_loop` corpus scenarios set `tools: "catalog"`, which
+resolves to the REAL registered surface — deliberately, so a tool added or
+renamed reaches those scenarios the same commit it reaches the surface.
+`PromptVersion` digests the scenarios AND the first request each site builds,
+and the agent-loop request contains the rendered tool listing. So **G1's two new
+tools moved the stamp** (#825, `086b08ad`), on top of the three records already
+stale from #776.
+
+**One pass clears #738, #739, #776 and G1 together.** Running it earlier would
+have paid for a stamp G1 immediately invalidated, which is why it was held.
+
+Nothing else is owed: no migration, no contract change, and the tool COPY of
+every previously-certified tool is untouched — the only description edits were
+to the two new tools' own entries and to `prepare_handoff`'s, which is new.
+
+**Ask before spending it.** Confirm with `make -C backend e2e-ai-report` that the
+records are stale in the way described rather than in some other way.
 
 ## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
 
