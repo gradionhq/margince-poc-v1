@@ -33,8 +33,16 @@ func TestBriefReadReChecksTheDealRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Both must be queued BEFORE anything moves: a missing item reads back as
+	// the zero value, whose nil id is refused by every path below — so the two
+	// assertions about the reassigned deal would pass without the row scope
+	// ever being the reason.
 	queued := itemsByDeal(t, run)
-	lost, kept := queued[b.dealA], queued[b.dealB]
+	lost, lostQueued := queued[b.dealA]
+	kept, keptQueued := queued[b.dealB]
+	if !lostQueued || !keptQueued {
+		t.Fatalf("the snapshot queued %v, want both fixture deals — nothing below tests a row scope without them", queueItemDeals(run))
+	}
 
 	// The deal moves to the other team between the snapshot and the read.
 	if _, err := owner.Exec(context.Background(),
@@ -76,4 +84,14 @@ func itemsByDeal(t *testing.T, run BriefRun) map[ids.UUID]BriefRunItem {
 		byDeal[item.DealID] = item
 	}
 	return byDeal
+}
+
+// queueItemDeals names the deals a run's items are about, for a failure that
+// has to say WHICH queue it got rather than only that it was wrong.
+func queueItemDeals(run BriefRun) []ids.UUID {
+	deals := make([]ids.UUID, 0, len(run.Items))
+	for _, item := range run.Items {
+		deals = append(deals, item.DealID)
+	}
+	return deals
 }

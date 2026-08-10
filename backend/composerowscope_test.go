@@ -148,6 +148,9 @@ func TestEveryComposeReadOfARecordReferenceAppliesItsRowScope(t *testing.T) {
 func rowScopedTables(t *testing.T) map[string]bool {
 	t.Helper()
 	consts := map[string]string{}
+	// Keyed by the key as WRITTEN, valued by whether it was written as an
+	// identifier — a const still owed a resolution — rather than as a literal
+	// that already IS the table name.
 	var tables map[string]bool
 	for _, src := range tierFiles(t, rowScopeVocabularyPkg) {
 		for _, decl := range src.File.Decls {
@@ -179,18 +182,31 @@ func rowScopedTables(t *testing.T) map[string]bool {
 	// The const pass and the map pass run over the same file set, so a key
 	// spelled as an identifier resolves only after both are collected.
 	resolved := make(map[string]bool, len(tables))
-	for key := range tables {
-		if text, isConst := consts[key]; isConst {
+	for key, spelledAsIdent := range tables {
+		text, isConst := consts[key]
+		switch {
+		case isConst:
 			resolved[text] = true
-			continue
+		case spelledAsIdent:
+			// An identifier this pass did not collect a const for resolves to
+			// nothing, and taking its NAME for a table name would drop a real
+			// table out of the vocabulary while the census went on reading
+			// green over the reads that reference it. That is the quiet
+			// narrowing this gate exists to refuse, so it refuses it here too
+			// rather than only in the tier it judges.
+			t.Fatalf("%s: ownerScopedTables is keyed by %s, which resolves to no string const this pass collected "+
+				"(it reads single-name const specs in this package only) — teach this gate where the table name is declared",
+				rowScopeVocabularyPkg, key)
+		default:
+			resolved[key] = true
 		}
-		resolved[key] = true
 	}
 	return resolved
 }
 
 // collectMapKeys records a map literal's keys as written — a string literal by
-// its text, an identifier by its name, to be resolved against the consts.
+// its text, an identifier by its name — saying which of the two each was, so
+// an identifier that never resolves is a finding rather than a table name.
 func collectMapKeys(t *testing.T, expr ast.Expr, into map[string]bool) {
 	t.Helper()
 	lit, ok := expr.(*ast.CompositeLit)
@@ -210,7 +226,7 @@ func collectMapKeys(t *testing.T, expr ast.Expr, into map[string]bool) {
 			if !ok {
 				t.Fatalf("%s: ownerScopedTables is keyed by a non-string literal", rowScopeVocabularyPkg)
 			}
-			into[text] = true
+			into[text] = false
 		default:
 			t.Fatalf("%s: ownerScopedTables holds an unreadable key %T", rowScopeVocabularyPkg, kv.Key)
 		}
