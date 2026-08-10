@@ -94,7 +94,7 @@ func TestEveryPreparedQuestionAnswersFromItsOwnRecords(t *testing.T) {
 // TestWhatsOpenAnswersThePipelineNotTheHistory pins what the question means: it
 // names the open deals and the open tasks, and does not narrate the timeline.
 func TestWhatsOpenAnswersThePipelineNotTheHistory(t *testing.T) {
-	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, askInput())
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, askInput())
 	text := strings.Join(texts(answered), " ")
 	if !strings.Contains(text, "open deal") {
 		t.Errorf("answer %q never mentions the open pipeline", text)
@@ -116,7 +116,7 @@ func TestWhatsOpenAnswersThePipelineNotTheHistory(t *testing.T) {
 // cannot see it, so it does not claim to.
 func TestWhatsChangedTakesTheLeadingEntriesInOrder(t *testing.T) {
 	in := askInput()
-	answered := deterministicAnswer(crmcontracts.WhatsChanged, askOrgID, in)
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsChanged, askOrgID, in)
 	if len(answered) != 3 {
 		t.Fatalf("got %d sentences, want the three most recent entries", len(answered))
 	}
@@ -134,7 +134,7 @@ func TestWhatsChangedTakesTheLeadingEntriesInOrder(t *testing.T) {
 // the gap.
 func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	bare := Input{Name: "Quiet GmbH"}
-	if answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, bare); len(answered) != 0 {
+	if answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, bare); len(answered) != 0 {
 		t.Errorf("answer %+v for an account with nothing open", answered)
 	}
 	// A single entry reaches both the loop body and the mostRecent bound, so this
@@ -142,13 +142,13 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	one := Input{Name: "Quiet GmbH", Recent: []ActIn{
 		{ID: "018f0000-0000-7000-8000-0000000000b1", Kind: "call", At: "2026-07-01T09:00:00Z"},
 	}}
-	answered := deterministicAnswer(crmcontracts.WhatsChanged, askOrgID, one)
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsChanged, askOrgID, one)
 	if len(answered) != 1 || answered[0].Evidence[0].EntityID != one.Recent[0].ID {
 		t.Errorf("answer %+v for a one-entry timeline, want the one entry cited", answered)
 	}
 	// meeting_prep is different by design: the account itself is always
 	// something to prep from, and it cites the organization.
-	prep := deterministicAnswer(crmcontracts.MeetingPrep, askOrgID, bare)
+	prep := deterministicAnswer(crmcontracts.OrganizationQuestionMeetingPrep, askOrgID, bare)
 	if len(prep) != 1 || prep[0].Evidence[0].EntityID != askOrgID {
 		t.Errorf("meeting_prep = %+v, want one sentence about the account itself", prep)
 	}
@@ -181,7 +181,7 @@ func TestTheWriterIsToldWhichSubjectsToStayOffOf(t *testing.T) {
 
 	// End to end into the bytes the model receives, not just into the struct: the
 	// instruction is worthless if the payload never names the section.
-	payload := AskRequest(crmcontracts.MeetingPrep, FromView(restricted)).Messages[0].Content
+	payload := AskRequest(crmcontracts.OrganizationQuestionMeetingPrep, FromView(restricted)).Messages[0].Content
 	if !strings.Contains(payload, `"sections_omitted":["deals"]`) {
 		t.Errorf("the prompt payload does not name the withheld section, so the "+
 			"instruction to stay silent about it applies to nothing: %s", payload)
@@ -277,7 +277,7 @@ func declaredQuestions(t *testing.T) []crmcontracts.OrganizationQuestion {
 // activity subjects written outside this workspace; a prompt naming a different
 // nonce than the wrap would fence nothing.
 func TestTheAskPromptFencesTheAccountWithItsOwnNonce(t *testing.T) {
-	req := AskRequest(crmcontracts.WhatsOpen, askInput())
+	req := AskRequest(crmcontracts.OrganizationQuestionWhatsOpen, askInput())
 	if len(req.Messages) != 1 {
 		t.Fatalf("got %d messages, want the one fenced summary", len(req.Messages))
 	}
@@ -291,7 +291,7 @@ func TestTheAskPromptFencesTheAccountWithItsOwnNonce(t *testing.T) {
 	if !strings.Contains(req.System, marker) {
 		t.Errorf("the system prompt does not name the boundary %q that wraps the data", marker)
 	}
-	if !strings.Contains(req.System, askInstruction[crmcontracts.WhatsOpen]) {
+	if !strings.Contains(req.System, askInstruction[crmcontracts.OrganizationQuestionWhatsOpen]) {
 		t.Error("the system prompt carries no per-question instruction, so every question would answer alike")
 	}
 }
@@ -316,7 +316,7 @@ func threeCheckIns() Input {
 // every sentence carrying exactly the one citation it is about.
 func TestOpenTasksAnswerIsOneSentencePerTask(t *testing.T) {
 	in := threeCheckIns()
-	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, in)
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, in)
 	if len(answered) != 1+len(in.OpenTasks) {
 		t.Fatalf("got %d sentences for %d tasks, want one count sentence and one per task: %q",
 			len(answered), len(in.OpenTasks), texts(answered))
@@ -355,7 +355,7 @@ func TestOpenTasksAnswerCapsTheListButNotTheCount(t *testing.T) {
 			Name: fmt.Sprintf("Task %d", i),
 		})
 	}
-	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, in)
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, in)
 	if len(answered) != 1+listedRecords {
 		t.Fatalf("got %d sentences, want the count plus %d listed tasks", len(answered), listedRecords)
 	}
@@ -367,7 +367,7 @@ func TestOpenTasksAnswerCapsTheListButNotTheCount(t *testing.T) {
 // One task needs no count in front of it: its own sentence names it and says
 // when it is due, which is everything the count would have added.
 func TestASingleOpenTaskIsOneSentence(t *testing.T) {
-	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, Input{
+	answered := deterministicAnswer(crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, Input{
 		Name:      "Brandt Automotive GmbH",
 		OpenTasks: []TaskIn{{ID: "019fac6c-60d1-732b-ab2b-d93611745625", Name: "Call the CFO"}},
 	})
@@ -400,7 +400,7 @@ func TestAnAnswerSpellingIDsFallsBackToTheFloor(t *testing.T) {
 	in := threeCheckIns()
 	lane := idSpellingLane{tasks: in.OpenTasks}
 
-	answered, by, err := Answer(context.Background(), lane, crmcontracts.WhatsOpen, askOrgID, in)
+	answered, by, err := Answer(context.Background(), lane, crmcontracts.OrganizationQuestionWhatsOpen, askOrgID, in)
 	if err != nil {
 		t.Fatalf("answer: %v", err)
 	}

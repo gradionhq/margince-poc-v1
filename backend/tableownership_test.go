@@ -255,6 +255,14 @@ var tableOwners = map[string]string{
 	"org_brief":      "internal/compose/orgbrief",
 	"org_dossier":    "internal/compose/orgdossier",
 	"org_growth_fit": "internal/compose/orgdossier",
+	// The relationship brief's per-user cache — the person-side sibling of
+	// org_brief, and the same ruling for the same reasons.
+	"person_brief": "internal/compose/personbrief",
+	// The reader's own "not this, not now" on the page's one moment, held
+	// against the evidence it fired on so it re-arms when that evidence moves
+	// (ADR-0096 D3). View state: no audit row, no outbox event, no other
+	// viewer's page.
+	"person_moment_dismissal": "internal/compose/person360",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through

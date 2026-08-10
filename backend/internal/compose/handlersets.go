@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
+	"github.com/gradionhq/margince/backend/internal/compose/personbrief"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -55,6 +56,7 @@ type (
 	webhooksHandlers     = webhooks.Handlers
 	org360Handlers       = org360.Handlers
 	person360Handlers    = person360.Handlers
+	personBriefHandlers  = personbrief.Handlers
 	orgBriefHandlers     = orgbrief.Handlers
 	orgDossierHandlers   = orgdossier.Handlers
 	accountDraftHandlers = accountdraft.Handlers
@@ -66,8 +68,14 @@ type (
 // same overlay refusal. Its own function so the composition root reads as a
 // list of what is wired rather than how each piece is built.
 func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
-	srv.person360Handlers = person360.NewHandlers(
-		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now),
+	srv.person360Svc = person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now)
+	srv.person360Handlers = person360.NewHandlers(srv.person360Svc, srv.sorDispatch.isOverlay)
+	// The relationship brief is assembled from the SAME composite read the page
+	// serves, so the two cannot disagree about what this caller may see. No
+	// model lane is wired: the brief is the deterministic floor and says so in
+	// generated_by, rather than 501-ing on a workspace without a model.
+	srv.personBriefHandlers = personbrief.NewHandlers(
+		personbrief.NewService(pool, srv.person360Svc, "", time.Now),
 		srv.sorDispatch.isOverlay,
 	)
 }
