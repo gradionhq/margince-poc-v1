@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
-import { SectionHeader } from "../design-system/atoms";
+import { Field, SectionHeader, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
@@ -132,23 +132,36 @@ function InstallationSettingsForm({
       style={{ display: "grid", gap: "var(--space-3)" }}
     >
       <Field
-        id="installation-name"
         label={t("installationSettings.name")}
         hint={t("installationSettings.nameHint")}
-        value={draft.name}
-        disabled={!canManage}
-        onChange={(name) => setDraft({ ...draft, name })}
-      />
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            value={draft.name}
+            disabled={!canManage}
+            onChange={(event) =>
+              setDraft({ ...draft, name: event.target.value })
+            }
+          />
+        )}
+      </Field>
       <Field
-        id="installation-timezone"
         label={t("installationSettings.timezone")}
         hint={t("installationSettings.timezoneHint")}
-        value={draft.timezone}
-        disabled={!canManage}
-        onChange={(timezone) => setDraft({ ...draft, timezone })}
-      />
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            value={draft.timezone}
+            disabled={!canManage}
+            onChange={(event) =>
+              setDraft({ ...draft, timezone: event.target.value })
+            }
+          />
+        )}
+      </Field>
       <Field
-        id="installation-base-currency"
         label={t("installationSettings.baseCurrency")}
         hint={
           settings.base_currency_locked
@@ -156,10 +169,18 @@ function InstallationSettingsForm({
               t("installationSettings.baseCurrencyLocked"))
             : t("installationSettings.baseCurrencyHint")
         }
-        value={draft.base_currency}
-        disabled={!canManage || settings.base_currency_locked}
-        onChange={(base_currency) => setDraft({ ...draft, base_currency })}
-      />
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            value={draft.base_currency}
+            disabled={!canManage || settings.base_currency_locked}
+            onChange={(event) =>
+              setDraft({ ...draft, base_currency: event.target.value })
+            }
+          />
+        )}
+      </Field>
 
       {update.isError ? (
         <p role="alert" className="form-error">
@@ -183,38 +204,5 @@ function InstallationSettingsForm({
         </div>
       ) : null}
     </form>
-  );
-}
-
-function Field({
-  id,
-  label,
-  hint,
-  value,
-  disabled,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  value: string;
-  disabled: boolean;
-  onChange: (next: string) => void;
-}) {
-  return (
-    <div style={{ display: "grid", gap: "var(--space-1)" }}>
-      <label htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        type="text"
-        value={value}
-        disabled={disabled}
-        aria-describedby={`${id}-hint`}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <small id={`${id}-hint`} className="muted">
-        {hint}
-      </small>
-    </div>
   );
 }
