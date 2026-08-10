@@ -239,11 +239,11 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 		// after initialize regardless, and an unadvertised capability
 		// answering -32601 there reads as a broken server rather than a
 		// legitimate empty catalog.
-		resp.Result = map[string]any{"resources": s.resourceList(ctx)}
+		resp.Result = map[string]any{"resources": s.resourceList(ctx, fr)}
 	case methodResourcesRead:
 		// Assigned on separate branches so a failed read never carries a
 		// result alongside its error, which JSON-RPC forbids.
-		if result, rpcErr := s.readResource(ctx, req.Params); rpcErr != nil {
+		if result, rpcErr := s.readResource(ctx, req.Params, fr); rpcErr != nil {
 			resp.Error = rpcErr
 		} else {
 			resp.Result = result

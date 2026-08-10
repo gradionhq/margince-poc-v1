@@ -11,6 +11,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -68,6 +69,29 @@ func activityReachesOrg(operand string) string {
 		operand)
 }
 
+// openTaskAssigneeClause narrows the timeline to the OPEN tasks one person
+// holds — the queue read the contract declares ("Open tasks for an
+// assignee"), spelled as the predicate the partial index behind it is built
+// on (idx_activity_tasks: workspace_id, assignee_id, due_at WHERE kind='task'
+// AND NOT is_done AND archived_at IS NULL).
+//
+// Done-ness belongs to the filter rather than to a dial of its own, and that
+// is the whole point: no parameter answers it, so binding assignee_id as a
+// plain column match would hand back every task the person ever closed under
+// a name the contract says means the open ones. A wider answer wearing the
+// declared answer's shape is the failure this filter exists to close, not a
+// convenience to preserve.
+//
+// `kind` is stated rather than implied. The `activity_task_fields` CHECK
+// already keeps assignee_id NULL on every other kind, so it narrows nothing —
+// it is what lets the planner match the partial index.
+func openTaskAssigneeClause(assignee *ids.UserID, arg func(any) int) string {
+	if assignee == nil {
+		return ""
+	}
+	return sprintf("a.assignee_id = $%d AND a.kind = 'task' AND NOT a.is_done", arg(*assignee))
+}
+
 // listActivitiesFilter builds the timeline query's join, WHERE terms and
 // bind arguments from one list input.
 func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join string, where []string, args []any, err error) {
@@ -89,6 +113,9 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 	}
 	if in.Kind != nil {
 		where = append(where, sprintf("a.kind = $%d", arg(*in.Kind)))
+	}
+	if clause := openTaskAssigneeClause(in.AssigneeID, arg); clause != "" {
+		where = append(where, clause)
 	}
 	if in.EntityType != nil && in.EntityID != nil {
 		// The SAME vocabulary the write uses. A second list here drifted from

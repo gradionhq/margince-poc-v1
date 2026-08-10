@@ -44,16 +44,6 @@ const defaultOfferTemplateLocale = "de-DE"
 // (create, update) reference it.
 const offerTemplateIsDefaultField = "is_default"
 
-// offerTemplateWhereSeed and offerTemplateArchivedAtClause are the
-// list/read query-builder's repeated SQL fragments, named once so this
-// file's own occurrences aren't raw duplicated literals (the same
-// fragments recur, unnamed, in the package's older files — that backlog
-// is untouched here).
-const (
-	offerTemplateWhereSeed        = "1=1"
-	offerTemplateArchivedAtClause = " AND archived_at IS NULL"
-)
-
 // DuplicateTemplateNameError reports a live-row name collision
 // (offer_template_name_unique). The pre-check ahead of INSERT/UPDATE is
 // the clean common-case path and carries ExistingID cheaply; a
@@ -411,7 +401,7 @@ const offerTemplateColumns = `id, workspace_id, name, locale, is_default, layout
 func readOfferTemplate(ctx context.Context, tx pgx.Tx, id ids.OfferTemplateID, archived storekit.ArchivedFilter) (crmcontracts.OfferTemplate, error) {
 	q := `SELECT ` + offerTemplateColumns + ` FROM offer_template WHERE id = $1`
 	if archived == storekit.LiveOnly {
-		q += offerTemplateArchivedAtClause
+		q += liveRowsClause
 	}
 	t, err := scanOfferTemplate(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {

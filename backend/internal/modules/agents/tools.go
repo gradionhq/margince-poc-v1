@@ -213,7 +213,7 @@ func (t createRecord) Spec() mcp.ToolSpec {
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
-			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes, createRecordShapes)) + `}},
+			"fields":{"type":"object","description":` + jsonString(recordFieldsDescription) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[wireRecord](),
 	}

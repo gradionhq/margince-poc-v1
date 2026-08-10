@@ -358,6 +358,10 @@ func assertHumanRestSurfaceServesTheMirror(t *testing.T, e *apptest.AppEnv) {
 		// so a page that could not contain it either way must not come back
 		// looking like the opt-in was honoured (ADR-0082/A127).
 		"/v1/organizations?include_anchor=true",
+		// Delivery work is ours as well, and this dial was neither forwarded
+		// nor refused until the declared-parameter gate found it: a caller
+		// asking for one project's deals was handed the whole mirror.
+		"/v1/deals?project_id=018f3a1b-0000-7000-8000-000000000010",
 	} {
 		if code := e.Call(t, "GET", path, nil, nil, nil); code != http.StatusUnprocessableEntity {
 			t.Errorf("overlay-mode %s = %d, want 422 — a filter with no mirror column must be refused, never ignored", path, code)

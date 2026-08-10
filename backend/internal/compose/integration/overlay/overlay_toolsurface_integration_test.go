@@ -134,6 +134,13 @@ func nativeToolReaderPerms() principal.Permissions {
 		objects[object] = grant
 	}
 	objects["pipeline"] = principal.ObjectGrant{Read: true}
+	// The delivery briefing reads a project, the deals rolled up to it, the
+	// stakeholder EDGES on it and the promises about it. Granted here for the
+	// reason this whole builder exists: without them the native-path assertion
+	// fails with "permission denied", which passes for a reason that has
+	// nothing to do with system-of-record mode.
+	objects["project"] = principal.ObjectGrant{Read: true}
+	objects["relationship"] = principal.ObjectGrant{Read: true}
 	lead := objects["lead"]
 	lead.Read, lead.Update, lead.Delete = true, true, true
 	objects["lead"] = lead
@@ -424,6 +431,12 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 		// rather than seeded.
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
 		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
+		// The delivery briefing is anchored on a project id, and the anchor
+		// above is minted rather than seeded. Not-found is the served answer
+		// here, and the RIGHT one: the project read runs first and its refusal
+		// is returned unchanged, so a native workspace saying "no such project"
+		// is the mode guard having stood aside exactly as it should.
+		"prepare_handoff": true,
 		// A rep with no assembled brief: read_brief re-reads a persisted run and
 		// never ranks, so "none has been generated" is what it owes rather than
 		// an empty queue that reads as a quiet morning.

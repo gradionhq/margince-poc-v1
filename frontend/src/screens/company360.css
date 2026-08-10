@@ -515,7 +515,11 @@
    three, which is a deliberate fold rather than an accidental one. */
 .co-strip {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* The column count follows the SLOTS, set by the component that knows how
+     many it drew. A fixed six-column template reserves the sixth cell even on a
+     non-customer that has five — a grey gap that reads as a reading which
+     failed to load rather than as one the account does not have. */
+  grid-template-columns: repeat(var(--co-strip-slots, 6), 1fr);
   gap: 1px; /* ds:ignore a hairline divider, not spacing rhythm — this 1px IS the rule between slots */
   margin-block-end: 0.9rem;
   border: 1px solid var(--borderSubtle);
@@ -820,4 +824,68 @@
 }
 .com-block + .com-block {
   margin-top: var(--space-3);
+}
+
+/* The health card's rated rows: name, rating, and the sentence it was read
+   from. A grid rather than a flex row so the ratings line up down the card —
+   three dimensions a reader scans vertically, not three sentences. */
+.co-health-rows {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.co-health-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+/* The reason runs under its rating, across both columns: it qualifies the
+   badge rather than competing with it for the row. */
+.co-health-row > .co-row-meta {
+  grid-column: 1 / -1;
+}
+
+/* The verdict is separated from what it was read from, because it is a
+   different KIND of statement — a conclusion, not an input. */
+.co-health-overall {
+  margin-block-start: var(--space-1);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--borderSubtle);
+  font-weight: 600;
+}
+
+/* The growth-fit bars: the band taken apart, one row per dimension. The reason
+   sits under its bar rather than beside it — at this width a sentence and a
+   meter side by side leave neither enough room to read. */
+.co-growth-fit-scores {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-growth-fit-score {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* The dimension and its figure share a line above the bar, the figure
+   right-aligned so a column of them reads down. */
+.co-growth-fit-score-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.co-growth-fit-score-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

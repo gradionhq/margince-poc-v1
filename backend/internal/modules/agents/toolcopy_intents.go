@@ -71,7 +71,7 @@ var prepareHandoffCopy = toolCopy{
 		"with a named gap for each of those the records do not answer.",
 	Limits: "It reports what the records say and reads nothing outside them; each gap names the " +
 		"field it was read off. It is scoped to the records the caller may see, so a gap means the " +
-		"field is empty as far as THEY can read it, and a bounded list withholds the gaps that " +
+		"field is empty as far as THEY can see, and a bounded list withholds the gaps that " +
 		"claim something is absent rather than guessing them. It changes nothing — preparing a " +
 		"handover is not performing one.",
 	Instead: "Use catch_me_up_on when the question is what has been happening on the account " +

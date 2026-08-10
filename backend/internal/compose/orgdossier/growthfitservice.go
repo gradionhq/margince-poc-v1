@@ -35,10 +35,13 @@ import (
 // Bumping it invalidates every cached assessment, which is the point: a change
 // to the required inputs or the abstention floor must not leave yesterday's
 // bands being served beside today's (DOSS-AC-14).
-const growthFitPromptVersion = "growth-fit-v1"
+const growthFitPromptVersion = "growth-fit-v2"
 
 // growthFitStoredVersion is the payload SHAPE this build writes and can read.
-const growthFitStoredVersion = 1
+// v2 adds the sub-scores (DOSS-AC-17): a v1 payload has none, and serving one
+// through this build would render a card with a band and no bars while looking
+// like a complete answer.
+const growthFitStoredVersion = 2
 
 // GrowthFitService assembles and caches one company's growth fit per reader.
 type GrowthFitService struct {
@@ -241,6 +244,13 @@ func (g storedGrowthFit) wire(orgID ids.OrganizationID) crmcontracts.Organizatio
 	// Each list stays absent when it is empty, for the reason the envelope's
 	// own comment gives: a rendered-but-empty "what argues against them" reads
 	// as a finding of nothing rather than as nothing found.
+	// The band taken apart (DOSS-AC-17). Absent rather than empty for the same
+	// reason as the lists below — and `Assess` has already withheld them below
+	// the abstention floor, so an empty slice here means the model offered none
+	// that survived grounding, not that the account scored zero (DOSS-AC-18).
+	if subs := wireSubScores(g.Claims.SubScores); len(subs) > 0 {
+		out.SubScores = &subs
+	}
 	if factors := wireSentences(g.Claims.PositiveFactors); len(factors) > 0 {
 		out.PositiveFactors = &factors
 	}

@@ -37,14 +37,18 @@ type resourceDescriptor struct {
 	// Meta carries an interactive view's own sandbox declaration, and is
 	// omitted entirely for an ordinary document.
 	//
-	// It rides resources/list UNCONDITIONALLY, unlike a tool's `_meta.ui` —
-	// and the asymmetry is the point rather than an oversight. The extension
-	// exists so a host can fetch and security-review a view BEFORE any tool is
-	// called, which means the policy has to be readable on the document itself;
-	// withholding it from an undeclared caller would leave a host that
-	// prefetches with a document and no policy to sandbox it under. A caller
-	// with no use for the member ignores one object on a catalog of documents,
-	// where the tool catalog is read by every client on every session.
+	// It rides every view this surface lists, unlike a tool's `_meta.ui`, and
+	// the asymmetry is the point rather than an oversight. The extension exists
+	// so a host can fetch and security-review a view BEFORE any tool is called,
+	// which means the policy has to be readable on the document itself;
+	// withholding it would leave a host that prefetches with a document and no
+	// policy to sandbox it under.
+	//
+	// WHICH IS NOT THE SAME AS LISTING THE DOCUMENT TO EVERYONE. That argument
+	// is about a host that CAN render a view and has not called a tool yet — it
+	// says nothing about a client that declared it cannot render one at all.
+	// resourceList withholds the documents themselves from such a client, and
+	// every document it does list still carries this member.
 	//nolint:tagliatelle // _meta is the protocol's reserved extension member, and the leading underscore is what reserves it
 	Meta *resourceMetaWire `json:"_meta,omitempty"`
 }
@@ -90,14 +94,28 @@ type resourceContentBlock struct {
 // provider answers an empty list rather than an error: an empty catalog is a
 // legitimate state, and a client that calls resources/list right after
 // initialize should not read it as a broken server.
-func (s *Dispatcher) resourceList(ctx context.Context) []resourceDescriptor {
+//
+// TWO FILTERS, ASKING DIFFERENT QUESTIONS. The scope filter asks whether this
+// principal may READ a document. The framing filter asks whether this request
+// can RENDER one — and a client that did not declare the App extension cannot
+// render any view, so listing them would hand it documents it has no way to
+// use. That is the promise apps.go's own header makes: a host that does not
+// opt in is served the surface exactly as it was before any view existed.
+// Without the framing here, the tool listing kept that promise and the
+// document catalogue did not, which is precisely the disagreement the
+// extension's two halves are supposed to be incapable of.
+func (s *Dispatcher) resourceList(ctx context.Context, fr framing) []resourceDescriptor {
 	if s.resources == nil {
 		return []resourceDescriptor{}
 	}
 	published := s.resources.Resources(ctx)
+	renders := s.appsOffered(fr)
 	out := make([]resourceDescriptor, 0, len(published))
 	for _, r := range published {
 		if !readableByCaller(ctx, r) {
+			continue
+		}
+		if isAppDocument(r.MIMEType) && !renders {
 			continue
 		}
 		out = append(out, resourceDescriptor{
@@ -111,7 +129,17 @@ func (s *Dispatcher) resourceList(ctx context.Context) []resourceDescriptor {
 
 // readResource answers one document, or a protocol error — never both, which
 // is why the caller assigns them on separate branches.
-func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (resourceContents, *rpcError) {
+//
+// It takes the framing for the reason resourceList does, and answers the SAME
+// not-found a hidden document gets. A catalogue that withheld a view while the
+// read still served it would be the two halves of one promise disagreeing —
+// and the disagreement would be discoverable, since a client could learn a
+// document exists by reading a URI the catalogue never showed it.
+//
+// A host that renders views is unaffected: every route to a view's URI runs
+// through a tool's `_meta.ui`, which only an App-declaring request is served,
+// so a client that knows the URI at all is one that declared it can render it.
+func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage, fr framing) (resourceContents, *rpcError) {
 	var p struct {
 		URI string `json:"uri"`
 	}
@@ -136,6 +164,14 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
 	}
+	if err == nil && isAppDocument(contents.MIMEType) && !s.appsOffered(fr) {
+		// Judged on what the provider actually SERVED, not on what the
+		// catalogue advertises: with two providers able to publish one URI, the
+		// catalogue names the first advertiser while this read takes the first
+		// that serves, and the bytes in hand are what the client would have to
+		// render.
+		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
+	}
 	if err != nil {
 		// The cause is server-side knowledge (a pool fault, a wrapped SQL
 		// error); the client learns only that the read did not happen.
@@ -152,6 +188,15 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 		Meta: resourceMetaFor(mcp.Resource{URI: contents.URI, UI: contents.UI}),
 	}}}, nil
 }
+
+// isAppDocument reports whether a document is an interactive view.
+//
+// It asks by MIME TYPE rather than by URI scheme, because the MIME type is
+// exactly what the client's own declaration names: declaresUI admits a request
+// only if it listed mcp.AppMIMEType among the types it can render. One
+// constant, read on both sides, so "what the client said it can render" and
+// "what this document is" cannot come to mean different things.
+func isAppDocument(mimeType string) bool { return mimeType == mcp.AppMIMEType }
 
 // readableByCaller reports whether the calling principal's passport scopes
 // reach this document. It mirrors the scope arm of the tool surface's own
