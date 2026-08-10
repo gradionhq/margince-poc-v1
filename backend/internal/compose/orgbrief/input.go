@@ -33,7 +33,7 @@ import (
 // The floor's wording counts because the floor's OUTPUT is what gets cached. A
 // deploy that reworded it and left this alone kept serving the old sentences
 // to every account whose facts had not moved — which is most of them.
-const promptVersion = "org-brief-v5"
+const promptVersion = "org-brief-v6"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned
@@ -141,6 +141,16 @@ type ActIn struct {
 	// open tasks had been completed, directly above a card showing one of them
 	// overdue.
 	Done *bool `json:"done,omitempty"`
+	// Status is a MEETING's own outcome — booked, held, canceled, no_show.
+	//
+	// Here for the same reason Done is, and a separate field because a
+	// meeting's states are not a boolean: "canceled" and "still to come" are
+	// both not-held, and collapsing them would tell the model a cancelled
+	// meeting is merely pending. A booked meeting is dated at its SLOT, so a
+	// future or cancelled one arrives on the timeline as an ordinary
+	// past-looking row — the identical mechanism to the one #592 describes, on
+	// the kind whose dates run forward.
+	Status string `json:"status,omitempty"`
 }
 
 // MarshalJSON writes the amount as the figure a person would say — "180000.00"
@@ -176,11 +186,16 @@ func (in Input) MarshalJSON() ([]byte, error) {
 	}{wire: wire(in), WonLifetime: renderedAmount(in.WonLifetime, in.WonCurrency)})
 }
 
-// renderedAmount is the one rendering both use. An amount with no currency
-// renders as nothing: a figure printed without its code is a number whose scale
-// the reader has to guess, which is the defect rather than a lesser form of it.
+// renderedAmount is the one rendering both use.
+//
+// An amount with no currency renders as nothing: a figure printed without its
+// code is a number whose scale the reader has to guess, which is the defect
+// rather than a lesser form of it. A ZERO amount with a currency renders as
+// "0.00" and is shown — nothing forbids a zero-priced deal, the paired-nullness
+// CHECK admits it, and suppressing it would make a deal somebody deliberately
+// priced at nothing read exactly like one nobody has priced at all.
 func renderedAmount(minor int64, currency string) string {
-	if minor == 0 || currency == "" {
+	if currency == "" {
 		return ""
 	}
 	return values.MajorUnits(minor, currency)
@@ -278,12 +293,18 @@ func foldRecent(view crmcontracts.Organization360, in *Input) {
 		if activity.Subject != nil {
 			act.Subject = *activity.Subject
 		}
-		// Only for the kinds that can BE finished. A call or a mail is not
-		// outstanding or complete, and answering false for one would invent a
-		// state the record does not have.
-		if activity.Kind == crmcontracts.ActivityKindTask {
+		// Only the kinds that HAVE an outcome carry one. A call or a mail is
+		// neither outstanding nor complete, and answering for it would invent
+		// a state the record does not have — while a task and a meeting each
+		// have their own, in their own vocabulary.
+		switch activity.Kind {
+		case crmcontracts.ActivityKindTask:
 			done := activity.IsDone != nil && *activity.IsDone
 			act.Done = &done
+		case crmcontracts.ActivityKindMeeting:
+			if activity.MeetingStatus != nil {
+				act.Status = string(*activity.MeetingStatus)
+			}
 		}
 		in.Recent = append(in.Recent, act)
 	}

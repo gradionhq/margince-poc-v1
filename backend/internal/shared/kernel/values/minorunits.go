@@ -24,15 +24,24 @@ import (
 	"strings"
 )
 
-// currencyMinorDigits is the ISO-4217 exception list: every code whose minor
-// unit is not the usual two digits. Most currencies — including EUR and USD,
-// the only two most workspaces exercise — carry two, so the table names only
-// the departures and the default carries the rest.
+// currencyMinorDigits lists the ISO-4217 codes whose minor unit is not the
+// usual two digits — the zero-, three- and four-digit exceptions. Most
+// currencies, including EUR and USD, carry two, so the table names the
+// departures and the default below carries the rest.
+//
+// It is a list of the departures this build knows, NOT a claim to hold every
+// one. ISO also assigns codes with no minor unit at all (the precious metals,
+// XDR, the test code XTS), and the standard is amended. A code missing here
+// renders at two digits and is wrong for that code — which is why the tolerable
+// failure is the one MinorUnitDigits documents, and why adding a code is a
+// one-line change rather than a redesign.
 var currencyMinorDigits = map[string]int{
 	"BIF": 0, "CLP": 0, "DJF": 0, "GNF": 0, "ISK": 0, "JPY": 0, "KMF": 0,
-	"KRW": 0, "PYG": 0, "RWF": 0, "UGX": 0, "VND": 0, "VUV": 0, "XAF": 0,
-	"XOF": 0, "XPF": 0,
+	"KRW": 0, "PYG": 0, "RWF": 0, "UGX": 0, "UYI": 0, "VND": 0, "VUV": 0,
+	"XAF": 0, "XOF": 0, "XPF": 0,
 	"BHD": 3, "IQD": 3, "JOD": 3, "KWD": 3, "LYD": 3, "OMR": 3, "TND": 3,
+	// Four, and both are index units a contract may legitimately price in.
+	"CLF": 4, "UYW": 4,
 }
 
 // MinorUnitDigits reports how many minor-unit digits a currency code carries.
@@ -68,9 +77,20 @@ func MajorUnits(amountMinor int64, currency string) string {
 	for range digits {
 		scale *= 10
 	}
-	sign := ""
+	// The magnitude is taken as UNSIGNED, because negating an int64 does not
+	// always produce a positive one: math.MinInt64 has no positive counterpart
+	// and negating it yields itself, which would print a minus sign in front of
+	// a negative quotient. The API admits the whole int64 range, so the one
+	// value that cannot be negated is a value it can be handed.
+	// The wraparound IS the mechanism, not an oversight: uint64(x) for a
+	// negative x wraps to x + 2^64, and negating that in unsigned arithmetic
+	// yields |x| exactly — including for math.MinInt64, whose magnitude has no
+	// int64 to hold it. That is the whole reason this does not simply negate.
+	sign, magnitude := "", uint64(amountMinor) // #nosec G115 -- see above: the wrap is how |MinInt64| is obtained
 	if amountMinor < 0 {
-		sign, amountMinor = "-", -amountMinor
+		sign, magnitude = "-", -uint64(amountMinor) // #nosec G115 -- same
 	}
-	return fmt.Sprintf("%s%d.%0*d", sign, amountMinor/scale, digits, amountMinor%scale)
+	// scale is 10^digits for digits in {2,3,4}, so it is small and positive.
+	unsigned := uint64(scale) // #nosec G115 -- a power of ten bounded by the table above
+	return fmt.Sprintf("%s%d.%0*d", sign, magnitude/unsigned, digits, magnitude%unsigned)
 }
