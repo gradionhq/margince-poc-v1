@@ -196,6 +196,16 @@ function collapseWhitespace(value: string): string {
 // company's identity, the mixture this block exists to prevent. The
 // confirmation refuses the same case for the same reason: it grounds a legal
 // block only when the details match one and only one stored entity.
+// The fields one legal-entity pick settles as a block. Shared vocabulary
+// rather than one screen's private set: the pick's own authorization decides
+// which sibling questions it retires, and the surface that draws the retired
+// tail has to mean the same three fields by it.
+export const LEGAL_BLOCK: ReadonlySet<string> = new Set([
+  "legal_name",
+  "registered_address",
+  "register_vat",
+]);
+
 export function legalEntityForOption(
   entities: readonly LegalEntity[],
   optionValue: string,

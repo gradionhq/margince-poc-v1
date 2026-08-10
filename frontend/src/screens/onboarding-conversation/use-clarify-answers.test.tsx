@@ -113,9 +113,10 @@ function setupHook(
   clarify: Clarify = entityClarify,
   applyLegalEntityOverride?: (entity: LegalEntity) => void,
   startingDraft: CompanyDraft = EMPTY_DRAFT,
+  siblings: readonly Clarify[] = [],
 ) {
   const proposalRef: { current: Proposal } = {
-    current: { ready: true, open_questions: [clarify] },
+    current: { ready: true, open_questions: [clarify, ...siblings] },
   };
   const draftRef = { current: startingDraft };
   const applyChanges = vi.fn((changes: readonly SuggestedCompanyChange[]) => {
@@ -446,6 +447,115 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
 
     await waitFor(() => expect(result.current.authorizing).toBe(false));
     expect(applyLegalEntity).not.toHaveBeenCalled();
+  });
+});
+
+// One pick settles the whole legal block, so the sibling questions about that
+// block stop being open decisions. What matters is WHEN: the retirement is a
+// consequence of the server authorizing the choice, so it may not outlive a
+// choice the server refuses — a sibling retired at click time and never
+// un-retired hides a field nobody decided and lets Continue ride on the old
+// draft.
+describe("useClarifyAnswers — the siblings one legal pick settles", () => {
+  const addressClarify: Clarify = {
+    id: "clarify:registered_address:1",
+    question: "The imprint lists two addresses. Which one is registered?",
+    field: "registered_address",
+    options: [
+      { value: gradionEntity.registered_address ?? "", label: "The first" },
+      { value: "Somewhere else", label: "The second" },
+    ],
+  };
+
+  it("retires them once the pick is authorized, marked as the machine's conclusion rather than the reader's", async () => {
+    stubAuthorizedReply();
+    const { result } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      undefined,
+      EMPTY_DRAFT,
+      [addressClarify],
+    );
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(result.current.answers).toContainEqual(
+        expect.objectContaining({ clarifyId: addressClarify.id }),
+      ),
+    );
+    expect(result.current.answers).toContainEqual(
+      expect.objectContaining({
+        clarifyId: addressClarify.id,
+        field: "registered_address",
+        dismissed: true,
+        autoResolved: true,
+      }),
+    );
+  });
+
+  it("leaves them open when the authorization is refused, so the review still asks what nothing answered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          { title: "conflict", detail: "That option is no longer open." },
+          409,
+        ),
+      ),
+    );
+    const { result } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      undefined,
+      EMPTY_DRAFT,
+      [addressClarify],
+    );
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    // The refused pick rolled back, and the sibling was never touched: both
+    // questions are open again, which is the only honest state after a choice
+    // the server would not confirm.
+    expect(result.current.answers).toEqual([]);
+  });
+
+  it("never overwrites what a person already said about one of them", async () => {
+    stubAuthorizedReply();
+    const { result } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      undefined,
+      EMPTY_DRAFT,
+      [addressClarify],
+    );
+
+    act(() => {
+      result.current.dismissClarify(addressClarify.id);
+    });
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(result.current.answers).toContainEqual(
+        expect.objectContaining({ clarifyId: entityClarify.id }),
+      ),
+    );
+    const sibling = result.current.answers.filter(
+      (answer) => answer.clarifyId === addressClarify.id,
+    );
+    // One record, and it is theirs: the review's skipped tail names a question
+    // the reader declined and stays silent about one the pick retired, so a
+    // retirement written over a human dismissal loses the reader's own answer.
+    expect(sibling).toHaveLength(1);
+    expect(sibling[0]?.autoResolved).toBeUndefined();
+    expect(sibling[0]?.dismissed).toBe(true);
   });
 });
 

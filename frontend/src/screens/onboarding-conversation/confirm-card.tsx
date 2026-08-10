@@ -9,7 +9,7 @@ import {
 import type { ChangeEvent } from "react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
-import { Avatar, Button } from "../../design-system/atoms";
+import { Avatar, Button, Disclosure } from "../../design-system/atoms";
 import {
   ConfidenceMeter,
   type Evidence,
@@ -1024,14 +1024,16 @@ function FactTypeGroup({
   t: ReturnType<typeof useT>;
 }>) {
   return (
-    <details
+    <Disclosure
       className="ob-triage-fact-type"
       open={facts.length <= FACT_GROUP_OPEN_MAX}
+      summary={
+        <>
+          {coldFieldLabel(field, t)}
+          <span className="ob-triage-fact-type-count">{facts.length}</span>
+        </>
+      }
     >
-      <summary className="ob-triage-fact-type-head">
-        <span>{coldFieldLabel(field, t)}</span>
-        <span>{facts.length}</span>
-      </summary>
       <ul className="ob-triage-fact-rows">
         {facts.map((fact) => (
           <FactRow
@@ -1042,7 +1044,7 @@ function FactTypeGroup({
           />
         ))}
       </ul>
-    </details>
+    </Disclosure>
   );
 }
 

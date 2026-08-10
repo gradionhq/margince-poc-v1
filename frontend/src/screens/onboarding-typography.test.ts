@@ -30,6 +30,15 @@ function declarationsOf(css: string, property: RegExp): string[] {
   return [...code.matchAll(property)].map((match) => match[0]);
 }
 
+// The whole value, not a substring of it. Unanchored, `allow` passed anything
+// that CONTAINED a token — `calc(var(--fs-body) + 1px)` and
+// `var(--fs-body) /* really 15px */ 15px` alike — which is the one thing a
+// token gate exists to refuse, so the gate agreed with itself and proved
+// nothing.
+function declaredValue(declaration: string): string {
+  return declaration.slice(declaration.indexOf(":") + 1).trim();
+}
+
 const TYPE_RULES: ReadonlyArray<{
   what: string;
   find: RegExp;
@@ -39,22 +48,22 @@ const TYPE_RULES: ReadonlyArray<{
   {
     what: "font-size",
     find: /font-size\s*:\s*[^;}]+/g,
-    allow: /var\(--fs-[\w-]+\)|inherit/,
+    allow: /^(?:var\(--fs-[\w-]+\)|inherit)$/,
   },
   {
     what: "font-weight",
     find: /font-weight\s*:\s*[^;}]+/g,
-    allow: /var\(--fw-[\w-]+\)|inherit/,
+    allow: /^(?:var\(--fw-[\w-]+\)|inherit)$/,
   },
   {
     what: "line-height",
     find: /line-height\s*:\s*[^;}]+/g,
-    allow: /var\(--lh-[\w-]+\)|inherit/,
+    allow: /^(?:var\(--lh-[\w-]+\)|inherit)$/,
   },
   {
     what: "letter-spacing",
     find: /letter-spacing\s*:\s*[^;}]+/g,
-    allow: /var\(--tracking-[\w-]+\)|inherit|normal/,
+    allow: /^(?:var\(--tracking-[\w-]+\)|inherit|normal)$/,
   },
 ];
 
@@ -72,7 +81,7 @@ describe("the onboarding type scale", () => {
         const css = readFileSync(sheet, "utf8");
         for (const declaration of declarationsOf(css, find)) {
           expect(
-            allow.test(declaration),
+            allow.test(declaredValue(declaration)),
             `${sheet.split("/").slice(-2).join("/")}: "${declaration.trim()}" — use the ${what} tokens from tokens.css`,
           ).toBe(true);
         }

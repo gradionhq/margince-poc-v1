@@ -2577,7 +2577,7 @@ export const vi = {
   "ob.conv.voice.resultSub":
     "Hãy đọc mẫu trước. Thấy đúng thì xác nhận. Thấy lệch thì thêm nguồn và tôi dựng lại.",
   "ob.conv.voice.resultSubNoSample":
-    "Kho văn bản còn nhỏ nên chưa có bản nháp mẫu. Đây là điều lần dựng học được về cách bạn viết.",
+    "Kho văn bản còn nhỏ nên chưa có bản nháp mẫu. Đây là điều lần dựng học được. Hãy thêm nguồn.",
   "ob.conv.voice.resultContinue": "Đúng giọng của tôi",
   "ob.conv.voice.sampleEyebrow": "Chỉ là mẫu, chưa gửi",
   "ob.conv.voice.sampleAnother": "Tình huống khác",

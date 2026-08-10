@@ -1826,7 +1826,7 @@ export const de = {
   "ob.readTrustBody": "Ich speichere nichts, bevor du es bestätigst.",
   "ob.coreIntroTitle": "Zuerst muss ich dein rechtliches Unternehmen kennen.",
   "ob.coreIntroBody":
-    "Ich brauche Firmenname, Anschrift und USt- oder Registernummer. Dann lerne ich, was ihr verkauft.",
+    "Ich brauche Firmenname, Anschrift und USt- oder Registernummer. Dann lerne ich, was ihr verkauft und an wen.",
   "ob.coreLegalKicker": "Ich beginne mit der rechtlichen Identität",
   "ob.corePathLabel": "Was ich lerne",
   "ob.corePathLegal": "Rechtliche Identität",
@@ -2344,7 +2344,7 @@ export const de = {
   "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
   "ob.s4.capturedTitle": "Postfach verbunden",
   "ob.s4.capturedBody":
-    "Dein CRM baut sich selbst. Neue Post landet hier, sobald der erste Durchlauf läuft.",
+    "Dein CRM baut sich selbst. Neue Post landet hier, sobald der erste Durchlauf läuft, meist in Minuten.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.notNow": "Nicht jetzt",

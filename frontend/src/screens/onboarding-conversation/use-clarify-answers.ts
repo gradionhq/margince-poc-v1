@@ -8,7 +8,11 @@ import type { CompanyDraft } from "../onboarding";
 import { onboardingDraftPayload } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ClarifyAnswer } from "./company-proposal";
-import { isCompanyField, legalEntityForOption } from "./company-proposal";
+import {
+  isCompanyField,
+  LEGAL_BLOCK,
+  legalEntityForOption,
+} from "./company-proposal";
 import { onboardingLocale } from "./onboarding-locale";
 
 // Clarify answering with server authorization: a clicked option travels as
@@ -149,6 +153,49 @@ export function useClarifyAnswers({
     );
   }, []);
 
+  // A legal-entity pick settles the whole legal block, so the sibling
+  // questions about that block are already decided by the answer — they retire
+  // instead of asking the human the same thing in different words.
+  //
+  // It runs on the AUTHORIZED path and nowhere else. Retiring at the moment of
+  // the click, as this once did, survives a rejected authorization: the pick
+  // itself rolls back and re-opens, but the siblings stay retired, so the
+  // review hides fields nobody decided and Continue rides on the old draft.
+  // The same reason it is not run for a "keep what I already have" reply, which
+  // authorizes no change and therefore fills no block.
+  //
+  // A sibling the human has already answered or dismissed keeps THEIR record:
+  // a retirement is what the machine concluded, and it never overwrites what a
+  // person said about the same question.
+  const retireLegalSiblings = useCallback(
+    (answeredId: string) => {
+      const questions = proposalRef.current?.open_questions ?? [];
+      const answered = questions.find((question) => question.id === answeredId);
+      if (answered === undefined || !LEGAL_BLOCK.has(answered.field)) {
+        return;
+      }
+      setAnswers((current) => {
+        const decided = new Set(current.map((answer) => answer.clarifyId));
+        const retired: ClarifyAnswer[] = questions
+          .filter(
+            (question) =>
+              question.id !== answeredId &&
+              LEGAL_BLOCK.has(question.field) &&
+              !decided.has(question.id),
+          )
+          .map((question) => ({
+            clarifyId: question.id,
+            field: question.field,
+            value: "",
+            dismissed: true,
+            autoResolved: true,
+          }));
+        return retired.length === 0 ? current : [...current, ...retired];
+      });
+    },
+    [proposalRef],
+  );
+
   const selectOption = useMutation({
     mutationFn: async (selection: OptionSelection): Promise<MessageReply> => {
       const { data, error } = await api.POST("/onboarding/company/messages", {
@@ -188,6 +235,7 @@ export function useClarifyAnswers({
           applyChanges,
           applyLegalEntity,
         );
+        retireLegalSiblings(selection.clarifyId);
       } else if (changeNeeded) {
         rollback(selection.clarifyId);
         setFailure({ kind: "unconfirmed" });
@@ -241,8 +289,11 @@ export function useClarifyAnswers({
   // written to the field, so there is nothing for the server to confirm.
   // Recording it as an answer stops the question from counting as an open
   // decision; the confirm resolutions map it per its comparison kind.
+  // This is a PERSON declining a question, always: the one retirement the
+  // machine performs is retireLegalSiblings above, which records itself. No
+  // flag to pass, so no call site can file its own conclusion as a human's.
   const dismissClarify = useCallback(
-    (clarifyId: string, autoResolved = false) => {
+    (clarifyId: string) => {
       const clarify = (proposalRef.current?.open_questions ?? []).find(
         (question) => question.id === clarifyId,
       );
@@ -252,13 +303,7 @@ export function useClarifyAnswers({
       setFailure(null);
       setAnswers((current) => [
         ...current.filter((answer) => answer.clarifyId !== clarifyId),
-        {
-          clarifyId,
-          field: clarify.field,
-          value: "",
-          dismissed: true,
-          autoResolved,
-        },
+        { clarifyId, field: clarify.field, value: "", dismissed: true },
       ]);
     },
     [proposalRef],

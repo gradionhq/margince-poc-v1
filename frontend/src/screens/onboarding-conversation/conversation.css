@@ -2955,64 +2955,60 @@
  */
 .ob-triage-fact-type {
   margin-top: var(--space-3);
+  /* The atom's own top rule and padding belong to a disclosure standing at the
+     foot of a card; an accordion item in a stack of them is a bordered box. */
+  padding-top: 0;
+  margin-bottom: 0;
   border: 1px solid var(--borderSubtle);
+  border-top: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
   overflow: hidden;
 }
 
-.ob-triage-fact-type-head {
-  display: flex;
-  align-items: center;
+.ob-triage-fact-type > .disclosure-summary {
   gap: var(--space-2);
-  margin: 0;
   padding: var(--space-3);
   color: var(--textPrimary);
-  font-family: var(--f-body);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tracking-normal);
-  list-style: none;
-  cursor: pointer;
   transition: background 0.12s ease;
 }
 
-.ob-triage-fact-type-head::-webkit-details-marker {
-  display: none;
-}
-
-.ob-triage-fact-type-head:hover {
+.ob-triage-fact-type > .disclosure-summary:hover {
   background: var(--bgHover);
+  color: var(--textPrimary);
 }
 
-.ob-triage-fact-type-head:focus-visible {
-  outline: 2px solid var(--accent);
+.ob-triage-fact-type > .disclosure-summary:focus-visible {
   outline-offset: -2px;
+  border-radius: 0;
 }
 
-/* The caret leads the row and turns where a caret turns. A fixed square holds
-   it, so the type's name starts on the same x whether the item is open or
-   shut — a glyph that changes width moves the label under the reader's eye. */
-.ob-triage-fact-type-head::before {
-  content: "";
-  inline-size: 8px;
-  block-size: 8px;
-  flex: none;
-  border-inline-end: 1.5px solid var(--textMeta);
-  border-block-end: 1.5px solid var(--textMeta);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
+/* The atom's chevron is the caret, turned where a caret turns. The item used
+   to draw a second one of its own — two disclosures on one screen, disagreeing
+   about their own arrow, which is exactly what the shared atom prevents. */
+.ob-triage-fact-type[open] > .disclosure-summary .disclosure-chevron {
+  transform: rotate(90deg);
 }
 
-.ob-triage-fact-type[open] .ob-triage-fact-type-head::before {
-  transform: rotate(45deg);
+/* The summary's label carries the row, so it stretches rather than shrink-
+   wrapping the type's name: the count below rides to the far end on its own
+   auto margin, and a shrink-wrapped label would strand it mid-row. */
+.ob-triage-fact-type > .disclosure-summary > .t-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  color: var(--textPrimary);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The count is the part that has to survive the fold: it is what tells the
    reader how much is behind a shut item, so it sits in a chip of its own at
    the row's far end rather than trailing the name as plain text. */
-.ob-triage-fact-type-head > span:last-child {
+.ob-triage-fact-type-count {
   margin-inline-start: auto;
   padding: 0 var(--space-2);
   border-radius: var(--r-full);
@@ -3020,6 +3016,12 @@
   color: var(--textMeta);
   font-size: var(--fs-meta);
   font-weight: var(--fw-medium);
+}
+
+/* The atom wraps its children; the rows are the panel, so the wrapper adds
+   nothing of its own between the head's rule and them. */
+.ob-triage-fact-type > .disclosure-body {
+  margin-top: 0;
 }
 
 /* The panel the head opens, inset from the head's own edges so the rows read

@@ -188,16 +188,19 @@ export function OAuthConnectPanel({
           body={problemMessageOf(connect.error, t)}
         />
       )}
-      {/* What the grant covers, and the consent-screen warning the provider
-          shows for a self-hosted app. Both are true and both matter to
-          somebody; neither is what the reader is deciding at this moment,
-          which is whether to press Connect. */}
+      {/* What the grant covers is background: true, and not what the reader is
+          deciding at this moment, which is whether to press Connect. */}
       <Disclosure summary={t("ob.s4.accessToggle")}>
         <p className="spoken-hint">
           <ShieldCheck aria-hidden /> {t(copy.hint)}
         </p>
-        <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
       </Disclosure>
+      {/* The warning stays on the surface. It describes the NEXT screen — the
+          provider calls a self-hosted app unverified — so a reader who meets
+          that screen without having been told reasonably concludes something
+          is wrong with the thing they just pressed. A caution about what a
+          button does belongs beside the button, never behind a fold. */}
+      <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
       <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
