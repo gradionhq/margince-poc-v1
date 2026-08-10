@@ -584,6 +584,7 @@ export const vi = {
   "co.strip.fin.unmapped": "Chưa khớp với khách hàng nào",
   "co.strip.fin.syncing": "Đang đồng bộ…",
   "co.strip.fin.stale": "Đồng bộ gần nhất thất bại — số liệu có thể đã cũ",
+  "co.strip.fin.withheld": "Bạn không có quyền xem tài chính của tài khoản này",
   "co.strip.fin.error": "Không đọc được",
   "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",

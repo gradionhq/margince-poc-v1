@@ -18,7 +18,12 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, throwProblem, useFinanceSummary } from "./common";
+import {
+  problemCodeOf,
+  problemMessageOf,
+  throwProblem,
+  useFinanceSummary,
+} from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -2138,7 +2143,11 @@ function FinanceStat({
 }>) {
   // The SAME query the finance card runs, so the two readings on one page
   // agree and the second one costs no request.
-  const { data, isPending } = useFinanceSummary(orgId);
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  // A refusal is not a failure and neither is a setup gap. A reader whose role
+  // cannot see finance told to "connect your accounting" is sent to a settings
+  // page to fix a permission — the one thing they cannot fix from there.
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
   const amount =
     reading === "netInvoiced" ? data?.net_invoiced : data?.open_balance;
   // No figure is not €0, and the six reasons there is none are not one reason.
@@ -2150,7 +2159,14 @@ function FinanceStat({
       <StatCard
         label={t(`co.strip.${reading}`)}
         value={t("co.strip.financeUnknown")}
-        detail={t(financeDetailKey(isPending, data?.state))}
+        detail={t(
+          financeDetailKey({
+            pending: isPending,
+            withheld,
+            failed: isError && !withheld,
+            state: data?.state,
+          }),
+        )}
       />
     );
   }
@@ -2170,12 +2186,27 @@ function FinanceStat({
 // Why there is no figure, in the reader's terms. Each state has its own fix,
 // and naming the wrong one costs the reader a trip to a settings page they did
 // not need.
-function financeDetailKey(
-  pending: boolean,
-  state?: components["schemas"]["FinanceSummaryState"],
-): MessageKey {
+function financeDetailKey({
+  pending,
+  withheld,
+  failed,
+  state,
+}: Readonly<{
+  pending: boolean;
+  withheld: boolean;
+  failed: boolean;
+  state?: components["schemas"]["FinanceSummaryState"];
+}>): MessageKey {
   if (pending) {
     return "co.strip.fin.loading";
+  }
+  // Both before the state switch: with no answer there is no state to read,
+  // and guessing one from its absence is how a denial became setup advice.
+  if (withheld) {
+    return "co.strip.fin.withheld";
+  }
+  if (failed) {
+    return "co.strip.fin.error";
   }
   switch (state) {
     case "unmapped":

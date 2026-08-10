@@ -108,6 +108,7 @@ function stub(
   status = 200,
   account: unknown = org,
   finance: unknown = { organization_id: "o-1", state: "no_connection" },
+  financeStatus = 200,
 ) {
   // The paths actually requested. A test proves the page did NOT refetch by
   // counting these rather than by trusting that it did not.
@@ -121,7 +122,7 @@ function stub(
         return jsonResponse(three60, status);
       }
       if (pathname.endsWith("/finance-summary")) {
-        return jsonResponse(finance);
+        return jsonResponse(finance, financeStatus);
       }
       if (pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
@@ -1777,6 +1778,44 @@ describe("the money slot says WHY it has no figure", () => {
     await strip();
     expect(await screen.findByText(/186,420/)).toBeTruthy();
     expect(await screen.findByText(/Last sync failed/)).toBeTruthy();
+  });
+
+  // A denial and a setup gap are opposite problems. Sending a reader whose
+  // role cannot see finance to a settings page asks them to fix the one thing
+  // they have no way to fix from there.
+  it("says the reading is withheld rather than telling them to set it up", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      {
+        type: "about:blank",
+        title: "Forbidden",
+        status: 403,
+        code: "permission_denied",
+      },
+      403,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(
+      await screen.findByText("You may not see this account's finance"),
+    ).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("says the read failed rather than that nothing is connected", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      { type: "about:blank", title: "Server error", status: 500 },
+      500,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(await screen.findByText("Could not be read")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
   it("names the source beside a real figure", async () => {

@@ -583,6 +583,7 @@ export const en = {
   "co.strip.fin.unmapped": "Not matched to a customer yet",
   "co.strip.fin.syncing": "Syncing…",
   "co.strip.fin.stale": "Last sync failed — figure may be out of date",
+  "co.strip.fin.withheld": "You may not see this account's finance",
   "co.strip.fin.error": "Could not be read",
   "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",

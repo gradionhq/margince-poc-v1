@@ -589,6 +589,8 @@ export const de = {
   "co.strip.fin.syncing": "Wird synchronisiert…",
   "co.strip.fin.stale":
     "Letzte Synchronisierung fehlgeschlagen — Wert evtl. veraltet",
+  "co.strip.fin.withheld":
+    "Du darfst die Finanzdaten dieses Accounts nicht sehen",
   "co.strip.fin.error": "Konnte nicht gelesen werden",
   "co.strip.fin.loading": "Wird geladen…",
   "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",
