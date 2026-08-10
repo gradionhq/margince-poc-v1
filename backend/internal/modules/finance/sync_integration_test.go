@@ -93,7 +93,14 @@ func setupFinance(t *testing.T) *financeEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(pool)
+	// The mirror's base currency is a fixed input here, not a thing under
+	// test: this suite is about the sync pass — the hash discipline, the
+	// derived status, the credit-note placement. Injecting the literal keeps
+	// it that way, and keeps the suite indifferent to where the installation
+	// stores its currency.
+	e.store = NewStore(pool, func(context.Context, pgx.Tx) (string, error) {
+		return "EUR", nil
+	})
 
 	opCtx := principal.WithWorkspaceID(context.Background(), e.ws)
 	opCtx = principal.WithCorrelationID(opCtx, ids.NewV7())
@@ -297,13 +304,13 @@ func TestCrossingADueDateDoesNotRewriteTheLedger(t *testing.T) {
 	e := setupFinance(t)
 	ctx, provider := e.ctx, e.provider()
 
-	atEpoch := NewStore(e.store.pool).WithClock(func() time.Time { return offlineEpoch })
+	atEpoch := NewStore(e.store.pool, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch })
 	if _, err := atEpoch.SyncConnection(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	// A year later, with the SAME source. Every open invoice is now long past
 	// due, so a status-in-the-hash implementation would rewrite them all.
-	later := NewStore(e.store.pool).WithClock(func() time.Time { return offlineEpoch.AddDate(1, 0, 0) })
+	later := NewStore(e.store.pool, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch.AddDate(1, 0, 0) })
 	second, err := later.SyncConnection(ctx, provider)
 	if err != nil {
 		t.Fatal(err)

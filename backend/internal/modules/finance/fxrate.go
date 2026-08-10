@@ -12,14 +12,8 @@ package finance
 // rate" — not 1, which would silently sum dollars into euros.
 
 import (
-	"context"
-	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // The rate and the date it froze on are one fact (FIN-PARAM-7), so they are
@@ -32,15 +26,4 @@ func fxRateToBase(inv SourceInvoice, base string) (*float64, *time.Time) {
 	identity := 1.0
 	issued := inv.IssuedOn
 	return &identity, &issued
-}
-
-// baseCurrency reads the workspace's reporting currency.
-func baseCurrency(ctx context.Context, tx pgx.Tx) (string, error) {
-	var base string
-	if err := tx.QueryRow(ctx,
-		`SELECT base_currency FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
-		return "", fmt.Errorf("read the workspace's base currency: %w", err)
-	}
-	return base, nil
 }

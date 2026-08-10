@@ -28,8 +28,8 @@ type Handlers struct {
 }
 
 // NewHandlers wires the transport over the RLS-bound app pool.
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+func NewHandlers(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) Handlers {
+	return Handlers{store: NewStore(pool, baseCurrency)}
 }
 
 // pageInfo renders the store's keyset page onto the contract's PageInfo
