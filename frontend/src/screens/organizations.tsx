@@ -2008,6 +2008,7 @@ function CompanyPage({
       // rail standing beside it would be two things in one space, which no
       // mockup draws. Absent rather than narrowed: a rail squeezed to a third
       // of its width is a column of broken cards.
+      asideLabel={t("record.accountContext")}
       aside={
         composing ? undefined : (
           <CompanyRail
