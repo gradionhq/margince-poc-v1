@@ -122,24 +122,25 @@ test.describe("company record — the mockup's page shape", () => {
     ).toHaveCount(4);
   });
 
-  // The mockups draw six tiles, and the card can build six. It does not draw
+  // The mockups draw six tiles and the card can build six, but it does not draw
   // six on every account ON PURPOSE: a tile appears only when it has something
   // to say, so an account with no meeting booked and no open signal shows
-  // fewer. Asserting a fixed six would demand the card invent the two.
+  // fewer. A fixed count would demand the card invent the missing ones.
   //
-  // What is asserted is the shape the mockup fixes: the tiles are a grid of
-  // more than the three the page shipped, and the one the six-tile row added —
-  // what was last said — is among them.
+  // So this names the two tiles this fixture's data guarantees — an open task
+  // and a logged exchange — by their own hook. The rest depend on a booked
+  // meeting, a live deal and an open signal, which this account may not have.
   test("Today on this account draws its tiles, including the last exchange", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
-    const tiles = page.locator(".today-tile");
-    expect(await tiles.count()).toBeGreaterThan(3);
+    // Anchored on the tile's own data hook, never on drawn copy: this suite
+    // pins layout, and a translation edit must not turn it red.
     await expect(
-      page.locator(".today-tile-label", {
-        hasText: "Letzter echter Austausch",
-      }),
+      page.locator('.today-tile[data-tile="interaction"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('.today-tile[data-tile="commitment"]'),
     ).toHaveCount(1);
   });
 

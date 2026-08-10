@@ -1456,6 +1456,7 @@ export const de = {
   "today.meeting.prepare": "Termin vorbereiten",
   "today.source.people": "die Kontakte",
   "today.source.signals": "die Signale",
+  "today.source.activities": "was gesprochen wurde",
   "today.commitment.overdueAtLeast": "{count}+ überfällig",
   "today.commitment.openAtLeast": "{count}+ offen",
   "today.route.ofThoseShown": "von den gezeigten Kontakten",

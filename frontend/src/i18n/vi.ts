@@ -1448,6 +1448,7 @@ export const vi = {
   "today.meeting.prepare": "Chuẩn bị cuộc họp",
   "today.source.people": "các liên hệ",
   "today.source.signals": "các tín hiệu",
+  "today.source.activities": "những gì đã trao đổi",
   "today.commitment.overdueAtLeast": "{count}+ quá hạn",
   "today.commitment.openAtLeast": "{count}+ đang mở",
   "today.route.ofThoseShown": "trong số liên hệ đang hiển thị",

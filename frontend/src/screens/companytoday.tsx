@@ -161,7 +161,15 @@ export function TodayOnThisAccount({
         <div className="today-body">
           <ul className="today-tiles">
             {items.map((item) => (
-              <li key={item.key} className="today-tile">
+              // The key's prefix names WHICH reading this is ("commitment",
+              // "interaction", …). Exposed so a layout test can anchor on the
+              // tile it means without matching drawn copy, which would make a
+              // translation edit fail a layout suite.
+              <li
+                key={item.key}
+                className="today-tile"
+                data-tile={item.key.split(":")[0]}
+              >
                 <span className="today-tile-label">
                   <item.icon size={14} aria-hidden="true" />
                   {item.label}
@@ -274,6 +282,7 @@ const TODAY_SOURCES: ReadonlyArray<{ section: string; label: MessageKey }> = [
   { section: "people", label: "today.source.people" },
   { section: "deals", label: "today.source.deals" },
   { section: "signals", label: "today.source.signals" },
+  { section: "activities", label: "today.source.activities" },
 ];
 
 function TodayWithheld({ view }: Readonly<{ view: Organization360 }>) {
@@ -562,25 +571,49 @@ function openRisk({ view, t }: TodayContext): TodayItem | null {
   };
 }
 
+// The kinds that are an EXCHANGE with the account. The 360's timeline section
+// is unfiltered — it carries tasks and meetings from the same table — and a
+// task is something we wrote to ourselves rather than something that was said.
+const EXCHANGE_KINDS: ReadonlySet<string> = new Set([
+  "email",
+  "call",
+  "meeting",
+  "note",
+  "whatsapp",
+  "telegram",
+]);
+
 /**
- * What was last said, and when — the mockup's sixth tile.
+ * What was last said, and when.
  *
- * The subject of the most recent logged activity, which is the one reading a
- * rep opens the page for that no other tile carries: the commitment tile says
- * what we OWE, this says what was SAID.
+ * The subject of the most recent exchange, which is the one reading a rep
+ * opens the page for that no other tile carries: the commitment tile says what
+ * we OWE, this says what was SAID.
  *
  * The pulse line under the title still names both directions with their dates,
  * and this does not replace it. The two answer different questions — the pulse
  * is who wrote last, which is the direction a rep acts on, and one tile could
  * only ever show the later of the two. This is what the exchange was ABOUT.
  *
+ * TWO FILTERS, and neither is cosmetic. The timeline carries every activity
+ * kind, so without them the head of the list can be a TASK — whose subject
+ * this file refuses to render twice — or a meeting scheduled for next week,
+ * which `occurred_at DESC` sorts to the top and which has not been said yet.
+ *
  * A FACT: the subject is what the activity says, quoted rather than judged.
- * Absent when the caller has no activity grant or nothing has been logged —
- * "no interactions" invented from a withheld section is the one conclusion
- * this page must not draw.
+ * The builder returns null both when the section was withheld and when nothing
+ * has been logged; it cannot tell those apart, and the withheld footer below
+ * is what tells a reader they are missing what was said.
  */
 function lastInteraction({ view, t, when }: TodayContext): TodayItem | null {
-  const latest = view.activities?.data?.[0];
+  const latest = (view.activities?.data ?? []).find(
+    (activity) =>
+      EXCHANGE_KINDS.has(activity.kind) &&
+      Boolean(activity.subject) &&
+      // Already happened, as of the read the rest of this page describes.
+      Boolean(activity.occurred_at) &&
+      (activity.occurred_at as string) <= view.as_of,
+  );
   if (!latest?.subject) {
     return null;
   }

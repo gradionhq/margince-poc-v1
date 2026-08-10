@@ -104,6 +104,19 @@ describe("what needs a person on this account today", () => {
     expect(withheld.textContent).toContain("open tasks");
   });
 
+  // The interaction tile reads the activities section, so a caller with no
+  // activity grant must be TOLD the tile is missing. Without the section in
+  // the footer's list it would vanish in silence, which reads as an account
+  // nobody has spoken to.
+  it("names the activities section when the reader may not see what was said", () => {
+    show({ ...BASE, sections_omitted: ["activities"] });
+
+    expect(screen.getByText(/Hidden from you/).textContent).toContain(
+      "what was said",
+    );
+    expect(screen.queryByText("Last meaningful interaction")).toBeNull();
+  });
+
   it("distinguishes a failed read from a quiet account", () => {
     show(undefined, { failed: true });
     // "We could not assemble this" and "nothing needs you" are different
@@ -166,6 +179,7 @@ describe("the tiles, and which record each one picks", () => {
             id: "act-1",
             workspace_id: "w-1",
             kind: "email",
+            is_done: false,
             subject: "Questions about implementation capacity",
             occurred_at: "2026-08-04T09:00:00Z",
             source: "manual",
@@ -177,6 +191,7 @@ describe("the tiles, and which record each one picks", () => {
             id: "act-2",
             workspace_id: "w-1",
             kind: "email",
+            is_done: false,
             subject: "An older thread",
             occurred_at: "2026-07-01T09:00:00Z",
             source: "manual",
@@ -194,6 +209,87 @@ describe("the tiles, and which record each one picks", () => {
       screen.getByText("Questions about implementation capacity"),
     ).toBeTruthy();
     expect(screen.queryByText("An older thread")).toBeNull();
+  });
+
+  // The timeline is unfiltered: tasks live in the same table and sort by the
+  // same column. A task is something we wrote to ourselves, and this file
+  // already refuses to render a task subject twice.
+  it("skips a task when picking what was last said", () => {
+    show({
+      ...BASE,
+      activities: {
+        data: [
+          {
+            id: "act-task",
+            workspace_id: "w-1",
+            kind: "task",
+            is_done: false,
+            subject: "Chase the signature",
+            occurred_at: "2026-08-06T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-08-06T09:00:00Z",
+            updated_at: "2026-08-06T09:00:00Z",
+          },
+          {
+            id: "act-mail",
+            workspace_id: "w-1",
+            kind: "email",
+            is_done: false,
+            subject: "Questions about capacity",
+            occurred_at: "2026-08-04T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-08-04T09:00:00Z",
+            updated_at: "2026-08-04T09:00:00Z",
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+
+    expect(screen.getByText("Questions about capacity")).toBeTruthy();
+    expect(screen.queryByText("Chase the signature")).toBeNull();
+  });
+
+  // `occurred_at DESC` sorts a meeting booked for next week to the head of the
+  // list. It has not been said yet, and the next-meeting tile already has it.
+  it("skips an activity that has not happened yet", () => {
+    show({
+      ...BASE,
+      activities: {
+        data: [
+          {
+            id: "act-future",
+            workspace_id: "w-1",
+            kind: "meeting",
+            is_done: false,
+            subject: "Executive alignment",
+            occurred_at: "2026-08-20T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-08-01T09:00:00Z",
+            updated_at: "2026-08-01T09:00:00Z",
+          },
+          {
+            id: "act-past",
+            workspace_id: "w-1",
+            kind: "email",
+            is_done: false,
+            subject: "Where we landed on scope",
+            occurred_at: "2026-08-04T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-08-04T09:00:00Z",
+            updated_at: "2026-08-04T09:00:00Z",
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+
+    expect(screen.getByText("Where we landed on scope")).toBeTruthy();
+    expect(screen.queryByText("Executive alignment")).toBeNull();
   });
 
   // A withheld activities section and a quiet account are different answers.
