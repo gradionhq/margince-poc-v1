@@ -2020,6 +2020,27 @@ const ENGAGEMENT_TONE: Partial<
   dormant: "warn",
 };
 
+// The cells the strip most commonly draws, reserved while the 360 is still
+// assembling: the strip sits in the record's masthead, so one that only
+// appears once the read lands steps the tab row and everything below it down
+// mid-scan. This skeleton is purely visual — it names no fact about the
+// account, which is why StateStrip itself returns null, not a skeleton, once
+// the read has resolved with nothing to show.
+const STATE_STRIP_SKELETON_CELLS = ["a", "b", "c", "d"] as const;
+
+export function StateStripSkeleton() {
+  return (
+    <section className="co-strip" aria-hidden="true">
+      {STATE_STRIP_SKELETON_CELLS.map((cell) => (
+        <section className="stat-card" key={cell}>
+          <Skeleton width="60%" height={11} />
+          <Skeleton width="80%" height={18} />
+        </section>
+      ))}
+    </section>
+  );
+}
+
 /**
  * StateStrip is the three readings the overview leads with (AC-company-13):
  * where the account stands, whose move it is, and what commercial work is open.

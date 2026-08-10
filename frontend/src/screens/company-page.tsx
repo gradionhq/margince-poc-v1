@@ -57,6 +57,7 @@ import {
   RECORD_ZONE,
   SignalsCard,
   StateStrip,
+  StateStripSkeleton,
   type SuggestionAction,
   TagsCard,
   useAcknowledgeOrganizationView,
@@ -1375,6 +1376,43 @@ function useCitedReceipt() {
   };
 }
 
+// Where the account stands, as the masthead's own band: the strip while the
+// 360 is still assembling, the readings once it has answered, and nothing at
+// all when it answered with nothing. Its own component because the labels it
+// needs — the lifecycle and relationship vocabularies — are the list screen's,
+// and threading two label maps through the page's render only obscured it.
+function CompanyStanding({
+  view,
+  loading,
+}: Readonly<{ view?: Organization360View; loading: boolean }>) {
+  const t = useT();
+  if (loading) {
+    return <StateStripSkeleton />;
+  }
+  if (!view) {
+    return null;
+  }
+  return (
+    <StateStrip
+      view={view}
+      lifecycleLabel={(value) =>
+        t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+      }
+      relationshipLabels={(values) =>
+        values
+          .map((value) =>
+            t(
+              RELATIONSHIP_TYPE_LABELS[
+                value as keyof typeof RELATIONSHIP_TYPE_LABELS
+              ],
+            ),
+          )
+          .join(" · ")
+      }
+    />
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -1477,9 +1515,17 @@ function CompanyPage({
       // tab. Nothing was dropped; see CompanyOverviewStack.
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
+      // Where the account stands and the tabs that switch what is read about
+      // it belong to the record's masthead, not to the overview: they were
+      // the same on every tab and still redrew themselves inside each one.
+      // The skeleton is drawn while the 360 is still in flight, not merely
+      // while there is no view: an overlay refusal or a failed read also
+      // leaves `view` undefined, and both are settled answers, not a strip
+      // still loading.
+      strip={<CompanyStanding view={view} loading={loading} />}
+      tabs={tabs}
       {...slots}
     >
-      {tabs}
       {/* Overlay refuses the whole company page, not one tab of it: the
           partner extension and the field history are native records the
           mirror does not hold, so switching tabs must not walk around the
@@ -1488,29 +1534,6 @@ function CompanyPage({
       {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
-      )}
-      {/* The strip leads, before any prose: where the account stands, whose
-          move it is, and what work is open. Three readings a rep can act on
-          without reading a sentence — and the one that replaced a number
-          nobody could scale. */}
-      {tab === "overview" && view && (
-        <StateStrip
-          view={view}
-          lifecycleLabel={(value) =>
-            t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
-          }
-          relationshipLabels={(values) =>
-            values
-              .map((value) =>
-                t(
-                  RELATIONSHIP_TYPE_LABELS[
-                    value as keyof typeof RELATIONSHIP_TYPE_LABELS
-                  ],
-                ),
-              )
-              .join(" · ")
-          }
-        />
       )}
       {/* What needs a person, before anything that merely reports state. It is
           assembled from sections the page already read — open tasks, the
