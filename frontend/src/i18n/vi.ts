@@ -1457,6 +1457,7 @@ export const vi = {
   "today.tile.commitment": "Cam kết kế tiếp",
   "today.tile.meeting": "Cuộc họp kế tiếp",
   "today.tile.route": "Đường tiếp cận tốt nhất",
+  "today.tile.lastInteraction": "Trao đổi gần nhất",
   "today.tile.opportunity": "Cơ hội đang chạy",
   "today.tile.risk": "Rủi ro",
   "today.commitment.overdueCount": "{count} quá hạn",

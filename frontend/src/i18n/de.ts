@@ -1465,6 +1465,7 @@ export const de = {
   "today.tile.commitment": "Nächste Zusage",
   "today.tile.meeting": "Nächster Termin",
   "today.tile.route": "Bester Weg hinein",
+  "today.tile.lastInteraction": "Letzter echter Austausch",
   "today.tile.opportunity": "Laufende Opportunity",
   "today.tile.risk": "Risiko",
   "today.commitment.overdueCount": "{count} überfällig",

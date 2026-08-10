@@ -1448,6 +1448,7 @@ export const en = {
   "today.tile.commitment": "Next commitment",
   "today.tile.meeting": "Next meeting",
   "today.tile.route": "Best route",
+  "today.tile.lastInteraction": "Last meaningful interaction",
   "today.tile.opportunity": "Active opportunity",
   "today.tile.risk": "Risk",
   "today.commitment.overdueCount": "{count} overdue",

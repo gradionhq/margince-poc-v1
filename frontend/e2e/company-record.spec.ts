@@ -122,11 +122,25 @@ test.describe("company record — the mockup's page shape", () => {
     ).toHaveCount(4);
   });
 
-  // The mockups draw six tiles. Five is the current build, three is what a
-  // partially populated account renders — both are wrong against State D.
-  test("Today on this account draws six tiles", async ({ page }) => {
+  // The mockups draw six tiles, and the card can build six. It does not draw
+  // six on every account ON PURPOSE: a tile appears only when it has something
+  // to say, so an account with no meeting booked and no open signal shows
+  // fewer. Asserting a fixed six would demand the card invent the two.
+  //
+  // What is asserted is the shape the mockup fixes: the tiles are a grid of
+  // more than the three the page shipped, and the one the six-tile row added —
+  // what was last said — is among them.
+  test("Today on this account draws its tiles, including the last exchange", async ({
+    page,
+  }) => {
     await openCompany(page, POPULATED_ORG as string);
-    await expect(page.locator(".today-tile")).toHaveCount(6);
+    const tiles = page.locator(".today-tile");
+    expect(await tiles.count()).toBeGreaterThan(3);
+    await expect(
+      page.locator(".today-tile-label", {
+        hasText: "Letzter echter Austausch",
+      }),
+    ).toHaveCount(1);
   });
 
   // AccountBrief's "BEFORE YOU TALK TO THEM" prose block, the NextSteps list

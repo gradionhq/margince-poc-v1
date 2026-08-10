@@ -154,6 +154,59 @@ describe("the tiles, and which record each one picks", () => {
     consent: {},
   };
 
+  // The 360 serves activities newest-first (ORDER BY occurred_at DESC), so the
+  // head of the list is the most recent and this tile makes no ordering
+  // decision of its own.
+  it("says what the last exchange was about, from the newest activity", () => {
+    show({
+      ...BASE,
+      activities: {
+        data: [
+          {
+            id: "act-1",
+            workspace_id: "w-1",
+            kind: "email",
+            subject: "Questions about implementation capacity",
+            occurred_at: "2026-08-04T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-08-04T09:00:00Z",
+            updated_at: "2026-08-04T09:00:00Z",
+          },
+          {
+            id: "act-2",
+            workspace_id: "w-1",
+            kind: "email",
+            subject: "An older thread",
+            occurred_at: "2026-07-01T09:00:00Z",
+            source: "manual",
+            captured_by: "human:test",
+            created_at: "2026-07-01T09:00:00Z",
+            updated_at: "2026-07-01T09:00:00Z",
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+
+    expect(screen.getByText("Last meaningful interaction")).toBeTruthy();
+    expect(
+      screen.getByText("Questions about implementation capacity"),
+    ).toBeTruthy();
+    expect(screen.queryByText("An older thread")).toBeNull();
+  });
+
+  // A withheld activities section and a quiet account are different answers.
+  // "Nothing was said" invented from a section the caller may not read is the
+  // conclusion this page must never draw.
+  it("draws no interaction tile when there is nothing logged", () => {
+    show({
+      ...BASE,
+      activities: { data: [], page: { has_more: false, next_cursor: null } },
+    });
+    expect(screen.queryByText("Last meaningful interaction")).toBeNull();
+  });
+
   it("names the head of the next-steps list, which the server already ordered", () => {
     show({
       ...BASE,
