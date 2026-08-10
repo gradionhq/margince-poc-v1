@@ -53,6 +53,7 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 
 // What each signal kind is, in words. The badge rendered the stored enum, so
 // a German reader met `buying_intent` and an English one met an identifier.
@@ -2026,18 +2027,16 @@ const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the three readings the overview leads with (AC-company-13):
- * where the account stands, whose move it is, and what commercial work is open.
+ * StateStrip is the KPI row directly under the header: SIX slots, and which
+ * six depends on where the account stands. A customer is asked about money and
+ * health; everyone else about pipeline, timing and engagement. Showing one set
+ * to both makes half of them noise.
  *
- * Each half is drawn only when the server answered it. A null engagement means
+ * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
  * from that would state a business conclusion the page has no basis for — the
  * one a rep would act on.
  */
-// The compact KPI row (plan §4.2): at most four cards, and WHICH four depends
-// on where the account stands. A customer is asked about money and health; a
-// prospect is asked about pipeline, timing and fit. Showing one set to both
-// makes half of them noise.
 //
 // What it must never render is the harder half of the rule, and every omission
 // below is one of its bullets: no €0 when the figure is unavailable, no
@@ -2068,49 +2067,74 @@ export function StateStrip({
   const customer = strip.account.lifecycle === "customer";
   return (
     <section className="co-strip" aria-label={t("co.strip.title")}>
-      {/* Four cards is the cap (§4.2). On a CUSTOMER the two money readings
-          lead, because "do they pay us, and on time?" is the question a
-          customer page is opened with — on everyone else there is no such
-          question and the account's own state leads instead. */}
-      {/* Where the account stands holds the first slot on every page. It is
-          the one reading that is true of every company, and a page that leads
-          with money on some accounts and with state on others gives the reader
-          no fixed place to look. */}
-      <StatCard
-        label={t("co.strip.account")}
-        value={lifecycleLabel(strip.account.lifecycle)}
-        detail={types.length > 0 ? relationshipLabels(types) : undefined}
-      />
-      {/* On a customer the second slot is money — "do they pay us?" is the
-          question their page is opened with, and it is the slot the mockup's
-          State D gives to net invoiced. On everyone else there are no invoices
-          to ask about and the question is when the next deal lands. */}
+      {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
+          and how it is held: what they have ever been worth, what lately,
+          what is outstanding, what is late, how late they usually are, and
+          whether the relationship stays that way.
+
+          Where the account STANDS is not among them. The mockups put
+          lifecycle and owner in the header beside the name, and repeating it
+          here would spend a money slot on a value the reader has already
+          passed. On a non-customer there are no invoices to ask about, so the
+          account's own state leads and the row keeps its shape. */}
       {customer ? (
-        <FinanceStat
-          orgId={orgId}
-          reading="netInvoiced"
-          locale={locale}
-          t={t}
-        />
+        <>
+          {/* Lifetime beside the trailing year, which is the comparison the
+              mockup draws: what this account has ever been worth, and what it
+              has been worth lately. Each refuses on its own — a widened window
+              can be unconvertible while the narrow one is not. */}
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoicedLifetime"
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoiced"
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="openInvoices"
+            locale={locale}
+            t={t}
+          />
+          {/* What is late, then how late they usually are: the amount is the
+              exception standing open, the median is the habit behind it. */}
+          <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
+          <PaidAfterDueStat orgId={orgId} t={t} />
+          {/* Health closes the row, as the mockup draws it: the money above is
+              what the account IS worth, and this is whether it stays that way. */}
+          <HealthStat health={view?.health} t={t} />
+        </>
       ) : (
-        <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
-      )}
-      {customer ? (
-        <HealthStat health={view?.health} t={t} />
-      ) : (
-        <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
-      )}
-      {/* The signal, when one is open, takes the last slot rather than adding
-          a fifth — the worst thing standing open is the more urgent reading. */}
-      {strip.signal ? (
-        <StatCard
-          label={t("co.strip.signal")}
-          value={signalKindLabel(strip.signal.kind, t)}
-          tone={signalTone(strip.signal.severity)}
-          detail={strip.signal.summary}
-        />
-      ) : (
-        <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
+        <>
+          {/* No invoices to ask about, so the account's own standing leads and
+              the commercial readings follow it. */}
+          <StatCard
+            label={t("co.strip.account")}
+            value={lifecycleLabel(strip.account.lifecycle)}
+            detail={types.length > 0 ? relationshipLabels(types) : undefined}
+          />
+          <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+          <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
+          <HealthStat health={view?.health} t={t} />
+          <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
+          {/* An open signal ADDS a sixth slot rather than replacing one: the
+              worst thing standing open is the most urgent reading on the row.
+              With none open the row is five, because an "all clear" nobody
+              asked for spends a slot saying a rule did not fire. */}
+          {strip.signal ? (
+            <StatCard
+              label={t("co.strip.signal")}
+              value={signalKindLabel(strip.signal.kind, t)}
+              tone={signalTone(strip.signal.severity)}
+              detail={strip.signal.summary}
+            />
+          ) : null}
+        </>
       )}
     </section>
   );
@@ -2130,6 +2154,16 @@ export function StateStrip({
  * simply has no money reading tells a reader nothing is missing; this one
  * tells them what to connect.
  */
+// Which field of the summary each strip slot reads. A map rather than a chain
+// of ternaries so a new slot is one line and cannot silently fall through to
+// the wrong figure.
+const FINANCE_READINGS = {
+  netInvoicedLifetime: (data?: FinanceSummary) => data?.net_invoiced_lifetime,
+  netInvoiced: (data?: FinanceSummary) => data?.net_invoiced,
+  openInvoices: (data?: FinanceSummary) => data?.open_balance,
+  overdue: (data?: FinanceSummary) => data?.overdue,
+} as const;
+
 function FinanceStat({
   orgId,
   reading,
@@ -2137,19 +2171,18 @@ function FinanceStat({
   t,
 }: Readonly<{
   orgId: string;
-  reading: "netInvoiced" | "openInvoices";
+  reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
   locale: Locale;
   t: ReturnType<typeof useT>;
 }>) {
-  // The SAME query the finance card runs, so the two readings on one page
-  // agree and the second one costs no request.
+  // The SAME query the finance card runs, so every reading on one page agrees
+  // and all but the first cost no request.
   const { data, isPending, isError, error } = useFinanceSummary(orgId);
   // A refusal is not a failure and neither is a setup gap. A reader whose role
   // cannot see finance told to "connect your accounting" is sent to a settings
   // page to fix a permission — the one thing they cannot fix from there.
   const withheld = isError && problemCodeOf(error) === "permission_denied";
-  const amount =
-    reading === "netInvoiced" ? data?.net_invoiced : data?.open_balance;
+  const amount = FINANCE_READINGS[reading](data);
   const caveat = staleDetailKey(data?.state);
   // No figure is not €0, and the six reasons there is none are not one reason.
   // "Connect your accounting" is wrong advice for a connection that exists and
@@ -2188,6 +2221,79 @@ function FinanceStat({
       source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
+}
+
+/**
+ * How late this customer pays, as the strip's sixth slot (FIN-FORM-3).
+ *
+ * Not a FinanceStat: the value is a count of DAYS rather than money, and the
+ * two directions read as opposite facts. A negative median means they pay
+ * BEFORE the due date, so it is rendered as "typically N days early" — the
+ * literal "-4 days after due" is a puzzle rather than a reading.
+ *
+ * A missing median has one reason the money slots do not share: the server
+ * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
+ * payment habit read off four invoices is an anecdote. That case says so.
+ * Delegating it to the money slots' reason would put "Nothing invoiced yet"
+ * beside a lifetime total of €186,420 — two slots on one row contradicting
+ * each other, and the wrong one stating a fact about the account.
+ */
+function PaidAfterDueStat({
+  orgId,
+  t,
+}: Readonly<{ orgId: string; t: ReturnType<typeof useT> }>) {
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const median = data?.median_days_after_due;
+  if (median == null) {
+    // A read that SUCCEEDED against a live connection and still carries no
+    // median is the sample floor. Every other reason — no source, unmapped,
+    // syncing, denied, failed — means the same for this slot as for the money
+    // beside it, so those keep the shared wording.
+    const settled = data?.state === "connected" || data?.state === "stale";
+    return (
+      <StatCard
+        label={t("co.strip.paidAfterDue")}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          settled && !isPending && !isError
+            ? "co.strip.fin.tooFewSettled"
+            : financeDetailKey({
+                pending: isPending,
+                withheld,
+                failed: isError && !withheld,
+                state: data?.state,
+              }),
+        )}
+      />
+    );
+  }
+  const caveat = staleDetailKey(data?.state);
+  return (
+    <StatCard
+      label={t("co.strip.paidAfterDue")}
+      value={medianDaysLabel(median, t)}
+      detail={caveat && t(caveat)}
+      source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
+    />
+  );
+}
+
+/**
+ * A median days-after-due as a sentence (FIN-FORM-3).
+ *
+ * Negative days mean they pay BEFORE the due date. "-4 days after due" is a
+ * puzzle; "typically 4 days early" is the reading. Shared by the KPI slot and
+ * the finance card so the two cannot come to describe earliness differently —
+ * spelled twice, only one of the copies would be changed.
+ */
+export function medianDaysLabel(
+  median: number,
+  t: ReturnType<typeof useT>,
+): string {
+  return median < 0
+    ? t("finance.medianEarly", { days: Math.abs(median) })
+    : t("finance.medianAfterDue", { days: median });
 }
 
 // The caveat on a figure that IS shown but is not current. Undefined when the
@@ -2373,7 +2479,7 @@ function CloseDateStat({
 // It reports the BALANCE of the exchange rather than its recency, because the
 // engagement card beside it already answers "whose move is it" — two cards
 // saying "in conversation" in different words is one card's worth of
-// information taking two of the four slots. A relationship where they write
+// information taking two slots of six. A relationship where they write
 // and we do not answer, and one where we write into silence, are both
 // "in conversation" by recency and are opposite problems.
 function HealthStat({

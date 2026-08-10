@@ -581,8 +581,11 @@ export const de = {
   "co.chip.linkedin": "LinkedIn",
   "co.chip.employees": "{band} Mitarbeitende",
   "co.chip.rowLabel": "Unternehmensdaten",
+  "co.strip.netInvoicedLifetime": "Netto fakturiert · gesamt",
   "co.strip.netInvoiced": "Netto fakturiert · 12 Monate",
   "co.strip.openInvoices": "Offene Rechnungen",
+  "co.strip.overdue": "Überfällig",
+  "co.strip.paidAfterDue": "Median nach Fälligkeit",
   "co.strip.financeUnknown": "—",
   "co.strip.fin.noConnection": "Buchhaltung verbinden",
   "co.strip.fin.unmapped": "Noch keinem Kunden zugeordnet",
@@ -594,6 +597,8 @@ export const de = {
   "co.strip.fin.errorFigure":
     "Letzte Synchronisierung fehlgeschlagen — evtl. nicht aktuell",
   "co.strip.fin.nothingBilled": "Noch nichts in Rechnung gestellt",
+  "co.strip.fin.tooFewSettled":
+    "Zu wenige bezahlte Rechnungen für eine Aussage",
   "co.strip.fin.error": "Konnte nicht gelesen werden",
   "co.strip.fin.loading": "Wird geladen…",
   "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",
