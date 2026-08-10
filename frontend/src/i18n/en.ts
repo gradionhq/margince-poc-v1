@@ -625,6 +625,7 @@ export const en = {
   "timeline.group.mayContinue": "may continue earlier",
   "tab.people": "People",
   "tab.timeline": "History",
+  "tab.documents": "Documents",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
