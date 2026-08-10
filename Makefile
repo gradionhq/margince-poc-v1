@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -224,6 +224,23 @@ fe-typecheck:
 ## Set BASE_URL to point the same suite at a live backend.
 frontend-e2e:
 	cd frontend && pnpm install --frozen-lockfile && pnpm e2e
+
+## e2e-company — the company record page against the V2 mockups in
+## docs/explanation/assets/company-record-page-v2/. Region ORDER and PRESENCE,
+## never pixels: it runs on the LIVE stack (make dev, then make seed-dev),
+## because the two states that must look right — a populated account and a
+## freshly imported one — are data states rather than fixtures.
+## Screenshots land OUTSIDE the repo for eyeball comparison against the PNGs.
+## Override E2E_ORG_POPULATED / E2E_ORG_SPARSE to aim it at other companies.
+E2E_SHOT_DIR ?= /tmp/e2e-company
+e2e-company:
+	@mkdir -p "$(E2E_SHOT_DIR)"
+	cd frontend && BASE_URL=$${BASE_URL:-http://localhost:8080} \
+		E2E_SHOT_DIR="$(E2E_SHOT_DIR)" \
+		E2E_ORG_POPULATED="$(E2E_ORG_POPULATED)" \
+		E2E_ORG_SPARSE="$(E2E_ORG_SPARSE)" \
+		pnpm exec playwright test company-record.spec.ts
+	@echo "screenshots: $(E2E_SHOT_DIR)"
 
 ## storybook — the component workbench on :6006 (the design-system catalog +
 ## the story surface fe-uat renders). Stories live beside their component as
