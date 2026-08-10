@@ -14,6 +14,8 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
+import { AssistantPanel } from "./assistant";
+import { AccountBrief } from "./company360";
 import {
   CompaniesScreen,
   CompanyScreen,
@@ -1618,12 +1620,29 @@ const stalledSuggestion = {
   evidence: [{ entity_type: "deal", entity_id: "d-1" }],
 };
 
+// The suggestion rows and the ask card are no longer ON the company page: no
+// V2 mockup draws either, and the record page dropped both with its topology
+// change. The components still ship and still own this behaviour, so these
+// suites mount them DIRECTLY rather than through a page that no longer renders
+// them — mounting the page instead would leave every "the card is absent"
+// assertion below passing for the wrong reason.
+function renderBriefFor(three60: unknown) {
+  render(
+    <AccountBrief
+      orgId="o-1"
+      view={three60 as never}
+      enabled
+      onOpenRecord={() => {}}
+      onPerform={() => {}}
+    />,
+  );
+}
+
 describe("CompanyScreen — next-step suggestions", () => {
   it("leads each suggestion with the reason the rule fired, and cites the record", async () => {
-    stubFetch(companyBackstop, {
-      org360: { ...org360, suggestions: [stalledSuggestion] },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = { ...org360, suggestions: [stalledSuggestion] };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1634,14 +1653,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   });
 
   it("names how many suggestions the card left out", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 3,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 3,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     // A truncated list with no count reads as "that is everything".
     await waitFor(() =>
@@ -1652,14 +1670,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when there is nothing left out", async () => {
     // Zero is the ordinary case, so the "N more" line must not render on it —
     // otherwise every card carries "0 more not shown here."
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 0,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 0,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1670,14 +1687,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when the count is absent", async () => {
     // Absent means the section was never computed. A "0 more" line would state a
     // fact about an account this read did not look at.
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: undefined,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: undefined,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1687,35 +1703,33 @@ describe("CompanyScreen — next-step suggestions", () => {
 
   it("says nothing at all when the account needs nothing", async () => {
     stubFetch(companyBackstop);
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor(org360);
 
-    await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
-    );
     // "No advice" is not something a rep acts on, so the card is absent
-    // rather than empty.
-    expect(screen.queryByText("Worth doing next")).toBeNull();
+    // rather than empty. Asserted against a MOUNTED brief: on a page that
+    // never renders one, this would hold no matter what the component did.
+    await waitFor(() =>
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
+    );
   });
 
   it("stays silent rather than claiming no advice when the section is withheld", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: undefined,
-        sections_omitted: ["suggestions"],
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: undefined,
+      sections_omitted: ["suggestions"],
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
     );
-    expect(screen.queryByText("Worth doing next")).toBeNull();
   });
 
   it("dismisses by fingerprint, and re-reads the 360 rather than hiding the row itself", async () => {
     let dismissed: unknown;
-    const { urls } = stubFetch(
+    stubFetch(
       async (url, method, request) => {
         if (method === "POST" && url.includes("/suggestions/dismiss")) {
           dismissed = await request.json();
@@ -1725,7 +1739,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1733,11 +1747,11 @@ describe("CompanyScreen — next-step suggestions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Not now" }));
 
     await waitFor(() => expect(dismissed).toBeTruthy());
+    // The server decides what survives: the card sends the fingerprint and
+    // does NOT hide the row itself. Whether the surrounding page then re-reads
+    // the 360 is the page's business, and this suite mounts the card alone.
     expect(dismissed).toEqual({ fingerprint: "fp-stalled-1" });
-    // The server decides what survives: the row goes when the re-read says so.
-    await waitFor(() =>
-      expect(urls.filter((u) => u.endsWith("/360")).length).toBeGreaterThan(1),
-    );
+    expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy();
   });
 
   it("says a dismissal failed instead of leaving the click looking like a miss", async () => {
@@ -1750,7 +1764,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1788,7 +1802,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1819,7 +1833,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1842,7 +1856,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(

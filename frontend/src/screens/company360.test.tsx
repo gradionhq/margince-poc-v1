@@ -12,8 +12,15 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
-import { PeopleCard } from "./company360";
+import { taskWriteKeys } from "./activitykeys";
+import {
+  AccountBrief,
+  NextSteps,
+  PeopleCard,
+  type SuggestionAction,
+} from "./company360";
 import { CompanyScreen } from "./organizations";
+import { TaskQuickActions, useTaskUpdate } from "./taskactions";
 
 // The company view's honesty rules, which are the whole point of the
 // composite read:
@@ -220,6 +227,57 @@ function render(ui: ReactNode) {
 
 function renderCompany() {
   render(<CompanyScreen id="o-1" />);
+}
+
+// The brief and the open-task list are no longer ON the company page — no
+// mockup draws either, and the record page dropped them with its V2 topology.
+// Both components are still shipped and still carry the reading logic these
+// suites pin (what changed since the last visit, how a citation is counted,
+// what an overdue task says), so the suites mount them DIRECTLY instead of
+// reaching for them through a page that no longer renders them.
+function renderNextSteps(
+  three60: ReturnType<typeof view>,
+  onOpenTask?: (step: { activity_id: string }) => void,
+) {
+  render(<NextSteps view={three60 as never} onOpenTask={onOpenTask} />);
+}
+
+// NextSteps plus the per-row verbs, which the list takes as a render slot
+// rather than owning. Mounting the two together is what pins the pairing the
+// suite is about: a row offers Done always and Snooze only when there is a
+// date to move.
+function NextStepsWithVerbs({
+  three60,
+}: Readonly<{ three60: ReturnType<typeof view> }>) {
+  const update = useTaskUpdate(taskWriteKeys("organization", "o-1"));
+  return (
+    <NextSteps
+      view={three60 as never}
+      onOpenTask={() => {}}
+      renderAction={(step) => (
+        <TaskQuickActions
+          activityId={step.activity_id}
+          dueAt={step.due_at}
+          update={update}
+        />
+      )}
+    />
+  );
+}
+
+function renderBrief(
+  three60: ReturnType<typeof view>,
+  onPerform: (action: SuggestionAction) => void = () => {},
+) {
+  render(
+    <AccountBrief
+      orgId="o-1"
+      view={three60 as never}
+      enabled
+      onOpenRecord={() => {}}
+      onPerform={onPerform}
+    />,
+  );
 }
 
 describe("company view — withheld sections", () => {
@@ -500,19 +558,18 @@ describe("company view — overlay mode", () => {
 
 describe("company view — what changed since the last visit", () => {
   it("counts only the dimensions it was allowed to count", async () => {
-    stub(
-      view({
-        since_last_visit: {
-          baseline_at: "2026-05-30T09:00:00Z",
-          new_activities: 3,
-          // Null, not zero: the caller has no deal grant, so this dimension
-          // was not counted at all and must not read as "nothing moved".
-          deal_stage_moves: null,
-          pending_proposals: 2,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      since_last_visit: {
+        baseline_at: "2026-05-30T09:00:00Z",
+        new_activities: 3,
+        // Null, not zero: the caller has no deal grant, so this dimension
+        // was not counted at all and must not read as "nothing moved".
+        deal_stage_moves: null,
+        pending_proposals: 2,
+      },
+    });
+    stub(three60);
+    renderBrief(three60);
 
     await waitFor(() =>
       expect(
@@ -528,17 +585,16 @@ describe("company view — what changed since the last visit", () => {
   });
 
   it("greets a first visit as a first visit, not as nothing having happened", async () => {
-    stub(
-      view({
-        since_last_visit: {
-          baseline_at: null,
-          new_activities: 0,
-          deal_stage_moves: 0,
-          pending_proposals: 0,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      since_last_visit: {
+        baseline_at: null,
+        new_activities: 0,
+        deal_stage_moves: 0,
+        pending_proposals: 0,
+      },
+    });
+    stub(three60);
+    renderBrief(three60);
 
     await waitFor(() =>
       expect(
@@ -551,25 +607,24 @@ describe("company view — what changed since the last visit", () => {
 
 describe("company view — next steps", () => {
   it("marks an overdue task and names what it is linked to", async () => {
-    stub(
-      view({
-        next_steps: {
-          data: [
-            {
-              activity_id: "a-1",
-              subject: "Send the renewal paperwork",
-              due_at: "2026-05-01T09:00:00Z",
-              overdue: true,
-              linked_deal_id: null,
-              linked_person_id: null,
-              assignee_id: null,
-            },
-          ],
-          page: emptyPage,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      next_steps: {
+        data: [
+          {
+            activity_id: "a-1",
+            subject: "Send the renewal paperwork",
+            due_at: "2026-05-01T09:00:00Z",
+            overdue: true,
+            linked_deal_id: null,
+            linked_person_id: null,
+            assignee_id: null,
+          },
+        ],
+        page: emptyPage,
+      },
+    });
+    stub(three60);
+    renderNextSteps(three60);
 
     await waitFor(() =>
       expect(screen.getByText("Send the renewal paperwork")).toBeTruthy(),
@@ -708,35 +763,33 @@ describe("company view — the citations under a finding", () => {
   });
 
   it("collapses several sources of one unopenable kind into one counted chip", async () => {
-    stub(
-      view({
-        suggestions: [
-          suggestion([
-            { entity_type: "activity", entity_id: "a-1" },
-            { entity_type: "activity", entity_id: "a-2" },
-            { entity_type: "activity", entity_id: "a-3" },
-          ]),
-        ],
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        suggestion([
+          { entity_type: "activity", entity_id: "a-1" },
+          { entity_type: "activity", entity_id: "a-2" },
+          { entity_type: "activity", entity_id: "a-3" },
+        ]),
+      ],
+    });
+    stub(three60);
+    renderBrief(three60);
     // Not "activityactivityactivity": one chip that says how many.
     await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
     expect(screen.queryAllByText("activity")).toHaveLength(0);
   });
 
   it("counts one record cited twice as one source", async () => {
-    stub(
-      view({
-        suggestions: [
-          suggestion([
-            { entity_type: "activity", entity_id: "a-1" },
-            { entity_type: "activity", entity_id: "a-1" },
-          ]),
-        ],
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        suggestion([
+          { entity_type: "activity", entity_id: "a-1" },
+          { entity_type: "activity", entity_id: "a-1" },
+        ]),
+      ],
+    });
+    stub(three60);
+    renderBrief(three60);
     await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
     expect(screen.queryByText("2 activities")).toBeNull();
   });
@@ -805,8 +858,9 @@ describe("company view — an open task can be acted on", () => {
   };
 
   it("renders the subject as a way to open the task, with the two verbs beside it", async () => {
-    stub(view({ next_steps: { data: [step], page: emptyPage } }));
-    renderCompany();
+    const three60 = view({ next_steps: { data: [step], page: emptyPage } });
+    stub(three60);
+    render(<NextStepsWithVerbs three60={three60} />);
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Send the retrofit proposal" }),
@@ -817,12 +871,11 @@ describe("company view — an open task can be acted on", () => {
   });
 
   it("offers no snooze for a task with no date to move", async () => {
-    stub(
-      view({
-        next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
+    });
+    stub(three60);
+    render(<NextStepsWithVerbs three60={three60} />);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Done" })).toBeTruthy(),
     );
@@ -1559,28 +1612,27 @@ describe("company view — the state strip", () => {
 
 describe("company view — advice you can act on", () => {
   it("offers the action the server named, and none where it named none", async () => {
-    stub(
-      view({
-        suggestions: [
-          {
-            kind: "no_reply",
-            fingerprint: "f1",
-            reason: "You reached out 15 days ago and nobody has come back.",
-            evidence: [],
-            action: { kind: "draft_reply", activity_id: "a-1" },
-          },
-          {
-            kind: "no_next_step",
-            fingerprint: "f2",
-            reason: "2 open deal(s) here and no task saying what happens next.",
-            evidence: [],
-            action: null,
-          },
-        ],
-        suggestions_dropped: 0,
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        {
+          kind: "no_reply",
+          fingerprint: "f1",
+          reason: "You reached out 15 days ago and nobody has come back.",
+          evidence: [],
+          action: { kind: "draft_reply", activity_id: "a-1" },
+        },
+        {
+          kind: "no_next_step",
+          fingerprint: "f2",
+          reason: "2 open deal(s) here and no task saying what happens next.",
+          evidence: [],
+          action: null,
+        },
+      ],
+      suggestions_dropped: 0,
+    });
+    stub(three60);
+    renderBrief(three60);
     await screen.findByText(/nobody has come back/);
 
     expect(screen.getByRole("button", { name: "Draft a reply" })).toBeTruthy();
@@ -1620,18 +1672,6 @@ describe("company view — the account's own tabs", () => {
     expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
       1,
     );
-  });
-
-  it("keeps Ask on the overview rather than following the history", async () => {
-    stub(view());
-    renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
-
-    // Asking is a tool for when the page did not answer the question. It
-    // belongs to the account, not to its chronology.
-    expect(screen.getByText("Ask Margince")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.queryByText("Ask Margince")).toBeNull();
   });
 });
 
