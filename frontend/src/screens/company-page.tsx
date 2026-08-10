@@ -1020,19 +1020,18 @@ function CompanyRecord({
   // asking the reader to pick the page they are already on.
   const tabs =
     visibleTabs.length > 1 ? (
-      <div className="co-tabs">
-        <SegmentedControl
-          options={visibleTabs}
-          value={tab}
-          onChange={onTab}
-          labels={{
-            overview: t("tab.overview"),
-            people: t("tab.people"),
-            timeline: t("tab.timeline"),
-            partner: t("tab.partner"),
-          }}
-        />
-      </div>
+      <SegmentedControl
+        options={visibleTabs}
+        value={tab}
+        onChange={onTab}
+        label={t("record.tabs")}
+        labels={{
+          overview: t("tab.overview"),
+          people: t("tab.people"),
+          timeline: t("tab.timeline"),
+          partner: t("tab.partner"),
+        }}
+      />
     ) : null;
 
   // Both tabs render inside ONE page. Partner used to be a different

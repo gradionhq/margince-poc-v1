@@ -198,6 +198,45 @@
   border-block-start: 1px solid var(--borderSubtle);
   padding-inline: var(--space-4);
 }
+/* The active tab is marked by a rule under it in the accent, the way a tab
+   has always said "you are here". As pills in a tinted track they read as a
+   filter control sitting on the record rather than as the record's own
+   navigation — which is what the SegmentedControl is everywhere else, and
+   why this restyles it here rather than in the control itself. */
+.record-tabs .segmented {
+  background: none;
+  border: 0;
+  padding: 0;
+  gap: var(--space-4);
+  /* Five tabs stop fitting somewhere under 340px. They wrap rather than
+     scroll: a scrolling strip hides the tabs past the edge and has to grow an
+     affordance to admit it, and a tab a reader cannot see is a tab they do
+     not know exists. A second row costs one line of height and hides
+     nothing. */
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.record-tabs .segmented button {
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  border-block-end: 2px solid transparent;
+  /* Asymmetric on purpose: the rule marks the tab, so it sits at the row's
+     own edge. Centred padding left it floating a line below the word it was
+     supposed to underline. */
+  padding: var(--space-3) 0 var(--space-2);
+  box-shadow: none;
+  color: var(--textMeta);
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
+}
+.record-tabs .segmented button[aria-pressed="true"] {
+  background: none;
+  border-block-end-color: var(--accent);
+  color: var(--textPrimary);
+  font-weight: var(--w-semibold);
+}
 
 .record-head {
   display: flex;
@@ -328,6 +367,27 @@
 .record-zones-aside {
   grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
 }
+/* Aside-first keeps the business column's identity but seats it on the
+   left, the way a ledger sheet holds its facts beside the story: the
+   story is the wide right-hand side, the readings sit where the eye
+   starts. DOM order stays main-then-aside so readers and tab order still
+   meet the story first. */
+.record-zones-aside-first {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+}
+.record-zones-aside-first .record-main {
+  grid-column: 2;
+  grid-row: 1;
+}
+.record-zones-aside-first .record-aside {
+  grid-column: 1;
+  grid-row: 1;
+}
+/* The plate spans the page above the columns: what the reader owes is
+   acted on before they choose a column to read. */
+.record-lead {
+  margin-block-end: 16px;
+}
 .record-zones .record-rail,
 .record-zones .record-aside,
 .record-zones .record-main {
@@ -338,10 +398,18 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   /* The story stays first and full width once the rails sit under it:
-     a rep opening an account reads what is happening, not the firmographics. */
-  .record-zones .record-main {
+     a rep opening an account reads what is happening, not the firmographics.
+     The aside-first placement resets with it — explicit cells would pin the
+     columns the fold exists to release. */
+  .record-zones .record-main,
+  .record-zones-aside-first .record-main {
     grid-column: 1 / -1;
+    grid-row: auto;
     order: -1;
+  }
+  .record-zones-aside-first .record-aside {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 @media (max-width: 720px) {
