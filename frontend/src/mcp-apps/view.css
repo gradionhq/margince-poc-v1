@@ -1,0 +1,152 @@
+/* The shared look for every MCP App view.
+ *
+ * It reads the product's own tokens rather than re-declaring a palette. That is
+ * the whole reason these documents moved into frontend/src: two definitions of
+ * one visual language diverge, and the one nobody looks at is the one served to
+ * a third-party host.
+ *
+ * tokens.css only — not brand.css. The derived layer names roles these views do
+ * not use (the accent ramp, the Core's light, the fact categories), and a host
+ * fetches this document per render, so unused rules are bytes spent on nothing.
+ * The three warmth colours below are read straight from the canon; see the
+ * contrast note where they are used.
+ *
+ * The build folds this in, so nothing here is fetched at run time — a stylesheet
+ * reached over the network would be an origin this view has declared it does not
+ * have.
+ *
+ * THERE IS NO DARK ARM HERE, and that is deliberate. tokens.css answers
+ * [data-theme="dark"], and bridge.ts guarantees the attribute is always set —
+ * the host's statement when it makes one, the platform preference when it does
+ * not. A media arm here would be a second, partial copy of the dark palette,
+ * which is the thing this file exists to stop. */
+
+@import "../design-system/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: var(--space-4);
+  /* An explicit background: the host paints its own ground behind this frame,
+     so a transparent body would borrow whatever is behind it and disagree with
+     the foreground colour set here. */
+  background: var(--bgElevated);
+  color: var(--textContent);
+  /* system-ui, and NOT var(--f-body). That token resolves to a web font, and a
+     web font is a network request this document's empty origin allowlist can
+     never admit — it would silently fall back per host instead of per design. A
+     view can wear the product's colour and rhythm; it cannot wear its typeface. */
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1 {
+  margin: 0 0 var(--space-1);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.meta {
+  margin: 0 0 var(--space-4);
+  color: var(--textSecondary);
+  font-size: 12px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  border: 1px solid var(--borderSubtle);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.rank {
+  color: var(--textSecondary);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.name {
+  font-weight: 600;
+  /* A record's own text, which is customer data of arbitrary length. It wraps
+     rather than escaping its row. */
+  overflow-wrap: anywhere;
+}
+
+.score {
+  margin-left: auto;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.factors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--textSecondary);
+  font-size: 12px;
+}
+
+.factor {
+  font-variant-numeric: tabular-nums;
+}
+
+.state {
+  color: var(--textSecondary);
+  font-size: 12px;
+}
+
+/* The warmth bands are TEXT, so each has to clear 4.5:1 against --bgElevated in
+   both themes — and "none" is exactly the band a rep has to be able to read.
+   Measured on the canon's own values, named by token because check-ds-purity.sh
+   greps comments too and a hex here would fail the gate this comment explains:
+   --success 5.01:1 light / 9.25:1 dark, --warn 7.09 / 9.65,
+   --textSecondary 4.82 / 5.88. All four clear the bar as they stand, which is
+   why they are read directly rather than mixed toward one. */
+.band-high {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.band-medium {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.band-low,
+.band-none {
+  color: var(--textSecondary);
+}
+
+/* The empty answer, which is a real answer on both of these views: a queue with
+   nothing in it, a contact nobody has spoken to. Saying so is the difference
+   between an answered question and a view that looks broken. */
+.empty {
+  border: 1px dashed var(--borderSubtle);
+  border-radius: 8px;
+  padding: var(--space-4);
+  color: var(--textSecondary);
+  text-align: center;
+}
+
+/* Wide content scrolls inside its own box; the page itself never scrolls
+   sideways inside a host's frame. */
+.scroll {
+  overflow-x: auto;
+}
