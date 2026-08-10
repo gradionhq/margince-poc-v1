@@ -39,7 +39,7 @@ jobs:
     name: patch
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history so both ends of the range resolve; the shallow default
@@ -70,11 +70,16 @@ jobs:
             exit 0
           fi
           # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
-          # there and diff it with -repo. The container runs as root over a
-          # runner-owned mount, so inject safe.directory via git's env config
-          # (no writable config file needed) for the CLI's git subprocess.
+          # there and diff it with -repo. The image's own user is non-root and
+          # does not own the runner's checkout, so run as the runner's uid/gid —
+          # the CLI then writes the patch as the mount's owner. That uid has no
+          # passwd entry in the image, so point HOME at a writable path, and
+          # inject safe.directory via git's env config (no writable config file
+          # needed) for the CLI's git subprocess.
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$PWD":/work \
+            -e HOME=/tmp \
             -e GIT_CONFIG_COUNT=1 \
             -e GIT_CONFIG_KEY_0=safe.directory \
             -e GIT_CONFIG_VALUE_0='*' \

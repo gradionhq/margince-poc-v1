@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ToolHandler runs a governed tool after admission. It is the extension's
@@ -102,9 +105,21 @@ type Tool struct {
 	// Title is the human-readable label tools/list shows in place of Name
 	// (the protocol's display precedence is title > name). Optional: a unit
 	// that declares none is listed under its verb, which is what a client
-	// falls back to anyway. It carries no authority and the manifest
-	// generator does not read it — a display string is not a declaration.
+	// falls back to anyway. It carries no authority, so it is no part of the
+	// manifest's governance descriptor — but it is still validated, at gen
+	// time and at boot, because the core registry refuses a blank one.
 	Title string
+	// Description is what the tool is FOR, in the caller's terms: the outcome
+	// it produces, the limits on producing it, when a neighbouring tool is the
+	// better call, and what to keep from its result. It is the text a model
+	// selects the tool by, so it is the unit's to write — nothing derivable
+	// substitutes for it, and the name it would fall back to is the thing it
+	// exists to explain.
+	//
+	// It is optional HERE, on the declaration, because a handler-less tool is a
+	// manifest request no client is ever shown. A SERVED tool is refused
+	// without one at boot: see the composition's tool adapter.
+	Description string
 	// Version is the tool's own version, recorded for the registry; it
 	// carries no authority (decisions bind to digests, not versions).
 	Version string
@@ -146,6 +161,12 @@ func (t Tool) Validate() error {
 	if t.Version == "" {
 		return fmt.Errorf("tool %q declares no version", t.Name)
 	}
+	if err := validateRenderedText("title", t.Title); err != nil {
+		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	if err := validateRenderedText("description", t.Description); err != nil {
+		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
 	if err := t.Tier.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
 	}
@@ -157,6 +178,42 @@ func (t Tool) Validate() error {
 	}
 	if err := validateSchemaObject("OutputSchema", t.OutputSchema); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	return nil
+}
+
+// validateRenderedText checks one declared string a CLIENT renders verbatim —
+// the display title, or the description a model selects by. Absent is allowed
+// for both here; what each absence means is decided where the tool is served,
+// not in the grammar.
+//
+// Present-but-blank is not allowed. The core registry refuses a whitespace-only
+// title or description, and that refusal is a boot PANIC, so a string a unit
+// author can see and fix has to fail here — at gen time, at the declaration's
+// own position — rather than crashing the process that composes it. The framing
+// and printability rules are Version's, for the same reason: the string is
+// rendered by a client that did not write it.
+func validateRenderedText(field, text string) error {
+	if text == "" {
+		return nil
+	}
+	// One check for two faults, because TrimSpace collapses them: a
+	// whitespace-only string trims to empty, a framed one trims to something
+	// shorter. Both are the same instruction to the author.
+	if strings.TrimSpace(text) != text {
+		return fmt.Errorf("%s %q is blank or carries surrounding whitespace — a client renders it verbatim; omit it rather than declaring an empty one", field, text)
+	}
+	// Before the rune check, not after: ranging a Go string decodes an invalid
+	// byte to U+FFFD, which IS printable — so a malformed string would pass the
+	// loop below and then be rendered by a client as replacement characters
+	// the declaration never wrote.
+	if !utf8.ValidString(text) {
+		return fmt.Errorf("%s %q is not valid UTF-8", field, text)
+	}
+	for _, r := range text {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("%s %q carries a non-printable character", field, text)
+		}
 	}
 	return nil
 }

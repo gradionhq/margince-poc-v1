@@ -56,7 +56,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
@@ -65,6 +65,14 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # The MCP App admission vocabulary is AUTHORED under frontend/ and
+              # copied into the Go package, where a byte-equality test gates the
+              # copy. Without this line a PR editing only the authored file is
+              # classified frontend-only, the backend lane never runs, and the
+              # api ships enforcing the previous rules — which is exactly the
+              # "two validators that disagree" outage the shared file exists to
+              # make impossible.
+              - 'frontend/src/mcp-apps/forbidden.json'
               - 'infra/**'
               - 'go.work'
               - 'go.work.sum'
@@ -102,7 +110,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -126,14 +134,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # The contract-breaking gate and the strict lint's
           # new-from-merge-base both diff against origin/main — a shallow
           # checkout has no base ref and would silently disarm them.
           fetch-depth: 0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -148,7 +156,7 @@ jobs:
       # so a binary built for one runner CPU is never restored onto another.
       - name: Cache the gate binaries
         id: gate-binaries
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/bin
           key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
@@ -166,7 +174,7 @@ jobs:
       # its cache entries internally, and hashing the whole Makefile went
       # cold on every unrelated Makefile edit.
       - name: Cache the golangci-lint analysis cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/golangci-lint
           key: golangci-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', 'backend/.golangci.yml', 'backend/.golangci.strict.yml') }}-${{ github.sha }}
@@ -216,10 +224,18 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -273,10 +289,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -294,16 +310,49 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: craft residue
         working-directory: .
         run: make craft-residue
+
+  # No hardcoded credential reaches main. gitleaks runs here, in the repo,
+  # rather than through a hosted scanner: the policy is .gitleaks.toml, so an
+  # exemption is argued for in the pull request that needs it and the same
+  # `make secret-scan` reproduces this verdict on a laptop. A scanner whose
+  # exclusions live in a dashboard cannot be reviewed, and drifted from the
+  # list committed here until it flagged fixtures the repo already declared fake.
+  secret-scan:
+    name: secret-scan
+    # Every non-draft change, docs included: a credential can be pasted into
+    # any file type, so this cannot hang off the diff classifier. Same
+    # exception craft-residue takes.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No install step: scripts/gitleaks-pin.sh fetches the version- and
+      # checksum-pinned binary itself, so this job runs the scanner an engineer
+      # runs, resolved by the same code. The official gitleaks action is
+      # deliberately not used — it needs a paid licence key for organization
+      # repositories, and this gate must stay free of one.
+      - name: secret scan
+        working-directory: .
+        run: make secret-scan
+      # The policy is only trustworthy with this beside it: an allowlist that
+      # grew too broad reports "no leaks found" exactly like a clean tree.
+      - name: the gate still catches
+        working-directory: .
+        run: make test-secret-scan
 
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
@@ -333,10 +382,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -382,10 +431,18 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -421,7 +478,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Every shard and the unit pass are green
@@ -432,7 +489,7 @@ jobs:
         run: |
           [ "$SHARDS_RESULT" = "success" ] || { echo "integration shards: $SHARDS_RESULT"; exit 1; }
           [ "$UNIT_RESULT" = "success" ] || { echo "unit coverage pass: $UNIT_RESULT"; exit 1; }
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -477,11 +534,14 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build the image
-        run: docker build -f Dockerfile.${{ matrix.role }} .
+        # ONE revision for every role, so the api and the web tier can be
+        # compared at run time. github.sha is immutable for this run; a role
+        # that does not declare the ARG simply ignores it.
+        run: docker build --build-arg MARGINCE_BUILD_REVISION=${{ github.sha }} -f Dockerfile.${{ matrix.role }} .
 
   # The fan-in — the single required "docker images" context. Static-named
   # because a path-skipped matrix job reports ONE check run under its
@@ -517,10 +577,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -578,7 +638,7 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: https://sonarcloud.io
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history so SonarCloud can attribute blame / compute new code.
@@ -629,19 +689,19 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 11
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Boot the dev stack and migrate
@@ -708,15 +768,15 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 11
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: make frontend-check
@@ -759,15 +819,15 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 11
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install deps and the Playwright Chromium browser

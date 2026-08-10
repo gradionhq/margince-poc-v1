@@ -21,6 +21,7 @@ on:
       - "Makefile"
       - ".syft.yaml"
       - ".grant.yaml"
+      - "sbom-schemas/**"
       - ".github/workflows/sbom.yml"
   push:
     branches: [main]
@@ -39,7 +40,7 @@ jobs:
     # A draft PR iterating on dependency bumps has no SBOM consumer — skip it.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # SBOM_VERSION is the release tag when HEAD is exactly on one (`git
@@ -74,7 +75,7 @@ jobs:
       contents: read
       id-token: write # keyless cosign signing via the GitHub OIDC token
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Fetch generated SBOMs

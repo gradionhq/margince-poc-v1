@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { translate } from "../i18n";
+import { LOCALES, translate } from "../i18n";
 import {
   approvalKindLabel,
   EDITABLE_FIELDS,
@@ -39,6 +39,7 @@ const STAGEABLE_KINDS = [
   "org_name_promotion",
   "progress_deal",
   "promote_lead",
+  "quota_release",
   "send_email",
   "send_offer",
   "share_record",
@@ -47,11 +48,15 @@ const STAGEABLE_KINDS = [
 ] as const;
 
 describe("what a staged proposal is called", () => {
-  it("has a label for every kind the server can stage, in both locales", () => {
+  // Over LOCALES, not a chosen pair: a locale whose label leaked the raw
+  // identifier would pass a two-locale sweep, and the byte-equality guard in
+  // i18n.test.ts only flags values EQUAL to English — an identifier-shaped
+  // translation differs from English, so nothing else in the suite sees it.
+  it("has a label for every kind the server can stage, in every shipped locale", () => {
     const missing = STAGEABLE_KINDS.filter((kind) => !(kind in KIND_LABEL));
     expect(missing, "kinds the reader would meet unlabelled").toEqual([]);
     for (const kind of STAGEABLE_KINDS) {
-      for (const locale of ["en", "de"] as const) {
+      for (const locale of LOCALES) {
         const label = translate(locale, KIND_LABEL[kind]);
         expect(label.trim(), `${kind} in ${locale}`).not.toBe("");
         // The identifier itself is the thing this map exists to stop showing.

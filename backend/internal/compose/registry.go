@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -31,7 +33,7 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{}, nil)
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -39,17 +41,31 @@ func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
+		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
+// registryWithGate composes the tool surface. The quota charger arrives as
+// an option rather than a parameter because only the API server — the one role
+// that serves agent principals through the MCP and REST doors — has a meter to
+// charge. The Surface-B runner and the workflow paths run as the human or the
+// system that started them, and the quota meter governs agents only, so a registry
+// built without one is not an unmetered agent surface; it is a surface no agent
+// reaches.
+//
+// embedder is the RETRIEVAL embed lane, and it is a parameter rather than a
+// construction detail because it is the composition root's to choose: a role
+// with no model path has none. A nil lane is still legal — a role with no
+// model path has none, and the offline fake binds no embeddings model — and
+// every path that can lose the vector lane says so on the wire rather than
+// serving a lexically-ranked page under a semantic label.
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -64,13 +80,45 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// metered force-fresh path lands for a tool, this becomes a Redis-backed
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	native := NewProvider(pool)
+	provider := NewDispatcher(native, NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
+	// Retry safety, wired for EVERY role that composes this surface rather than
+	// arriving as the API server's option the way the read charger does. The
+	// difference is who the promise is made to: the read bound governs agent
+	// principals, so a role no agent reaches needs no meter — but the retry key
+	// is advertised on every mutating tool's schema by the registry itself, so
+	// any surface built here can be asked to honour one, and a surface that
+	// advertises the key and cannot claim it refuses the call.
+	//
+	// The replay reader is the composite provider this registry is already
+	// composed over, so a recorded result's records are re-checked through the
+	// same door — mirror included — that a live read of them would take.
+	opts = append(opts, agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
 	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
+	// list_records reads its rows through the Dispatcher like every other
+	// record verb, and its filter VOCABULARY off the native provider: the
+	// vocabulary is a property of the deployment's own stores, resolved once at
+	// boot, while whether a given workspace's rows come from those stores or
+	// from a mirror is a per-call question the Dispatcher answers. An overlay
+	// workspace refuses the filtered call rather than answering it unnarrowed.
+	agents.RegisterListTool(registry, provider, native)
+	// The three lifecycle transitions reach their owning modules directly
+	// rather than through the Dispatcher: each one's behaviour IS that
+	// module's entry point, which is what the REST route calls too.
+	relinker, disqualifier, advancer := lifecycleSeams(pool)
+	// disqualify_lead is the one of the three the overlay provider cannot
+	// serve for a mirrored type, so it takes the guard the REST middleware
+	// applies to the same verb; relink and project-phase are not SoR record
+	// writes and stay available in either mode.
+	agents.RegisterLifecycleTools(registry, provider, relinker, nativeOnlyDisqualifier(sorMode, disqualifier), advancer)
+	// enrich rides the site-read seam rather than the datasource one: it reads
+	// the company's OWN website, which no record provider can answer.
+	agents.RegisterEnrichTool(registry, provider, enricher)
 	// Pipeline config, and it registers next to the core CRUD set because it is
 	// what makes two of those verbs reachable: create_record for a deal and
 	// advance_deal both name ids no other tool yields. Config is not a record,
@@ -78,22 +126,60 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
-	// The intent tools ground on the graph walk (no embed lane needed);
-	// the comms tools ride the same store paths as the HTTP transport.
+	// The governed workspace query. It takes the provider as well as the runner
+	// because the two halves of an answer come from different places: the plan
+	// selects records through the search module, and each selected record is
+	// READ back through the datasource seam — the one path that stamps the
+	// trust tier, collects the envelope's freshness, applies this caller's
+	// object RBAC and row scope to the record itself, and charges the record
+	// against their read bound. The guard is outermost for
+	// the same reason the intent tools' is: the executor queries native tables
+	// an overlay workspace has no rows in.
+	agents.RegisterQueryTool(registry, provider, nativeOnlyQueryRunner(sorMode, queryRunner(pool, embedder)))
+	// The morning brief. It ranks the rep's own open deals out of the native
+	// tables, which an overlay workspace has no rows in, so it takes the same
+	// outermost guard the other native-only engines do: "not available here"
+	// rather than an empty queue that reads as a quiet morning.
+	agents.RegisterBriefTool(registry, nativeOnlyBriefReader(sorMode, briefReader(pool)))
+	// The intent tools ground on the graph walk; search_context rides the same
+	// retriever's ranked half, which is what the embed lane is for.
+	// The comms tools ride the same store paths as the HTTP transport.
 	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
 	// refused before either read runs; the risk decorator sits inside it and
 	// adds the coverage findings a deal anchor would otherwise assemble
 	// without.
-	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
+	retriever := nativeOnlyRetriever{
 		mode: sorMode,
 		inner: riskAwareRetriever{
 			pool:  pool,
-			inner: search.NewRetriever(search.NewStore(pool), nil),
+			inner: search.NewRetriever(search.NewStore(pool), embedder),
 		},
-	})
+	}
+	agents.RegisterIntentTools(registry, retriever)
+	// search_context takes the provider as well, for the reason query_workspace
+	// does: the retriever answers refs and excerpts, and every record behind
+	// them is READ BACK through the datasource seam — where the trust tier is
+	// stamped, the caller's own row scope is re-applied, and the record is
+	// charged against their read bound.
+	agents.RegisterContextSearchTool(registry, provider, retriever)
+	// Identity resolution. The ladder is workspace-wide by design — a duplicate
+	// is a duplicate whoever is looking — so the provider is not decoration
+	// here: it is the ONLY thing that applies this caller's row scope to a
+	// record the resolver named, and the tool serves nothing it did not read
+	// back through it.
+	agents.RegisterResolveTool(registry, provider, nativeOnlyResolver(sorMode, entityResolver(pool)))
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
+	// The commercial reads: what this workspace promised and has not
+	// delivered, and what the delivery side of a project is being handed.
+	// Both ride the owning modules' own gated store paths
+	// (commercialseams.go), and both take the outermost overlay guard the
+	// other native-only engines do — a mirrored workspace has no task
+	// projection and no project at all, and "nothing is outstanding" is the
+	// one wrong answer here that reads as good news.
+	agents.RegisterCommitmentTool(registry, nativeOnlyCommitments(sorMode, commitmentLister(pool)))
+	agents.RegisterHandoffTool(registry, nativeOnlyHandoff(sorMode, handoffReader(pool)))
 	// The relationship-graph reads (ADR-0078): who here knows this contact,
 	// how a deal is covered, who can get us into an account, and which of the
 	// caller's deals the coverage rules flag. All 🟢 — they name people, they
@@ -198,6 +284,91 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 	})
 }
 
+// StageQuotaRelease puts a §2.4 step-up in front of the human who lent the
+// calling passport.
+//
+// It stages through the DECLINED-AWARE path, unlike Stage above, and both
+// differences that drives are deliberate. JoinPending + Identity means ONE
+// question per counter per window: an agent looping on a refusal re-asks
+// nothing, where the ordinary path would fill an inbox with copies of one
+// question and leave the rest to be dismissed after the first was answered. And
+// a human's NO is remembered — a rejected step-up is not re-offered on the next
+// call, which is the difference between a control and a nag.
+//
+// It carries NO target, because a step-up is about a credential's volume rather
+// than about a record. That shape is what makes it decidable by the lender alone
+// (approvals' selfOnlyKinds over a target-less staging), and it is why the
+// identity carries the discrimination a diff hash carries for every other kind:
+// there is no diff.
+func (a approvalsAdapter) StageQuotaRelease(ctx context.Context, in agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	payload, err := json.Marshal(in.Proposal)
+	if err != nil {
+		return ids.ApprovalID{}, false, fmt.Errorf("compose: encoding a step-up proposal: %w", err)
+	}
+	identity, err := in.Proposal.Identity()
+	if err != nil {
+		return ids.ApprovalID{}, false, err
+	}
+	_, diffHash, err := diffhash.Object(map[string]any{"quota_release": string(identity)})
+	if err != nil {
+		return ids.ApprovalID{}, false, fmt.Errorf("compose: hashing a step-up proposal: %w", err)
+	}
+	return a.svc.StageUnlessDeclined(ctx, approvals.StageInput{
+		Kind:           approvals.KindQuotaRelease,
+		ProposedChange: payload,
+		DiffHash:       diffHash,
+		Summary:        in.Summary,
+		JoinPending:    true,
+		Identity:       identity,
+	})
+}
+
 func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) (int64, bool, error) {
 	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
+}
+
+// State answers a polling MCP task whether a human has decided yet. The
+// module's effective status is passed through rather than re-derived: a pending
+// row past its window is expired on every other surface, and a poll told
+// "pending" about a dead proposal would wait forever.
+func (a approvalsAdapter) State(ctx context.Context, approvalID ids.ApprovalID) (agents.ApprovalState, error) {
+	state, err := a.svc.TaskState(ctx, approvalID)
+	if err != nil {
+		return agents.ApprovalState{}, err
+	}
+	decided, ok := approvalDecisions[state.Status]
+	if !ok {
+		// A status this adapter has no word for must not be guessed at: the
+		// safe-looking guess is "pending", and it would leave a released
+		// approval unperformed forever.
+		return agents.ApprovalState{}, fmt.Errorf("compose: unknown approval status %q", state.Status)
+	}
+	return agents.ApprovalState{Decided: decided, ExpiresAt: state.ExpiresAt, Consumed: state.Consumed}, nil
+}
+
+// approvalDecisions maps the approvals module's status vocabulary onto the tool
+// surface's. They are the same four words today, and the map exists so they are
+// not required to STAY the same by coincidence — a rename on either side lands
+// on the unknown-status refusal above rather than silently reading as pending.
+var approvalDecisions = map[string]agents.ApprovalDecision{
+	approvals.StatusPending:  agents.ApprovalPending,
+	approvals.StatusApproved: agents.ApprovalApproved,
+	approvals.StatusRejected: agents.ApprovalRejected,
+	approvals.StatusExpired:  agents.ApprovalExpired,
+}
+
+// ProposedChange answers what a redemption would perform — the human's edit
+// where there was one. See agents.Approvals for why an executor must read this
+// rather than replay what it staged.
+func (a approvalsAdapter) ProposedChange(ctx context.Context, approvalID ids.ApprovalID) (json.RawMessage, error) {
+	return a.svc.ProposedChange(ctx, approvalID)
+}
+
+// Withdraw retracts the proposal behind a cancelled task, so no decision is
+// left in a person's inbox that could no longer take effect. It reports whether
+// there was still an offer to take: a proposal a human already decided is
+// untouched, and a task that claimed otherwise would say the decision was gone
+// while it sat live in the inbox.
+func (a approvalsAdapter) Withdraw(ctx context.Context, approvalID ids.ApprovalID) (bool, error) {
+	return a.svc.Withdraw(ctx, approvalID, "the agent cancelled the task waiting on this decision")
 }

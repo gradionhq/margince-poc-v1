@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 import {
   ManualCompanySetup,
   useCompanyContextCapabilities,
 } from "./company-context";
 import { OnboardingConversationScreen } from "./onboarding-conversation/index";
 import "./onboarding.css";
+import type { MessageKey } from "../i18n/en";
 
 // The onboarding entry point plus the shared vocabulary of the journey:
 // the company draft (values + grounding + human-edited marks), the URL and
@@ -78,9 +79,55 @@ export function isRequired(field: CompanyFieldName): boolean {
   return (REQUIRED_FIELDS as readonly CompanyFieldName[]).includes(field);
 }
 
+// Positioning and identity-block prose reads as a paragraph; the registry
+// and short-name fields fit a single line. The manual interview's per-
+// question list and the in-thread review's editable rows both need this
+// same split, so it lives once here rather than twice.
+export const MULTILINE_FIELDS = [
+  "registered_address",
+  "offer_summary",
+  "icp",
+  "history",
+  "value_proposition",
+  "usp",
+  "buying_center",
+  "customer_pains",
+  "desired_outcomes",
+  "buying_intents",
+  "common_objections",
+  "sales_motion",
+] as const satisfies readonly CompanyFieldName[];
+
+export function isMultilineField(field: CompanyFieldName): boolean {
+  return (MULTILINE_FIELDS as readonly CompanyFieldName[]).includes(field);
+}
+
+/**
+ * What a draft value's provenance can honestly claim.
+ *
+ * A field the read returned carries the full contract shape: a verbatim
+ * snippet, the page it was read from, and the model's own confidence. A value
+ * the human settled by choosing one of the read's legal-entity candidates
+ * carries that candidate's page, and its quote when the read captured one —
+ * and no confidence at all, because nothing ever measured one: the entity lane
+ * carries no score on the wire, and a number minted here would read as machine
+ * certainty about a choice a person made.
+ *
+ * Both parts are therefore optional, and every surface that draws a confidence
+ * meter or an evidence line has to answer for their absence rather than fill
+ * it in.
+ */
+export type FieldGrounding = Omit<
+  ColdField,
+  "confidence" | "evidence_snippet"
+> & {
+  evidence_snippet?: string;
+  confidence?: number;
+};
+
 // The read-back can only ground the contract's ColdStartField names —
 // website is always the human's to give.
-type Grounded = Partial<Record<ColdField["field"], ColdField>>;
+type Grounded = Partial<Record<ColdField["field"], FieldGrounding>>;
 
 // One state object, because the three parts move together: typing a value
 // drops its site grounding (the value is the human's now) and marks it typed.
@@ -157,7 +204,7 @@ export function useCompany(enabled: boolean) {
         if (response.status === 404) {
           return null;
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -210,13 +257,49 @@ export function changeDraftField(
   };
 }
 
-// A field the read-back grounded and the human has not touched still carries
-// the site's evidence; anything else is the human's own.
-export function groundingOf(
+// A field the read grounded and the human has not touched still carries the
+// site's provenance; anything else is the human's own. What that provenance
+// can claim varies — see FieldGrounding — so a caller rendering a confidence
+// or a quote must handle each one being absent.
+export function provenanceOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
-): ColdField | null {
+): FieldGrounding | null {
   return draft.grounded[field as ColdField["field"]] ?? null;
+}
+
+// The crawler's own vocabulary for declining a page (crm.yaml,
+// SiteReadSkip.reason), said in words. Printed raw it reached the screen as
+// "skipped: page_cap" — an internal a reader has no way to decode. It lives
+// here rather than beside either caller because the read theatre and the
+// coverage card render the same field, and a second copy is how one of them
+// ends up still leaking the codes.
+const SKIP_REASON_COPY: Readonly<Record<string, MessageKey>> = {
+  robots: "ob.scan.skipReason.robots",
+  off_domain: "ob.scan.skipReason.offDomain",
+  page_cap: "ob.scan.skipReason.pageCap",
+  byte_cap: "ob.scan.skipReason.byteCap",
+  unreadable: "ob.scan.skipReason.unreadable",
+};
+
+/**
+ * Why a page was skipped or could not be read, for a human.
+ *
+ * An unknown code passes through unchanged: the contract calls this field
+ * human-readable, so whatever the server sent is closer to the truth than a
+ * sentence invented here. A page carrying no reason at all says exactly that
+ * rather than borrowing one.
+ */
+export function skipReasonText(
+  t: (key: MessageKey) => string,
+  raw: string | null | undefined,
+): string {
+  const code = raw?.trim() ?? "";
+  if (code === "") {
+    return t("ob.scan.pageNoReason");
+  }
+  const known = SKIP_REASON_COPY[code];
+  return known === undefined ? code : t(known);
 }
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
@@ -267,22 +350,13 @@ export function onboardingDraftPayload(values: CompanyForm) {
   };
 }
 
-class WizardStateWriteError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 export async function writeWizardState(body: PutOnboardingState) {
-  const { data, error, response } = await api.PUT("/onboarding/state", {
+  const { data, error } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
   });
   if (error) {
-    throw new WizardStateWriteError(response.status, problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }

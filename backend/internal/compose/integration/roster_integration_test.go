@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -27,6 +28,9 @@ type rosterUser struct {
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
 	IsAgent     bool   `json:"is_agent"`
+	// A pointer so "the field was withheld" stays distinguishable from "this
+	// member holds no role" — the whole point of the admin-only disclosure.
+	Roles *[]string `json:"roles"`
 }
 
 type rosterTeam struct {
@@ -38,10 +42,10 @@ type rosterTeam struct {
 
 // wsID resolves a workspace's id by slug through the owner connection
 // (workspace is the one non-tenant table, so no GUC is needed to read it).
-func wsID(t *testing.T, e *env, slug string) ids.UUID {
+func wsID(t *testing.T, e *apptest.AppEnv, slug string) ids.UUID {
 	t.Helper()
 	var id ids.UUID
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&id); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&id); err != nil {
 		t.Fatalf("resolving workspace %q: %v", slug, err)
 	}
 	return id
@@ -57,11 +61,11 @@ func stmt(sql string, args ...any) seedStmt { return seedStmt{sql: sql, args: ar
 
 // seedInWorkspace runs setup statements inside a workspace-bound
 // transaction: app_user/team/team_membership are FORCE-RLS tables, so the
-// owner must set app.workspace_id even to insert. Mirrors setWorkspaceSeat.
-func seedInWorkspace(t *testing.T, e *env, ws ids.UUID, stmts ...seedStmt) {
+// owner must set app.workspace_id even to insert. Mirrors SetWorkspaceSeat.
+func seedInWorkspace(t *testing.T, e *apptest.AppEnv, ws ids.UUID, stmts ...seedStmt) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -81,10 +85,10 @@ func seedInWorkspace(t *testing.T, e *env, ws ids.UUID, stmts ...seedStmt) {
 }
 
 func TestRosterReadsUsersAndTeams(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t) // workspace "fable-e2e" + admin ada@example.com, session in the jar
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t) // workspace "fable-e2e" + admin ada@example.com, session in the jar
 
-	wsA := wsID(t, e, e.slug)
+	wsA := wsID(t, e, e.Slug)
 	rep, bob, deskTeam := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	seedInWorkspace(
 		t, e, wsA,
@@ -98,15 +102,24 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	// A second tenant with its own member — its rows must never surface
 	// under workspace A's session (RLS row-scope). Seed workspace B (a
 	// non-tenant row) then its user inside B's GUC.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'fable-other', 'EUR')`,
 		ids.NewV7()); err != nil {
 		t.Fatalf("seeding workspace B: %v", err)
 	}
 	wsB := wsID(t, e, "fable-other")
+	// B's member holds a role whose key exists in NO other workspace, so if the
+	// role aggregate ever escaped its tenant the string would be unmistakable in
+	// A's response. role/role_assignment are FORCE-RLS deny-on-unset, and every
+	// roster read runs inside WithWorkspaceTx — this is what proves it rather
+	// than asserting it.
+	eve := ids.NewV7()
 	seedInWorkspace(
 		t, e, wsB,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, ids.NewV7(), wsB),
+		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, eve, wsB),
+		stmt(`INSERT INTO role (workspace_id, key, name) VALUES ($1, 'other-tenant-only', 'Other Tenant Only')`, wsB),
+		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		      SELECT $1, r.id, $2 FROM role r WHERE r.key = 'other-tenant-only'`, wsB, eve),
 	)
 
 	// (e) No session → 401, before we lean on the authenticated reads.
@@ -117,7 +130,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	var users struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK {
 		t.Fatalf("list users → %d, want 200", status)
 	}
 	got := map[string]rosterUser{}
@@ -142,12 +155,31 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 			t.Errorf("user %q workspace_id = %q, want %q", u.Email, u.WorkspaceID, wsA)
 		}
 	}
+	// The role aggregate is tenant-scoped too, not just the member rows: B's
+	// uniquely-keyed role must appear nowhere in A's page. Counting the keys
+	// actually seen first, because a regression that stopped emitting them
+	// would otherwise leave this loop inspecting nothing and still passing.
+	keysSeen := 0
+	for _, u := range users.Data {
+		if u.Roles == nil {
+			continue
+		}
+		keysSeen += len(*u.Roles)
+		for _, key := range *u.Roles {
+			if key == "other-tenant-only" {
+				t.Errorf("cross-tenant leak: %q carries workspace B's role key", u.Email)
+			}
+		}
+	}
+	if keysSeen == 0 {
+		t.Fatal("no role keys on the admin roster at all; the cross-tenant check would pass vacuously")
+	}
 
 	// (c) q narrows over display_name/email, case-insensitively.
 	var filtered struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users?q=REP", nil, nil, &filtered); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users?q=REP", nil, nil, &filtered); status != http.StatusOK {
 		t.Fatalf("list users?q=REP → %d, want 200", status)
 	}
 	if len(filtered.Data) != 1 || filtered.Data[0].Email != "rep@example.com" {
@@ -158,7 +190,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	var teams struct {
 		Data []rosterTeam `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/teams", nil, nil, &teams); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/teams", nil, nil, &teams); status != http.StatusOK {
 		t.Fatalf("list teams → %d, want 200", status)
 	}
 	var desk *rosterTeam
@@ -178,19 +210,95 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	}
 }
 
+// The roster answers every authenticated member, so the role keys it now
+// carries need their DENY arm proved where the gate actually lives — at the
+// handler, off the request principal. The unit test downstairs proves only that
+// the two mappings differ; a regression that inlined the admin mapping into the
+// response loop would pass it and leak here.
+func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t) // admin ada@example.com, session in the jar
+
+	wsA := wsID(t, e, e.Slug)
+	rep := ids.NewV7()
+	seedInWorkspace(
+		t, e, wsA,
+		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
+		// Borrow the bootstrap admin's hash so the rep can actually sign in:
+		// the gate under test reads the request principal, so the assertion is
+		// only worth anything from a real non-admin session.
+		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),
+		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		      SELECT $2, r.id, $1 FROM role r WHERE r.key = 'rep'`, rep, wsA),
+	)
+
+	// The admin arm first, from the session the bootstrap left: every row
+	// carries its keys, and the seeded rep's read back as exactly [rep].
+	var asAdmin struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &asAdmin); status != http.StatusOK {
+		t.Fatalf("admin list users → %d, want 200", status)
+	}
+	for _, u := range asAdmin.Data {
+		if u.Roles == nil {
+			t.Fatalf("admin roster: %q carries no roles field", u.Email)
+		}
+		if u.Email == "rep@example.com" && (len(*u.Roles) != 1 || (*u.Roles)[0] != "rep") {
+			t.Errorf("admin roster: rep roles = %v, want [rep]", *u.Roles)
+		}
+	}
+
+	// Now the deny arm, from the rep's own session.
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
+		"email": "rep@example.com", "password": "correct-horse-battery",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("rep login → %d, want 200", status)
+	}
+	var asRep struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &asRep); status != http.StatusOK {
+		t.Fatalf("rep list users → %d, want 200", status)
+	}
+	if len(asRep.Data) == 0 {
+		t.Fatal("rep roster is empty; the deny arm would pass vacuously")
+	}
+	for _, u := range asRep.Data {
+		if u.Roles != nil {
+			t.Errorf("rep sees %q roles = %v; a non-admin must not learn who holds a role", u.Email, *u.Roles)
+		}
+	}
+
+	// The same principal check gates the widened view — a rep asking for it is
+	// answered with the active-only roster, not refused, so this is the only
+	// place that failure would show.
+	var repWidened struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.Call(t, "GET", "/v1/users?include_inactive=true", nil, nil, &repWidened); status != http.StatusOK {
+		t.Fatalf("rep list users (include_inactive) → %d, want 200", status)
+	}
+	for _, u := range repWidened.Data {
+		if u.Roles != nil {
+			t.Errorf("rep sees %q roles = %v via include_inactive", u.Email, *u.Roles)
+		}
+	}
+}
+
 // assertRosterUnauthorized issues a session-less request (the TLS-trusting
 // transport, but no cookie jar) against each roster endpoint and expects a
 // 401 — both /v1/users and /v1/teams are authenticated-only, and either
 // could lose that gate independently, so both are exercised.
-func assertRosterUnauthorized(t *testing.T, e *env) {
+func assertRosterUnauthorized(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	noSession := &http.Client{Transport: e.client.Transport}
+	noSession := &http.Client{Transport: e.Client.Transport}
 	for _, path := range []string{"/v1/users", "/v1/teams"} {
-		req, err := http.NewRequest(http.MethodGet, e.ts.URL+path, nil)
+		req, err := http.NewRequest(http.MethodGet, e.TS.URL+path, nil)
 		if err != nil {
 			t.Fatalf("building request for %s: %v", path, err)
 		}
-		req.Header.Set("X-Workspace-Slug", e.slug)
+		req.Header.Set("X-Workspace-Slug", e.Slug)
 		resp, err := noSession.Do(req)
 		if err != nil {
 			t.Fatalf("GET %s (no session): %v", path, err)

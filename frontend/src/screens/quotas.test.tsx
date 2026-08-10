@@ -355,20 +355,23 @@ describe("QuotasView", () => {
           422,
         ),
     });
+    const user = userEvent.setup();
     mount(<QuotasView />);
-    await userEvent.click(await screen.findByTestId("quota-create"));
-    const subjectSelect = await screen.findByRole("combobox");
-    // Wait for the roster-fetched option to render — setting .value before the
-    // matching <option> exists silently no-ops (leaving canSubmit false).
-    await screen.findByRole("option", { name: "Riya Patel" });
-    fireEvent.change(subjectSelect, { target: { value: "u1" } });
+    await user.click(await screen.findByTestId("quota-create"));
+    // The roster arrives from its own fetch, so the person is not in the list
+    // when the form opens — and a subject that was never chosen leaves the form
+    // unsubmittable, which would make this case prove nothing. The list is opened
+    // ONCE and the option awaited inside it: opening again would toggle it shut,
+    // and the popup re-renders in place when the roster lands.
+    await user.click(await screen.findByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Riya Patel" }));
     const dateInputs = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dateInputs[0], { target: { value: "2026-07-01" } });
     fireEvent.change(dateInputs[1], { target: { value: "2026-09-30" } });
     fireEvent.change(screen.getByLabelText(/Target amount/), {
       target: { value: "280000" },
     });
-    await userEvent.click(screen.getByTestId("quota-create-submit"));
+    await user.click(screen.getByTestId("quota-create-submit"));
     expect(
       await screen.findByText("Choose exactly one of owner or team."),
     ).toBeTruthy();

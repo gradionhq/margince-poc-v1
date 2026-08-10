@@ -1,183 +1,1460 @@
-import { Check, Circle, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  Circle,
+  FileQuestion,
+  Sparkles,
+} from "lucide-react";
+import type { ChangeEvent } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
-import { Button } from "../../design-system/atoms";
-import { EvidenceChip, ProvenanceTag } from "../../design-system/trust";
-import { useT } from "../../i18n";
+import { Avatar, Button, Disclosure } from "../../design-system/atoms";
+import {
+  ConfidenceMeter,
+  type Evidence,
+  EvidenceChip,
+  ProvenanceTag,
+} from "../../design-system/trust";
+import { useLocale, useT } from "../../i18n";
+import type { MessageKey } from "../../i18n/en";
 import { coldFieldLabel } from "../common";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { groundingOf, MAX_SELECTED_FACTS } from "../onboarding";
-import type { ClarifyAnswer } from "./company-proposal";
 import {
-  evidencedFields,
-  isCompanyField,
-  toMachineQuestion,
-} from "./company-proposal";
-import { NarrationBubble, QuestionCard } from "./entries";
+  CUSTOMER_FIELDS,
+  LEGAL_IDENTITY_FIELDS,
+  normalizeUrl,
+  OFFER_FIELDS,
+  REQUIRED_FIELDS,
+  SALES_FIELDS,
+} from "../onboarding";
+import {
+  CapNotice,
+  type FactSelection,
+  saveDisabled,
+  useFactSelection,
+} from "../onboarding-facts";
+import { CoverageCard } from "../onboarding-live-panel";
+import type { ClarifyAnswer } from "./company-proposal";
+import { evidencedFields, isCompanyField } from "./company-proposal";
+import {
+  isWork,
+  type ReviewRow,
+  type RowState,
+  rowFor,
+  STATE_RANK,
+} from "./company-review-state";
+import {
+  FINDING_EXPAND_EVENT,
+  jumpToFindings,
+  NarrationBubble,
+} from "./entries";
 
-// The in-thread review card: the AI-prepared mapping rendered as field rows
-// with honest provenance (site evidence vs the human's own typing), fact
-// include-toggles, the remaining server-detected decisions, and ONE explicit
-// accept. Evidence-or-omit holds here: a proposal row without a verbatim
-// snippet never renders.
+// The company review as a triage surface: every profile field is on the
+// board, ordered so the work sits on top: required gaps first, weak evidence
+// next, empty-but-optional after, and the solid rows last where a skim
+// suffices. A company identity card leads the surface, a plain section list
+// navigates it and names what's outstanding, and a progress bar pinned to
+// the foot carries the one action that matters — no colour-coded tally of
+// the board's own rows, which only ever repeated what the nav already says
+// by name. Evidence-or-omit holds throughout: a grounded value keeps its
+// verbatim snippet one interaction away, a human value says so, and an
+// empty field is shown AS empty, fillable in place, rather than silently
+// absent.
 
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
-type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
-type Comparison = components["schemas"]["CompanySiteReadComparison"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+type SitePerson = components["schemas"]["CompanySiteReadPerson"];
+type SiteFact = components["schemas"]["CompanySiteReadFact"];
 
+// This card no longer re-asks a clarify of its own — that surface is the
+// live DecisionScene's alone, and `open_questions` past the one currently
+// live are promoted there in turn (use-company-read.ts) rather than shown
+// here — so it carries no clarify-answering props at all: no comparisons to
+// label a dismiss against, no pendingQuestionId, no answer/dismiss handlers.
 type CompanyConfirmCardProps = Readonly<{
   proposal: Proposal;
   draft: CompanyDraft;
   answers: readonly ClarifyAnswer[];
-  /** The site-read comparisons, so a conflict question's dismiss action is
-   * labeled as keeping the human's value (the server still gets its
-   * keep_current resolution). */
-  comparisons: readonly Comparison[];
-  /** The machine's live in-thread question; the card must not repeat it. */
-  pendingQuestionId: string | null;
+  /** The read behind the proposal; the card keeps its people and coverage
+   * honesty reachable below the fields. Null on a proposal-only render. */
+  read?: CompanySiteRead | null;
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   missingRequired: readonly CompanyFieldName[];
-  onAnswerClarify: (clarifyId: string, value: string) => void;
-  onDismissClarify: (clarifyId: string) => void;
+  setField: (field: CompanyFieldName, value: string) => void;
   onAcceptAll: () => void;
   pending: boolean;
   /** A clarify authorization is still in flight; accepting must wait for it. */
   authorizing: boolean;
   error: string | null;
-  onEditDirectly: () => void;
 }>;
 
-// Everything Accept all will save is shown: fields the human typed that the
-// evidenced proposal does not carry get their own typed-by-you rows.
-function humanOnlyRows(
-  draft: CompanyDraft,
-  shown: ReadonlySet<string>,
-): CompanyFieldName[] {
-  return [...draft.edited].filter(
-    (field) => !shown.has(field) && draft.values[field].trim() !== "",
+// The four field groups of the classic form, in its order: one vocabulary
+// for what belongs where, whichever surface is doing the reviewing. A
+// function, not a module-level const: this module and ../onboarding sit on
+// an import cycle, so the group arrays only exist by the time a render asks.
+function reviewGroups(): readonly Readonly<{
+  key: string;
+  labelKey: MessageKey;
+  fields: readonly CompanyFieldName[];
+}>[] {
+  return [
+    {
+      key: "identity",
+      labelKey: "ob.s1.identityLabel",
+      fields: LEGAL_IDENTITY_FIELDS,
+    },
+    { key: "offer", labelKey: "ob.s1.offerLabel", fields: OFFER_FIELDS },
+    {
+      key: "customer",
+      labelKey: "ob.s1.customerLabel",
+      fields: CUSTOMER_FIELDS,
+    },
+    { key: "sales", labelKey: "ob.s1.salesLabel", fields: SALES_FIELDS },
+  ];
+}
+
+const STATE_WORD: Readonly<Record<RowState, MessageKey>> = {
+  required: "ob.conv.triage.stateRequired",
+  empty: "ob.conv.triage.stateEmpty",
+  typed: "ob.conv.triage.stateTyped",
+  stored: "ob.conv.triage.stateStored",
+  quoted: "ob.conv.triage.stateQuoted",
+  high: "confidence.high",
+  med: "confidence.med",
+  low: "confidence.low",
+};
+
+function isBand(state: RowState): state is "high" | "med" | "low" {
+  return state === "high" || state === "med" || state === "low";
+}
+
+// isWork's set split in two: the banded half (low, med) already reads as a
+// worded mark through ConfidenceMeter; this is the rest of it — the states
+// with no value to grade at all. Required outranks empty in the same order
+// the nav's blocking cluster uses, so a row's mark and the nav never
+// disagree about which gap is the urgent one.
+function isOutstandingUnbanded(state: RowState): state is "required" | "empty" {
+  return state === "required" || state === "empty";
+}
+
+/** The settled half of the same split: `typed`, `stored` and `quoted` all
+ * have a value and no confidence to grade, so `isBand` skips them too. */
+function isSettledUnbanded(
+  state: RowState,
+): state is "typed" | "stored" | "quoted" {
+  return state === "typed" || state === "stored" || state === "quoted";
+}
+
+// The mark a row with no gradable value carries: an icon shaped, not
+// coloured, to tell the two states apart (a solid warning glyph for the
+// blocking kind, a hollow ring for the merely-empty one) plus the same
+// words a screen reader gets for every other row's state.
+function OutstandingMark({
+  state,
+  t,
+}: Readonly<{
+  state: "required" | "empty";
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <span className="ob-triage-row-outstanding" data-state={state}>
+      {state === "required" ? (
+        <AlertTriangle aria-hidden />
+      ) : (
+        <Circle aria-hidden />
+      )}
+      <span className="sr-only">{t(STATE_WORD[state])}</span>
+    </span>
+  );
+}
+
+// isWork's complement, the settled half: `typed` already has a word
+// (ProvenanceTag's fixed human/agent/connector vocabulary covers it —
+// "typed by you"), but neither `stored` nor `chosen` has an entry in that
+// vocabulary at all. A row a human typed, a row still carrying an untouched
+// profile value, and a row quoted off the site's own legal notice are three
+// different truths; saying "typed by you" over the
+// last two would be wrong, not just imprecise, so each gets its own quiet
+// label instead, reusing the exact words the expanded row already says.
+function ProvenanceMark({
+  state,
+  t,
+}: Readonly<{
+  state: "typed" | "stored" | "quoted";
+  t: ReturnType<typeof useT>;
+}>) {
+  if (state === "typed") {
+    return <ProvenanceTag provenance={{ kind: "human", self: true }} />;
+  }
+  return (
+    <span className="ob-triage-row-provenance">{t(STATE_WORD[state])}</span>
+  );
+}
+
+// A collapsed value reads one short line's worth in the row; the cut lands
+// on a word boundary rather than mid-word, and the rest of the text stays
+// out of the DOM until the row expands — the same evidence-or-omit-shaped
+// rule the collapsed EvidenceChip keeps for its own snippet.
+const PROSE_PREVIEW_CHARS = 140;
+
+function prosePreview(value: string): string {
+  if (value.length <= PROSE_PREVIEW_CHARS) {
+    return value;
+  }
+  const cut = value.lastIndexOf(" ", PROSE_PREVIEW_CHARS);
+  return `${value.slice(0, cut > 0 ? cut : PROSE_PREVIEW_CHARS).trimEnd()}…`;
+}
+
+/**
+ * The omission notice: what the board owes a reader for a field the read
+ * looked for and came back without.
+ *
+ * The backend drops a field that fails the evidence assertion rather than
+ * shipping it with a reason attached (ai-operational-spec: omission is the
+ * safe failure), so the wire carries silence and the honesty is this
+ * surface's to discharge — a named omission, never a blank box the reader
+ * has to tell apart from "not found" and "never looked".
+ *
+ * Which is also its limit: the notice is stated ONLY where the read accounts
+ * for the field itself (`row.omissionReasonKey`, the legal trio's gap read
+ * off the crawl's own pages and candidates). Everywhere else silence is all
+ * there is, and a box asserting "not found on your site" over it would be the
+ * fabrication this notice exists to prevent — so those rows carry no notice
+ * at all and read as what they are: empty, and fillable right here.
+ *
+ * The read's `warnings` are deliberately no part of a reason either: they are
+ * crawl-wide sentences (an extraction caveat, the legal gate's abstention, a
+ * read that stopped early) and nothing on the wire ties one to a field. Every
+ * warning is shown in full, under its own heading, by the CoverageCard at the
+ * foot of the board.
+ *
+ * In the dashed weight the tree already uses for anything not yet real: the
+ * field named, and beside it the one reason the read can support for it.
+ */
+function OmissionNotice({
+  label,
+  reasonKey,
+  t,
+}: Readonly<{
+  label: string;
+  reasonKey: MessageKey;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <div className="ob-triage-omitted">
+      <FileQuestion aria-hidden />
+      <div className="ob-triage-omitted-body">
+        <p className="ob-triage-omitted-label">
+          {t("ob.conv.triage.omittedLabel")}
+        </p>
+        <p>
+          {t("ob.conv.triage.omittedField", {
+            field: label,
+            reason: t(reasonKey),
+          })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One reviewable field, in one of two weights — the slicing that keeps 16
+ * fields readable at once:
+ * - Collapsed: a 1-line summary (label, value preview, band) that is itself
+ *   the button to open. Nothing interactive rides inside it, so the evidence
+ *   chip's own button never nests in another.
+ * - Expanded: the full card — the value editable in place (confirm or
+ *   correct, without leaving for the form), the state named in words, the
+ *   verbatim evidence one toggle away.
+ * The work states (required, weak, empty) open by default: they ARE the
+ * work. The settled ones open on demand.
+ */
+function FieldRow({
+  row,
+  setField,
+  defaultExpanded,
+}: Readonly<{
+  row: ReviewRow;
+  setField: (field: CompanyFieldName, value: string) => void;
+  defaultExpanded: boolean;
+}>) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const controlId = `confirm-missing-${row.field}`;
+  const onChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => setField(row.field, event.target.value);
+
+  // Opts into the jump's "open it, then focus the real control" contract
+  // (entries.tsx's jumpToFindings): a collapsed row has nothing typeable
+  // for a keyboard or screen-reader user to land on, so a jump here means
+  // "open this" as much as "look at this". A row already expanded ignores
+  // the request — there is nothing more to do.
+  const li = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const node = li.current;
+    if (node === null) {
+      return;
+    }
+    const onExpandRequest = () => setExpanded(true);
+    node.addEventListener(FINDING_EXPAND_EVENT, onExpandRequest);
+    return () =>
+      node.removeEventListener(FINDING_EXPAND_EVENT, onExpandRequest);
+  }, []);
+
+  if (!expanded) {
+    return (
+      <li
+        ref={li}
+        id={rowDomId(row.field)}
+        tabIndex={-1}
+        data-finding-id={row.field}
+        data-state={row.state}
+        className="ob-triage-row"
+      >
+        <button
+          type="button"
+          className="ob-triage-row-summary"
+          aria-expanded={false}
+          onClick={() => setExpanded(true)}
+        >
+          <ChevronRight aria-hidden className="ob-triage-row-caret" />
+          <span className="t-label">{row.label}</span>
+          <span className="ob-conv-field-value">
+            {row.value.trim() === ""
+              ? t(row.emptyHintKey)
+              : prosePreview(row.value)}
+          </span>
+          <span className="ob-triage-row-meta">
+            {row.confidence !== null && (
+              <span className="ob-triage-score">
+                {Math.round(row.confidence * 100)}
+                {row.evidence !== null && (
+                  <span className="ob-triage-source">
+                    {t("ob.conv.triage.sourceCount", { count: 1 })}
+                  </span>
+                )}
+              </span>
+            )}
+            {isBand(row.state) && <ConfidenceMeter level={row.state} />}
+            {/* The band states already carry a worded mark (ConfidenceMeter);
+                required/empty are the rest of isWork's set and get the same
+                treatment here — an icon that survives greyscale (shape, not
+                colour, tells them apart) plus the words a screen reader gets. */}
+            {isOutstandingUnbanded(row.state) && (
+              <OutstandingMark state={row.state} t={t} />
+            )}
+            {isSettledUnbanded(row.state) && (
+              <ProvenanceMark state={row.state} t={t} />
+            )}
+          </span>
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li
+      ref={li}
+      id={rowDomId(row.field)}
+      tabIndex={-1}
+      data-finding-id={row.field}
+      data-state={row.state}
+      className="ob-triage-row ob-triage-row-open ob-conv-confirm-missing-row"
+    >
+      <div className="ob-triage-row-head">
+        <label className="t-label" htmlFor={controlId}>
+          {row.label}
+          <em>{t(STATE_WORD[row.state])}</em>
+        </label>
+        <button
+          type="button"
+          className="ob-conv-field-expand"
+          aria-expanded
+          onClick={() => setExpanded(false)}
+        >
+          {t("ob.conv.review.showLess")}
+        </button>
+      </div>
+      {/* Above the control, not below it: the reader learns why the box is
+          empty BEFORE deciding what to type in it. */}
+      {row.omissionReasonKey !== null && (
+        <OmissionNotice
+          label={row.label}
+          reasonKey={row.omissionReasonKey}
+          t={t}
+        />
+      )}
+      {row.multiline ? (
+        <textarea id={controlId} value={row.value} onChange={onChange} />
+      ) : (
+        <input id={controlId} value={row.value} onChange={onChange} />
+      )}
+      {/* Only the evidence pair below the control: the label's state word
+          already says "typed by you", so the human tag would say it twice.
+          The quote and the meter are separate claims — a value the human
+          picked off the legal notice carries the page's own words but no
+          measured score, so it shows the quote and NO meter rather than a
+          band nothing graded. */}
+      {row.evidence !== null && (
+        <span className="ob-triage-row-proof">
+          {isBand(row.state) && <ConfidenceMeter level={row.state} />}
+          <EvidenceChip evidence={row.evidence} collapsed />
+        </span>
+      )}
+    </li>
+  );
+}
+
+function rowDomId(field: CompanyFieldName): string {
+  return `ob-triage-row-${field}`;
+}
+
+function groupDomId(key: string): string {
+  return `ob-triage-group-${key}`;
+}
+
+function jumpToRow(field: CompanyFieldName): void {
+  const node = document.getElementById(rowDomId(field));
+  // jsdom has no scrollIntoView; in the browser it always exists.
+  node?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  node?.focus({ preventScroll: true });
+}
+
+// The layout frozen at mount, once per group: the row order and which ones
+// open by default. `workCount` is frozen too, but ONLY for where the
+// settled-cluster divider falls inside the group — that line must not jump
+// as a row is filled. Anything that has to stay live and correct as the
+// human types (the nav's outstanding count and named list, a row's own
+// mark) is derived fresh every render instead; see `outstandingRows`.
+type FrozenGroup = {
+  key: string;
+  labelKey: MessageKey;
+  order: readonly CompanyFieldName[];
+  workCount: number;
+  openByDefault: ReadonlySet<CompanyFieldName>;
+};
+
+// Which section is under the reader's eye right now, so the nav can mark it
+// current. A real IntersectionObserver only exists in the browser; jsdom has
+// none, so the hook degrades to "the first section", which is an honest
+// answer rather than a crash.
+function useActiveSection(groups: readonly FrozenGroup[]): string | null {
+  const [active, setActive] = useState<string | null>(groups[0]?.key ?? null);
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const sections = groups
+      .map((group) => document.getElementById(groupDomId(group.key)))
+      .filter((node): node is HTMLElement => node !== null);
+    if (sections.length === 0) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const topmost = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort(
+            (a, b) => a.boundingClientRect.top - b.boundingClientRect.top,
+          )[0];
+        if (topmost) {
+          setActive(topmost.target.id.replace("ob-triage-group-", ""));
+        }
+      },
+      { rootMargin: "-10% 0px -70% 0px" },
+    );
+    for (const section of sections) {
+      observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, [groups]);
+  return active;
+}
+
+// The server 422s confirm on exactly one thing: a REQUIRED_FIELDS entry
+// left empty. `rowFor` already folds that into the "required" state (see
+// company-review-state.ts), so checking the state IS checking
+// REQUIRED_FIELDS — there is no second predicate to drift from the first.
+function isBlocking(state: RowState): boolean {
+  return state === "required";
+}
+
+// isWork's set minus the blocking one: everything the server never gates
+// on — optional-empty, weak or middling evidence. Worth a look, never an
+// obstacle, and never worded or coloured as though it were one.
+function isAdvisory(state: RowState): boolean {
+  return isWork(state) && state !== "required";
+}
+
+// The one split that decides what the nav counts, what it lists by name
+// (in two labelled clusters, not one undifferentiated pile), and what a row
+// marks: blocking vs advisory, read live off each row's CURRENT state every
+// time — never off the order frozen at mount. Filling the one required
+// field a section still needs, or raising a weak value's confidence, both
+// recompute this on the same render, so the count, the named lists and the
+// row's own mark can never drift apart.
+function outstandingSplit(
+  group: FrozenGroup,
+  rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>,
+): { blocking: readonly ReviewRow[]; advisory: readonly ReviewRow[] } {
+  const rows = group.order
+    .map((field) => rowByField.get(field))
+    .filter((row): row is ReviewRow => row !== undefined && isWork(row.state));
+  return {
+    blocking: rows.filter((row) => isBlocking(row.state)),
+    advisory: rows.filter((row) => isAdvisory(row.state)),
+  };
+}
+
+// How many of a section's fields the nav names, per cluster, before it
+// falls back to a plain overflow count: past this, the list would grow
+// taller than the section it navigates, which defeats the point of a nav.
+const NAV_NAMED_LIMIT = 5;
+
+// A section's badge over its jump button: one number, never two — a reader
+// asking "what do I have to do here" wants the single count that describes
+// this section's own state. A section with outstanding work always shows
+// something here, blocking or not, so scanning the nav alone (without
+// reading a single named list) already tells settled from advisory from
+// blocking apart. Only the shape differs by tier: the blocking count keeps
+// the danger pill (the one count that actually gates confirm), the
+// advisory count is the same quiet mono numeral the People/Facts counts
+// use — never the danger tone, since none of these fields stop anything.
+function SectionBadge({
+  blocking,
+  advisory,
+  t,
+}: Readonly<{
+  blocking: readonly ReviewRow[];
+  advisory: readonly ReviewRow[];
+  t: ReturnType<typeof useT>;
+}>) {
+  if (blocking.length === 0 && advisory.length === 0) {
+    return (
+      <span className="ob-triage-nav-settled">
+        <Check aria-hidden />
+        <span className="sr-only">{t("ob.conv.triage.sectionSettled")}</span>
+      </span>
+    );
+  }
+  if (blocking.length === 0) {
+    return (
+      <span className="ob-triage-nav-advisory">
+        <b aria-hidden>{advisory.length}</b>
+        <span className="sr-only">
+          {t("ob.conv.triage.sectionAdvisory", { count: advisory.length })}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="ob-triage-nav-badge" data-blocking="true">
+      <b aria-hidden>{blocking.length}</b>
+      <span className="sr-only">
+        {t("ob.conv.triage.sectionBlocking", { count: blocking.length })}
+      </span>
+    </span>
+  );
+}
+
+// The named to-do list under a section: one flat list, blocking fields
+// first (the more actionable of the two, and the one the badge above
+// already leads with), each a jump straight to its row through the same
+// jump machinery the rest of the board uses (the pulse and its
+// reduced-motion opt-out come along for free). Blocking and advisory are
+// told apart by shape, not by a heading over each: a warning triangle
+// marks the field that actually gates confirm, and an advisory field
+// carries no icon at all — a hollow ring beside "worth a look" read as an
+// unticked checkbox, the wrong claim for something optional. The tier
+// still reaches a screen reader, in words, on every row's own name.
+function NavOutstandingList({
+  blocking,
+  advisory,
+  t,
+}: Readonly<{
+  blocking: readonly ReviewRow[];
+  advisory: readonly ReviewRow[];
+  t: ReturnType<typeof useT>;
+}>) {
+  const rows = [
+    ...blocking.map((row) => ({ row, isBlocking: true as const })),
+    ...advisory.map((row) => ({ row, isBlocking: false as const })),
+  ];
+  if (rows.length === 0) {
+    return null;
+  }
+  const named = rows.slice(0, NAV_NAMED_LIMIT);
+  const overflow = rows.length - named.length;
+  return (
+    <ul className="ob-triage-nav-sublist">
+      {named.map(({ row, isBlocking }) => (
+        <li key={row.field}>
+          <button
+            type="button"
+            className="ob-triage-nav-item"
+            data-blocking={isBlocking ? "true" : undefined}
+            onClick={() => jumpToFindings([row.field])}
+          >
+            {isBlocking && <AlertTriangle aria-hidden />}
+            <span>{row.label}</span>
+            <span className="sr-only">
+              {t(
+                isBlocking
+                  ? "ob.conv.triage.blockingHead"
+                  : "ob.conv.triage.advisoryHead",
+              )}
+            </span>
+          </button>
+        </li>
+      ))}
+      {overflow > 0 && (
+        <li className="ob-triage-nav-more">
+          {t("ob.conv.triage.sectionMore", { count: overflow })}
+        </li>
+      )}
+    </ul>
+  );
+}
+
+// The count beside People or Facts means something else entirely from the
+// counts beside a field section: "this is what I found", never "this needs
+// you". Sharing SectionBadge's pill shape (or its red) would say the crawl
+// itself is an obstacle, which it is not — nothing under either section is
+// the human's to resolve. A find of zero still reads as settled, the same
+// quiet check every other settled section gets, so "nothing found" and
+// "nothing built" never look alike either.
+function SectionQuantity({
+  count,
+  labelKey,
+  t,
+}: Readonly<{
+  count: number;
+  labelKey: MessageKey;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (count === 0) {
+    return (
+      <span className="ob-triage-nav-settled">
+        <Check aria-hidden />
+        <span className="sr-only">{t("ob.conv.triage.sectionSettled")}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="ob-triage-nav-quantity">
+      <b aria-hidden>{count}</b>
+      <span className="sr-only">{t(labelKey, { count })}</span>
+    </span>
+  );
+}
+
+// The map replaced: a plain list of section names, each a jump link, each
+// naming the fields still open under it — a real to-do list, not a count to
+// decode, and one that never lets a merely advisory field read as an
+// obstacle. A section with nothing outstanding says so quietly (a settled
+// mark) rather than rendering nothing, so "done" and "not built" can never
+// look alike.
+function SectionNav({
+  groups,
+  activeKey,
+  rowByField,
+  peopleCount,
+  factsCount,
+  t,
+}: Readonly<{
+  groups: readonly FrozenGroup[];
+  activeKey: string | null;
+  rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
+  /** null when no read backs this proposal — the People section itself
+   * does not exist in that case either (see the `frozen` builder). */
+  peopleCount: number | null;
+  factsCount: number;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <nav className="ob-triage-nav" aria-label={t("ob.conv.triage.mapLabel")}>
+      <ul className="ob-triage-nav-list">
+        {groups.map((group) => {
+          const jumpTo = () => {
+            const node = document.getElementById(groupDomId(group.key));
+            // jsdom has no scrollIntoView; the browser always does.
+            node?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+          };
+          const current = group.key === activeKey ? "true" : undefined;
+          if (group.key === PEOPLE_KEY) {
+            return (
+              <li key={group.key}>
+                <button
+                  type="button"
+                  className="ob-triage-nav-link"
+                  aria-current={current}
+                  onClick={jumpTo}
+                >
+                  <span>{t(group.labelKey)}</span>
+                  <SectionQuantity
+                    count={peopleCount ?? 0}
+                    labelKey="ob.conv.triage.peopleCount"
+                    t={t}
+                  />
+                </button>
+              </li>
+            );
+          }
+          if (group.key === FACTS_KEY) {
+            return (
+              <li key={group.key}>
+                <button
+                  type="button"
+                  className="ob-triage-nav-link"
+                  aria-current={current}
+                  onClick={jumpTo}
+                >
+                  <span>{t(group.labelKey)}</span>
+                  <SectionQuantity
+                    count={factsCount}
+                    labelKey="ob.conv.triage.factsCount"
+                    t={t}
+                  />
+                </button>
+              </li>
+            );
+          }
+          const { blocking, advisory } = outstandingSplit(group, rowByField);
+          return (
+            <li key={group.key}>
+              <button
+                type="button"
+                className="ob-triage-nav-link"
+                aria-current={current}
+                onClick={jumpTo}
+              >
+                <span>{t(group.labelKey)}</span>
+                <SectionBadge blocking={blocking} advisory={advisory} t={t} />
+              </button>
+              <NavOutstandingList
+                blocking={blocking}
+                advisory={advisory}
+                t={t}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+// The one field the review can't derive a row for: no group carries
+// "website" (it is the gate's field, not a reviewable profile row), so its
+// domain renders as plain text rather than a jump link.
+function companyWebsiteDomain(website: string): string {
+  const trimmed = website.trim();
+  return trimmed === "" ? "" : normalizeUrl(trimmed).host || trimmed;
+}
+
+type CompanyCardFact = {
+  label: string;
+  value: string;
+  field: CompanyFieldName | null;
+};
+
+// The identity summary that leads the review: brand mark, name, and the
+// handful of fields that actually identify the business. It is a summary,
+// not another editable form — every value with a matching row below is a
+// jump link into it; the rest (website has none) render as plain text.
+function CompanyIdentityCard({
+  draft,
+  t,
+}: Readonly<{ draft: CompanyDraft; t: ReturnType<typeof useT> }>) {
+  const legalName = draft.values.legal_name.trim();
+  const name = draft.values.display_name.trim() || legalName;
+  if (name === "") {
+    return null;
+  }
+  const facts: CompanyCardFact[] = [];
+  if (legalName !== "" && legalName !== name) {
+    facts.push({
+      label: coldFieldLabel("legal_name", t),
+      value: legalName,
+      field: "legal_name",
+    });
+  }
+  const domain = companyWebsiteDomain(draft.values.website);
+  if (domain !== "") {
+    facts.push({
+      label: t("ob.conv.triage.companyWebsite"),
+      value: domain,
+      field: null,
+    });
+  }
+  const headquarters = draft.values.registered_address.trim();
+  if (headquarters !== "") {
+    facts.push({
+      label: coldFieldLabel("registered_address", t),
+      value: headquarters,
+      field: "registered_address",
+    });
+  }
+  const industry = draft.values.industry.trim();
+  if (industry !== "") {
+    facts.push({
+      label: coldFieldLabel("industry", t),
+      value: industry,
+      field: "industry",
+    });
+  }
+  return (
+    <div className="ob-company-card">
+      {/* The contract carries no logo/favicon field for a company; the
+          monogram is the floor, not a fallback for a missing fetch. Tinted,
+          because the floor is a DETERMINISTIC mark: the same company draws
+          the same colour here, in the organizations list and on the
+          connections graph, and a neutral chip would make the one company
+          this whole surface is about the only anonymous one. */}
+      <Avatar name={name} tinted size="lg" />
+      <div className="ob-company-card-body">
+        <h3>{name}</h3>
+        {facts.length > 0 && (
+          <dl className="ob-company-card-facts">
+            {facts.map((fact) => {
+              const { field } = fact;
+              return (
+                <div key={fact.label}>
+                  <dt>{fact.label}</dt>
+                  <dd>
+                    {field === null ? (
+                      fact.value
+                    ) : (
+                      <button type="button" onClick={() => jumpToRow(field)}>
+                        {fact.value}
+                      </button>
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The people section's key: fixed, so the frozen layout, the section nav and
+// the group renderer all agree on which slot is the read's people rather
+// than a profile field.
+const PEOPLE_KEY = "people";
+
+// A person is evidence-or-omit like any other finding: the contract requires
+// a snippet and a source for every one the read reports, so this is never a
+// guess at whether they exist, only a defensive floor against a quote with
+// nothing in it. Whitespace counts as nothing — a chip whose proof is three
+// spaces claims evidence it does not have.
+function personEvidence(person: SitePerson): Evidence | null {
+  return person.evidence_snippet.trim() === "" ||
+    person.evidence_url.trim() === ""
+    ? null
+    : { snippet: person.evidence_snippet, source: person.evidence_url };
+}
+
+// One person the read found: name, role, and whatever else it carries
+// (a published address, a network profile), with the page it read them from
+// one toggle away — the same collapsed evidence chip a profile field uses.
+function PersonRow({ person }: Readonly<{ person: SitePerson }>) {
+  const evidence = personEvidence(person);
+  return (
+    <li className="ob-triage-person">
+      <span className="ob-triage-person-name">{person.name}</span>
+      <span className="ob-triage-person-role">{person.role}</span>
+      {person.published_email && (
+        <span className="ob-triage-person-meta">{person.published_email}</span>
+      )}
+      {person.linkedin_url && (
+        <span className="ob-triage-person-meta">{person.linkedin_url}</span>
+      )}
+      {evidence && <EvidenceChip evidence={evidence} collapsed />}
+    </li>
+  );
+}
+
+/**
+ * The people the read found, promoted to a section of their own: they are
+ * company facts (who to talk to), the same class of thing as an office or a
+ * service line, not a footnote under "everything else". There is nothing
+ * here for a human to resolve — no field, no confidence band — so the
+ * section carries no outstanding count; it only ever states what was found,
+ * or says plainly that nothing was.
+ */
+function PeopleGroupSection({
+  people,
+  t,
+}: Readonly<{ people: readonly SitePerson[]; t: ReturnType<typeof useT> }>) {
+  return (
+    <section id={groupDomId(PEOPLE_KEY)} className="ob-triage-group">
+      <div className="ob-triage-group-head">
+        <h3>{t("ob.conv.triage.peopleLabel")}</h3>
+        {people.length > 0 && (
+          <span>
+            {t("ob.conv.triage.peopleCount", { count: people.length })}
+          </span>
+        )}
+      </div>
+      {people.length === 0 ? (
+        <p className="ob-triage-people-empty">
+          {t("ob.conv.triage.peopleEmpty")}
+        </p>
+      ) : (
+        <ul className="ob-triage-people-rows">
+          {people.map((person) => (
+            <PersonRow
+              key={`${person.name}:${person.evidence_url}`}
+              person={person}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// The facts section's key, alongside PEOPLE_KEY: another slot the frozen
+// layout, the section nav and the group renderer all agree carries no
+// profile field.
+const FACTS_KEY = "facts";
+
+// The wire's own field enum, in its declared order — not alphabetical, not
+// discovery order, so the same read always groups its facts the same way.
+// Only the types a given read actually produced get a heading; the closed
+// set is what fixes the ORDER, not what it forces onto the page.
+const FACT_FIELD_ORDER: readonly SiteFact["field"][] = [
+  "founded_year",
+  "employee_range",
+  "phone",
+  "contact_email",
+  "location",
+  "service",
+  "product",
+  "capability",
+  "served_industry",
+  "company_size",
+  "geography",
+  "language",
+  "certification",
+  "partner",
+  "named_customer",
+  "technology",
+  "quantified_outcome",
+];
+
+function factsByType(facts: readonly SiteFact[]): readonly Readonly<{
+  field: SiteFact["field"];
+  facts: readonly SiteFact[];
+}>[] {
+  return FACT_FIELD_ORDER.map((field) => ({
+    field,
+    facts: facts.filter((fact) => fact.field === field),
+  })).filter((group) => group.facts.length > 0);
+}
+
+// One finding, dense: the value, its confidence, the source one toggle
+// away, and the same save/drop control the classic form's fact grid uses —
+// a fact is a line, not a field-sized card, so nothing here grows past one.
+function FactRow({
+  fact,
+  selection,
+  t,
+}: Readonly<{
+  fact: SiteFact;
+  selection: FactSelection;
+  t: ReturnType<typeof useT>;
+}>) {
+  const selected = selection.isSelected(fact);
+  const evidence: Evidence = {
+    snippet: fact.evidence_snippet,
+    source: fact.evidence_url,
+  };
+  return (
+    <li className="ob-triage-fact">
+      <button
+        type="button"
+        className="ob-triage-fact-toggle"
+        aria-pressed={selected}
+        aria-label={t("ob.facts.rowSave", { fact: fact.value })}
+        disabled={saveDisabled(selection, selected)}
+        onClick={() => selection.toggle(fact)}
+      >
+        {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
+      </button>
+      <span className="ob-triage-fact-value">{fact.value}</span>
+      <span className="ob-triage-fact-meta">
+        <span className="ob-triage-score">
+          {Math.round(fact.confidence * 100)}
+        </span>
+        <EvidenceChip evidence={evidence} collapsed />
+      </span>
+    </li>
+  );
+}
+
+// Above this many rows a type is folded shut. A read of a real site returns a
+// hundred facts and two thirds of them are one type — services, named
+// customers — so opening everything buries the small groups that actually
+// carry a decision under a list nobody scrolls to the end of. Short groups
+// stay open because folding four rows costs a click and saves nothing.
+const FACT_GROUP_OPEN_MAX = 6;
+
+// One type's worth of facts under its own quiet heading — the grouping that
+// keeps a hundred rows skimmable: the reader sees the SHAPE of what a type
+// found (three services, one certification) before reading any of it. The
+// count in the head is the part that must always be visible; the rows behind
+// it are the detail, and a long type earns its fold.
+function FactTypeGroup({
+  field,
+  facts,
+  selection,
+  t,
+}: Readonly<{
+  field: SiteFact["field"];
+  facts: readonly SiteFact[];
+  selection: FactSelection;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <Disclosure
+      className="ob-triage-fact-type"
+      open={facts.length <= FACT_GROUP_OPEN_MAX}
+      summary={
+        <>
+          {coldFieldLabel(field, t)}
+          <span className="ob-triage-fact-type-count">{facts.length}</span>
+        </>
+      }
+    >
+      <ul className="ob-triage-fact-rows">
+        {facts.map((fact) => (
+          <FactRow
+            key={fact.value_key}
+            fact={fact}
+            selection={selection}
+            t={t}
+          />
+        ))}
+      </ul>
+    </Disclosure>
+  );
+}
+
+/**
+ * Every fact the read produced, grouped by type — the densest, most
+ * interesting thing the crawl made must not read as an appendix behind "other
+ * facts I found". Every type's name and count is on screen from the start;
+ * only a long type's rows wait behind its own fold. The selection stays live
+ * either way: ticking or unticking still writes through the same
+ * `FactSelection` the classic form's fact grid and table use, so accepting the
+ * review still sends exactly the keys the reader chose — including the ones
+ * inside a group they never opened.
+ */
+function FactsGroupSection({
+  facts,
+  selection,
+  locale,
+  t,
+}: Readonly<{
+  facts: readonly SiteFact[];
+  selection: FactSelection;
+  locale: string;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <section id={groupDomId(FACTS_KEY)} className="ob-triage-group">
+      <div className="ob-triage-group-head">
+        <h3>{t("ob.conv.triage.factsLabel")}</h3>
+        <span>
+          {t("ob.factsSelected", {
+            selected: selection.selectedCount,
+            total: facts.length,
+          })}
+        </span>
+      </div>
+      <p className="ob-sub">{t("ob.factsSub")}</p>
+      {/* The thread beside this pane owns no cap sentence of its own; this
+          card draws the ceiling and a second live region on the same
+          boundary would read the sentence twice. */}
+      <CapNotice atCap={selection.atCap} locale={locale} live={false} />
+      {factsByType(facts).map(({ field, facts: typeFacts }) => (
+        <FactTypeGroup
+          key={field}
+          field={field}
+          facts={typeFacts}
+          selection={selection}
+          t={t}
+        />
+      ))}
+    </section>
+  );
+}
+
+// One field group's board: its head (filled/total), the settled-cluster
+// divider once the work rows give way to the solid ones, and the rows
+// themselves in the order frozen at mount.
+function FieldGroupSection({
+  group,
+  rowByField,
+  setField,
+  t,
+}: Readonly<{
+  group: FrozenGroup;
+  rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
+  setField: (field: CompanyFieldName, value: string) => void;
+  t: ReturnType<typeof useT>;
+}>) {
+  const ordered = group.order
+    .map((field) => rowByField.get(field))
+    .filter((row): row is ReviewRow => row !== undefined);
+  const filled = ordered.filter((row) => row.value.trim() !== "").length;
+  const solidCount = group.order.length - group.workCount;
+  return (
+    <section id={groupDomId(group.key)} className="ob-triage-group">
+      <div className="ob-triage-group-head">
+        <h3>{t(group.labelKey)}</h3>
+        <span>
+          {filled}/{group.order.length}
+        </span>
+      </div>
+      <ul className="ob-conv-confirm-fields ob-triage-rows">
+        {ordered.map((row, index) => (
+          <Fragment key={row.field}>
+            {/* The settled cluster sits under its own quiet rule, so the eye
+                can stop reading a group the moment it crosses it. */}
+            {index === group.workCount &&
+              group.workCount > 0 &&
+              solidCount > 0 && (
+                <li className="ob-triage-solid-divider" aria-hidden>
+                  <span>
+                    {t("ob.conv.triage.looksSolid", { count: solidCount })}
+                  </span>
+                </li>
+              )}
+            <FieldRow
+              row={row}
+              setField={setField}
+              defaultExpanded={group.openByDefault.has(row.field)}
+            />
+          </Fragment>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Which section body a slot in the frozen layout renders: the two
+// non-field slots first, the ordinary field group otherwise. One switch,
+// so the board's own render stays a plain map over `frozen` rather than a
+// nested ternary repeated at the call site.
+function GroupBody({
+  group,
+  rowByField,
+  setField,
+  read,
+  facts,
+  factSelection,
+  locale,
+  t,
+}: Readonly<{
+  group: FrozenGroup;
+  rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
+  setField: (field: CompanyFieldName, value: string) => void;
+  /** Null on a proposal-only render, where there is no people section: "no
+   * people found" would be a guess rather than a finding. */
+  read: CompanySiteRead | null;
+  facts: readonly SiteFact[];
+  factSelection: FactSelection;
+  locale: string;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (group.key === PEOPLE_KEY) {
+    return read === null ? null : (
+      <PeopleGroupSection people={read.people} t={t} />
+    );
+  }
+  if (group.key === FACTS_KEY) {
+    return (
+      <FactsGroupSection
+        facts={facts}
+        selection={factSelection}
+        locale={locale}
+        t={t}
+      />
+    );
+  }
+  return (
+    <FieldGroupSection
+      group={group}
+      rowByField={rowByField}
+      setField={setField}
+      t={t}
+    />
+  );
+}
+
+// The one place the review is left from, pinned to the foot of the work
+// surface so it survives however far the board is scrolled. It carries
+// exactly three things: real progress toward being ABLE to continue (the
+// required fields, not a tally of every row), the plain-words reason
+// continuing is blocked when it is, and the one action that moves on —
+// labelled Continue, a step transition, not "Accept all": pressing it does
+// not bulk-apply the AI's proposed values (the human already settled each
+// row by editing), it advances past a review that is done. That action is
+// the same `onAcceptAll` prop the board has always had — there is no
+// separate continue affordance to consolidate with, so this is a
+// relocation, not a second control: the count that disables it is
+// `missingRequired`, the exact predicate the section nav's blocking count
+// already reads (`isRequired(field) && value === ""`), so the two can never
+// disagree about how many gaps are left.
+function ReviewContinueBar({
+  filled,
+  total,
+  remaining,
+  blockedByQuestion,
+  pending,
+  authorizing,
+  onContinue,
+  t,
+}: Readonly<{
+  filled: number;
+  total: number;
+  remaining: number;
+  /** An open clarify question with no matching answer yet — the same
+   * condition the live DecisionScene exists to resolve. Continue must gate
+   * on this itself rather than trust that the scene is always what is on
+   * screen instead of this card; that trust is exactly what left a one-
+   * render window where neither did. */
+  blockedByQuestion: boolean;
+  pending: boolean;
+  authorizing: boolean;
+  onContinue: () => void;
+  t: ReturnType<typeof useT>;
+}>) {
+  const statusId = "ob-triage-continue-status";
+  // Required fields first: it is the more actionable of the two blockers
+  // (a value to type, right here) and the one this surface can always
+  // explain by name elsewhere on the board; the open question is the
+  // narrower, rarer case.
+  const statusKey =
+    remaining > 0
+      ? remaining === 1
+        ? "ob.conv.review.requiredRemaining.one"
+        : "ob.conv.review.requiredRemaining.other"
+      : blockedByQuestion
+        ? "ob.conv.review.confirmQuestionOpen"
+        : "ob.conv.review.requiredDone";
+  return (
+    <div className="ob-triage-continue">
+      <progress
+        className="ob-triage-continue-bar"
+        value={filled}
+        max={total}
+        aria-label={t("ob.conv.review.progressLabel")}
+      />
+      {/* A live region, not merely visible text: the reason named here is
+          exactly what the button below is disabled on, so a screen reader
+          hears why the moment it changes rather than only if focus happens
+          to land on this paragraph first. */}
+      <p id={statusId} className="ob-triage-continue-status" role="status">
+        {t(statusKey, { count: remaining })}
+      </p>
+      <Button
+        variant="primary"
+        aria-describedby={statusId}
+        disabled={pending || authorizing || remaining > 0 || blockedByQuestion}
+        onClick={onContinue}
+      >
+        {pending ? (
+          <>
+            <span className="ob-spinner" /> {t("ob.s1.saving")}
+          </>
+        ) : (
+          <>
+            <Check aria-hidden /> {t("ob.conv.review.continue")}
+          </>
+        )}
+      </Button>
+    </div>
   );
 }
 
 export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const t = useT();
-  const fields = evidencedFields(props.proposal.fields);
+  const { locale } = useLocale();
+  const byName = new Map(
+    evidencedFields(props.proposal.fields)
+      .filter((field) => isCompanyField(field.field, props.draft.values))
+      .map((field) => [field.field, field]),
+  );
+  const groups = reviewGroups().map((group) => {
+    const rows = group.fields
+      .map((field) =>
+        rowFor(
+          field,
+          props.draft,
+          byName,
+          t,
+          props.read?.pages,
+          props.read?.legal_entities,
+        ),
+      )
+      .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]);
+    return { ...group, rows };
+  });
+  const rows = groups.flatMap((group) => group.rows);
   const facts = props.proposal.facts ?? [];
-  const openQuestions = (props.proposal.open_questions ?? []).filter(
-    (question) =>
-      question.id !== props.pendingQuestionId &&
-      !props.answers.some((answer) => answer.clarifyId === question.id),
+  // The LAYOUT is frozen at mount — row order, where the solid rule falls,
+  // which rows open by default, which of the two non-field sections exist
+  // at all — while every row's state, colour and value stay live. Sorting
+  // live instead would reshuffle the board under the cursor: typing one
+  // character into an empty field re-ranks it settled and the row would
+  // move mid-keystroke.
+  const readAtMount = props.read;
+  const factsAtMount = facts;
+  const [frozen] = useState<readonly FrozenGroup[]>(() => {
+    const fieldGroups = groups.map((group) => ({
+      key: group.key,
+      labelKey: group.labelKey,
+      order: group.rows.map((row) => row.field),
+      workCount: group.rows.filter((row) => isWork(row.state)).length,
+      openByDefault: new Set(
+        group.rows
+          .filter((row) => STATE_RANK[row.state] <= STATE_RANK.empty)
+          .map((row) => row.field),
+      ),
+    }));
+    // People join the board only once there is a read to report on: without
+    // one, "no people found" would be a guess rather than a finding. They
+    // carry no field order and no outstanding count — nothing here is the
+    // human's to resolve, only theirs to see. Facts join once the read
+    // actually produced any — an empty facts section would be nothing to
+    // navigate to. Fields come first in the list on purpose: they are the
+    // decisions the human owes, people and facts are what the read found —
+    // last in the nav and last in the scroll order keeps the board's
+    // weight on the work, however many facts the crawl turned up.
+    const extra: FrozenGroup[] = [];
+    if (readAtMount != null) {
+      extra.push({
+        key: PEOPLE_KEY,
+        labelKey: "ob.conv.triage.peopleLabel" as const,
+        order: [],
+        workCount: 0,
+        openByDefault: new Set<CompanyFieldName>(),
+      });
+    }
+    if (factsAtMount.length > 0) {
+      extra.push({
+        key: FACTS_KEY,
+        labelKey: "ob.conv.triage.factsLabel" as const,
+        order: [],
+        workCount: 0,
+        openByDefault: new Set<CompanyFieldName>(),
+      });
+    }
+    return [...fieldGroups, ...extra];
+  });
+  const activeSection = useActiveSection(frozen);
+  const rowByField = new Map(rows.map((row) => [row.field, row]));
+  // The contract ceiling on `selected_fact_keys` is the selection model's to
+  // enforce, wherever a fact is picked: this card's toggles and the fact
+  // table's checkboxes write the same key list, so they refuse on the same
+  // terms.
+  const factSelection = useFactSelection(
+    facts,
+    props.selectedFactKeys,
+    props.setSelectedFactKeys,
   );
-  const humanRows = humanOnlyRows(
-    props.draft,
-    new Set(fields.map((field) => field.field)),
-  );
-  // Dismissed questions are named honestly: nothing was written, the field
-  // stays the human's to edit — never silently swallowed.
+  // Questions the reader themselves declined are named honestly: nothing was
+  // written, the field stays theirs to edit, never silently swallowed.
+  //
+  // Questions another answer RETIRED are not, and that exclusion is the point
+  // rather than a tidy-up. Choosing a legal entity settles the sibling
+  // questions about that entity's own address and registration and then fills
+  // exactly those fields — so without the split the board printed "you
+  // skipped: Registered address" directly under the address it had just read
+  // from the legal notice, about a question the reader was never shown.
   const dismissedLabels = props.answers
-    .filter((answer) => answer.dismissed === true)
+    .filter(
+      (answer) => answer.dismissed === true && answer.autoResolved !== true,
+    )
     .map((answer) => coldFieldLabel(answer.field, t))
     .join(", ");
-  const missingLabels = props.missingRequired
-    .map((field) => coldFieldLabel(field, t))
-    .join(", ");
+  // What the bottom bar's progress and gate read: real completion toward
+  // being ABLE to continue, not a count of every field the board carries —
+  // an optional field left empty or lightly grounded must never subtract
+  // from a bar that claims to measure "can I move on".
+  const requiredTotal = REQUIRED_FIELDS.length;
+  const requiredRemaining = props.missingRequired.length;
+  const requiredFilled = requiredTotal - requiredRemaining;
+  // Confirm must not rely on the DecisionScene happening to occupy the
+  // surface instead of this card — that is a layout accident, not a gate.
+  // A question counts as unresolved exactly when the proposal still lists
+  // it AND no answer has landed for its id yet; once every open question
+  // has a matching answer (however it was answered), none of them block.
+  const hasUnresolvedQuestion = (props.proposal.open_questions ?? []).some(
+    (question) =>
+      !props.answers.some((answer) => answer.clarifyId === question.id),
+  );
 
   return (
-    <section className="ob-conv-confirm">
+    <section className="ob-conv-confirm ob-triage">
       <header>
         <Sparkles aria-hidden />
         <h2>{t("ob.conv.review.title")}</h2>
       </header>
-      <ul className="ob-conv-confirm-fields">
-        {fields.map((field) => (
-          <FieldRow key={field.field} field={field} draft={props.draft} />
-        ))}
-        {humanRows.map((field) => (
-          <li key={field}>
-            <span className="t-label">{coldFieldLabel(field, t)}</span>
-            <strong>{props.draft.values[field]}</strong>
-            <ProvenanceTag provenance={{ kind: "human", self: true }} />
-          </li>
-        ))}
-      </ul>
-      {openQuestions.length > 0 && (
-        <div className="ob-conv-confirm-questions">
-          <p>{t("ob.conv.review.openQuestions")}</p>
-          {openQuestions.map((question) => (
-            <QuestionCard
-              key={question.id}
-              question={toMachineQuestion(question, props.comparisons)}
-              onAnswer={props.onAnswerClarify}
-              onDismiss={props.onDismissClarify}
+      <CompanyIdentityCard draft={props.draft} t={t} />
+      <div className="ob-triage-body">
+        <SectionNav
+          groups={frozen}
+          activeKey={activeSection}
+          rowByField={rowByField}
+          peopleCount={props.read?.people.length ?? null}
+          factsCount={facts.length}
+          t={t}
+        />
+        <div className="ob-triage-groups">
+          {frozen.map((group) => (
+            <GroupBody
+              key={group.key}
+              group={group}
+              rowByField={rowByField}
+              setField={props.setField}
+              read={props.read ?? null}
+              facts={facts}
+              factSelection={factSelection}
+              locale={locale}
+              t={t}
             />
           ))}
         </div>
-      )}
+      </div>
       {dismissedLabels !== "" && (
         <div className="ob-conv-confirm-skipped">
           <p>{t("ob.conv.review.skipped", { fields: dismissedLabels })}</p>
-          <Button small variant="ghost" onClick={props.onEditDirectly}>
-            {t("ob.conv.review.editDirectly")}
-          </Button>
         </div>
       )}
-      {facts.length > 0 && (
-        <details className="confirm-facts">
-          <summary>
-            <span className="seclabel">{t("ob.factsTitle")}</span>
-            <span className="facts-count">
-              {t("ob.factsSelected", {
-                selected: props.selectedFactKeys.length,
-                total: facts.length,
-              })}
-            </span>
-          </summary>
-          <p className="ob-sub">{t("ob.factsSub")}</p>
-          <div className="fact-grid">
-            {facts.map((fact) => {
-              const selected = props.selectedFactKeys.includes(fact.value_key);
-              const selectionFull =
-                !selected &&
-                props.selectedFactKeys.length >= MAX_SELECTED_FACTS;
-              return (
-                <button
-                  key={`${fact.field}:${fact.value_key}`}
-                  type="button"
-                  className={`fact-card ${selected ? "selected" : ""}`}
-                  aria-pressed={selected}
-                  disabled={selectionFull}
-                  onClick={() =>
-                    props.setSelectedFactKeys(
-                      selected
-                        ? props.selectedFactKeys.filter(
-                            (key) => key !== fact.value_key,
-                          )
-                        : [...props.selectedFactKeys, fact.value_key],
-                    )
-                  }
-                >
-                  <span className="fact-check">
-                    {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
-                  </span>
-                  <span>
-                    <b>{coldFieldLabel(fact.field, t)}</b>
-                    <span>{fact.value}</span>
-                    <small>{fact.evidence_snippet}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </details>
-      )}
-      {props.missingRequired.length > 0 && (
-        <NarrationBubble
-          entry={{
-            kind: "narration",
-            id: "review:missing",
-            i18nKey: "ob.conv.review.missing",
-            params: { fields: missingLabels },
-          }}
-        />
+      {/* The read's remaining honesty: what it read or skipped. People and
+          facts both moved up onto the board as findings of their own — this
+          is crawl provenance, not a finding, so it is the one thing left
+          under a tail head of its own. */}
+      {props.read != null && (
+        <div className="ob-triage-readmore">
+          <p className="ob-triage-rest-head">{t("ob.conv.triage.restTitle")}</p>
+          <CoverageCard
+            pages={props.read.pages}
+            warnings={props.read.warnings}
+            stoppedReason={props.read.stopped_reason}
+          />
+        </div>
       )}
       {props.error && (
         // A failed save speaks as Margince, not as a bare server string
@@ -193,70 +1470,16 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           />
         </div>
       )}
-      <div className="ob-conv-confirm-actions">
-        <Button
-          variant="primary"
-          disabled={
-            props.pending ||
-            props.authorizing ||
-            props.missingRequired.length > 0 ||
-            openQuestions.length > 0
-          }
-          onClick={props.onAcceptAll}
-        >
-          {props.pending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s1.saving")}
-            </>
-          ) : (
-            <>
-              <Check aria-hidden /> {t("ob.conv.review.acceptAll")}
-            </>
-          )}
-        </Button>
-        <Button
-          small
-          variant="ghost"
-          disabled={props.pending}
-          onClick={props.onEditDirectly}
-        >
-          {t("ob.conv.review.editDirectly")}
-        </Button>
-      </div>
+      <ReviewContinueBar
+        filled={requiredFilled}
+        total={requiredTotal}
+        remaining={requiredRemaining}
+        blockedByQuestion={hasUnresolvedQuestion}
+        pending={props.pending}
+        authorizing={props.authorizing}
+        onContinue={props.onAcceptAll}
+        t={t}
+      />
     </section>
-  );
-}
-
-// One reviewed row: the human's current value where the vocabulary knows the
-// field, with provenance in precedence order — the human's own typing, then
-// the draft's CURRENT grounding (an entity pick re-grounds the legal block),
-// then the proposal's own evidence. A cleared value has nothing to confirm.
-function FieldRow({
-  field,
-  draft,
-}: Readonly<{ field: ProposalField; draft: CompanyDraft }>) {
-  const t = useT();
-  const name = isCompanyField(field.field, draft.values) ? field.field : null;
-  const value = name === null ? field.value : draft.values[name];
-  const typed = name !== null && draft.edited.has(name);
-  const grounding = name === null ? null : groundingOf(draft, name);
-  if (value.trim() === "") {
-    return null;
-  }
-  return (
-    <li>
-      <span className="t-label">{coldFieldLabel(field.field, t)}</span>
-      <strong>{value}</strong>
-      {typed ? (
-        <ProvenanceTag provenance={{ kind: "human", self: true }} />
-      ) : (
-        <EvidenceChip
-          evidence={{
-            snippet: grounding?.evidence_snippet ?? field.evidence_snippet,
-            source: grounding?.source_url ?? field.source_url,
-          }}
-        />
-      )}
-    </li>
   );
 }

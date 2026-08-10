@@ -13,6 +13,196 @@
   padding: 12px 14px;
 }
 
+/* The overview's card grid (mockup State D). Three columns on a wide screen,
+   two when the page loses its third, one on a phone — the same two thresholds
+   RecordView's own zones fold at (design-system/composed.css), so the page
+   never re-columns at a width the shell around it does not.
+
+   `auto-fit` with a minimum rather than a fixed count: a card narrower than
+   ~300px stops being able to hold a two-column table or a labelled figure, and
+   below that the row should become shorter, not tighter. */
+/* The right rail: the account's context beside the work (mockup State A).
+   One column of stacked cards — it never becomes a grid, because a rail that
+   re-columns is a second body rather than a margin. */
+.co-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+/* Each card owns the rail's width and its own height, so a short one does not
+   stretch to match a tall neighbour. */
+.co-rail > .card {
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.co-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  margin-bottom: var(--space-4);
+}
+/* A card in the grid owns its cell's full height, so a row of three does not
+   leave two of them floating against a taller neighbour. */
+.co-grid > .card {
+  margin-bottom: 0;
+  height: 100%;
+}
+/* A folded disclosure in the grid takes the same chrome as the cards beside
+   it. Without it the summary row sits in the cell as bare text and reads as a
+   card that failed to render rather than as one that is closed. The padding
+   is .co-card's, inherited rather than restated so the two cannot drift. */
+.co-grid > .disclosure {
+  height: 100%;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+}
+.co-grid > .disclosure > .disclosure-summary,
+.co-grid > .disclosure > .disclosure-body {
+  padding-inline: var(--space-3);
+}
+.co-grid > .disclosure > .disclosure-summary {
+  padding-block: var(--space-3);
+}
+/* Below the grid's own minimum there is one column, and a card that tries to
+   keep a fixed width there overflows the page rather than the cell. */
+@media (max-width: 720px) {
+  .co-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* "Today on this account" (mockup State D): the tiles on the left, the verbs
+   they lead to in a column on the right. The verbs keep their own column so a
+   reader looking for something to press has one place to look, rather than
+   hunting for a link inside whichever tile happens to carry one. */
+.today-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-5);
+  align-items: start;
+}
+.today-tiles {
+  display: grid;
+  /* Three across at full width and fewer as it narrows. A tile below ~200px
+     cannot hold a name and a date on one line, and the row should lose a
+     column rather than crush all of them.
+
+     `auto-fill`, not `auto-fit`: auto-fit collapses the empty tracks and
+     stretches the surviving tiles across the whole row, so an account with
+     two tiles draws two 540px-wide ones. The tiles keep the width they would
+     have in a full row and the rest of the row stays empty. */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4) var(--space-5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.today-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+  padding-inline-start: var(--space-5);
+  border-inline-start: 1px solid var(--borderSubtle);
+}
+/* The first tile of each row opens the row rather than continuing one, so it
+   carries no divider. `1` covers a one-column layout and `3n + 1` the
+   three-column one; a two-column fallback keeps a leading rule on every other
+   tile, which is the cost of doing this without container queries. */
+.today-tile:nth-child(3n + 1),
+.today-tile:first-child {
+  padding-inline-start: 0;
+  border-inline-start: none;
+}
+.today-tile-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--textMeta);
+  font-size: 12px;
+}
+.today-headline {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.today-headline-warn {
+  color: var(--warn);
+}
+.today-headline-danger {
+  color: var(--danger);
+}
+.today-detail {
+  color: var(--textMeta);
+  font-size: 12.5px;
+}
+.today-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 190px;
+}
+.today-withheld {
+  margin-top: var(--space-3);
+  color: var(--textMeta);
+  font-size: 12.5px;
+  font-style: italic;
+}
+/* On a phone the verbs go under the tiles: a 190px column beside them leaves
+   neither enough width to read. */
+@media (max-width: 720px) {
+  .today-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .today-actions {
+    min-width: 0;
+  }
+}
+
+/* Lifecycle and owner, stacked at the top right of the header. Right-aligned
+ * so the two labelled rows line up against the page edge rather than ragging
+ * against the identity block beside them. */
+.co-standing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+/* Where the account STANDS is the header's one prominent control, drawn in
+   both mockups as a filled button rather than as another grey reading beside
+   Owner. The badge inside it carries that weight: solid accent, and a target
+   big enough to read as something you press. */
+.co-standing .badge {
+  font-size: 14px;
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+}
+
+/* The header's description line and its row of attribute chips. */
+.co-description {
+  margin: 0 0 var(--space-2);
+  color: var(--textMeta);
+  font-size: 13.5px;
+}
+.co-chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
 .co-list {
   list-style: none;
   display: flex;
@@ -27,6 +217,13 @@
   gap: 3px;
   font-size: 13px;
   color: var(--textPrimary);
+}
+
+/* A row's own line: the icon sits with the text rather than on its baseline. */
+.co-row-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px; /* ds:ignore matches .co-row-meta below, which the same row aligns to */
 }
 
 .co-row-meta {
@@ -75,6 +272,24 @@
   font-size: 12.5px;
   color: var(--textMeta);
   font-style: italic;
+}
+
+/* A failed section keeps its retry on the same line as the reason, so the
+   sentence and the way out of it read as one thing. */
+.co-failed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+/* Stale values are SHOWN, with the caveat above them rather than below: a
+   caveat under a figure arrives after the reader has already taken it as
+   current. The warn tone marks it as a caveat and not as prose. */
+.co-stale {
+  margin-bottom: var(--space-2);
+  font-size: 12.5px;
+  color: var(--warn);
 }
 
 .co-callout {
@@ -292,11 +507,84 @@
 
 /* The three readings, side by side above everything else. They wrap rather
    than shrink: a reading squeezed to two words stops being one. */
+/* ONE strip of six equal slots divided by rules, not six free-standing cards
+   (mockup States A and D). `1fr` rather than a min width: six slots at a
+   readable minimum would wrap to two rows on a laptop, and a KPI row that
+   wraps stops reading as one comparison.
+   Below the point where six slots stop being legible it becomes two rows of
+   three, which is a deliberate fold rather than an accidental one. */
 .co-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  gap: 0.6rem;
+  /* The column count follows the SLOTS, set by the component that knows how
+     many it drew. A fixed six-column template reserves the sixth cell even on a
+     non-customer that has five — a grey gap that reads as a reading which
+     failed to load rather than as one the account does not have. */
+  grid-template-columns: repeat(var(--co-strip-slots, 6), 1fr);
+  gap: 1px; /* ds:ignore a hairline divider, not spacing rhythm — this 1px IS the rule between slots */
   margin-block-end: 0.9rem;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--borderSubtle);
+  overflow: hidden;
+}
+
+@media (max-width: 68rem) {
+  .co-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 40rem) {
+  .co-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* The dividers are the GAP, showing the strip's own background between slots.
+   A per-slot rule would have to be reset on whichever child starts a row,
+   which is index arithmetic that only agrees with position while the slot
+   count is a multiple of the column count — and this strip draws four, five or
+   six depending on what the account has. A gap cannot hang off an edge at any
+   count. */
+.co-strip > * {
+  border: 0;
+  border-radius: 0;
+  background: var(--bgCard);
+  margin: 0;
+}
+
+/* The money is the headline. Both mockups draw these figures at roughly twice
+   the size of the label above them — it is the reading the page is opened for,
+   and at a form label's size it competes with the label instead of leading it.
+   Scoped to the strip: StatCard is shared, and a dashboard tile is not a
+   record page's headline number. */
+.co-strip .stat-card-value {
+  /* Sized to the SLOT, not to the mockup's absolute pixels. Six slots share
+     roughly 830px here — the mockup's strip is wider because its page has no
+     left nav at this width — so a figure set at the mockup's ~30px either
+     wraps mid-number or clips. Both are worse readings than a smaller one:
+     "€201,099.0" is a different number.
+     The clamp lets the figure shrink with the column instead. */
+  font-size: clamp(20px, 1.55vw, 24px);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+/* The last two slots carry WORDS rather than a figure — how they pay, and
+   where the relationship stands. A sentence set at the figures' size takes
+   three lines in a 137px column, which makes the whole strip twice as tall to
+   say what the mockup fits on one. The number leads; the sentence explains. */
+.co-strip > *:nth-last-child(-n + 2) .stat-card-value {
+  font-size: clamp(14px, 1.05vw, 17px);
+  line-height: 1.3;
+}
+
+/* A strip slot is narrower than a free-standing stat card, so the source badge
+   wraps to its own line instead of squeezing the label beside it into two
+   lines that then collide with the figure. */
+.co-strip .stat-card-label {
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 /* The brief under the questions it answers. Sections are separated by space
@@ -309,4 +597,295 @@
 .co-brief-section-label {
   color: var(--textMeta);
   margin-block-end: 0.2rem;
+}
+
+/* The growth fit sits between the brief and the next steps: what this account
+   looks like, then what it is worth, then what to do about it.
+
+   The verdict block is deliberately one unit. The band, the completeness
+   figure and the next step are ONE answer — a reader who sees `unknown`
+   without the counts beside it cannot tell "we could not judge" from "a poor
+   fit", and separating them visually invites exactly that reading. */
+.co-growth-fit {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.co-growth-fit-verdict {
+  margin: var(--space-2) 0 var(--space-3);
+}
+.co-growth-fit-band {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+/* The counts sit beside the band at the band's own weight, not beneath it in
+   fine print: they qualify the verdict rather than annotate it. */
+.co-growth-fit-completeness {
+  color: var(--textMeta);
+}
+.co-growth-fit-missing,
+.co-growth-fit-capped,
+.co-growth-fit-next {
+  margin-top: var(--space-2);
+  color: var(--textMeta);
+}
+.co-growth-fit-group {
+  margin-top: var(--space-3);
+}
+.co-part-sublabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--textMeta);
+}
+.co-part-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.co-part-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+
+/* The dossier: what the company IS, above the fit that judges it. Set like the
+   brief — prose, read top to bottom once — because it answers a question rather
+   than reporting a metric. */
+.co-dossier {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.co-dossier-section {
+  margin-top: var(--space-3);
+}
+
+/* The receipt behind one cited value. Read as a short record, not as prose:
+   the reader is comparing what we stored against where we got it. */
+.co-evidence-value {
+  font-weight: 600;
+}
+.co-evidence-origin,
+.co-evidence-line {
+  margin-top: var(--space-2);
+  color: var(--textMeta);
+}
+/* Quoted verbatim and set apart, because the reader is checking it word for
+   word against the source. Any restyling that invited paraphrase would defeat
+   the point of storing a span at all. */
+.co-evidence-excerpt {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--borderStrong);
+}
+.co-evidence-identity {
+  margin-top: var(--space-3);
+}
+.co-evidence-identity dt {
+  color: var(--textMeta);
+}
+.co-evidence-identity dd {
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+/* Said plainly, never hidden: a claim with no source to check it against is
+   worth knowing about, and a blank field would pass for having nothing to add. */
+.co-evidence-gaps {
+  margin-top: var(--space-3);
+  color: var(--textMeta);
+}
+
+/* ---- The coverage grid on a narrow screen (plan §10.3) ----------------------
+ *
+ * One column per colleague reads well on a desktop and not at all on a phone:
+ * the row runs off the side, and the header that says WHOSE relationship each
+ * cell describes scrolls away from the cell itself. §10.3 says a table becomes
+ * structured cards before horizontal scrolling is the only option.
+ *
+ * Each row becomes a card, each cell a labelled line. The label comes from the
+ * cell's own data-label, set from the column header, so the two cannot drift.
+ */
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.coverage-scroll {
+  overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+  .coverage-scroll {
+    overflow-x: visible;
+  }
+  /* display:block strips the table roles a screen reader navigates by, so the
+   * markup below sets role="list"/"listitem" at this width to match what the
+   * cards actually are. Leaving the roles implicit would announce a table
+   * whose rows and columns no longer exist.
+   *
+   * The header row carries no content once each cell labels itself, and would
+   * otherwise be announced before every card. */
+  .coverage-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .coverage-table,
+  .coverage-table tbody,
+  .coverage-table tr,
+  .coverage-table th,
+  .coverage-table td {
+    display: block;
+  }
+  .coverage-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  /* The contact's name heads its own card. */
+  .coverage-table tbody th[scope="row"] {
+    font-weight: 600;
+    padding: 0 0 var(--space-2);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--space-2);
+  }
+  .coverage-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+  }
+  .coverage-table td::before {
+    content: attr(data-label);
+    color: var(--textSecondary);
+    font-size: var(--fs-caption);
+  }
+}
+
+/* The finance card. The three figures read across, because a reader compares
+   them — invoiced against open against overdue — rather than reading them one
+   at a time. */
+.fin-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.fin-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.fin-value {
+  font-weight: 600;
+  font-size: 15px;
+}
+/* Overdue money is the one reading on this card that is bad news simply by
+   being present. */
+.fin-value-danger {
+  color: var(--danger);
+}
+.fin-behaviour {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.fin-table {
+  font-size: 12.5px;
+}
+.fin-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+/* The receipt's prev/next, pinned under the body so a long excerpt does not
+   push them out of reach. */
+.co-evidence-steps {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* The commercial card's two blocks, stacked with a labelled heading each so a
+   reader can tell the open opportunities from the last offer at a glance. */
+.com-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.com-block + .com-block {
+  margin-top: var(--space-3);
+}
+
+/* The health card's rated rows: name, rating, and the sentence it was read
+   from. A grid rather than a flex row so the ratings line up down the card —
+   three dimensions a reader scans vertically, not three sentences. */
+.co-health-rows {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.co-health-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+/* The reason runs under its rating, across both columns: it qualifies the
+   badge rather than competing with it for the row. */
+.co-health-row > .co-row-meta {
+  grid-column: 1 / -1;
+}
+
+/* The verdict is separated from what it was read from, because it is a
+   different KIND of statement — a conclusion, not an input. */
+.co-health-overall {
+  margin-block-start: var(--space-1);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--borderSubtle);
+  font-weight: 600;
+}
+
+/* The growth-fit bars: the band taken apart, one row per dimension. The reason
+   sits under its bar rather than beside it — at this width a sentence and a
+   meter side by side leave neither enough room to read. */
+.co-growth-fit-scores {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-growth-fit-score {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* The dimension and its figure share a line above the bar, the figure
+   right-aligned so a column of them reads down. */
+.co-growth-fit-score-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.co-growth-fit-score-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

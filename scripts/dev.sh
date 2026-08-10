@@ -38,6 +38,13 @@ case "${3:-}" in
 esac
 
 cd "$(git rev-parse --show-toplevel)"
+
+# The revision both halves of the stack are stamped with. It is the commit
+# because that is what CI passes to both images, and a local stack should
+# exercise the same comparison rather than a permanently-disabled one. Export it
+# before `make dev` to force a mismatch on purpose — a matching pair proves only
+# the quiet case, and the skew path is the one worth seeing work.
+export MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION:-$(git rev-parse HEAD 2>/dev/null || echo dev)}"
 repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
@@ -314,7 +321,14 @@ up)
     # and build the role binaries against it, so an enabled extension set
     # under extensions/ reaches the dev stack; vanilla composes empty.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
-    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
+    # ONE revision for both halves of the stack, so the api and the documents it
+    # fetches can be compared exactly as they are in a deployed installation.
+    # Overridable: setting MARGINCE_BUILD_REVISION before `make dev` is how the
+    # skew path is exercised deliberately, since a matching pair proves only the
+    # quiet case.
+    ( cd backend && GOWORK="$PWD/../build/composition/go.work" \
+        go build -ldflags "-X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=${MARGINCE_BUILD_REVISION}" \
+        -o ../bin/api ./cmd/api )
     echo "=== servers ==="
   } > >(log_as boot) 2>&1
 
@@ -444,6 +458,22 @@ up)
     echo "dev: mcp.connector_enabled off"
   fi
 
+  # THE FE STARTS FIRST, and the order is load-bearing rather than incidental.
+  # The api reads its MCP App view documents from this origin at boot; started
+  # after the api, it could never answer that read, and the advertised set is
+  # frozen once the api gives up — so both views were permanently unadvertised
+  # in every dev stack. Measured on a live run, not predicted.
+  #
+  # Nothing about vite needs the api first: the /v1 proxy resolves per request
+  # (BACKEND_PORT is configuration, not a live dependency), so a request that
+  # arrives before the api is up simply fails and is retried by the browser.
+  #
+  # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
+  # (a `(cd … & )` subshell would capture the subshell, not the server).
+  BACKEND_PORT="${api_port}" MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION}" \
+    pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
+  fe_pid=$!
+
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance. The api keeps its default inline
@@ -463,7 +493,10 @@ up)
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
     echo "FAIL: $label api did not become ready — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
+    # The FE too: it is started BEFORE the api now (the api reads its view
+    # documents from it), so bailing out here would leave vite holding the port
+    # and the next `make dev` would report it as already in use.
+    kill "$be_pid" "$fe_pid" 2>/dev/null || true
     exit 1
   fi
   # No demo records: `make dev` brings up a COLD START — the installation the
@@ -515,12 +548,6 @@ up)
   else
     echo "  worker   background relay + Surface-B runner + automation time-scan running"
   fi
-
-  # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
-  # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
-  # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
-  fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \
     "$slug" "$api_port" "$fe_port" "$db" "$be_pid" "$fe_pid" "$worker_pid" "$log" >"$state"

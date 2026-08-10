@@ -30,13 +30,20 @@ RUN GOWORK=/src/go.work go run ./tools/gen-composition
 # Build the api + migrate binaries under the COMPOSED workspace. migrate ships in
 # this image so the api entrypoint can apply the embedded migrations as the owner
 # role before serving. CGO is off — the api/migrate roles have no cgo deps.
+# The one immutable revision, passed identically to this image and the web
+# image so the api can report when the view documents it fetched came from a
+# different build. Diagnostic metadata, never an integrity signature — see
+# internal/shared/buildinfo. Absent (a plain `docker build`) leaves it empty,
+# which DISABLES the comparison rather than alarming on it.
+ARG MARGINCE_BUILD_REVISION=""
 RUN GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
-        go build -ldflags="-s -w" -o /bin/margince-api ./cmd/api \
+        go build -ldflags="-s -w -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=$MARGINCE_BUILD_REVISION" \
+        -o /bin/margince-api ./cmd/api \
     && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
         go build -ldflags="-s -w" -o /bin/margince-migrate ./cmd/migrate
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata
 

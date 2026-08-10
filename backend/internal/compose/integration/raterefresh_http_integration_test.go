@@ -17,6 +17,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type fakeRateEnqueue struct {
@@ -32,19 +33,19 @@ func (f *fakeRateEnqueue) Enqueue(_ context.Context, args river.JobArgs, opts *r
 
 func TestProposeRefreshEndpointsEnqueue(t *testing.T) {
 	fake := &fakeRateEnqueue{}
-	e := setupWithOptions(t, compose.WithRateRefresh(fake))
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupAppWithOptions(t, compose.WithRateRefresh(fake))
+	e.BootstrapWorkspace(t)
 
 	var out struct {
 		Status string `json:"status"`
 	}
-	if status := e.call(t, "POST", "/v1/fx-rates/propose-refresh", nil, nil, &out); status != http.StatusAccepted {
+	if status := e.Call(t, "POST", "/v1/fx-rates/propose-refresh", nil, nil, &out); status != http.StatusAccepted {
 		t.Fatalf("POST /fx-rates/propose-refresh → %d, want 202", status)
 	}
 	if out.Status != "enqueued" {
 		t.Fatalf("status = %q, want enqueued", out.Status)
 	}
-	if status := e.call(t, "POST", "/v1/ai-model-rates/propose-refresh", nil, nil, &out); status != http.StatusAccepted {
+	if status := e.Call(t, "POST", "/v1/ai-model-rates/propose-refresh", nil, nil, &out); status != http.StatusAccepted {
 		t.Fatalf("POST /ai-model-rates/propose-refresh → %d, want 202", status)
 	}
 	if len(fake.calls) != 2 {

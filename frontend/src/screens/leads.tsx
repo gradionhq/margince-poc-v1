@@ -8,12 +8,13 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
-  DataTable,
   Modal,
   SectionHeader,
   SegmentedControl,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -21,7 +22,7 @@ import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   provenanceOf,
   QueryGate,
   throwProblem,
@@ -36,10 +37,9 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 import { ShareAction } from "./share";
@@ -146,7 +146,7 @@ async function fetchLeadsPage(
   if (error) {
     // A LIST read's honest-error path only needs a message to render — the
     // dedupe "view existing" link is a create/update-only concern.
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -239,90 +239,87 @@ export function LeadsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap lead-surface">
-      <div className="list-head">
-        <SectionHeader title={t("nav.leads")} sub={t("lead.segregated")} />
-        <CreateAction
-          label={t("create.lead")}
-          invalidate="leads"
-          screen="leads"
-          create={(values) => createLead(values, cf.toBody(values), t)}
-          resolveExisting={(_code, id) => ({ screen: "leads", id })}
-          fields={[...leadCreateFields, ...cf.formFields]}
-        />
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[
-          { value: "-score", label: "list.sortScore" },
-          { value: "-created_at", label: "list.sortNewest" },
-        ]}
-        filters={[
+      <ListTable
+        state={state}
+        unit="unit.leads"
+        caption="lead.segregated"
+        action={
+          <CreateAction
+            label={t("create.lead")}
+            invalidate="leads"
+            screen="leads"
+            create={(values) => createLead(values, cf.toBody(values), t)}
+            resolveExisting={(_code, id) => ({ screen: "leads", id })}
+            fields={[...leadCreateFields, ...cf.formFields]}
+          />
+        }
+        columns={[
           {
-            kind: "select",
+            key: "name",
+            header: t("people.name"),
+            cell: (lead: Lead) => {
+              const terminal = terminalBadge(lead.status);
+              return (
+                <span>
+                  <strong>{lead.full_name ?? lead.email ?? ""}</strong>
+                  {lead.company_name && (
+                    <span className="t-caption"> · {lead.company_name}</span>
+                  )}
+                  {terminal && (
+                    <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
+                  )}
+                </span>
+              );
+            },
+            fixed: true,
+          },
+          {
+            key: "score",
+            header: t("lead.score"),
+            cell: (lead: Lead) => (
+              <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+            ),
+            sort: "score",
+            numeric: true,
+          },
+          {
+            key: "status",
+            header: t("lead.status"),
+            cell: (lead: Lead) => <Badge>{lead.status}</Badge>,
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (lead: Lead) => (
+              <ProvenanceTag
+                provenance={provenanceOf(lead.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(lead) => lead.id}
+        rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
+        chips={[
+          {
             key: "status",
             label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
             options: leadStatusFilterOptions.map((option) => ({ ...option })),
           },
         ]}
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewHighestScore", sort: "-score" },
+          {
+            label: "list.viewHot",
+            sort: "-score",
+            filters: { min_score: "80" },
+          },
+        ]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("people.name"),
-                render: (lead: Lead) => {
-                  const terminal = terminalBadge(lead.status);
-                  return (
-                    <span>
-                      <strong>{lead.full_name ?? lead.email ?? ""}</strong>
-                      {lead.company_name && (
-                        <span className="t-caption">
-                          {" "}
-                          · {lead.company_name}
-                        </span>
-                      )}
-                      {terminal && (
-                        <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
-                      )}
-                    </span>
-                  );
-                },
-              },
-              {
-                key: "score",
-                header: t("lead.score"),
-                render: (lead: Lead) => (
-                  <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
-                ),
-              },
-              {
-                key: "status",
-                header: t("lead.status"),
-                render: (lead: Lead) => <Badge>{lead.status}</Badge>,
-              },
-              {
-                key: "provenance",
-                header: t("people.capturedBy"),
-                render: (lead: Lead) => (
-                  <ProvenanceTag
-                    provenance={provenanceOf(lead.captured_by, viewerId)}
-                  />
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(lead) => lead.id}
-            onRowClick={(lead) => navigate({ screen: "leads", id: lead.id })}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }
@@ -520,7 +517,7 @@ function LeadLifecycle({
 
       {patch.isError && (
         <span className="t-caption" style={{ color: "var(--danger)" }}>
-          {patch.error instanceof Error ? patch.error.message : null}
+          {problemMessageOf(patch.error, t)}
         </span>
       )}
     </div>
@@ -631,35 +628,24 @@ function LeadOverviewPane({
                   marginBottom: 16,
                 }}
               >
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.trigger")}
-                  <select
-                    className="input"
+                  <Select
                     aria-label={t("lead.trigger")}
                     value={trigger}
-                    onChange={(event) => {
-                      const value = event.target.value;
+                    onChange={(value) => {
                       const triggers = PROMOTE_TRIGGERS.map((o) => o.value);
                       if (isOption(value, triggers)) setTrigger(value);
                     }}
-                  >
-                    {PROMOTE_TRIGGERS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.label)}
-                      </option>
-                    ))}
-                  </select>
+                    options={PROMOTE_TRIGGERS.map((option) => ({
+                      value: option.value,
+                      label: t(option.label),
+                    }))}
+                  />
                 </label>
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.evidenceNote")}
-                  <textarea
-                    className="input"
+                  <Textarea
                     aria-label={t("lead.evidenceNote")}
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
@@ -720,7 +706,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -766,9 +752,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   // never renders as an error — anything else surfaces verbatim.
   const promoteErrorMessage =
     promote.isError && !alreadyPromotedPersonId(promote.error)
-      ? promote.error instanceof Error
-        ? promote.error.message
-        : null
+      ? problemMessageOf(promote.error, t)
       : null;
 
   return (

@@ -2,27 +2,26 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { navigate } from "../app/router";
 import {
   Button,
-  DataTable,
   EmptyState,
+  Field,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 
@@ -135,7 +134,7 @@ async function fetchPartner(organizationId: string): Promise<Partner | null> {
     return null;
   }
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data ?? null;
 }
@@ -196,7 +195,6 @@ function PartnerForm({
   submitLabel: MessageKey;
 }>) {
   const t = useT();
-  const formId = useId();
   // This form only mounts while editing (PartnerDetail/PartnerTab remount it
   // fresh each time `editing` flips true), so the lazy initializer is the
   // only seeding this needs — a re-sync effect keyed on `partner` would
@@ -231,143 +229,126 @@ function PartnerForm({
       }}
       style={{ display: "flex", flexDirection: "column", gap: 10 }}
     >
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-role`}>
-          {t("partner.role")} *
-        </label>
-        <select
-          id={`${formId}-role`}
-          className="input"
-          required
-          value={values.partner_role}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              partner_role:
-                asPartnerRole(event.target.value) ?? values.partner_role,
-            })
-          }
-        >
-          {PARTNER_ROLES.map((role) => (
-            <option key={role} value={role}>
-              {t(ROLE_LABELS[role])}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-cert`}>
-          {t("partner.certStatus")}
-        </label>
-        <select
-          id={`${formId}-cert`}
-          className="input"
-          value={values.cert_status}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              cert_status:
-                asCertStatus(event.target.value) ?? values.cert_status,
-            })
-          }
-        >
-          {CERT_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {t(CERT_LABELS[status])}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-tier`}>
-          {t("partner.marginTier")}
-        </label>
-        <select
-          id={`${formId}-tier`}
-          className="input"
-          value={values.margin_tier}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              margin_tier: event.target.value
-                ? (asMarginTier(event.target.value) ?? values.margin_tier)
-                : "",
-            })
-          }
-        >
-          <option value="" />
-          {MARGIN_TIERS.map((tier) => (
-            <option key={tier} value={tier}>
-              {t(MARGIN_TIER_LABELS[tier])}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-stage`}>
-          {t("partner.stage")}
-        </label>
-        <select
-          id={`${formId}-stage`}
-          className="input"
-          value={values.relationship_stage}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              relationship_stage:
-                asRelationshipStage(event.target.value) ??
-                values.relationship_stage,
-            })
-          }
-        >
-          {RELATIONSHIP_STAGES.map((stage) => (
-            <option key={stage} value={stage}>
-              {t(STAGE_LABELS[stage])}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-next-step`}>
-          {t("partner.nextStep")}
-        </label>
-        <TextInput
-          id={`${formId}-next-step`}
-          value={values.next_step}
-          onChange={(event) =>
-            setValues({ ...values, next_step: event.target.value })
-          }
-        />
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-next-step-due`}>
-          {t("partner.nextStepDue")}
-        </label>
-        <TextInput
-          id={`${formId}-next-step-due`}
-          type="date"
-          value={values.next_step_due_at}
-          onChange={(event) =>
-            setValues({ ...values, next_step_due_at: event.target.value })
-          }
-        />
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-segments`}>
-          {t("partner.servedSegments")}
-        </label>
-        <TextInput
-          id={`${formId}-segments`}
-          value={values.served_segments}
-          placeholder={t("partner.servedSegmentsHint")}
-          onChange={(event) =>
-            setValues({ ...values, served_segments: event.target.value })
-          }
-        />
-      </div>
+      <Field label={t("partner.role")} required>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.partner_role}
+            onChange={(value) =>
+              setValues({
+                ...values,
+                partner_role: asPartnerRole(value) ?? values.partner_role,
+              })
+            }
+            options={PARTNER_ROLES.map((role) => ({
+              value: role,
+              label: t(ROLE_LABELS[role]),
+            }))}
+          />
+        )}
+      </Field>
+      <Field label={t("partner.certStatus")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.cert_status}
+            onChange={(value) =>
+              setValues({
+                ...values,
+                cert_status: asCertStatus(value) ?? values.cert_status,
+              })
+            }
+            options={CERT_STATUSES.map((status) => ({
+              value: status,
+              label: t(CERT_LABELS[status]),
+            }))}
+          />
+        )}
+      </Field>
+      <Field label={t("partner.marginTier")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.margin_tier}
+            onChange={(value) =>
+              setValues({
+                ...values,
+                margin_tier: value
+                  ? (asMarginTier(value) ?? values.margin_tier)
+                  : "",
+              })
+            }
+            // The clearing entry is a real choice, not a placeholder: a tier once
+            // set has to be clearable back to "no tier agreed" (the wire's null).
+            // It carries a LABEL — a blank one is an unreadable strip in a drawn
+            // list and silence to a screen reader.
+            options={[
+              { value: "", label: t("field.unset") },
+              ...MARGIN_TIERS.map((tier) => ({
+                value: tier,
+                label: t(MARGIN_TIER_LABELS[tier]),
+              })),
+            ]}
+          />
+        )}
+      </Field>
+      <Field label={t("partner.stage")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.relationship_stage}
+            onChange={(value) =>
+              setValues({
+                ...values,
+                relationship_stage:
+                  asRelationshipStage(value) ?? values.relationship_stage,
+              })
+            }
+            options={RELATIONSHIP_STAGES.map((stage) => ({
+              value: stage,
+              label: t(STAGE_LABELS[stage]),
+            }))}
+          />
+        )}
+      </Field>
+      <Field label={t("partner.nextStep")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={values.next_step}
+            onChange={(event) =>
+              setValues({ ...values, next_step: event.target.value })
+            }
+          />
+        )}
+      </Field>
+      <Field label={t("partner.nextStepDue")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="date"
+            value={values.next_step_due_at}
+            onChange={(event) =>
+              setValues({ ...values, next_step_due_at: event.target.value })
+            }
+          />
+        )}
+      </Field>
+      <Field label={t("partner.servedSegments")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={values.served_segments}
+            placeholder={t("partner.servedSegmentsHint")}
+            onChange={(event) =>
+              setValues({ ...values, served_segments: event.target.value })
+            }
+          />
+        )}
+      </Field>
       {mutation.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {mutation.error instanceof Error ? mutation.error.message : null}
+          {problemMessageOf(mutation.error, t)}
         </p>
       )}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -527,7 +508,7 @@ async function fetchPartnersPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -545,83 +526,78 @@ export function PartnersScreen() {
     initialSort: "-created_at",
     fetchPage: fetchPartnersPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.partners")} />
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[{ value: "-created_at", label: "list.sortNewest" }]}
+      <ListTable
+        state={state}
+        unit="unit.partners"
         searchable={false}
         showArchivedToggle={false}
-        filters={[
+        columns={[
           {
-            kind: "select",
+            key: "org",
+            header: t("partner.organization"),
+            // The Partner payload carries only organization_id; EntityRef
+            // hydrates the company name off the org read and backlinks to
+            // its 360.
+            // Named, not linked: the row's own identity link already goes to
+            // this company, and a control inside that link would be invalid
+            // markup offering the same destination twice.
+            cell: (partner: Partner) => (
+              <EntityRef
+                kind="organization"
+                id={partner.organization_id}
+                asText
+              />
+            ),
+            fixed: true,
+          },
+          {
+            key: "role",
+            header: t("partner.role"),
+            cell: (partner: Partner) =>
+              partner.partner_role ? t(ROLE_LABELS[partner.partner_role]) : "",
+          },
+          {
+            key: "cert",
+            header: t("partner.certStatus"),
+            cell: (partner: Partner) => t(CERT_LABELS[partner.cert_status]),
+          },
+          {
+            key: "stage",
+            header: t("partner.stage"),
+            cell: (partner: Partner) =>
+              t(STAGE_LABELS[partner.relationship_stage]),
+          },
+        ]}
+        rowKey={(partner) => partner.organization_id}
+        rowRoute={(partner) => ({
+          screen: "companies",
+          id: partner.organization_id,
+        })}
+        chips={[
+          {
             key: "partner_role",
             label: "partner.role",
+            allLabel: "partner.roleAll",
             options: PARTNER_ROLES.map((role) => ({
               value: role,
               label: ROLE_LABELS[role],
             })),
           },
           {
-            kind: "select",
             key: "cert_status",
             label: "partner.certStatus",
+            allLabel: "partner.certStatusAll",
             options: CERT_STATUSES.map((status) => ({
               value: status,
               label: CERT_LABELS[status],
             })),
           },
         ]}
+        views={[{ label: "list.sortNewest", sort: "-created_at" }]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "org",
-                header: t("partner.organization"),
-                // The Partner payload carries only organization_id; EntityRef
-                // hydrates the company name off the org read and backlinks to
-                // its 360.
-                render: (partner: Partner) => (
-                  <EntityRef kind="organization" id={partner.organization_id} />
-                ),
-              },
-              {
-                key: "role",
-                header: t("partner.role"),
-                render: (partner: Partner) =>
-                  partner.partner_role
-                    ? t(ROLE_LABELS[partner.partner_role])
-                    : "",
-              },
-              {
-                key: "cert",
-                header: t("partner.certStatus"),
-                render: (partner: Partner) =>
-                  t(CERT_LABELS[partner.cert_status]),
-              },
-              {
-                key: "stage",
-                header: t("partner.stage"),
-                render: (partner: Partner) =>
-                  t(STAGE_LABELS[partner.relationship_stage]),
-              },
-            ]}
-            rows={rows}
-            rowKey={(partner) => partner.organization_id}
-            onRowClick={(partner) =>
-              navigate({ screen: "companies", id: partner.organization_id })
-            }
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

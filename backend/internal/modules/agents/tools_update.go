@@ -45,17 +45,18 @@ type updateRecordArgs struct {
 func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "update_record", Title: "Update a record", Version: toolVersionV1,
+		Description:   updateRecordCopy.render(),
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierAutoExecute,
 		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateActivity/updateProject/updateRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
 			"id":{"type":"string","format":"uuid"},
-			"fields":{"type":"object","description":` + jsonString("Only sent fields change. Fields a human last edited are not applied: they are staged for approval and named in the result's staged_approval. "+describeRecordFields(updateShapes, updateRecordShapes)) + `},
+			"fields":{"type":"object","description":` + jsonString("Only sent fields change. Fields a human last edited are not applied: they are staged for approval and named in the result's staged_approval. "+recordFieldsDescription) + `},
 			"if_version":{"type":"integer","description":"Optimistic-concurrency guard: the last-seen record version"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved overwriting their edit; send it with exactly the staged replay arguments"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[UpdateWithStagedApprovalResult](),
 	}
 }
 
@@ -142,12 +143,9 @@ func (t updateRecord) applySplit(ctx context.Context, args updateRecordArgs, spl
 		return nil, fmt.Errorf("the other fields were updated, but staging the human-edited fields (%s) failed: %w",
 			strings.Join(split.Conflicts, ", "), err)
 	}
-	return json.Marshal(struct {
-		wireRecord
-		StagedApproval stagedApprovalNote `json:"staged_approval"`
-	}{
+	return json.Marshal(UpdateWithStagedApprovalResult{
 		wireRecord: applied,
-		StagedApproval: stagedApprovalNote{
+		StagedApproval: &stagedApprovalNote{
 			ApprovalID: id,
 			Fields:     split.Conflicts,
 			Replay:     canonical,
@@ -208,5 +206,5 @@ func (t updateRecord) applyRecord(ctx context.Context, args updateRecordArgs, pa
 	if err != nil {
 		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return newWireRecord(rec), nil
+	return newWireRecord(ctx, rec), nil
 }

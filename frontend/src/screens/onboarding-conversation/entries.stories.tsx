@@ -166,12 +166,6 @@ export const Question: Story = {
   ),
 };
 
-export const QuestionAnswered: Story = {
-  render: () => (
-    <QuestionCard question={question.question} answered onAnswer={() => {}} />
-  ),
-};
-
 export const User: Story = {
   render: () => <UserTurn entry={userTurn} />,
 };

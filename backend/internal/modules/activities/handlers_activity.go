@@ -19,6 +19,7 @@ func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params 
 		Query:           params.Q,
 		ThreadKey:       params.ThreadKey,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		AssigneeID:      idArg[ids.UserKind](params.AssigneeId),
 	}
 	if params.Kind != nil {
 		k := string(*params.Kind)

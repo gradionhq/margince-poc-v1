@@ -133,15 +133,20 @@ The web UI is the Vite/React app in `frontend/` — a standalone static
 build served separately from the API binary, and a plain client of the
 same `/v1` contract as everything else — no backdoors (ADR-0013).
 
-Connect an agent (Surface A1): mint a passport (`POST /v1/passports`,
-session-authed), then
+Connect an agent (Surface A2): the api serves the governed tool surface
+at `/mcp`, on the same origin as `/oauth/*` and the discovery documents.
+A client needs only the URL:
 
-```
-MARGINCE_PASSPORT_TOKEN=mgp_… mcp --dsn …
+```bash
+claude mcp add --transport http margince <base>/mcp
 ```
 
-serves the governed tool surface over stdio (MCP JSON-RPC). The same
-token is a REST bearer credential, governed identically (see below).
+It walks discovery, dynamic client registration, the consent screen and
+the token exchange itself; on that screen a human lends one of their own
+passports and the connection receives exactly that passport's scopes. A
+passport can also be minted directly (`POST /v1/passports`,
+session-authed), and the same token is a REST bearer credential,
+governed identically (see below).
 
 Deployment note: the login and bootstrap rate limiters key on the direct
 peer address (they refuse `X-Forwarded-For` — it is attacker-controlled);
@@ -160,7 +165,11 @@ per-client throttling at the proxy.
   an agent mutation over MCP *or* REST resolves the same tier, stages
   the same approval when 🟡, and **default-denies** any mutating
   operation that carries no tier — fail-closed, drift-linted at build
-  time. Governance actions (approving, consent, DSR, pipeline/stage
+  time. The same annotation declares the passport **scope** the act
+  spends (`read|draft|write|send|enrich`), so a cap the granting human
+  withheld cannot be reached by picking a different transport, or by
+  reaching a verb that happens to have no registered tool.
+  Governance actions (approving, consent, DSR, pipeline/stage
   config) are human-only at the contract, the gate, and the service.
   Admission re-derives the granting human's seat + RBAC live per call,
   so revocation binds mid-session.
@@ -180,13 +189,14 @@ per-client throttling at the proxy.
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
-  (plumbing, owns no domain), seventeen `modules/` (identity, people,
+  (plumbing, owns no domain), twenty `modules/` (identity, people,
   deals, activities, approvals, agents, automation, ai, search, capture,
-  consent, privacy, collections, signals, customfields, quotas, and the
-  `de` jurisdiction pack — no sibling imports),
-  `internal/compose` (the one composition seam), and four process-role
+  comms, consent, privacy, collections, signals, customfields, quotas,
+  webhooks, overlay, migration — no sibling imports; the `de`
+  jurisdiction pack is an extension, not a module),
+  `internal/compose` (the one composition seam), and three process-role
   binaries
-  `cmd/{api,worker,migrate,mcp}`. The DAG is enforced three ways
+  `cmd/{api,worker,migrate}`. The DAG is enforced three ways
   (depguard, go-arch-lint, and architecture fitness tests that derive
   their package lists from the tree).
 
@@ -243,21 +253,24 @@ per-client throttling at the proxy.
   answer 404, like cross-tenant), the five system roles seeded with real
   permission-policy documents, and the governing rule
   recorded in `audit_log.authorization_rule`.
-- **MCP/agent surface (EP06 WP4, Surface A1)**: Agent Seat Passports
-  (`POST /passports` mints a scoped, expiring, revocable `mgp_` bearer
+- **MCP/agent surface (EP06 WP4, Surface A2)**: Agent Seat Passports
+  (`POST /v1/passports` mints a scoped, expiring, revocable `mgp_` bearer
   token bound to its issuer — "agent ≤ human" structurally, and live:
   the granting human's seat + RBAC are re-derived at every admission
   through the `shared/ports/authz` seam), the `platform/auth` gate
   (scope ∧ seat ∧ tier BEFORE any handler; its own package so nothing
-  mints an admitted capability elsewhere), the `agents` registry + the
-  🟢 CRUD tool set (`search_records`, `read_record`, `create_record`,
-  `update_record`, `log_activity`) plus the 🟡 `advance_deal` (its
-  `TierDynamic` resolver: 🟢 open→open, 🟡 to won/lost — the always-🟡
-  floor, resolved from the stage's semantic), `archive_record`,
-  `promote_lead`, and `merge_records`, all composed over the frozen-v1
-  `datasource.SystemOfRecordProvider` seam → the same store entry points
-  as HTTP: same RBAC, row scope, audit, events. Served over stdio
-  (`mcp` + `MARGINCE_PASSPORT_TOKEN`; the process binds the installation's singleton organization itself, A107/ADR-0061).
+  mints an admitted capability elsewhere), and the `agents` registry —
+  the 🟢 CRUD and read tool set plus the 🟡 confirm-first set, including
+  `advance_deal`'s `TierDynamic` resolver (🟢 open→open, 🟡 to won/lost —
+  the always-🟡 floor, resolved from the stage's semantic), all composed
+  over the frozen-v1 `datasource.SystemOfRecordProvider` seam → the same
+  store entry points as HTTP: same RBAC, row scope, audit, events. The
+  catalog, its scopes and its refusal shapes are tabled in
+  [docs/reference/agent-tools.md](docs/reference/agent-tools.md). Served
+  by `cmd/api` at `/mcp` over Streamable HTTP behind the OAuth 2.1 + DCR
+  handshake the discovery documents advertise; there is no separate MCP
+  binary (SCR-9), and the process binds the installation's singleton
+  organization itself (A107/ADR-0061).
 - **Transport-agnostic autonomy gate (ADR-0055)**: the
   same passport rides the REST surface with the same governance — a 🟢
   mutation executes (agent-stamped provenance), a 🟡 mutation stages an
@@ -283,17 +296,23 @@ per-client throttling at the proxy.
   typed deferral, secret stripping, per-attempt `ai_call` tracing), and a
   certification lane (`make e2e-ai`) that scores a candidate model against a
   task's scenario corpus before you trust it. Bounded company context —
-  confirmed in the five-step onboarding wizard — is injected per declared
+  confirmed in the cold start — is injected per declared
   task policy, behind the `company_context.rollout` kill switch. See
   [docs/explanation/ai-runtime.md](docs/explanation/ai-runtime.md) and
   [docs/explanation/company-context.md](docs/explanation/company-context.md).
-- **Web UI**: the Vite/React app in `frontend/` — login, the five-step
-  resumable onboarding wizard (website read or manual entry), people, leads
-  (with the promote-on-engagement dialog), the stage-column deal board with
-  advance, the activity timeline, the Company Context settings screen, and
-  more — a standalone static build served separately from the API, design
-  tokens from the spec's design language. Security headers (CSP,
-  frame-denial, nosniff) are set on every API response.
+- **Web UI**: the Vite/React app in `frontend/` — login, the scene-based
+  cold start (website read or manual entry, resumable, with a separate
+  three-stop path for an invited member), a collapsible labeled shell over
+  the canonical nav, people, leads (with the promote-on-engagement dialog),
+  the stage-column deal board with advance, the activity timeline, the
+  company record page (one gated read: state strip, health, the standing
+  account brief, Ask Margince, next-step suggestions, the one-hop
+  connections graph), Approvals, Automations, Reports, and the Company
+  Context settings screen — a standalone static build served separately
+  from the API, light and dark, design tokens from the spec's design
+  language. Security headers (CSP, frame-denial, nosniff) are set on every
+  API response. See
+  [docs/explanation/frontend-architecture.md](docs/explanation/frontend-architecture.md).
 - **Gates**: golangci-lint (incl. depguard module DAG, default-deny for
   the Tier-0 layer) clean; go-arch-lint as a hard gate; leaf-purity and
   interface-freeze fitness tests; the ADR-0055 contract drift-lint; an
@@ -310,9 +329,9 @@ per-client throttling at the proxy.
 ## Deliberately not here yet
 
 The approval edit-then-approve re-gating path (`edited_payload` answers
-422 until it re-enters the gate properly), the disqualify/enrich/send
-tools (their underlying verbs first), `run_report`/schema introspection
-on the SoR seam, the RLS row-scope backstop (B-EP03.3b), field-level
+422 until it re-enters the gate properly), the `disqualify_lead` and
+`enrich` tools (their REST routes are governed and carry a declared cap,
+but no MCP tool is registered for them yet), the RLS row-scope backstop (B-EP03.3b), field-level
 masking (B-EP03.4), record grants (A52), the Idempotency-Key replay
 store, and event versioning/replay/dead-letter (B-EP04.12/.14/.15). The
 contract routes for these exist and answer 501.
@@ -367,6 +386,23 @@ because getting it wrong once was expensive:
    ones). If a design carries a window, either restructure so it cannot
    happen (run-then-mark) or add the failing test that documents it
    honestly.
+
+6. **A test that supplies its own version of production proves nothing
+   about production.** Whatever a test substitutes for the real thing is
+   the part the real thing no longer has to get right. Two shapes, both
+   already shipped defects here: hand-inserted rows the real writer never
+   produces (a signal pass joined `activity_link` on an `entity_type`
+   capture never writes — every workspace found zero candidates, the job
+   reported success, the page rendered empty for a release), and a
+   hand-copied adapter mirroring what `compose` wires (a captured-file
+   suite built its own `FileKeeper`, so the production join could have
+   been deleted with nothing going red). Seed through the real writer, or
+   mirror its exact row shape; if a test needs the wiring, reach for the
+   wiring — integration tests live directly in `package compose` for
+   exactly this, so unexported adapters are in scope. The tell is writing
+   a struct in a test file whose fields mirror something `compose`
+   already builds, and an unexpectedly uncovered new file usually means a
+   test double stands where the real thing should.
 
 ## License
 

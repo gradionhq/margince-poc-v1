@@ -16,10 +16,12 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type consentEnv struct {
-	*env
+	*apptest.AppEnv
 	personID   string
 	activityID string
 	purposes   map[string]string // key -> id
@@ -27,25 +29,25 @@ type consentEnv struct {
 
 func setupConsent(t *testing.T) *consentEnv {
 	t.Helper()
-	e := setup(t)
-	e.slug = "consent-e2e"
-	bootstrapWorkspaceSession(t, e, "Consent E2E", "dpo@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "consent-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Consent E2E", "dpo@fable.test", "Admin")
 
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Consent Subject",
-		"emails":    []anyMap{{"email": "subject@consent.test"}},
+		"emails":    []apptest.AnyMap{{"email": "subject@consent.test"}},
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 	var activity struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 		"kind": "email", "subject": "Inbound question", "direction": "inbound",
-		"links": []anyMap{{"entity_type": "person", "entity_id": person.ID}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": person.ID}},
 	}, nil, &activity); status != http.StatusCreated {
 		t.Fatalf("log anchor activity → %d", status)
 	}
@@ -56,7 +58,7 @@ func setupConsent(t *testing.T) *consentEnv {
 			Key string `json:"key"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/consent-purposes", nil, nil, &purposeList); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposeList); status != http.StatusOK {
 		t.Fatalf("list purposes → %d", status)
 	}
 	purposes := map[string]string{}
@@ -66,7 +68,7 @@ func setupConsent(t *testing.T) *consentEnv {
 	if purposes["transactional"] == "" || purposes["marketing_email"] == "" {
 		t.Fatalf("bootstrap did not seed the purpose catalog: %+v", purposeList.Data)
 	}
-	return &consentEnv{env: e, personID: person.ID, activityID: activity.ID, purposes: purposes}
+	return &consentEnv{AppEnv: e, personID: person.ID, activityID: activity.ID, purposes: purposes}
 }
 
 func (c *consentEnv) send(t *testing.T, purpose string) (int, string) {
@@ -74,7 +76,7 @@ func (c *consentEnv) send(t *testing.T, purpose string) (int, string) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-email", anyMap{
+	status := c.Call(t, "POST", "/v1/activities/"+c.activityID+"/send-email", apptest.AnyMap{
 		"subject": "Re: Inbound question", "body": "answer",
 		"to": []string{"subject@consent.test"}, "consent_purpose": purpose,
 	}, nil, &problem)
@@ -88,8 +90,8 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 	var draft struct {
 		Subject string `json:"subject"`
 	}
-	if status := c.call(t, "POST", "/v1/activities/"+c.activityID+"/draft-email",
-		anyMap{"intent": "friendly nudge"}, nil, &draft); status != http.StatusOK {
+	if status := c.Call(t, "POST", "/v1/activities/"+c.activityID+"/draft-email",
+		apptest.AnyMap{"intent": "friendly nudge"}, nil, &draft); status != http.StatusOK {
 		t.Fatalf("draft → %d", status)
 	}
 	if draft.Subject != "Re: Inbound question" {
@@ -106,7 +108,7 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 	}
 
 	// Grant transactional; the send under THAT purpose flows.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["transactional"], "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
@@ -120,7 +122,7 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 	}
 
 	// Withdrawal re-blocks.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["transactional"], "new_state": "withdrawn",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("withdraw → %d", status)
@@ -137,7 +139,7 @@ func TestConsentGateIsNotAnOracleForUnauthorizedCallers(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := c.call(t, "POST", "/v1/activities/00000000-0000-7000-8000-000000000001/send-email", anyMap{
+	status := c.Call(t, "POST", "/v1/activities/00000000-0000-7000-8000-000000000001/send-email", apptest.AnyMap{
 		"subject": "probe", "body": "probe",
 		"to": []string{"subject@consent.test"}, "consent_purpose": "transactional",
 	}, nil, &problem)
@@ -153,14 +155,14 @@ func TestConsentDoubleOptInNorm(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 	}, nil, &problem)
 	if status != 422 {
 		t.Fatalf("DOI-less marketing grant → %d, want 422", status)
 	}
 	// A fabricated token proves nothing: only a server-issued one confirms.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": "doi-token-forged",
 	}, nil, nil); status != 422 {
@@ -171,7 +173,7 @@ func TestConsentDoubleOptInNorm(t *testing.T) {
 	// no mint/delivery endpoint yet, so issuance rides the store seam),
 	// the confirming grant presents it, and the send flows.
 	token := c.issueDOIToken(t, c.purposes["marketing_email"])
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": token,
 	}, nil, nil); status != http.StatusOK {
@@ -183,12 +185,12 @@ func TestConsentDoubleOptInNorm(t *testing.T) {
 
 	// The token is single-use: after a withdrawal the consumed token
 	// cannot resurrect the grant.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "withdrawn",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("withdraw → %d", status)
 	}
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": token,
 	}, nil, nil); status != 422 {
@@ -206,7 +208,7 @@ func (c *consentEnv) issueDOIToken(t *testing.T, purposeID string) string {
 		Token     string     `json:"token"`
 		ExpiresAt *time.Time `json:"expires_at"`
 	}
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", apptest.AnyMap{
 		"purpose_id": purposeID, "deliver": false,
 	}, nil, &issued); status != http.StatusCreated {
 		t.Fatalf("issue DOI token → %d", status)
@@ -225,7 +227,7 @@ func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
 	c := setupConsent(t)
 
 	// transactional does not require double opt-in → 422.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", apptest.AnyMap{
 		"purpose_id": c.purposes["transactional"],
 	}, nil, nil); status != 422 {
 		t.Fatalf("DOI issuance for a non-DOI purpose → %d, want 422", status)
@@ -235,14 +237,14 @@ func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
 	second := c.issueDOIToken(t, c.purposes["marketing_email"])
 
 	// The superseded first token no longer redeems…
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": first,
 	}, nil, nil); status != 422 {
 		t.Fatalf("superseded token redeemed → %d, want 422", status)
 	}
 	// …the fresh one does.
-	if c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": second,
 	}, nil, nil) != http.StatusOK {
@@ -251,9 +253,9 @@ func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
 
 	// Issuance is an audited fact.
 	var audit struct {
-		Data []anyMap `json:"data"`
+		Data []apptest.AnyMap `json:"data"`
 	}
-	if status := c.call(t, "GET", "/v1/audit-log?entity_type=consent_doi_token", nil, nil, &audit); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/audit-log?entity_type=consent_doi_token", nil, nil, &audit); status != http.StatusOK {
 		t.Fatalf("audit read → %d", status)
 	}
 	if len(audit.Data) != 2 {
@@ -264,7 +266,7 @@ func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
 func TestConsentProofLogIsAppendOnlyAndIdempotent(t *testing.T) {
 	c := setupConsent(t)
 	grant := func() int {
-		return c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		return c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 			"purpose_id": c.purposes["transactional"], "new_state": "granted",
 		}, nil, nil)
 	}
@@ -284,7 +286,7 @@ func TestConsentProofLogIsAppendOnlyAndIdempotent(t *testing.T) {
 			NewState string `json:"new_state"`
 		} `json:"events"`
 	}
-	if status := c.call(t, "GET", "/v1/people/"+c.personID+"/consent", nil, nil, &state); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/people/"+c.personID+"/consent", nil, nil, &state); status != http.StatusOK {
 		t.Fatalf("get consent → %d", status)
 	}
 	if len(state.Events) != 1 {
@@ -300,11 +302,11 @@ func TestConsentProofLogIsAppendOnlyAndIdempotent(t *testing.T) {
 	}
 	// The consent change is audited and on the bus.
 	var audits, events int
-	if err := c.owner.QueryRow(t.Context(),
+	if err := c.Owner.QueryRow(t.Context(),
 		`SELECT count(*) FROM audit_log WHERE action = 'consent_grant'`).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.owner.QueryRow(t.Context(),
+	if err := c.Owner.QueryRow(t.Context(),
 		fmt.Sprintf(`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = '%s'`, "consent.changed")).Scan(&events); err != nil {
 		t.Fatal(err)
 	}

@@ -15,13 +15,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -36,14 +37,16 @@ import (
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
 
-// WithPasswordReset wires the A74 forgot-password flow onto the identity
-// surface: the operator's transactional mailer plus the public base URL
-// the emailed link points at. Without it the reset endpoints answer
-// their explicit 501 and the capabilities probe reports
-// password_reset=false (A107 — the login UI renders only what works).
-func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
+// WithPasswordReset wires the A74 forgot-password flow's transport onto
+// the identity surface: the operator's transactional mailer. Without it
+// forgot-password answers its explicit 501 and the capabilities probe
+// reports password_reset=false (A107 — the login UI renders only what
+// works). The link base is NOT wired here; it arrives through
+// WithPublicBaseURL, because an installation with no mailer still builds
+// set-password links (ADR-0061 Amendment 1).
+func WithPasswordReset(m mailer.Mailer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
+		s.authHandlers = s.WithPasswordReset(m)
 	}
 }
 
@@ -103,12 +106,27 @@ func WithBusReady(check func(context.Context) error) Option {
 func WithBlobstore(store blobstore.Store) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
+		// Captured mail carries files too. Recorded as the STORE, which the sink
+		// turns into a writer when it is built: a keeper assigned here would be
+		// dropped by a WithCaptureConfig that runs afterwards and assigns the
+		// whole struct, and that failure has no error and nothing missing to
+		// see until somebody looks for a file that never arrived.
+		s.captureConfig.Blob = store
 		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
 		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
 		s.peopleHandlers = s.peopleHandlers.WithBlobstore(store)
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
+		// The data reset sweeps the same bytes for a whole workspace. Set here
+		// as well as read in WithDataReset so neither option order leaves the
+		// reset silently unable to reach the object store.
+		s.dataResetHandlers.blob = store
+		// Same two-way wiring for the onboarding confirmation, which collects
+		// the mark its anchor declined to adopt (WithDeepRead reads s.blob).
+		if s.siteReadHandlers.engine != nil {
+			s.siteReadHandlers.engine.blob = store
+		}
 	}
 }
 
@@ -131,6 +149,10 @@ func WithBlobstore(store blobstore.Store) Option {
 func WithKeyvault(vault keyvault.Vault) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.vault = vault
+		// Backfilled for the same reason the object store is: WithDataReset may
+		// have already run, and a reset that cannot reach the vault leaves the
+		// sealed credentials of the installation it just wiped resident.
+		s.dataResetHandlers.vault = vault
 		// Rebuild the capture registry with the vault so the connector-
 		// credential paths (Connect seals, Sync resolves) have their custodian.
 		// The standing IMAP connect rides this same registry and needs no
@@ -198,6 +220,49 @@ func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
 }
 
+// WithAgentQuota Rebinds the Server's shared MCP-SESS-* meter to the live,
+// Redis-backed one cmd built. newServer constructs it fail-closed (nil Redis)
+// and hands that ONE pointer to both halves of the bound — the admission gate
+// that refuses on it and the tool registry that charges it — so this
+// RebindFrom reaches both together and they can never end up counting against
+// different windows.
+//
+// Taking the already-built *agentquota.Meter (not a *redis.Client) keeps the
+// raw-Redis dependency in cmd, never in compose. Without this option the meter
+// stays fail-closed: a role serving the agent surface with no Redis cannot
+// tell whether an agent has passed any of its bounds, and answers that it has.
+//
+// The COST ceiling is installed here rather than in cmd because both halves of
+// that division live behind the pool this option is handed: the workspace's AI
+// budget and the credentials sharing it. cmd owns the Redis client; compose
+// owns what the workspace's own numbers mean.
+func WithAgentQuota(meter *agentquota.Meter) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.quotaMeter.RebindFrom(meter.WithCostCeiling(newPassportShareCeiling(pool, meter.Window())))
+	}
+}
+
+// WithRetrievalEmbedder binds this role's embed lane to the REQUEST path, so
+// hybrid retrieval can use its vector half for a caller and not only for a
+// background job.
+//
+// It rebuilds the tool registry, because the registry is where the lane is
+// consumed: the intent retriever, search_context and the query executor are all
+// constructed inside it. An option that set the field without rebuilding would
+// leave a Server whose embedder is bound and whose tools still rank lexically —
+// a divergence nothing would report, because a lexically ranked page looks
+// exactly like a semantic one that found little.
+//
+// Without this option the lane stays unbound, which is a real deployment (a role
+// with no model path, or a routing config that binds no embeddings model) rather
+// than a broken one: every ranked answer says which lane ranked it.
+func WithRetrievalEmbedder(embedder search.Embedder) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.retrievalEmbedder = embedder
+		s.rebuildToolRegistry(pool)
+	}
+}
+
 // readinessChecks assembles the /readyz dependency probes for this role.
 // Postgres is always probed; the bus, the object store, the secret vault,
 // and the schema pool are probed only when this role wired them, so a
@@ -248,8 +313,35 @@ func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runti
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.dataResetHandlers = dataResetHandlers{
 			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
+			// A pointer into the Server, so WithResetRuntime may be applied
+			// before or after this option (see Server.resetRuntime). The meter
+			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
+			// object store is backfilled by WithBlobstore when it runs later,
+			// and the flush is a method value that reads the Server's caches at
+			// reset time, not now.
+			//
+			// flushAfterOwnReset, NOT FlushResetCaches: this handler is the
+			// gated path, so it is the one allowed to clear the auth lockout
+			// buckets as well as the caches.
+			runtime: &s.resetRuntime,
+			budget:  s.overlayMeter,
+			blob:    s.blob,
+			vault:   s.vault,
+			flush:   s.flushAfterOwnReset,
 		}
 	}
+}
+
+// WithResetRuntime wires the non-Postgres purges POST /admin/reset-data
+// performs: the job queue, the event bus, and the reset announcement every
+// process drops its caches on. The api role passes it under a non-production
+// posture; a role without it resets Postgres only and reports zeros for the
+// other surfaces.
+//
+// It takes funcs, not clients: cmd owns the Redis and River handles and
+// compose names neither (see ResetRuntime).
+func WithResetRuntime(rt ResetRuntime) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.resetRuntime = rt }
 }
 
 // WithNonProduction surfaces the SAME deployment posture WithDataReset
@@ -279,6 +371,11 @@ func WithNonProduction(env runtimeenv.Environment) Option {
 func WithPublicBaseURL(base string) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.PublicBaseURL = base
+		// The identity surface builds set-password deep links on the same
+		// canonical base, and for the same reason: the link carries a live
+		// single-use credential, so it must never be derived from a request
+		// Host an attacker controls.
+		s.authHandlers = s.WithPasswordLinkBase(base)
 		s.rebuildToolRegistry(pool)
 	}
 }
@@ -357,22 +454,5 @@ func WithExtractor(extractor extraction.Extractor) Option {
 func WithBrief(brain completer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.WithL2Ranker(brain, s.log)
-	}
-}
-
-// WithAccountBrief binds the summarize lane both of the company view's
-// grounded-prose surfaces are written by — the standing brief and the
-// prepared "Ask Margince" questions — and the routing version that
-// identifies the binding in every cached brief's fingerprint.
-//
-// Without it both serve their deterministic floor rather than failing: a
-// role that runs no model still answers the endpoints, and generated_by
-// tells the reader which of the two they have. routingVersion rides the
-// fingerprint so re-pointing this lane rewrites cached briefs instead of
-// leaving text attributed to a model that no longer writes it.
-func WithAccountBrief(brain completer, routingVersion string) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, brain, routingVersion, time.Now)
-		s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
 	}
 }

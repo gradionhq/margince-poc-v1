@@ -19,11 +19,15 @@ import { Button } from "../design-system/atoms";
 import type { MarginceCoreState } from "../design-system/margince-core";
 import { MarginceWorkbench } from "../design-system/margince-workbench";
 import { formatDateTime } from "../format/format";
-import { useLocale, useT } from "../i18n";
-import { coldFieldLabel, problemMessage } from "./common";
+import { type Locale, useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
+import { coldFieldLabel, problemMessageOf, throwProblem } from "./common";
+import { onboardingLocale } from "./onboarding-conversation/onboarding-locale";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type AiProfile = components["schemas"]["AiProfile"];
+type AssistantConfiguredModel =
+  components["schemas"]["AssistantConfiguredModel"];
 type OnboardingCompanyDraft = components["schemas"]["OnboardingCompanyDraft"];
 type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
 type ConversationTurn =
@@ -154,6 +158,66 @@ export function configuredModelLabel(
   return unavailable;
 }
 
+// Which locale key names each running mode, singular and plural: the map
+// itself is the honesty check — a mode the backend adds without a key here
+// fails to compile rather than silently rendering nothing.
+const SUMMARY_KEYS: Readonly<
+  Record<
+    AiProfile["inference_mode"],
+    Readonly<{ one: MessageKey; other: MessageKey }>
+  >
+> = {
+  cloud: { one: "ob.ai.summary.cloud.one", other: "ob.ai.summary.cloud.other" },
+  local: { one: "ob.ai.summary.local.one", other: "ob.ai.summary.local.other" },
+  hybrid: {
+    one: "ob.ai.summary.hybrid.one",
+    other: "ob.ai.summary.hybrid.other",
+  },
+  development: {
+    one: "ob.ai.summary.development.one",
+    other: "ob.ai.summary.development.other",
+  },
+  none: { one: "ob.ai.summary.none", other: "ob.ai.summary.none" },
+};
+
+function distinctModelIds(models: readonly AssistantConfiguredModel[]) {
+  const ids = models.map((binding) => `${binding.provider}/${binding.model}`);
+  return ids.filter((id, index) => ids.indexOf(id) === index);
+}
+
+/**
+ * The plain-language line the rail footer shows by default: how many models
+ * are configured and where they run, with the exact identifiers left for the
+ * runtime chip's disclosure to name. Derived from the same profile as
+ * {@link configuredModelLabel} so the two can never disagree about the count
+ * or the mode — this never invents a friendly model name, only counts and
+ * places what the server actually reports.
+ */
+export function configuredModelSummary(
+  profile: AiProfile | undefined,
+  unavailable: string,
+  t: Translate,
+): string {
+  if (!profile) return unavailable;
+  const models = distinctModelIds(profile.configured_models ?? []);
+  if (models.length > 0 && profile.inference_mode) {
+    const keys = SUMMARY_KEYS[profile.inference_mode];
+    return t(models.length === 1 ? keys.one : keys.other, {
+      count: models.length,
+    });
+  }
+  const providerCount = profile.providers?.length ?? 0;
+  if (providerCount > 0) {
+    return t(
+      providerCount === 1
+        ? "ob.ai.summaryProviders.one"
+        : "ob.ai.summaryProviders.other",
+      { count: providerCount },
+    );
+  }
+  return t("ob.ai.summary.none");
+}
+
 function workbenchStatus(props: ReadCompanyStepProps, t: Translate) {
   if (props.error) return t("ob.readStatus.failed");
   if (props.read) return t(`ob.readStatus.${props.read.status}`);
@@ -177,7 +241,7 @@ function WebsiteWorkbench(
     queryKey: ["ai-profile"],
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     staleTime: Number.POSITIVE_INFINITY,
@@ -237,10 +301,13 @@ function WebsiteWorkbench(
           partial: t("ob.ai.partialEstimate"),
           awaiting: t("ob.ai.awaitingModel"),
           unavailable: t("ob.ai.notAvailableYet"),
+          chip: t("ob.ai.runtimeChip"),
+          answering: t("ob.ai.answeringNow"),
+          scope: t("ob.ai.runScope"),
         }}
         artifact={artifact}
       >
-        <div className="mw-thread" aria-live="polite">
+        <div className="mw-thread ob-read-thread" aria-live="polite">
           <AssistantBubble>
             <WebsiteStatusMessage
               mode={props.mode}
@@ -276,7 +343,7 @@ function WebsiteWorkbench(
           )}
           {conversation.send.isError && (
             <p className="mw-send-error" role="alert">
-              {conversation.send.error.message}
+              {problemMessageOf(conversation.send.error, t)}
             </p>
           )}
         </div>
@@ -361,7 +428,7 @@ function CompanyArtifact(props: ReadCompanyStepProps) {
 
 export function useCompanyConversation(
   mode: ReadCompanyStepProps["mode"],
-  locale: "en" | "de",
+  locale: Locale,
   readFirstMessage: string,
   companyDraft: OnboardingCompanyDraft,
   act: components["schemas"]["OnboardingAct"] = "company",
@@ -376,11 +443,17 @@ export function useCompanyConversation(
       message: string;
       history: ConversationTurn[];
     }): Promise<MessageReply> => {
-      if (!mode) throw new Error(readFirstMessage);
+      if (!mode) throwProblem({ title: readFirstMessage });
       const { data, error } = await api.POST("/onboarding/company/messages", {
-        body: { message, history, locale, act, company_draft: companyDraft },
+        body: {
+          message,
+          history,
+          locale: onboardingLocale(locale),
+          act,
+          company_draft: companyDraft,
+        },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     onMutate: ({ message }) => {
@@ -545,7 +618,7 @@ function WebsiteStatusMessage({
   error: string | null;
   presentation: ReturnType<typeof coreReadPresentation> | null;
   refreshing: boolean;
-  locale: "de" | "en";
+  locale: Locale;
   onManual: () => void;
 }>) {
   const t = useT();

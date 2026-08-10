@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Building,
   Building2,
   ChevronDown,
   Coins,
@@ -22,14 +23,15 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
-import type { components } from "../api/schema";
+import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan, useCanWrite } from "../app/capability";
+import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   SectionHeader,
   Skeleton,
@@ -53,7 +55,7 @@ import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
   useLogout,
@@ -70,10 +72,12 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { InstallationSettingsCard } from "./installation-settings";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
+import { OwnDomainsCard } from "./own-domains";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
@@ -94,9 +98,14 @@ import "./settings.css";
 // Booking / Flow / Connected-surfaces tabs have no live seam here, so they are
 // omitted rather than stubbed (STATE-5). The tab is selected by the route id
 // (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
-// Two groups: "you" (per-user, every member) and "org" (organization config,
-// admin/ops only). The nav renders the org group only for a role that could
-// actually use it; the server stays the RBAC authority on every card within.
+// Two groups: "you" (per-user, every member) and "org" (organization config).
+// Every org tab carries its OWN predicate — the grant the cards on it actually
+// ask for — and the group heading renders when at least one member survives.
+// One predicate for the whole group could only ever be a guess about a
+// heterogeneous set: it spans surfaces with clean object grants (catalog,
+// rates, data, company) and surfaces with no RBAC object at all (users,
+// privacy, audit), which the server gates on the role itself. The server stays
+// the RBAC authority on every card within.
 // `ai` stays in the personal group: it carries the caller's own agent passports
 // (per-user), so hiding the whole tab from a rep would regress passport minting.
 // The admin-only cards inside it (usage, call trace) are gated per-card already.
@@ -109,6 +118,7 @@ const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
+  { id: "installation", icon: Building, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
@@ -132,6 +142,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <IdentityCard />;
     case "voice":
       return <VoiceDnaCard />;
+    case "installation":
+      return <InstallationSettingsCard />;
     case "company":
       return <CompanyContextCard />;
     case "users":
@@ -170,6 +182,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
+          <OwnDomainsCard />
           <ConsumerMailDomainsCard />
           <LinkedInImportCard />
           {/* No review queue here: a match a human must judge is a proposal,
@@ -198,48 +211,86 @@ function tabContent(id: SettingsTabId): ReactNode {
 
 const SETTINGS_GROUPS = ["you", "org"] as const;
 
-export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
-  const t = useT();
+type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
+
+// Which Organization tabs this principal can use, one answer per tab, each
+// asking for the grant the tab's own cards ask for. The nav then describes the
+// seat instead of the role name it was assigned: a principal granted product
+// writes by an edited role reaches Catalog, and nobody is offered a tab whose
+// every card would refuse them.
+//
+// The object questions are WRITE grants rather than reads, because these are
+// authoring surfaces — the rate table, the field editor, the pipeline
+// designer. `read` on them is held by every seeded role, so gating on it would
+// put the whole group in front of everyone, which answers a different question
+// than "can you use this".
+//
+// The licensing seat is deliberately not folded in (see capability.ts): a read
+// seat still reads the pages behind these entries.
+//
+// EVERY predicate is evaluated here, unconditionally, before anything composes
+// them. The number of hooks a render runs must not depend on which grants came
+// back — so the `||` sits on the results, never around the calls, and no hook
+// may move into the filter over the tab list.
+function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   const me = useMe();
   const capabilities = useCompanyContextCapabilities();
-  // Deliberately a ROLE check, and the one place in this screen that stays one.
-  //
-  // The group spans surfaces with no RBAC object at all — the audit log, user
-  // administration, data reset and job health, which the server guards with
-  // RequireAdmin — alongside ones that do have clean grants. No single
-  // (object, action) pair describes the group.
-  //
-  // The honest cost: a principal granted, say, pipeline writes by an edited
-  // role still cannot NAVIGATE to the Catalog tab, even though the card inside
-  // would now offer them the controls. Per-tab capability gating is the fix,
-  // but it changes what every role sees in the nav — pipeline:read is held by
-  // everyone, so Catalog would appear for reps — and that is a product
-  // decision, not part of rebinding write affordances. Tracked separately.
+  const pipeline = useHoldsWriteGrant("pipeline");
+  const product = useHoldsWriteGrant("product");
+  const offerTemplate = useHoldsWriteGrant("offer_template");
+  const fxRate = useHoldsWriteGrant("fx_rate");
+  const aiModelRate = useHoldsWriteGrant("ai_model_rate");
+  const customField = useHoldsWriteGrant("custom_field");
+  const embeddingReindex = useHoldsWriteGrant("embedding_reindex");
+  const organization = useHoldsWriteGrant("organization");
+  // User administration, the DSR queue and the audit log map to no RBAC object
+  // at all — the server gates them on the role and on an unbounded row scope,
+  // so the role is their own honest predicate rather than a stand-in for one.
+  // The same call InstallationSettingsCard makes, so the tab and the fields
+  // inside it can never disagree about who may edit.
+  const canEditInstallation = useCanWrite("installation_settings", "update");
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
-  const tabs = SETTINGS_TABS.filter((entry) => {
-    // Overlay is exempt for the same reason, plus one of its own: the
-    // system-of-record chip in the topbar is deliberately shown to EVERY
-    // seat and points here, so hiding the tab would strand any non-admin
-    // who follows it on the Account fallback. Hiding buys no security
-    // either — the server 403s the privileged reads regardless, and both
-    // cards on the tab already gate themselves on the overlay_connection
-    // grants, so a viewer without them gets the honest read-only view
-    // instead of a dead link.
-    if (entry.id === "overlay") {
-      return true;
-    }
-    if (entry.group === "org" && !isOrgAdmin) {
-      return false;
-    }
-    if (entry.id === "company" && !capabilities.data?.read_enabled) {
-      return false;
-    }
-    return true;
-  });
-  // Unknown / absent id (or one now hidden by role) falls back to the first
-  // visible tab — a stale deep-link lands on Account, never a blank screen.
+  return {
+    catalog: pipeline || product || offerTemplate,
+    rates: fxRate || aiModelRate,
+    data: customField || embeddingReindex,
+    // The company profile is the one tab whose second condition is a rollout
+    // flag rather than a permission, so the grant ANDs with it: PUT /company
+    // is gated on organization writes, and the flag says whether the surface
+    // exists on this installation at all.
+    company: organization && (capabilities.data?.read_enabled ?? false),
+    users: isOrgAdmin,
+    privacy: isOrgAdmin,
+    audit: isOrgAdmin,
+    // Overlay is exempt, and stays exempt: the system-of-record chip in the
+    // topbar is deliberately shown to EVERY seat and points here, so hiding
+    // the tab would strand any non-admin who follows it on the Account
+    // fallback. Hiding buys no security either — the server 403s the
+    // privileged reads regardless, and both cards on the tab already gate
+    // themselves on the overlay_connection grants, so a viewer without them
+    // gets the honest read-only view instead of a dead link.
+    overlay: true,
+    // Installation is gated on the SAME live grant the card inside asks for,
+    // not on the role name. Deriving it from admin/ops would disagree with the
+    // card in both directions: an admin whose installation_settings grant was
+    // removed would get a tab of disabled fields, and a principal holding the
+    // grant under another role could not reach the surface they may use. The
+    // tab exists to change these values, so it follows the write grant.
+    installation: canEditInstallation,
+  };
+}
+
+export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
+  const t = useT();
+  const orgTabVisible = useOrgTabVisibility();
+  const tabs = SETTINGS_TABS.filter(
+    (entry) => entry.group !== "org" || orgTabVisible[entry.id],
+  );
+  // Unknown / absent id (or one this principal cannot see) falls back to the
+  // first visible tab — a stale deep-link lands on Account, never a blank
+  // screen.
   const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   return (
     <div className="wrap">
@@ -357,7 +408,7 @@ function PassportCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -378,7 +429,7 @@ function PassportCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -394,7 +445,7 @@ function PassportCard() {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -426,26 +477,21 @@ function PassportCard() {
           onChange={(event) => setLabel(event.target.value)}
         />
         {PASSPORT_SCOPES.map((scope) => (
-          <label
+          <Checkbox
             key={scope}
             className="t-caption"
-            style={{ display: "inline-flex", gap: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={scopes.has(scope)}
-              onChange={(event) => {
-                const next = new Set(scopes);
-                if (event.target.checked) {
-                  next.add(scope);
-                } else {
-                  next.delete(scope);
-                }
-                setScopes(next);
-              }}
-            />
-            {scope}
-          </label>
+            checked={scopes.has(scope)}
+            onChange={(event) => {
+              const next = new Set(scopes);
+              if (event.target.checked) {
+                next.add(scope);
+              } else {
+                next.delete(scope);
+              }
+              setScopes(next);
+            }}
+            label={scope}
+          />
         ))}
         <Button
           small
@@ -472,7 +518,7 @@ function PassportCard() {
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 8 }}
         >
-          {mint.error instanceof Error ? mint.error.message : null}
+          {problemMessageOf(mint.error, t)}
         </p>
       )}
       <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
@@ -575,7 +621,7 @@ function PassportCard() {
         confirmLabel={t("settings.revoke")}
         onConfirm={() => confirmId && revoke.mutate(confirmId)}
         pending={revoke.isPending}
-        error={revoke.error instanceof Error ? revoke.error.message : null}
+        error={revoke.error ? problemMessageOf(revoke.error, t) : null}
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
@@ -595,7 +641,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/agent-tools");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -605,7 +651,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -667,23 +713,35 @@ function AgentToolsCard() {
                   key={tool.name}
                   data-tool={tool.name}
                   className="tool-row"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    opacity: reachable ? 1 : 0.4,
-                  }}
+                  style={{ opacity: reachable ? 1 : 0.4 }}
                 >
-                  <AutonomyDot tier={dotTier(tool.tier)} />
-                  <span className="t-mono" style={{ color: "var(--accent)" }}>
-                    {tool.name}
-                  </span>
-                  {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
-                  {tool.egress && (
-                    <Badge tone="warn">{t("tools.egress")}</Badge>
-                  )}
-                  {!reachable && (
-                    <span className="t-caption">{t("tools.unreachable")}</span>
+                  <div className="tool-row-head">
+                    <AutonomyDot tier={dotTier(tool.tier)} />
+                    <span className="t-mono" style={{ color: "var(--accent)" }}>
+                      {tool.name}
+                    </span>
+                    {tool.title && (
+                      <span className="t-caption">{tool.title}</span>
+                    )}
+                    {tool.required_scope && (
+                      <Badge>{tool.required_scope}</Badge>
+                    )}
+                    {tool.egress && (
+                      <Badge tone="warn">{t("tools.egress")}</Badge>
+                    )}
+                    {!reachable && (
+                      <span className="t-caption">
+                        {t("tools.unreachable")}
+                      </span>
+                    )}
+                  </div>
+                  {/* The text an agent actually selects on. This console
+                      promises the surface an MCP client sees, and the name
+                      alone was never that. */}
+                  {tool.description && (
+                    <p className="t-caption tool-description">
+                      {tool.description}
+                    </p>
                   )}
                 </li>
               );
@@ -731,15 +789,22 @@ function CustomFieldsLinkCard() {
 // which is the unrelated password-reset link) — so the affordance is invisible
 // on a production install even to an admin; the server enforces both the
 // same way and 404s the endpoint outright in production regardless of what
-// this card renders. This is admin-ONLY, narrower than the "data" tab's own
-// isOrgAdmin (admin OR ops) gate: the server's auth.RequireAdmin on
-// /admin/reset-data admits only the literal "admin" role (mirrors
-// users-admin.tsx's isAdmin check), so an ops user must never see a button
-// that can only 403. The organization's name is not carried on MeResponse, so
-// this never fetches or compares it client-side: the input just has to be
-// non-empty to enable the confirm button, and the server is the sole judge of
-// whether the typed text actually matches (a mismatch comes back as a 422,
-// surfaced verbatim in the dialog).
+// this card renders. This is admin-ONLY, and narrower than the "data" tab that
+// hosts it — that tab opens on a custom_field or embedding_reindex write, so a
+// manager who authors fields reaches it and simply finds no reset control. The
+// server's auth.RequireAdmin on /admin/reset-data admits only the literal
+// "admin" role (mirrors users-admin.tsx's isAdmin check), so neither a manager
+// nor an ops user may see a button that can only 403. The organization's name
+// is not carried on MeResponse, so this never fetches or compares it
+// client-side: the input just has to be non-empty to enable the confirm
+// button, and the server is the sole judge of whether the typed text actually
+// matches (a mismatch comes back as a 422, surfaced verbatim in the dialog).
+// The full reset response — derived from the generated operation type
+// (T6: no `as`, no hand-duplicated field list) so a wire change that adds or
+// renames a counter fails typecheck here instead of silently going unshown.
+type ResetSummary =
+  operations["resetData"]["responses"][200]["content"]["application/json"];
+
 function ResetDataCard() {
   const t = useT();
   const me = useMe();
@@ -747,10 +812,18 @@ function ResetDataCard() {
   const workspaceName = me.data?.workspace_name ?? "";
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
+  // What the last reset actually cleared — null until one has run, so the
+  // danger zone stays quiet on first render rather than implying a result
+  // nobody triggered.
+  const [summary, setSummary] = useState<ResetSummary | null>(null);
   const queryClient = useQueryClient();
 
   const reset = useMutation({
     mutationFn: async () => {
+      // The summary always describes the latest attempt, never a prior one:
+      // clearing here means a retry's error can never leave a previous
+      // success sitting on screen, and an in-flight retry shows no summary.
+      setSummary(null);
       const { data, error } = await api.POST("/admin/reset-data", {
         body: { confirmation: typed },
       });
@@ -759,9 +832,10 @@ function ResetDataCard() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setOpen(false);
       setTyped("");
+      setSummary(data ?? null);
       // A reset wipes every domain table for the workspace — every cached
       // list/detail query is stale, not just the ones this card knows about.
       queryClient.invalidateQueries();
@@ -790,6 +864,30 @@ function ResetDataCard() {
       >
         {t("settings.resetDataButton")}
       </Button>
+      {summary && (
+        <p
+          className="t-caption"
+          role="status"
+          style={{ marginTop: "var(--space-2)" }}
+        >
+          {t("settings.resetDataResult", {
+            tables: summary.tables_cleared,
+            jobs: summary.jobs_deleted,
+            streams: summary.streams_purged,
+            keys: summary.cache_keys_deleted,
+            objects: summary.objects_deleted,
+          })}
+        </p>
+      )}
+      {summary?.drain_timed_out && (
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--warning)", marginTop: "var(--space-1)" }}
+        >
+          {t("settings.resetDataDrainWarning")}
+        </p>
+      )}
       <ConfirmModal
         open={open}
         onClose={() => {
@@ -810,7 +908,7 @@ function ResetDataCard() {
         confirmDisabled={typed.trim() === "" || reset.isPending}
         onConfirm={() => reset.mutate()}
         pending={reset.isPending}
-        error={reset.error instanceof Error ? reset.error.message : null}
+        error={reset.error ? problemMessageOf(reset.error, t) : null}
       >
         <p>{t("settings.resetDataConfirmBody")}</p>
         {workspaceName ? (
@@ -984,7 +1082,7 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
         title={t("stage.new")}
         fields={stageFields(t)}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         onSubmit={(values) => mutation.mutate(values)}
       />
     </>
@@ -1137,7 +1235,7 @@ export function PipelinesCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -1443,7 +1541,7 @@ export function AuditLogCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1467,7 +1565,7 @@ export function AuditLogCard() {
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}

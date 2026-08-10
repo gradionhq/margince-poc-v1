@@ -7,12 +7,20 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func (h Handlers) ListPipelines(w http.ResponseWriter, r *http.Request, _ crmcontracts.ListPipelinesParams) {
-	pipelines, err := h.store.ListPipelines(r.Context())
+// ListPipelines serves the pipeline catalog. The page is the whole catalog —
+// a workspace holds a handful of pipelines — so the only dial is whether the
+// archived ones come with it.
+func (h Handlers) ListPipelines(w http.ResponseWriter, r *http.Request, params crmcontracts.ListPipelinesParams) {
+	archived := storekit.LiveOnly
+	if params.IncludeArchived != nil && *params.IncludeArchived {
+		archived = storekit.IncludeArchived
+	}
+	pipelines, err := h.store.ListPipelines(r.Context(), archived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

@@ -295,6 +295,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addWebhookRetryJobs(reg, pool, cfg),
 		addAgentSchedulerJobs(reg, pool, cfg),
 		addSignalJobs(reg, pool, cfg, log),
+		addFinanceJobs(reg, pool, cfg, log),
 		registerTelegramPoll(reg, pool, cfg, log),
 
 		// The schedules this file places. Each carries its own gate — the
@@ -306,6 +307,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		periodicFor(cfg, TimeScanArgs{}),
 		periodicFor(cfg, VoiceBuildRetryArgs{}),
 		periodicFor(cfg, IdempotencyRetentionArgs{}),
+		periodicFor(cfg, AgentTaskRetentionArgs{}),
 		periodicFor(cfg, CaptureAutoEnrichSweepArgs{}),
 		periodicFor(cfg, CaptureClassifyArgs{}),
 		periodicFor(cfg, CaptureEnrichArgs{}),
@@ -372,4 +374,6 @@ func addDatabaseOnlySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Lo
 	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
 	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
 	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
+	addDeclaredWorker[AgentTaskRetentionArgs](reg, &agentTaskRetentionWorker{pool: pool})
+	addDeclaredWorker[AgentTaskRetentionWorkspaceArgs](reg, &agentTaskRetentionWorkspaceWorker{sweeper: NewAgentTaskRetentionSweeper(pool, log)})
 }

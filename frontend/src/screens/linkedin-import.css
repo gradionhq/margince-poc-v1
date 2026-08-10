@@ -32,6 +32,13 @@
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+  /* The containing block for the hidden input below. An absolutely positioned box
+     with no positioned ancestor is laid out against the initial containing block
+     instead — the viewport — so this 1px input, sitting far down a long settings
+     tab, sized the DOCUMENT to its own offset and the window grew a second
+     scrollbar beside the app's own. The app scroller carries the same guard
+     (shell.css `.scroll`); a field that hides a control keeps its own. */
+  position: relative;
 }
 
 /* The native file input carries a browser-drawn button whose label we cannot

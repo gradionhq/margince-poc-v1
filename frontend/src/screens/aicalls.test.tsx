@@ -97,21 +97,29 @@ it("renders call badges and expands the attempt and payload detail", async () =>
   mount();
   expect(await screen.findByText("provider_unavailable")).toBeTruthy();
   expect(screen.getByText("retry ×2")).toBeTruthy();
-  await userEvent.click(screen.getAllByText("capture_classify")[1]);
+  // One element, not the second of two: the task name used to appear in the
+  // filter's option list as well as in the row, and the row is what expands.
+  await userEvent.click(screen.getByText("capture_classify"));
   expect(await screen.findByText(/retry_on_5xx/)).toBeTruthy();
   expect(screen.getByText("Request payload")).toBeTruthy();
   expect(screen.getByText("Export as cert scenario")).toBeTruthy();
 });
 
+// The filter stands alone above the table with no visible label beside it, so
+// its name has to come from the control itself — an unnamed combobox tells a
+// screen reader nothing about what it narrows.
+it("names the task filter", async () => {
+  mount();
+  expect(await screen.findByRole("combobox", { name: "Task" })).toBeTruthy();
+});
+
 it("distinguishes capture disabled from a call without payload", async () => {
   mount(false, false);
-  await screen.findAllByText("capture_classify");
-  await userEvent.click(screen.getAllByText("capture_classify")[1]);
+  await userEvent.click(await screen.findByText("capture_classify"));
   expect(await screen.findByText(/Payload capture is off/)).toBeTruthy();
   cleanup();
   mount(true, false);
-  await screen.findAllByText("capture_classify");
-  await userEvent.click(screen.getAllByText("capture_classify")[1]);
+  await userEvent.click(await screen.findByText("capture_classify"));
   expect(
     await screen.findByText("No payload captured for this call."),
   ).toBeTruthy();

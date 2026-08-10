@@ -84,11 +84,17 @@ type loginCredentials struct {
 
 // checkCredentials resolves email+password to the account allowed to
 // open a session, applying the login gates in refusal order: status,
-// then the §27 lock, then the password itself. status = 'active' is the
-// one gate for invited, suspended AND deactivated users — all three fall
-// onto the decoy branch and read as bad credentials (an invited user has
-// no usable password path until activation flips them to active). A
-// verified login resets the §27 streak in the same transaction.
+// then the §27 lock, then the password itself. A verified login resets
+// the §27 streak in the same transaction.
+//
+// Two DIFFERENT gates refuse the two cases that look alike, and it is
+// worth naming which does what. `status = 'active'` refuses a suspended
+// or deactivated member. An INVITED member is not refused by it at all —
+// they are written `active` (there is no `invited` status; A97 specified
+// one and ADR-0061 Amendment 1 dropped it as never built). What holds
+// them out is the NULL `password_hash`, which falls to the same decoy
+// branch below. Remove that branch believing the status check covers
+// them and every un-activated member becomes reachable.
 func (s *Service) checkCredentials(ctx context.Context, tx pgx.Tx, email, plaintext string) (loginCredentials, error) {
 	var account loginCredentials
 	var hash *string

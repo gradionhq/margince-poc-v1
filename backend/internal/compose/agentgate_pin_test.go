@@ -24,6 +24,11 @@ import (
 // gate actually staged.
 type capturingApprovals struct{ last agents.StageRequest }
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (c *capturingApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (c *capturingApprovals) Stage(_ context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
 	c.last = in
 	return ids.ApprovalID{}, nil
@@ -90,15 +95,6 @@ var unpinnableConfirmFirstTypes = gatekit.Waive(map[agentRecordType]string{
 		"A pin over it would re-check a constant and pass always. The serialization that does hold is the " +
 		"DDL engine's lock on the catalog row itself. Pinning becomes correct when those three writers " +
 		"move onto the guarded patch — not before.",
-	"record_grant": "record_grant HAS a version column (migrations/core/0011) and no writer that could " +
-		"ever bump it: a grant is created or revoked whole, with no update path at all, so a pin would " +
-		"bind a value that cannot change for a live row. Deletion is what redemption must catch here, and " +
-		"the target probe already answers not-found for a revoked row. This type is undecidable for a " +
-		"separate and prior reason (undecidableConfirmFirstTypes) — nothing is ever redeemed against it.",
-	"overlay_connection": "there is no `overlay_connection` table to pin: the connection row lives in " +
-		"`incumbent_connection` (migrations/custom/20260716120000_overlay), under a different name and " +
-		"with no version column, so approvals.targetVersion cannot even resolve a table for this target " +
-		"type. connect/disconnect are whole-row transitions the diff_hash binds.",
 })
 
 // Every confirm-first operation that names a concrete record type must have
@@ -135,6 +131,11 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 // an approval whose target carried a version.
 type pinningApprovals struct{ version int64 }
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (pinningApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (pinningApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }
@@ -151,17 +152,20 @@ func (p pinningApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ strin
 // otherwise control from both ends.
 func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
-	pol := agentPolicy{Op: "sendOffer", Access: accessTool, Tool: "send_offer", RecordType: recordTypeOffer}
+	// A live confirm-first verb, not a human-only one: pinning this mechanism
+	// to an operation no agent may reach would keep passing after the mechanism
+	// stopped covering anything an agent can do.
+	pol := agentPolicy{Op: "archiveOffer", Access: accessTool, Tool: "archive_record", RecordType: recordTypeOffer}
 
 	var forwarded string
 	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		forwarded = r.Header.Get("If-Match")
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/offers/x/send", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/offers/x", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "9" {
@@ -183,43 +187,13 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/custom-fields", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "" {
 		t.Errorf("forwarded If-Match = %q, want it unset for an unpinned approval", forwarded)
 	}
 }
-
-// undecidableConfirmFirstTypes are the confirm-first target types whose staged
-// row no human can act on, each with what it costs.
-//
-// The cost is the same for every entry and it is severe: `decidable` backs the
-// inbox list, the single Get and the Decide, so a row it rejects is invisible AND
-// undecidable — an authority object a human can neither release nor reject. The
-// approval.requested fan-out is dropped for the same reason
-// (webhooks.approvalTargetVisible has the matching arms), so nobody is even told.
-// The row then sits pending until the staging TTL clears it, and an agent
-// retrying a legitimate refusal accumulates more of them.
-//
-// This is a backlog, not a design: every entry is a confirm-first verb the tool
-// surface or a passport's REST call can stage today. It is written down so the
-// class is enumerated rather than invisible, and so it can only shrink — a NEW
-// confirm-first record type joins it deliberately or fails the gate below.
-var undecidableConfirmFirstTypes = gatekit.Waive(map[agentRecordType]string{
-	"record_grant": "createRecordGrant/revokeRecordGrant, undecidable on BOTH halves of the " +
-		"claim, and neither is fixable here. AUTHORITY: share_record resolves its decision grant " +
-		"from the target's entity type, so deciding one demands `record_grant.update` — and " +
-		"`record_grant` is no entry in identity's RBAC object vocabulary, so that grant is held by " +
-		"no principal that can exist and the row is refused for everyone forever. Sharing is gated " +
-		"by the manage-sharing permission instead, which is not an object grant at all. REDEMPTION: " +
-		"even granted, share_record dead-ends (deadEndVerbs in agentpolicysynthesis_test.go — the " +
-		"grant verbs reject any non-human principal, so an agent-staged, human-approved grant is " +
-		"refused as the redeeming agent every time). Mapping share_record onto some other object, or " +
-		"minting `record_grant` as one, is a product decision about whether an agent may propose " +
-		"sharing at all; making the row merely decidable would leave an operation that still never " +
-		"lands, which is worse than an honest dead end.",
-})
 
 // stagedRowDecidable answers the gate's WHOLE claim about one route's staged
 // row: that a human can see it, and that the grants deciding it derives are ones
@@ -269,21 +243,15 @@ func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
 // the target id out of the route's {id} parameter, so a route without one stages
 // its type with a NULL id — a different decidability question from the same
 // type's, and one a type-only walk answers green over.
+//
+// Every row reaching here has a decision-grant mapping already:
+// TestEveryConfirmationRequiredPolicyHasAnApprovalKind holds that absolutely,
+// over this same table. So a policy whose kind is unmapped fails there, on the
+// root cause, rather than being quietly stepped over here.
 func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
-	defer undecidableConfirmFirstTypes.AssertAllMatched(t)
-
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
-			continue
-		}
-		if !approvals.KindHasDecisionGrants(pol.Tool) {
-			// No row is ever minted: stageRefusal refuses the call at exactly this
-			// mapping check, which is an honest 403 rather than an authority
-			// object nobody can decide. Every 🟡 tool the REGISTRY admits is held
-			// to the mapping by TestEveryConfirmationRequiredToolHasADecisionGrantMapping,
-			// so this names only the contract-only verbs whose kind was never
-			// mapped, and it cannot become a way to skip the check below.
 			continue
 		}
 		checked++
@@ -291,12 +259,10 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 		if decidable {
 			continue
 		}
-		if undecidableConfirmFirstTypes.Waived(t, pol.RecordType) {
-			continue
-		}
 		t.Errorf("%s (%s) stages against %q, which %s. No human could ever release or reject that row. "+
 			"Give the type a visibility arm, map the decision onto a grantable object, or ratify the "+
-			"residue in undecidableConfirmFirstTypes with what it costs.", route, pol.Op, pol.RecordType, why)
+			"operation human-only in api/crm.yaml — an agent may not stage what no human can release.",
+			route, pol.Op, pol.RecordType, why)
 	}
 	if checked == 0 {
 		t.Fatal("no confirm-first record-typed routes in the generated policy — the gate no longer covers anything")

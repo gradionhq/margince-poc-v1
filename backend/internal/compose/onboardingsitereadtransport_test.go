@@ -4,9 +4,19 @@
 package compose
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The legal census only reaches a human through this projection: the
@@ -61,5 +71,115 @@ func TestCompanySiteReadCensusIsEmptyWhenNothingWasRead(t *testing.T) {
 	}
 	if len(*got.LegalEntities) != 0 {
 		t.Fatalf("no legal page read means no entities: %+v", *got.LegalEntities)
+	}
+}
+
+// A crawl that ran into a cap, the deadline or the budget ended by decision,
+// not by fault — and the cold start is the surface with the least context to
+// tell those apart. Without the reason on the wire, a thin-but-honest read
+// and a broken one are the same screen.
+func TestCompanySiteReadSaysWhyTheCrawlStopped(t *testing.T) {
+	stopped := "page_cap"
+	got := companySiteRead(people.SiteRead{
+		SeedURL: seedURL, Status: "partial", StoppedReason: &stopped,
+	}, nil, nil)
+	if got.StoppedReason == nil {
+		t.Fatal("a bounded read must be able to say what bounded it")
+	}
+	if *got.StoppedReason != crmcontracts.CompanySiteReadStoppedReasonPageCap {
+		t.Errorf("stopped_reason = %q, want the page cap the store recorded", *got.StoppedReason)
+	}
+
+	// Discovery ran out on its own: nothing stopped this read, so the wire
+	// says nothing rather than naming a cause that never fired.
+	exhausted := companySiteRead(people.SiteRead{SeedURL: seedURL, Status: "done"}, nil, nil)
+	if exhausted.StoppedReason != nil {
+		t.Errorf("a read that exhausted discovery stopped for no reason: %q", *exhausted.StoppedReason)
+	}
+}
+
+// Three different things went wrong and three different things put them right,
+// but all three answer 409 — so the code is the only thing the client can steer
+// on. One code shared between two of them sends it back to the server to work
+// out which it was.
+func TestConfirmingASiteReadGivesEachRefusalItsOwnCode(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{
+			name: "already confirmed",
+			err:  fmt.Errorf("confirm company site read: %w", people.ErrSiteReadAlreadyConfirmed),
+			code: "already_confirmed",
+		},
+		{
+			name: "no draft to confirm yet",
+			err:  fmt.Errorf("confirm company site read: %w", people.ErrSiteReadNotConfirmable),
+			code: "not_confirmable",
+		},
+		{
+			name: "draft moved since it was reviewed",
+			err:  fmt.Errorf("the website draft changed since it was reviewed: %w", apperrors.ErrVersionSkew),
+			code: "version_skew",
+		},
+	}
+	answered := map[string]string{}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1/company/site-reads/x/confirm", nil)
+			httperr.Write(recorder, request, siteReadConfirmationRefusal(tc.err))
+
+			var problem struct {
+				Code   string `json:"code"`
+				Detail string `json:"detail"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &problem); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != http.StatusConflict || problem.Code != tc.code {
+				t.Fatalf("refusal → %d %q, want 409 %q", recorder.Code, problem.Code, tc.code)
+			}
+			if problem.Detail == "" {
+				t.Fatal("the refusal says nothing about what happened or what to do")
+			}
+			if previous, taken := answered[problem.Code]; taken {
+				t.Fatalf("%q answers both %q and %q", problem.Code, previous, tc.name)
+			}
+			answered[problem.Code] = tc.name
+		})
+	}
+}
+
+// The refusal switch names two errors; it is not a place every other error goes
+// to lose the mapping it already had.
+func TestConfirmingASiteReadLeavesUnrelatedErrorsAlone(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/company/site-reads/x/confirm", nil)
+	httperr.Write(recorder, request, siteReadConfirmationRefusal(apperrors.ErrNotFound))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("a dossier that does not exist → %d, want 404", recorder.Code)
+	}
+}
+
+func TestOnboardingSiteReadHandlersStayExplicitWithoutAConfiguredEngine(t *testing.T) {
+	handlers := siteReadHandlers{}
+	readID := openapi_types.UUID(ids.NewV7())
+	tests := []func(http.ResponseWriter, *http.Request){
+		func(w http.ResponseWriter, r *http.Request) {
+			handlers.StartCompanySiteRead(w, r, crmcontracts.StartCompanySiteReadParams{})
+		},
+		func(w http.ResponseWriter, r *http.Request) { handlers.GetCompanySiteRead(w, r, readID) },
+		func(w http.ResponseWriter, r *http.Request) {
+			handlers.ConfirmCompanySiteRead(w, r, readID, crmcontracts.ConfirmCompanySiteReadParams{})
+		},
+	}
+	for i, invoke := range tests {
+		rec := httptest.NewRecorder()
+		invoke(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Code != http.StatusNotImplemented {
+			t.Fatalf("unconfigured handler %d → %d, want 501", i, rec.Code)
+		}
 	}
 }

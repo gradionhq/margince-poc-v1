@@ -37,7 +37,7 @@ func relationshipAnchor(kind string) (object, column string) {
 		return "person", "person_id"
 	case "deal_stakeholder":
 		return "deal", "deal_id"
-	case projectStakeholderKind:
+	case ProjectStakeholderKind:
 		return projectObjectName, "project_id"
 	default: // partner_of, referred_by, co_sell_with
 		return "organization", "organization_id"

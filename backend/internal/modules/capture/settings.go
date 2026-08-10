@@ -3,29 +3,21 @@
 
 package capture
 
-// The workspace capture settings (CAP-PARAM-7, ADR-0072/A118): the
-// captured-organization auto-enrich posture — workspace-shared config every
-// role reads and only admin/ops changes (the `capture_settings` RBAC object).
-// The value lives on identity's workspace row (a ratified single-column
-// cross-store config write, tableownership_test — the same shape overlay's
-// x_sor_mode uses); the write is AUDIT-ONLY (no event stream, EVT-NOEVT-3: the
-// closed event catalog defines no capture-settings verb).
+// The workspace capture settings surface (CAP-PARAM-7, ADR-0072/A118). The
+// value lives in the `setting` table under capture's own key (ADR-0090/A135);
+// this file is the module-facing shape over it. RBAC, the audit-only posture
+// and the idempotent-PATCH semantics are unchanged from the column form — the
+// store below no longer owns any of them, because the settings mechanism
+// carries them from the entry declaration in settingsentry.go.
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// captureSettingsObject is the RBAC object gating the capture-settings surface.
-const captureSettingsObject = "capture_settings"
 
 // Settings is the workspace-shared capture posture (the wire shape).
 type Settings struct {
@@ -34,69 +26,46 @@ type Settings struct {
 
 // SettingsStore is the store over the workspace capture posture.
 type SettingsStore struct {
-	pool *pgxpool.Pool
+	settings *settings.Store
 }
 
-// NewSettings builds the capture-settings store over the pool.
-func NewSettings(pool *pgxpool.Pool) *SettingsStore { return &SettingsStore{pool: pool} }
+// NewSettings builds the capture-settings store over the settings mechanism.
+func NewSettings(s *settings.Store) *SettingsStore { return &SettingsStore{settings: s} }
 
-// Get reads the workspace's capture settings. Read is granted to every role
-// (a rep needs to see whether auto-enrich is on), gated by the capture_settings
-// object.
+// Get reads the workspace's capture settings. The read gate lives on the
+// entry (`capture_settings`, read granted to every role), so there is no
+// second gate to keep in step here.
 func (s *SettingsStore) Get(ctx context.Context) (Settings, error) {
-	if err := auth.Require(ctx, captureSettingsObject, principal.ActionRead); err != nil {
-		return Settings{}, err
-	}
-	var out Settings
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT capture_auto_enrich FROM workspace WHERE id = $1`,
-			storekit.MustWorkspace(ctx)).Scan(&out.AutoEnrich)
-	})
+	on, err := settings.Get(ctx, s.settings, AutoEnrich)
 	if err != nil {
 		return Settings{}, fmt.Errorf("capture: reading settings: %w", err)
 	}
-	return out, nil
+	return Settings{AutoEnrich: on}, nil
 }
 
-// Update applies a sparse capture-settings patch (admin/ops, human-only). A
-// nil field is left unchanged; a real change is an audit-only write against the
-// workspace id. Returns the settings after the write (or the unchanged
-// settings when the patch is empty).
+// Update applies a sparse capture-settings patch (admin/ops). A nil field is
+// left unchanged; an unchanged value writes nothing and audits nothing.
+// Returns the settings after the write.
+//
+// The update gate is taken HERE, before the empty-patch branch, not left to
+// the write that may never happen. An empty PATCH is still an attempt to
+// change settings, and answering it from the read gate alone would let a
+// read-only role probe the surface with a 200 where the column form gave a
+// 403.
+//
+// The mirror case is real but not reachable: a caller holding update WITHOUT
+// read gets a 403 on an empty patch, because the response comes from Get. No
+// seeded role has that combination — `capture_settings` grants read to every
+// role — so this stays a note rather than a branch.
 func (s *SettingsStore) Update(ctx context.Context, autoEnrich *bool) (Settings, error) {
 	if err := auth.Require(ctx, captureSettingsObject, principal.ActionUpdate); err != nil {
 		return Settings{}, err
 	}
-	var out Settings
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
-		var before bool
-		if err := tx.QueryRow(ctx,
-			`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, wsID).Scan(&before); err != nil {
-			return fmt.Errorf("read settings before update: %w", err)
-		}
-		out.AutoEnrich = before
-		if autoEnrich == nil || *autoEnrich == before {
-			// Nothing to change — no write, no audit row (an idempotent PATCH
-			// is a no-op, not a spurious audit entry).
-			return nil
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE workspace SET capture_auto_enrich = $2 WHERE id = $1`, wsID, *autoEnrich); err != nil {
-			return fmt.Errorf("update capture_auto_enrich: %w", err)
-		}
-		out.AutoEnrich = *autoEnrich
-		// Audit-only by ratification (EVT-NOEVT-3): the closed event catalog
-		// defines no capture-settings verb; the posture is workspace config,
-		// the same ruling as the fx_rate/product rate-card writes.
-		if _, err := storekit.Audit(ctx, tx, "update", captureSettingsObject, wsID,
-			map[string]any{"auto_enrich": before}, map[string]any{"auto_enrich": *autoEnrich}); err != nil {
-			return fmt.Errorf("audit capture settings update: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
+	if autoEnrich == nil {
+		return s.Get(ctx)
+	}
+	if err := settings.Set(ctx, s.settings, AutoEnrich, *autoEnrich); err != nil {
 		return Settings{}, err
 	}
-	return out, nil
+	return Settings{AutoEnrich: *autoEnrich}, nil
 }

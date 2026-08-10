@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -137,6 +138,32 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("blobstore: delete %q: %w", key, err)
 	}
 	return nil
+}
+
+// DeletePrefix lists the prefix recursively and removes objects one at a
+// time so a single failure is attributable to the key that caused it, rather
+// than a batch call obscuring which object failed mid-sweep. A removal error
+// stops the sweep and returns the count so far, leaving the prefix partially
+// deleted; DeletePrefix is idempotent, so a retry with the same prefix safely
+// finishes it.
+func (s *s3Store) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	if prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return 0, ErrInvalidPrefix
+	}
+	deleted := 0
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	}) {
+		if obj.Err != nil {
+			return deleted, fmt.Errorf("blobstore: listing %s: %w", prefix, obj.Err)
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+			return deleted, fmt.Errorf("blobstore: removing %s: %w", obj.Key, err)
+		}
+		deleted++
+	}
+	return deleted, nil
 }
 
 func (s *s3Store) Health(ctx context.Context) error {

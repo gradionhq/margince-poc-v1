@@ -1,9 +1,18 @@
 DROP TRIGGER trg_organization_fact_updated ON organization_fact;
 ALTER TABLE organization_fact DROP CONSTRAINT org_fact_site_evidence;
-UPDATE organization_fact
-SET evidence_snippet = COALESCE(evidence_snippet, ''),
-    source_url = COALESCE(source_url, ''),
-    confidence = COALESCE(confidence, 1);
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_fact
+    SET evidence_snippet = COALESCE(evidence_snippet, ''),
+        source_url = COALESCE(source_url, ''),
+        confidence = COALESCE(confidence, 1)
+    WHERE organization_fact.workspace_id = ws;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_fact
   DROP CONSTRAINT organization_fact_confidence_check,
   ALTER COLUMN evidence_snippet SET NOT NULL,
@@ -14,13 +23,29 @@ ALTER TABLE organization_fact
   DROP COLUMN updated_at;
 ALTER TABLE organization_fact DROP CONSTRAINT organization_fact_source_check;
 ALTER TABLE organization_fact ALTER COLUMN source SET DEFAULT 'deepread';
-UPDATE organization_fact SET source = 'manual' WHERE source = 'human';
-UPDATE organization_fact SET source = 'deepread' WHERE source = 'site_read';
-UPDATE organization_fact SET source = 'enrich' WHERE source = 'connector';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_fact SET source = 'manual'
+    WHERE (source = 'human')
+      AND organization_fact.workspace_id = ws;
 
-DELETE FROM organization_fact
-WHERE category = 'market'
-   OR field IN ('capability','quantified_outcome');
+    UPDATE organization_fact SET source = 'deepread'
+    WHERE (source = 'site_read')
+      AND organization_fact.workspace_id = ws;
+
+    UPDATE organization_fact SET source = 'enrich'
+    WHERE (source = 'connector')
+      AND organization_fact.workspace_id = ws;
+
+    DELETE FROM organization_fact
+    WHERE (category = 'market'
+       OR field IN ('capability','quantified_outcome'))
+      AND organization_fact.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE organization_fact DROP CONSTRAINT org_fact_value_key_cardinality;
 ALTER TABLE organization_fact ADD CONSTRAINT org_fact_value_key_cardinality CHECK (
@@ -42,10 +67,19 @@ ALTER TABLE organization_fact
 ALTER TABLE organization_profile_field DROP CONSTRAINT organization_profile_field_source_check;
 DROP TRIGGER trg_organization_profile_field_updated ON organization_profile_field;
 ALTER TABLE organization_profile_field DROP CONSTRAINT org_profile_site_evidence;
-UPDATE organization_profile_field
-SET evidence_snippet = COALESCE(evidence_snippet, ''),
-    source_url = COALESCE(source_url, ''),
-    confidence = COALESCE(confidence, 1);
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_profile_field
+    SET evidence_snippet = COALESCE(evidence_snippet, ''),
+        source_url = COALESCE(source_url, ''),
+        confidence = COALESCE(confidence, 1)
+    WHERE organization_profile_field.workspace_id = ws;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_profile_field
   DROP CONSTRAINT organization_profile_field_confidence_check,
   ALTER COLUMN evidence_snippet SET NOT NULL,
@@ -55,12 +89,29 @@ ALTER TABLE organization_profile_field
   DROP COLUMN version,
   DROP COLUMN updated_at;
 ALTER TABLE organization_profile_field ALTER COLUMN source SET DEFAULT 'coldstart';
-UPDATE organization_profile_field SET source = 'manual' WHERE source = 'human';
-UPDATE organization_profile_field SET source = 'coldstart' WHERE source = 'site_read';
-UPDATE organization_profile_field SET source = 'enrich' WHERE source = 'connector';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_profile_field SET source = 'manual'
+    WHERE (source = 'human')
+      AND organization_profile_field.workspace_id = ws;
 
-DELETE FROM organization_profile_field
-WHERE field IN ('offer_summary','customer_pains','desired_outcomes','common_objections','sales_motion');
+    UPDATE organization_profile_field SET source = 'coldstart'
+    WHERE (source = 'site_read')
+      AND organization_profile_field.workspace_id = ws;
+
+    UPDATE organization_profile_field SET source = 'enrich'
+    WHERE (source = 'connector')
+      AND organization_profile_field.workspace_id = ws;
+
+    DELETE FROM organization_profile_field
+    WHERE (field IN ('offer_summary','customer_pains','desired_outcomes','common_objections','sales_motion'))
+      AND organization_profile_field.workspace_id = ws;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_profile_field
   DROP CONSTRAINT organization_profile_field_field_check;
 ALTER TABLE organization_profile_field

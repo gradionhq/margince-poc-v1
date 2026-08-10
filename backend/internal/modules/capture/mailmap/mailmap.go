@@ -13,6 +13,7 @@ package mailmap
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -51,6 +52,18 @@ type Message struct {
 	machineTouched  bool
 	listUnsubscribe bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
 	sentByOwner     bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+	// participants are everyone on To, Cc and Bcc who is neither the mailbox
+	// owner nor the counterparty — the two ends already have their own rows.
+	participants []connector.MessageParticipant
+	// addresses is every address the message names, the two ends included. The
+	// internal-vs-external rule is about the whole message, so it needs the
+	// full set rather than the derived ends (ADR-0082 §3).
+	addresses []string
+	// parts are the files the message carried, already bounded, sanitized and
+	// sniffed. partDrops names the ones the bounds refused, so a message whose
+	// files were dropped never reads as a message with no files (DOC-AC-12).
+	parts     []Part
+	partDrops []PartDrop
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -94,10 +107,21 @@ func Parse(raw []byte, owner string) (Message, error) {
 
 	fromList, _ := header.AddressList("From")
 	toList, _ := header.AddressList("To")
+	// A malformed Cc line yields no addresses rather than failing the message:
+	// the mail is already read off the wire, and losing the CCs is a smaller
+	// loss than dropping the correspondence.
+	ccList, _ := header.AddressList("Cc")
+	// Bcc survives only on the sender's OWN copy — a recipient's copy never
+	// carries it. Where it does survive it is a real party to the message, and
+	// the internal-vs-external decision has to see it: a colleague who blind-
+	// copied a customer wrote to a customer. Where it does not survive, the
+	// message reads as one address short, which is the accepted loss named in
+	// ADR-0082 §3 and not something this parser can recover.
+	bccList, _ := header.AddressList("Bcc")
 	from := firstAddress(fromList)
 	to := firstAddress(toList)
 
-	body := extractText(reader)
+	body, parts, drops := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
 	direction := connector.DirectionInbound
@@ -127,7 +151,94 @@ func Parse(raw []byte, owner string) (Message, error) {
 		autoReply:        autoReply,
 		machineTouched:   machineTouched,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
+		participants:     otherParties(toList, ccList, bccList, ownerLower, counterparty),
+		addresses:        allAddresses(fromList, toList, ccList, bccList),
+		parts:            parts,
+		partDrops:        drops,
 	}, nil
+}
+
+// Addresses is every address this message names — From, To, Cc and whatever Bcc
+// survived — deduplicated and lowercased, including the mailbox owner's own.
+//
+// It exists for the internal-vs-external decision, which is a question about
+// the WHOLE message and so cannot be answered from the derived counterparty:
+// that is one end of the exchange, chosen for direction, and a message is only
+// internal when every party to it is. The owner is included rather than assumed
+// internal — their own domain is usually registered, but a workspace that has
+// not registered it should not have that fact invented here.
+func (m Message) Addresses() []string { return m.addresses }
+
+// ParticipantsOf reads the further parties out of one stored original.
+//
+// The replay pass calls it for messages captured before participants were
+// recorded. It is a narrow seam on purpose: the pass wants exactly the CC and
+// To names, and giving it Parse's whole Message would invite it to re-derive
+// direction or subject from headers the activity row already settled at
+// capture time.
+func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, error) {
+	msg, err := Parse(raw, owner)
+	if err != nil {
+		return nil, err
+	}
+	return msg.participants, nil
+}
+
+// otherParties returns everyone on To and Cc who is neither the mailbox owner
+// nor the counterparty.
+//
+// Both exclusions matter and for different reasons. The owner and the
+// counterparty are the two ends of the exchange and already get their own
+// rows, stamped from the connection rather than from a header — a second row
+// for either would either collide with the uniqueness index or, worse, record
+// the same human twice under two roles.
+//
+// To wins over Cc when an address appears on both, which is a real thing
+// senders do: a direct recipient who is also copied was addressed directly,
+// and that is the stronger claim about their part in the conversation.
+func otherParties(toList, ccList, bccList []*mail.Address, ownerLower, counterparty string) []connector.MessageParticipant {
+	counterpartyLower := strings.ToLower(strings.TrimSpace(counterparty))
+	seen := map[string]bool{ownerLower: true, counterpartyLower: true}
+	delete(seen, "")
+
+	var out []connector.MessageParticipant
+	add := func(list []*mail.Address, role string) {
+		for _, a := range list {
+			address := strings.ToLower(strings.TrimSpace(a.Address))
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			out = append(out, connector.MessageParticipant{Email: address, Role: role})
+		}
+	}
+	add(toList, connector.ParticipantRoleTo)
+	add(ccList, connector.ParticipantRoleCC)
+	// Bcc last, and so weakest of the three: an address that was also addressed
+	// openly was addressed openly, whatever else the sender did with it.
+	add(bccList, connector.ParticipantRoleBCC)
+
+	return connector.CapParticipants(out)
+}
+
+// allAddresses returns every address the message names across From, To, Cc and
+// Bcc — lowercased, deduplicated, order preserved. Unlike otherParties it
+// excludes nobody: the internal decision is about the whole message, and the
+// owner and counterparty are as much a part of it as the copies.
+func allAddresses(lists ...[]*mail.Address) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, list := range lists {
+		for _, a := range list {
+			address := strings.ToLower(strings.TrimSpace(a.Address))
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			out = append(out, address)
+		}
+	}
+	return out
 }
 
 // threadKey derives the conversation identity from the standard reply
@@ -203,7 +314,11 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
 		}.WithOwnerAttestation(m.sentByOwner),
-		ThreadKey: m.threadKey,
+		ThreadKey:    m.threadKey,
+		Participants: m.participants,
+		Addresses:    m.addresses,
+		Parts:        m.recordParts(),
+		PartDrops:    m.recordDrops(),
 	}
 }
 
@@ -218,17 +333,38 @@ func domainOf(addr string) string {
 	return ""
 }
 
-// extractText returns the message's plain-text body. It prefers a
-// text/plain part; falling back to a crude tag-strip of text/html only when
-// no plain part exists, so an HTML-only newsletter still yields readable text.
-func extractText(reader *mail.Reader) string {
+// extractText returns the message's plain-text body and the files it carried.
+//
+// It prefers a text/plain part, falling back to a crude tag-strip of text/html
+// only when no plain part exists, so an HTML-only newsletter still yields
+// readable text. Attachment parts are collected on the SAME walk: a MIME reader
+// is single-pass, so a second walk would mean holding or re-parsing the whole
+// message to find files this one already stepped over.
+func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
 	var plain, html string
+	files := newCollector()
 	for {
+		if files.exhausted() {
+			// Past any real message. Everything beyond is unread and reported
+			// as such rather than walked, because walking it is the work an
+			// unauthenticated sender was trying to buy.
+			files.truncated()
+			break
+		}
 		part, err := reader.NextPart()
 		if err != nil {
-			// io.EOF (and any structural read error) ends the walk; whatever
-			// text was already collected stands.
+			if !errors.Is(err, io.EOF) {
+				// A structural failure ends the walk, so any file after this
+				// point is lost. Recorded rather than passed over: a message
+				// whose files went missing must not read like one that carried
+				// none (DOC-AC-12).
+				files.truncated()
+			}
 			break
+		}
+		if attached, ok := part.Header.(*mail.AttachmentHeader); ok {
+			files.take(attached, part.Body)
+			continue
 		}
 		inline, ok := part.Header.(*mail.InlineHeader)
 		if !ok {
@@ -236,6 +372,14 @@ func extractText(reader *mail.Reader) string {
 		}
 		contentType, _, err := inline.ContentType()
 		if err != nil {
+			continue
+		}
+		// An INLINE part with a filename is a file. Several mail clients send
+		// PDFs and images that way as a matter of course, and reading only
+		// Content-Disposition: attachment loses them with nothing recorded —
+		// the sender chose how to render it, not whether we keep it.
+		if name := inlineFilename(inline); name != "" {
+			files.takeInline(inline, name, part.Body)
 			continue
 		}
 		content, err := io.ReadAll(part.Body)
@@ -249,6 +393,10 @@ func extractText(reader *mail.Reader) string {
 			html = string(content)
 		}
 	}
+	return bodyText(plain, html), files.parts, files.drops()
+}
+
+func bodyText(plain, html string) string {
 	if strings.TrimSpace(plain) != "" {
 		return strings.TrimSpace(plain)
 	}
@@ -292,4 +440,36 @@ func truncate(s string, limit int) string {
 		cut--
 	}
 	return s[:cut] + "…"
+}
+
+// recordParts hands the collected files to the seam. The two shapes are
+// deliberately separate types: this package owns the MIME reading and its
+// bounds, and the seam owns what a connector may report — a shared struct
+// would let a future parser widen the seam without anyone deciding to.
+func (m Message) recordParts() []connector.Part {
+	if len(m.parts) == 0 {
+		return nil
+	}
+	out := make([]connector.Part, 0, len(m.parts))
+	for _, part := range m.parts {
+		out = append(out, connector.Part{
+			Ordinal:      part.Ordinal,
+			Filename:     part.Filename,
+			ContentType:  part.ContentType,
+			DeclaredType: part.DeclaredType,
+			Body:         part.Body,
+		})
+	}
+	return out
+}
+
+func (m Message) recordDrops() []connector.PartDrop {
+	if len(m.partDrops) == 0 {
+		return nil
+	}
+	out := make([]connector.PartDrop, 0, len(m.partDrops))
+	for _, drop := range m.partDrops {
+		out = append(out, connector.PartDrop{Reason: drop.Reason, Count: drop.Count})
+	}
+	return out
 }

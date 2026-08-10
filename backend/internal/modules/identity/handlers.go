@@ -33,12 +33,19 @@ const SessionCookieName = "crm_session"
 // the contract plus the middleware that authenticates everything else.
 type Handlers struct {
 	svc *Service
-	// resetMailer + resetBaseURL wire the A74 forgot-password flow; nil
-	// mailer means the flow is absent — the endpoints answer 501 and the
-	// capabilities probe reports password_reset=false, so the login UI
-	// never renders a link this surface cannot honor (A107).
-	resetMailer  mailer.Mailer
-	resetBaseURL string
+	// resetMailer is the A74 outbound-email transport. Nil means the
+	// installation has no email channel: forgot-password is absent (its
+	// endpoint answers 501) and the capabilities probe reports
+	// password_reset=false, so the login UI never renders a self-service
+	// link this surface cannot honor (A107).
+	resetMailer mailer.Mailer
+	// passwordLinkBaseURL is the canonical external base every set-password
+	// deep link is built on — the mailed reset link AND the admin-issued one
+	// (ADR-0061 Amendment 1). It is a property of the INSTALLATION, not of
+	// the mail flow, which is why it arrives separately: an installation with
+	// no mailer still needs it, and that is exactly where the admin-issued
+	// link lives. Empty means no link of either kind can be built.
+	passwordLinkBaseURL string
 	// resetSendStarted is a test seam: the async reset send signals here
 	// when it finishes, so a test can wait for the captured mail without
 	// sleeping. Nil in production.
@@ -52,6 +59,18 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+
+	// Issuing a set-password link is authenticated and admin-only, so these
+	// two are not anti-anonymous-abuse throttles like the pair above — they
+	// bound what a STOLEN admin session can do. Each issue supersedes the
+	// target's outstanding token, which makes an unbounded operation a
+	// denial-of-recovery primitive: repeat it against one member and their
+	// link is invalidated as fast as an admin can hand it over. Per target
+	// as well as per actor, because a single compromised admin churning one
+	// member's credential is the case the per-actor bound alone still admits
+	// at full rate.
+	passwordLinkPerActor  *ratelimit.Limiter // 20/hour per admin
+	passwordLinkPerTarget *ratelimit.Limiter // 5/hour per member
 
 	// sorMode answers whether the caller's workspace reads from an
 	// incumbent overlay mirror, so /me can tell the client its
@@ -91,21 +110,41 @@ type Handlers struct {
 // NewHandlers builds the identity transport surface over its service.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{
-		svc:           svc,
-		loginFailures: ratelimit.New(10, time.Minute),
-		loginPerIP:    ratelimit.New(30, time.Minute),
-		resetPerEmail: ratelimit.New(3, time.Hour),
-		resetPerIP:    ratelimit.New(30, time.Hour),
+		svc:                   svc,
+		loginFailures:         ratelimit.New(10, time.Minute),
+		loginPerIP:            ratelimit.New(30, time.Minute),
+		resetPerEmail:         ratelimit.New(3, time.Hour),
+		resetPerIP:            ratelimit.New(30, time.Hour),
+		passwordLinkPerActor:  ratelimit.New(20, time.Hour),
+		passwordLinkPerTarget: ratelimit.New(5, time.Hour),
 	}
 }
 
-// WithPasswordReset wires the forgot-password flow: the outbound-email
-// transport and the public base the emailed link points at. Wired by
-// the composition root when (and only when) the operator configured
-// email — absent it the flow stays its explicit 501.
-func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handlers {
+// ResetRateLimits clears the auth lockout buckets. The non-production data
+// reset calls it so the admin who just wiped the installation is not held out
+// of the login and password-reset flows by counters the wipe could not reach.
+// The per-credential throughput ceilings elsewhere are not lockouts and are
+// left running.
+//
+// A handler set that did not come from NewHandlers carries no limiters, and then
+// there is nothing to clear: it must say so by doing nothing, because the caller
+// is a reset handler whose panic would reach an operator as an opaque 500 on a
+// wipe that had otherwise finished.
+func (h *Handlers) ResetRateLimits() {
+	for _, bucket := range []*ratelimit.Limiter{h.loginFailures, h.loginPerIP, h.resetPerEmail, h.resetPerIP} {
+		if bucket != nil {
+			bucket.Reset()
+		}
+	}
+}
+
+// WithPasswordReset wires the forgot-password flow's outbound-email
+// transport. Wired by the composition root when (and only when) the
+// operator configured email — absent it the flow stays its explicit 501.
+// The link base arrives separately via WithPasswordLinkBase, because an
+// installation without email still builds set-password links.
+func (h Handlers) WithPasswordReset(m mailer.Mailer) Handlers {
 	h.resetMailer = m
-	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
 }
 
@@ -172,7 +211,7 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
-		PasswordReset: h.resetMailer != nil,
+		PasswordReset: h.canSendPasswordLink(),
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
@@ -213,7 +252,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
+	httperr.WriteJSON(w, http.StatusOK, h.meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -245,7 +284,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 	// else's capabilities, and a stored copy would survive the role change that
 	// revoked them.
 	w.Header().Set("Cache-Control", "private, no-store")
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
+	httperr.WriteJSON(w, http.StatusOK, h.meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // serveAsAgent admits a passport bearer under the agent principal. ctx is
@@ -290,8 +329,8 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 
 	// The seat ceiling is a licensing cap enforced before RBAC
 	// (A62/ADR-0047): a read seat may read but never mutate over REST,
-	// whatever its role grants. Method-based, matching restScope — the
-	// contract has no mutating GET.
+	// whatever its role grants. Method-based — the contract has no
+	// mutating GET.
 	if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
 		httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
 		return
@@ -348,25 +387,18 @@ func (h Handlers) serveAsOptionalHuman(ctx context.Context, w http.ResponseWrite
 	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
 }
 
-// restScope maps an HTTP method onto the passport verb it exercises on
-// the REST surface: reads need `read`, everything mutating needs `write`.
-// (send/enrich guard their own tools on the MCP surface; no REST path
-// sends email today.)
-func restScope(method string) principal.Scope {
-	switch method {
-	case http.MethodGet, http.MethodHead:
-		return principal.ScopeRead
-	default:
-		return principal.ScopeWrite
-	}
-}
-
 // isMutating is the transport-level write test the agent and read-seat
 // ceilings share: everything that is not a safe read method mutates. The
 // contract exposes no read-over-POST endpoint (searches are GET), so the
 // method alone is authoritative here.
+//
+// The method decides only whether a call mutates, never WHICH cap it
+// spends: a mutation's cap is declared per operation in the contract
+// (`x-mcp-tool.scope`) and admitted in the ADR-0055 gate, so a `send` or
+// an `enrich` over REST is not reachable on `write` just because it
+// arrived as a POST.
 func isMutating(method string) bool {
-	return restScope(method) != principal.ScopeRead
+	return method != http.MethodGet && method != http.MethodHead
 }
 
 func setSessionCookie(w http.ResponseWriter, token string) {
@@ -383,7 +415,16 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, nonProduction bool) crmcontracts.MeResponse {
+// meResponse renders /me for one principal. It is a method rather than a
+// function because every posture it reports beyond the identity itself — the
+// deployment posture, whether this caller may issue set-password links — is
+// wiring the composition root injected onto Handlers, so passing them
+// alongside would be a row of anonymous booleans at each call site.
+func (h Handlers) meResponse(
+	id Identity,
+	sorMode crmcontracts.MeResponseSystemOfRecordMode,
+) crmcontracts.MeResponse {
+	adminPasswordLink := h.canIssuePasswordLink(id)
 	roles := id.Roles
 	if roles == nil {
 		roles = []string{}
@@ -406,7 +447,8 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, 
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
-		NonProduction: nonProduction,
+		NonProduction:     h.nonProduction,
+		AdminPasswordLink: adminPasswordLink,
 		Authorization: &crmcontracts.Authorization{
 			SeatType: contractSeatType(id.SeatType),
 			Objects:  contractObjectGrants(id.Permissions.Objects),

@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ComposeModal, RelinkModal, TimelineActions } from "./compose";
 
@@ -297,6 +298,22 @@ describe("RelinkModal", () => {
   });
 });
 
+// The two purposes as the rep READS them: a pick names what a person would
+// click, while the ConsentPurpose.key each label stands for is the wire value,
+// asserted on the request body wherever a send is under study.
+const PURPOSE_LABEL = {
+  transactional: "Deal messages",
+  marketing: "Marketing email",
+} as const;
+
+// The composer has exactly one dropdown, so a pick needs nothing but the label.
+// `pickOption` takes a userEvent SESSION, which the bare direct API is not, so
+// it gets a fresh one — the same thing every bare `userEvent.*` call in this
+// file does internally.
+function pickPurpose(label: string) {
+  return pickOption(userEvent.setup(), screen.getByRole("combobox"), label);
+}
+
 // Fills the four Send preconditions (To, subject, body, purpose) so a test can
 // then exercise the send outcome under study.
 async function fillSendableForm() {
@@ -304,8 +321,7 @@ async function fillSendableForm() {
   await userEvent.tab();
   await userEvent.type(screen.getByPlaceholderText("Subject"), "Hi there");
   await userEvent.type(screen.getByPlaceholderText("Body"), "Body content");
-  // The purpose <option> value is the ConsentPurpose.key the wire sends.
-  await userEvent.selectOptions(screen.getByRole("combobox"), "transactional");
+  await pickPurpose(PURPOSE_LABEL.transactional);
 }
 
 describe("ComposeModal", () => {
@@ -749,10 +765,7 @@ describe("ComposeModal draft binding", () => {
       screen.getByRole("button", { name: "Draft with AI" }),
     );
     await screen.findByDisplayValue("Draft A body.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -798,10 +811,7 @@ describe("ComposeModal draft binding", () => {
       ).toBe(2),
     );
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -832,10 +842,7 @@ describe("ComposeModal draft binding", () => {
     const bodyField = await screen.findByDisplayValue("Draft A body.");
     await userEvent.clear(bodyField);
     await userEvent.type(bodyField, "Written from scratch.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -901,10 +908,7 @@ describe("ComposeModal draft binding", () => {
       screen.getByRole("button", { name: "Draft with AI" }),
     );
     await screen.findByDisplayValue("Draft A body.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     // The form is sendable before the judgment starts, so the refusal below is
     // the rejection holding the draft rather than an unmet precondition.
     expect(
@@ -960,10 +964,7 @@ describe("ComposeModal draft binding", () => {
     );
     expect(await screen.findByText(/boom/i)).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -1004,10 +1005,7 @@ describe("ComposeModal draft binding", () => {
     ).toBeTruthy();
     expect(screen.getByDisplayValue("Draft A body.")).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>
       expect(
@@ -1349,10 +1347,7 @@ describe("ComposeModal send refusals", () => {
     await userEvent.tab();
 
     expect(screen.queryByText(/more than one addressee/i)).toBeNull();
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "marketing_email",
-    );
+    await pickPurpose(PURPOSE_LABEL.marketing);
 
     expect(await screen.findByText(/more than one addressee/i)).toBeTruthy();
     // A warning, not a gate — and nothing was sent to earn it.
@@ -1366,10 +1361,7 @@ describe("ComposeModal send refusals", () => {
     renderComposer();
     await screen.findByRole("combobox");
     await fillSendableForm();
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "marketing_email",
-    );
+    await pickPurpose(PURPOSE_LABEL.marketing);
 
     expect(screen.queryByText(/more than one addressee/i)).toBeNull();
   });
@@ -1408,10 +1400,7 @@ describe("ComposeModal — telegram channel reply", () => {
     );
     await screen.findByRole("combobox");
     await userEvent.type(screen.getByPlaceholderText("Body"), "On my way.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -1526,10 +1515,7 @@ describe("ComposeModal — telegram channel reply", () => {
       screen.getByPlaceholderText("Body"),
       "Call me back please.",
     );
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/has not granted consent/i)).toBeTruthy();
@@ -1630,5 +1616,199 @@ describe("TimelineActions", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Reply" })).toBeNull(),
     );
+  });
+});
+
+// An account-started send is the SAME send with a different origin (ADR-0087
+// §1): no anchor, a fresh thread, and the records it is filed under named
+// explicitly. These three cases fix that the composer picks the right door —
+// the reply path and the account path are one component, and the thing most
+// easily broken by a refactor is which endpoint it reaches for.
+describe("ComposeModal started from an account", () => {
+  it("sends through POST /emails, filed under the record it started from", async () => {
+    const onClose = vi.fn();
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(activity202, 202),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const req = sent.find((r) => r.key === "POST /emails");
+    expect(req?.body).toEqual({
+      subject: "Hi there",
+      body: "Body content",
+      to: ["a@x.com"],
+      consent_purpose: "transactional",
+      // Without a link the message belongs to no record and nobody finds it
+      // again, which is the gap this origin exists to close.
+      links: [{ entity_type: "organization", entity_id: "org-1" }],
+    });
+    // ADR-0055 holds on this origin too: the human's click is the approval.
+    expect(req?.headers.get("X-Approval-Token")).toBeNull();
+  });
+
+  it("never reaches the anchored reply endpoint", async () => {
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(activity202, 202),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(sent.some((r) => r.key === "POST /emails")).toBe(true),
+    );
+    // A fabricated anchor is exactly what ADR-0087 forbids, and a send that
+    // reached the reply path without one would 404 on a made-up id.
+    expect(sent.some((r) => r.key.includes("send-email"))).toBe(false);
+  });
+
+  // The grounded account-started draft (ADR-0087/A132) needs a recipient
+  // before it can say anything: that is the one thing it knows that an empty
+  // compose box does not. The button is disabled with the picker directly
+  // above it, rather than running and coming back with a refusal about a
+  // field already on screen.
+  it("will not draft from an account until a recipient is chosen", async () => {
+    const sent = stubRoutes({});
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    const drafting = screen.getByRole("button", { name: "Draft with AI" });
+    expect(drafting).toHaveProperty("disabled", true);
+    expect(sent.some((r) => r.key.includes("draft-email"))).toBe(false);
+    // Undraftable is not unsendable: the rep writes it themselves and sends.
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+  });
+
+  // A draft belongs to the pair it was written for. Showing a message
+  // addressed to B that carries A's words, A's disclosure and A's reasons is
+  // the mistake nobody catches before pressing Send — and re-drafting could
+  // not repair it, because the fill never clobbers a non-empty field.
+  it("retires the draft when the recipient changes", async () => {
+    stubRoutes({
+      "GET /organizations/org-1/360": () =>
+        jsonResponse({
+          state: "ready",
+          as_of: "2026-08-09T09:00:00Z",
+          organization: {
+            id: "org-1",
+            workspace_id: "w",
+            display_name: "Acme",
+            source: "manual",
+            captured_by: "human:u1",
+            created_at: "2026-08-01T00:00:00Z",
+            updated_at: "2026-08-01T00:00:00Z",
+          },
+          sections_omitted: [],
+          people: {
+            data: [
+              {
+                person_id: "p-1",
+                full_name: "Sarah Cole",
+                strength: {
+                  score: 40,
+                  bucket: "warm",
+                  factors: {
+                    recency: 0,
+                    frequency: 0,
+                    reciprocity: 0,
+                    direction: 0,
+                  },
+                },
+                deal_roles: [],
+                consent: {},
+              },
+              {
+                person_id: "p-2",
+                full_name: "Mark Hughes",
+                strength: {
+                  score: 20,
+                  bucket: "weak",
+                  factors: {
+                    recency: 0,
+                    frequency: 0,
+                    reciprocity: 0,
+                    direction: 0,
+                  },
+                },
+                deal_roles: [],
+                consent: {},
+              },
+            ],
+            page: { has_more: false, next_cursor: null },
+          },
+        }),
+      "POST /organizations/org-1/draft-email": () =>
+        jsonResponse({
+          subject: "For Sarah",
+          body: "Hi Sarah, shall we pick this up?",
+          to: ["sarah@acme.test"],
+          generated_by: "model",
+          ai_generated: true,
+          ai_disclosure: "This message was drafted with AI assistance.",
+          reasoning: [{ kind: "recipient", label: "Sarah Cole" }],
+        }),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await pickOption(
+      user,
+      await screen.findByRole("combobox", { name: "Draft to" }),
+      "Sarah Cole",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Body")).toHaveProperty(
+        "value",
+        "Hi Sarah, shall we pick this up?",
+      ),
+    );
+    expect(screen.getByText(/Based on/)).toBeTruthy();
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Draft to" }),
+      "Mark Hughes",
+    );
+
+    // Sarah's draft, her address, her disclosure and her reasons all go with
+    // her. The rep drafts again for Mark, or writes it themselves.
+    expect(screen.getByPlaceholderText("Body")).toHaveProperty("value", "");
+    expect(screen.queryByText(/Based on/)).toBeNull();
+    expect(screen.queryByText(/AI assistance/)).toBeNull();
   });
 });

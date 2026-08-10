@@ -45,6 +45,11 @@ var (
 	migrateOnce sync.Once
 	migrateErr  error
 
+	// schemaReady reports that EnsureSchema has migrated this process's database.
+	// Pool gates on it, and returns ErrSchemaNotReady while it is unset — see
+	// there for what a pool handed out too early does to the rest of the package.
+	schemaReady atomic.Bool
+
 	// emptySizes is the physical size of every table on the freshly migrated,
 	// still-empty schema, keyed by qualified name. reclaimBloat measures growth
 	// against it — see there for why an absolute size threshold cannot work.
@@ -117,6 +122,10 @@ func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
 			return
 		}
 		emptySizes.Store(&sizes)
+		// Last, and only on the success path: Pool refuses to hand out a
+		// connection until this is set, so a pool can never predate the DROP
+		// SCHEMA above.
+		schemaReady.Store(true)
 	})
 	return migrateErr
 }

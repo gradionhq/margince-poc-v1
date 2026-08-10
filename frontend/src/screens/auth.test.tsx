@@ -8,14 +8,23 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THEME_KEY } from "../app/theme";
+import { resetTheme } from "../app/theme-reset";
+import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
 import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
 // the forgot-password flow renders exactly when the capabilities probe
 // reports it operational.
+
+const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
+
+// The theme lives in one module-level store, so the case that presses the
+// toggle below would otherwise hand every later case a flipped document,
+// `localStorage` and store.
+beforeEach(resetTheme);
 
 afterEach(() => {
   cleanup();
@@ -137,6 +146,37 @@ describe("AuthScreen login", () => {
     expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByText("Configured")).toBeNull();
+  });
+
+  // Derived from LOCALES rather than listed: a hardcoded pair passes while the
+  // footer quietly drops the third language, which is the one failure this
+  // case exists to catch — the reader who cannot read the screen it is on.
+  it("the sign-in footer offers every shipped locale", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      expect(screen.getByRole("button", { name }), name).toBeTruthy();
+    }
+  });
+
+  // The document declares ONE language (LocaleProvider, WCAG 3.1.1) and this
+  // row shows three. Unmarked, a screen reader reads every name with the
+  // phonemes of whichever locale is currently on — so the reader who came here
+  // to find their own language is read it in a language they may not have.
+  it("voices each language name in its own language", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      const button = screen.getByRole("button", { name });
+      expect(
+        button.querySelector(`[lang="${locale}"]`)?.textContent,
+        name,
+      ).toBe(name);
+    }
   });
 
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
@@ -338,6 +378,24 @@ describe("AuthScreen login", () => {
       "/legal/privacy",
     );
   });
+
+  // The theme is readable before anyone signs in, so it has to be changeable
+  // there too — the toggle used to exist only in the authenticated top bar.
+  it("changes the document theme from the legal row", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const toggle = await screen.findByRole("button", {
+      name: t("theme.toDark"),
+    });
+    await userEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    // The label names the theme the press would move TO, so it has to flip with
+    // the press — a stale label sends a reader the wrong way.
+    expect(toggle.getAttribute("aria-label")).toBe(t("theme.toLight"));
+    expect(window.localStorage.getItem(THEME_KEY)).toBe("dark");
+  });
 });
 
 // §19/§11, and now the markup exists — so the gate has to be the CAPABILITY
@@ -368,7 +426,7 @@ describe("federated sign-in", () => {
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),
     ).toBeNull();
-    expect(screen.queryByText("or with email")).toBeNull();
+    expect(screen.queryByText("or")).toBeNull();
     cleanup();
 
     stubApi(
@@ -390,7 +448,7 @@ describe("federated sign-in", () => {
       screen.getByRole("button", { name: "Continue with Microsoft" }),
     ).toBeTruthy();
     // The divider labels the PASSWORD path below it, not the buttons above.
-    expect(screen.getByText("or with email")).toBeTruthy();
+    expect(screen.getByText("or")).toBeTruthy();
   });
 
   // The UI-preview switch (app/ui-preview.ts), on the screen rather than on the
@@ -555,6 +613,69 @@ describe("AuthScreen forgot password", () => {
   });
 });
 
+// Every password field on this surface, DERIVED from the rendered form rather
+// than named one by one: the autocomplete token is what makes a field a password
+// field to a browser and to a password manager, and it survives the reveal (the
+// `type` does not). A field this surface grows later is therefore covered by the
+// obligation without anyone extending a list — which is the whole point, because
+// a missing reveal looks exactly like a field nobody got round to.
+async function expectEveryPasswordFieldRevealable() {
+  const fields = [
+    ...document.querySelectorAll<HTMLInputElement>(
+      'input[autocomplete$="-password"]',
+    ),
+  ];
+  expect(fields.length).toBeGreaterThan(0);
+  for (const input of fields) {
+    const field = input.closest(".auth-field");
+    expect(field, input.name).toBeTruthy();
+    const reveal = field?.querySelector<HTMLButtonElement>(".auth-reveal");
+    expect(reveal, input.name).toBeTruthy();
+    expect(input.type, input.name).toBe("password");
+    expect(reveal?.getAttribute("aria-label")).toBe("Show password");
+    expect(reveal?.getAttribute("aria-pressed")).toBe("false");
+
+    if (reveal) {
+      await userEvent.click(reveal);
+    }
+    expect(input.type, input.name).toBe("text");
+    expect(reveal?.getAttribute("aria-label")).toBe("Hide password");
+    expect(reveal?.getAttribute("aria-pressed")).toBe("true");
+
+    if (reveal) {
+      await userEvent.click(reveal);
+    }
+    expect(input.type, input.name).toBe("password");
+  }
+}
+
+describe("password reveal", () => {
+  it("covers the sign-in password", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Password");
+
+    await expectEveryPasswordFieldRevealable();
+  });
+
+  // The one that was missing, and the worse of the two to get wrong: a mistyped
+  // sign-in password is refused by the server, while a mistyped NEW password just
+  // becomes the password — there is no confirm field to disagree with it.
+  it("covers the new password behind the emailed link", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(204));
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=reveal-probe-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("New password");
+
+    await expectEveryPasswordFieldRevealable();
+  });
+});
+
 describe("AuthScreen reset deep link", () => {
   it("redeems the emailed token and lands back at sign-in", async () => {
     const calls = stubApi({ password: true, password_reset: true }, () =>
@@ -562,8 +683,8 @@ describe("AuthScreen reset deep link", () => {
     );
     vi.stubGlobal("location", {
       ...window.location,
-      pathname: "/reset-password",
-      search: "?token=raw-reset-token",
+      pathname: "/",
+      hash: "#/reset-password?token=raw-reset-token",
       origin: "http://localhost",
     });
     render(<AuthScreen onAuthed={vi.fn()} />);
@@ -585,8 +706,8 @@ describe("AuthScreen reset deep link", () => {
     );
     vi.stubGlobal("location", {
       ...window.location,
-      pathname: "/reset-password",
-      search: "?token=spent-token",
+      pathname: "/",
+      hash: "#/reset-password?token=spent-token",
       origin: "http://localhost",
     });
     render(<AuthScreen onAuthed={vi.fn()} />);
@@ -600,6 +721,138 @@ describe("AuthScreen reset deep link", () => {
       await screen.findByText("That reset link is invalid, used, or expired."),
     ).toBeTruthy();
     expect(screen.getByText("Request a new link")).toBeTruthy();
+  });
+
+  // These three cases exist because one string used to serve every failure, and
+  // the remedy it offered — "Request a new link" — SUPERSEDES the token the user
+  // is still holding. So for anything that is not a token verdict, the old copy
+  // was both wrong and destructive. What each failure must not do is as important
+  // as what it says, hence the absence assertions.
+  it("names the action the user was actually taking when refused for rate", async () => {
+    // The 429 used to render auth.errRateLimited, which says "sign-in attempts"
+    // — on a form whose only job is setting a password. Copy that names the wrong
+    // action reads as the wrong error, so this branch has its own key and this
+    // test is what keeps the two from being collapsed back together.
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(429, { title: "rate_limited", detail: "budget exceeded" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "Too many attempts. Wait a moment, then set your password again.",
+      ),
+    ).toBeTruthy();
+    // The link is untouched by a rate limit, so replacing it is still wrong.
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
+  it("blames the password, not the link, when the server refuses the password", async () => {
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(422, { title: "validation_error", detail: "password too weak" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "That password was refused. Choose a different one and try again.",
+      ),
+    ).toBeTruthy();
+    // The link is still good, so replacing it must not be offered.
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
+  it("keeps a good link alive when the request never reaches the server", async () => {
+    stubApi({ password: true, password_reset: true }, () => {
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
+  it("announces a reset failure to assistive tech", async () => {
+    // The reset error was the one error region on this surface with no role, so a
+    // screen-reader user submitted an expired token and was told nothing.
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid, used, or expired" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=spent-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "That reset link is invalid, used, or expired.",
+    );
+  });
+
+  it("ignores a token in the server-visible query string", async () => {
+    // The security property, asserted directly rather than implied by the happy
+    // path: a query string is sent to servers, lands in access logs, is attached
+    // as a Referer on same-origin api calls, and becomes a Cache Storage key. So
+    // the reset view must open ONLY for a fragment token. If someone reverts the
+    // parser to location.search to "be more forgiving", this fails.
+    stubApi({ password: true, password_reset: true }, () => ok(204));
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/reset-password",
+      search: "?token=raw-reset-token",
+      hash: "",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    // The sign-in form, not the reset form.
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
+    expect(screen.queryByLabelText("New password")).toBeNull();
   });
 });
 

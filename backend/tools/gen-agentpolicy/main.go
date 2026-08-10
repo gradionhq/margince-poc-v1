@@ -50,6 +50,7 @@ type policy struct {
 	Tool       string // x-mcp-tool verb (Access == "tool")
 	RecordType string // x-mcp-tool record_type ("" when the tool is not record-typed)
 	Tier       string // x-mcp-tool tier: auto_execute | confirmation_required | dynamic
+	Scope      string // x-mcp-tool scope: the passport cap the operation consumes
 }
 
 func main() {
@@ -83,6 +84,7 @@ func main() {
 
 	policies, defects := derivePolicies(doc.Paths)
 	defects = append(defects, vocab.violations(policies)...)
+	defects = append(defects, scopeCoherence(policies)...)
 	if len(defects) > 0 {
 		sort.Strings(defects)
 		log.Fatalf("gen-agentpolicy: the contract violates the ADR-0055 fail-closed invariant:\n  %s", strings.Join(defects, "\n  "))
@@ -118,6 +120,7 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 					Verb       string `yaml:"verb"`
 					RecordType string `yaml:"record_type"`
 					Tier       string `yaml:"tier"`
+					Scope      string `yaml:"scope"`
 				} `yaml:"x-mcp-tool"`
 				AgentAccess string `yaml:"x-agent-access"`
 			}
@@ -136,8 +139,17 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 				p.Tool = op.MCPTool.Verb
 				p.RecordType = op.MCPTool.RecordType
 				p.Tier = op.MCPTool.Tier
+				p.Scope = op.MCPTool.Scope
 				if p.Tool == "" || (p.Tier != "auto_execute" && p.Tier != "confirmation_required" && p.Tier != "dynamic") {
 					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool needs a verb and an auto_execute|confirmation_required|dynamic tier", httpMethod, path, op.OperationID))
+					continue
+				}
+				// A tool operation without a scope would be admitted under whatever
+				// the gate defaulted to, which is how an outbound verb came to run
+				// on the write cap. There is no defensible default, so there is no
+				// default: say which cap the act spends.
+				if p.Scope == "" {
+					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool declares no scope — name the passport cap this operation consumes", httpMethod, path, op.OperationID))
 					continue
 				}
 			case mutating[httpMethod]:
@@ -154,6 +166,34 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 		}
 	}
 	return policies, defects
+}
+
+// scopeCoherence reports any verb whose routes disagree about the cap it
+// spends. Tier is deliberately per-operation — the A34 tighten-only rule lets
+// one route of a verb confirm where another auto-executes — but scope is a
+// property of the ACT, not of the route that reaches it. A verb that is
+// `enrich` on one path and `write` on another means an agent denied the cap
+// can still spend it by picking the other door.
+func scopeCoherence(policies []policy) []string {
+	type claim struct{ scope, route string }
+	first := map[string]claim{}
+	var defects []string
+	for _, p := range policies {
+		if p.Access != "tool" {
+			continue
+		}
+		seen, ok := first[p.Tool]
+		if !ok {
+			first[p.Tool] = claim{scope: p.Scope, route: p.Route}
+			continue
+		}
+		if seen.scope != p.Scope {
+			defects = append(defects, fmt.Sprintf(
+				"%s (%s): x-mcp-tool.scope = %q, but %s declares %q for the same verb — one verb spends one cap",
+				p.Route, p.Op, p.Scope, seen.route, seen.scope))
+		}
+	}
+	return defects
 }
 
 // renderTable emits the generated Go source for the admission table: the
@@ -181,6 +221,7 @@ type agentPolicy struct {
 	Tool       string          // backing MCP tool verb (Access == accessTool)
 	RecordType agentRecordType // the record the operation targets; zero when it declares none
 	Tier       agentTier       // contract-declared autonomy tier; zero when it declares none
+	Scope      agentScope      // the passport cap the operation consumes (Access == accessTool)
 }
 
 // agentPolicies is keyed by "METHOD <chi route pattern>" as the generated
@@ -188,8 +229,8 @@ type agentPolicy struct {
 var agentPolicies = map[string]agentPolicy{
 `)
 	for _, p := range policies {
-		fmt.Fprintf(&b, "\t%q: {Op: %q, Access: %q, Tool: %q, RecordType: %q, Tier: %q},\n",
-			p.Route, p.Op, p.Access, p.Tool, p.RecordType, p.Tier)
+		fmt.Fprintf(&b, "\t%q: {Op: %q, Access: %q, Tool: %q, RecordType: %q, Tier: %q, Scope: %q},\n",
+			p.Route, p.Op, p.Access, p.Tool, p.RecordType, p.Tier, p.Scope)
 	}
 	b.WriteString("}\n")
 	return b.String()

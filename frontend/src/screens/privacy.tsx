@@ -10,10 +10,13 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
+  Field,
   SectionHeader,
   SegmentedControl,
   Skeleton,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -21,6 +24,7 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import { Select, type SelectOption } from "../design-system/select";
 import { formatDate } from "../format/format";
 import { useNow } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -29,7 +33,7 @@ import { humanizeToken } from "./audit";
 import {
   LoadMoreButton,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
 } from "./common";
@@ -61,14 +65,6 @@ type DsrKind = CreateDataSubjectRequest["kind"];
 // nothing in this app called it) and the DSR inbox. GET + POST only — there
 // is no PATCH or DELETE on /consent-purposes, so a purpose is append-only by
 // contract, not by convention; the create form says so up front.
-
-// share.tsx:417's honestMessage idiom, shared by every mutation error render
-// in this file: surface the server's own explanation rather than a canned
-// one. A ProblemError's message is already problemMessage(problem), so this
-// covers both the plain-Error and ProblemError mutation failures below.
-function honestMessage(error: unknown): string | null {
-  return error instanceof Error ? error.message : null;
-}
 
 // The DSR closed status machine (consent/dsr.go's dsrTransitions) rejects an
 // illegal "<from> → <to>" move with a 422 validation_error whose ONE failing
@@ -106,8 +102,6 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const [key, setKey] = useState("");
   const [label, setLabel] = useState("");
   const [requiresDoi, setRequiresDoi] = useState(false);
-  const keyId = useId();
-  const labelId = useId();
 
   const create = useMutation({
     mutationFn: async () => {
@@ -119,7 +113,7 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -144,46 +138,42 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
         {t("privacy.purposeAppendOnly")}
       </p>
       <div className="form-stack">
-        <div className="field">
-          <label className="t-label" htmlFor={keyId}>
-            {t("privacy.purposeKey")}
-          </label>
-          <TextInput
-            id={keyId}
-            value={key}
-            onChange={(event) => {
-              setKey(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={labelId}>
-            {t("privacy.purposeLabel")}
-          </label>
-          <TextInput
-            id={labelId}
-            value={label}
-            onChange={(event) => {
-              setLabel(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
-        <label className="t-caption purpose-doi-check">
-          <input
-            type="checkbox"
-            checked={requiresDoi}
-            onChange={(event) => {
-              setRequiresDoi(event.target.checked);
-              dismissCreateError();
-            }}
-          />
-          {t("privacy.purposeDoi")}
-        </label>
+        <Field label={t("privacy.purposeKey")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={key}
+              onChange={(event) => {
+                setKey(event.target.value);
+                dismissCreateError();
+              }}
+            />
+          )}
+        </Field>
+        <Field label={t("privacy.purposeLabel")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={label}
+              onChange={(event) => {
+                setLabel(event.target.value);
+                dismissCreateError();
+              }}
+            />
+          )}
+        </Field>
+        <Checkbox
+          className="t-caption"
+          label={t("privacy.purposeDoi")}
+          checked={requiresDoi}
+          onChange={(event) => {
+            setRequiresDoi(event.target.checked);
+            dismissCreateError();
+          }}
+        />
         {create.isError && (
           <p className="t-caption purpose-form-error">
-            {honestMessage(create.error)}
+            {problemMessageOf(create.error, t)}
           </p>
         )}
         <Button
@@ -207,7 +197,7 @@ export function ConsentPurposesCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/consent-purposes");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -289,9 +279,6 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const [subjectRef, setSubjectRef] = useState("");
   const [person, setPerson] = useState<RecordPickerCandidate | null>(null);
   const [dueAt, setDueAt] = useState("");
-  const kindId = useId();
-  const subjectId = useId();
-  const dueId = useId();
   // The statutory deadline is minted in the OPERATOR's own zone, the same
   // zone the row later renders it back in (PrivacyInboxCard's tz below) —
   // `new Date(dueAt).toISOString()` would instead read the date-only input
@@ -343,26 +330,21 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   return (
     <div className="card card-inset dsr-form">
       <div className="form-stack">
-        <div className="field">
-          <label className="t-label" htmlFor={kindId}>
-            {t("privacy.kind")}
-          </label>
-          <select
-            id={kindId}
-            className="input"
-            value={kind}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (isOption(value, DSR_KINDS)) changeKind(value);
-            }}
-          >
-            {DSR_KINDS.map((value) => (
-              <option key={value} value={value}>
-                {humanizeToken(value)}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Field label={t("privacy.kind")}>
+          {(control) => (
+            <Select
+              {...control}
+              options={DSR_KINDS.map((value) => ({
+                value,
+                label: humanizeToken(value),
+              }))}
+              value={kind}
+              onChange={(value) => {
+                if (isOption(value, DSR_KINDS)) changeKind(value);
+              }}
+            />
+          )}
+        </Field>
 
         {kind === "erasure" ? (
           <div className="field">
@@ -380,42 +362,41 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
             <p className="t-caption">{t("privacy.erasureNeedsPerson")}</p>
           </div>
         ) : (
-          <div className="field">
-            <label className="t-label" htmlFor={subjectId}>
-              {t("privacy.subjectRef")}
-            </label>
+          <Field
+            label={t("privacy.subjectRef")}
+            hint={kind === "access" ? t("privacy.accessManual") : undefined}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                value={subjectRef}
+                onChange={(event) => {
+                  setSubjectRef(event.target.value);
+                  dismissCreateError();
+                }}
+              />
+            )}
+          </Field>
+        )}
+
+        <Field label={t("privacy.dueAt")}>
+          {(control) => (
             <TextInput
-              id={subjectId}
-              value={subjectRef}
+              {...control}
+              type="date"
+              value={dueAt}
               onChange={(event) => {
-                setSubjectRef(event.target.value);
+                setDueAt(event.target.value);
                 dismissCreateError();
               }}
             />
-            {kind === "access" && (
-              <p className="t-caption">{t("privacy.accessManual")}</p>
-            )}
-          </div>
-        )}
-
-        <div className="field">
-          <label className="t-label" htmlFor={dueId}>
-            {t("privacy.dueAt")}
-          </label>
-          <input
-            id={dueId}
-            type="date"
-            className="input"
-            value={dueAt}
-            onChange={(event) => {
-              setDueAt(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
+          )}
+        </Field>
 
         {create.isError && (
-          <p className="t-caption dsr-error">{honestMessage(create.error)}</p>
+          <p className="t-caption dsr-error">
+            {problemMessageOf(create.error, t)}
+          </p>
         )}
 
         <Button
@@ -454,6 +435,20 @@ function transitionLabelKey(status: DsrStatus): MessageKey {
   return "privacy.reject";
 }
 
+// Who a request can be assigned to, led by the unassigned entry. That entry is
+// DISABLED, and it is still an option rather than the select's placeholder: the
+// server's update coalesces an omitted assignee onto the stored one, so nothing
+// an empty selection sent could unassign anybody — and an entry a reader can
+// aim at has to be able to change something. Kept in the list because it is the
+// face an unassigned request shows, and the state has to stay legible even
+// where it is not actionable. The em dash carries no words to translate.
+function assigneeOptions(users: readonly User[]): SelectOption[] {
+  return [
+    { value: "", label: "—", disabled: true },
+    ...users.map((user) => ({ value: user.id, label: user.display_name })),
+  ];
+}
+
 // One DSR row: collapsed summary + (on click) the case-work panel — subject,
 // assignee, resolution, and only the transitions the server's closed status
 // machine (consent/dsr.go:58-61) would actually accept. Which row is open is
@@ -482,7 +477,6 @@ function DsrRow({
   const queryClient = useQueryClient();
   const [resolution, setResolution] = useState(dsr.resolution ?? "");
   const assigneeFieldId = useId();
-  const resolutionFieldId = useId();
   const panelId = useId();
 
   // Only fetched while this row's panel is actually open — the roster is the
@@ -563,7 +557,7 @@ function DsrRow({
     ? null
     : patchProblem && isIllegalTransition(patchProblem)
       ? t("privacy.movedOn")
-      : honestMessage(patch.error);
+      : problemMessageOf(patch.error, t);
 
   return (
     <li className="dsr-row">
@@ -598,29 +592,13 @@ function DsrRow({
               <label className="t-label" htmlFor={assigneeFieldId}>
                 {t("privacy.assignee")}
               </label>
-              <select
+              <Select
                 id={assigneeFieldId}
-                className="input"
+                options={assigneeOptions(assignableUsers)}
                 value={dsr.assignee_id ?? ""}
                 disabled={patch.isPending}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  // No "unassign" option: coalesce($3, assignee_id) treats an
-                  // explicit null as a no-op, so there is nothing an empty
-                  // selection could legitimately send.
-                  if (!value) {
-                    return;
-                  }
-                  patch.mutate({ assignee_id: value });
-                }}
-              >
-                <option value="">—</option>
-                {assignableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.display_name}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => patch.mutate({ assignee_id: value })}
+              />
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
               {patch.isPending && (
                 <p className="t-caption">{t("common.saving")}</p>
@@ -641,21 +619,21 @@ function DsrRow({
               <p className="t-caption">{t("privacy.closed")}</p>
             ) : (
               <>
-                <div className="field">
-                  <label className="t-label" htmlFor={resolutionFieldId}>
-                    {t("privacy.resolution")}
-                  </label>
-                  <textarea
-                    id={resolutionFieldId}
-                    className="input"
-                    value={resolution}
-                    onChange={(event) => {
-                      setResolution(event.target.value);
-                      dismissPatchError();
-                    }}
-                  />
-                  <p className="t-caption">{t("privacy.resolutionRequired")}</p>
-                </div>
+                <Field
+                  label={t("privacy.resolution")}
+                  hint={t("privacy.resolutionRequired")}
+                >
+                  {(control) => (
+                    <Textarea
+                      {...control}
+                      value={resolution}
+                      onChange={(event) => {
+                        setResolution(event.target.value);
+                        dismissPatchError();
+                      }}
+                    />
+                  )}
+                </Field>
                 <div className="dsr-actions">
                   {nextStatuses(dsr.status).map((next) => {
                     const closingWithoutAnswer =
@@ -773,7 +751,9 @@ function FulfilErasureModal({
   // so ConfirmModal's generic inline-error slot (built for a validation
   // mistake) is reserved for everything else.
   const errorMessage =
-    patch.isError && !held && !movedOn ? honestMessage(patch.error) : null;
+    patch.isError && !held && !movedOn
+      ? problemMessageOf(patch.error, t)
+      : null;
 
   return (
     <ConfirmModal
@@ -863,7 +843,7 @@ export function PrivacyInboxCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -901,7 +881,7 @@ export function PrivacyInboxCard() {
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button
           small

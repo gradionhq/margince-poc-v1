@@ -40,6 +40,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
 // errSeamReached stands for "the tool accepted these arguments and called me".
@@ -132,6 +134,40 @@ func (seamProbeProvider) Freshness(context.Context, datasource.EntityRef) (datas
 
 var _ datasource.SystemOfRecordProvider = seamProbeProvider{}
 
+// seamProbeRetriever is the retrieval seam's half of the same probe: both
+// methods answer errSeamReached, so a tool that let malformed arguments through
+// is distinguishable from one that refused them.
+type seamProbeRetriever struct{}
+
+func (seamProbeRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, errSeamReached
+}
+
+func (seamProbeRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
+	return retrieval.Context{}, errSeamReached
+}
+
+// seamProbeLifecycle answers errSeamReached from every lifecycle and enrich
+// seam, so the walk can tell "the arguments got through" from "the tool refused
+// them" — the whole point of the probe.
+type seamProbeLifecycle struct{}
+
+func (seamProbeLifecycle) RelinkActivity(context.Context, ids.UUID, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) DisqualifyLead(context.Context, ids.UUID) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string, *string, *int64) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
 // idProbeDispatcher is the whole product surface behind the real dispatcher,
 // with the seam probe underneath. fullRegistry passes nil seams, which is
 // enough to read specs and panics the moment a handler runs; this walk runs
@@ -148,14 +184,34 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, errSeamReached },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", errSeamReached })
+	RegisterCommitmentTool(r, func(context.Context, CommitmentQuery) (CommitmentSweep, error) {
+		return CommitmentSweep{}, errSeamReached
+	})
+	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
+		return HandoffFacts{}, errSeamReached
+	})
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, errSeamReached },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, errSeamReached },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
 			return DealCoverageAnswer{}, errSeamReached
 		},
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, errSeamReached },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, errSeamReached })
 	RegisterCommsTools(r, &recordingComms{}, seamProbeProvider{})
+	RegisterLifecycleTools(r, seamProbeProvider{},
+		seamProbeLifecycle{}, seamProbeLifecycle{}, seamProbeLifecycle{})
+	RegisterEnrichTool(r, seamProbeProvider{}, seamProbeLifecycle{})
+	RegisterQueryTool(r, seamProbeProvider{}, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{}, errSeamReached
+	})
+	RegisterContextSearchTool(r, seamProbeProvider{}, seamProbeRetriever{})
+	RegisterResolveTool(r, seamProbeProvider{}, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, errSeamReached
+	})
+	RegisterListTool(r, seamProbeProvider{}, probeVocabulary{})
+	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
+		return ReadBriefResult{}, errSeamReached
+	})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
@@ -223,14 +279,30 @@ func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) (all, req
 
 // malformedCall renders a tools/call putting a non-canonical UUID in prop and
 // nothing else. Only the offending property is set: the refusal under test has
-// to happen while the arguments decode, before any other validation.
-func malformedCall(tool, prop string) json.RawMessage {
+// to happen while the arguments decode, once the call is otherwise complete.
+func malformedCall(t *testing.T, spec mcp.ToolSpec, prop string) json.RawMessage {
+	t.Helper()
 	const notAUUID = `"not-a-uuid"`
-	args := fmt.Sprintf(`{%q:%s}`, prop, notAUUID)
-	if outer, nested, isNested := strings.Cut(prop, "[]."); isNested {
-		args = fmt.Sprintf(`{%q:[{%q:%s}]}`, outer, nested, notAUUID)
+	// Every OTHER required argument is supplied, plausibly, by the same helper
+	// the absent-id walk uses: the registry holds `required` before it holds
+	// shapes — an argument that is missing has no shape to be wrong about — so a
+	// call carrying only the malformed id would be refused for the arguments it
+	// also omitted, and this walk would stop testing what it is named for.
+	outer, nested, isNested := strings.Cut(prop, "[].")
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(absentIDArgs(t, spec.Name, spec.InputSchema, outer), &args); err != nil {
+		t.Fatalf("building a call for %s: %v", spec.Name, err)
 	}
-	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, tool, args))
+	if isNested {
+		args[outer] = json.RawMessage(fmt.Sprintf(`[{%q:%s}]`, nested, notAUUID))
+	} else {
+		args[prop] = json.RawMessage(notAUUID)
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("building a call for %s: %v", spec.Name, err)
+	}
+	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, spec.Name, encoded))
 }
 
 func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
@@ -250,7 +322,7 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 		allProps, _ := uuidProps(t, name, tool.Spec().InputSchema)
 		for _, prop := range allProps {
 			probed++
-			res := s.call(ctx, malformedCall(name, prop))
+			res := callMap(ctx, t, s, string(malformedCall(t, tool.Spec(), prop)))
 			if res["isError"] != true {
 				t.Errorf("%s accepted %q as a UUID", name, prop)
 				continue

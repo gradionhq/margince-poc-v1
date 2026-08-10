@@ -37,6 +37,7 @@ type progressDeal struct {
 func (t progressDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "progress_deal", Title: "Progress a deal with a note", Version: toolVersionV1,
+		Description:   progressDealCopy.render(),
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		// The SAME resolver as advance_deal: the intent composition never
@@ -51,7 +52,7 @@ func (t progressDeal) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[ProgressDealResult](),
 	}
 }
 
@@ -62,11 +63,10 @@ func (t progressDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mc
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{Args: in, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	// The SAME builder advance_deal uses: this tool shares that tool's resolver,
+	// so it has to feed it the same two endpoints, and a second copy is how the
+	// shared rule comes to hold on one tool and not the other.
+	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, exactly
@@ -89,7 +89,10 @@ func (t progressDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	}
 	return StageInfo{
 		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Progress deal %s to %s", recordLabel(rec), semantic),
+		// The same sentence advance_deal stages, because the two tools stage the
+		// same act — a human reading an inbox should not have to know which tool
+		// proposed a move to understand what approving it does.
+		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
 	}, nil
 }
 
@@ -98,16 +101,20 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	pin, err := pinForWrite(ctx, args.IfVersion)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  args.IfVersion,
+		IfVersion:  pin,
 	}); err != nil {
 		return nil, err
 	}
-	out := map[string]any{}
+	var result ProgressDealResult
 	if args.Note != nil && strings.TrimSpace(*args.Note) != "" {
 		fields, err := json.Marshal(map[string]any{
 			"kind": "note",
@@ -127,12 +134,13 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		if err != nil {
 			return nil, fmt.Errorf("crmagents: deal advanced but logging the note failed — the move stands, retry via log_activity: %w", err)
 		}
-		out["note_activity_id"] = ref.ID
+		result.NoteActivityID = &ref.ID
+		noteEvidence(ctx, datasource.EntityActivity, ref.ID)
 	}
-	dealJSON, err := readBack(ctx, t.p, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
+	deal, err := readBackRecord(ctx, t.p, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
 	if err != nil {
 		return nil, err
 	}
-	out["deal"] = json.RawMessage(dealJSON)
-	return json.Marshal(out)
+	result.Deal = deal
+	return json.Marshal(result)
 }

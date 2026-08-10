@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -33,11 +34,11 @@ func intp(i int) *int       { return &i }
 // override columns exist and lead still carries FORCE row-level security
 // (ADD COLUMN never relaxes it).
 func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 
 	var forced bool
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT relforcerowsecurity FROM pg_class WHERE relname = 'lead'`).Scan(&forced); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 	}
 
 	var cols int
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.columns
 		   WHERE table_name = 'lead' AND column_name IN ('score_override_reason', 'score_computed')`).Scan(&cols); err != nil {
 		t.Fatal(err)
@@ -57,16 +58,16 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 }
 
 func TestLeadScoreOverrideIsSticky(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
-	ctx := e.asFullUser()
+	ctx := e.AsFullUser()
 	store := people.NewStore(e.Pool)
 	activityStore := activities.NewStore(e.Pool)
 
 	// A working lead: decision-maker title (+15) from a high-intent source
 	// (+8) → machine fit is 23. Seeded at score 0 so a resumed recompute
 	// demonstrably rebuilds it.
-	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
+	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
 	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
 	// (1) A human score with no reason is rejected (AC-S1).
@@ -149,13 +150,13 @@ func logInboundReply(t *testing.T, ctx context.Context, activityStore *activitie
 // contract: a human PATCH setting score with no reason answers 422 with
 // the validation-error field shape.
 func TestLeadScoreOverrideRejectsMissingReasonOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var lead struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/leads", anyMap{"full_name": "Otto Lead", "source": "manual"}, nil, &lead); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/leads", apptest.AnyMap{"full_name": "Otto Lead", "source": "manual"}, nil, &lead); status != http.StatusCreated {
 		t.Fatalf("create lead → %d", status)
 	}
 
@@ -168,7 +169,7 @@ func TestLeadScoreOverrideRejectsMissingReasonOverHTTP(t *testing.T) {
 			} `json:"errors"`
 		} `json:"details"`
 	}
-	if status := e.call(t, "PATCH", "/v1/leads/"+lead.ID, anyMap{"score": 80}, nil, &problem); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "PATCH", "/v1/leads/"+lead.ID, apptest.AnyMap{"score": 80}, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("score without reason → %d, want 422", status)
 	}
 	if problem.Code != "validation_error" ||

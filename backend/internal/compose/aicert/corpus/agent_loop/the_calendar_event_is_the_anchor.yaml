@@ -1,0 +1,40 @@
+name: the_calendar_event_is_the_anchor
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: The quarterly sync starts in twenty minutes and I have not looked at it. Get me ready.
+  trigger_ref: calendar:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e20
+  grounding:
+    # No absolute timestamp. The goal already says when the meeting is, and a
+    # fixed date in a fixture the corpus replays for years would drift away from
+    # it — the scenario would then be measuring whether the model can reconcile
+    # "in twenty minutes" with a date long past, which is a different question
+    # from the one it is here to ask.
+    - source_id: activity:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21
+      trust_tier: T1
+      content: >
+        Captured calendar event — "Quarterly sync",
+        activity_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21. This event is the only
+        record this run has been handed; no account, deal or contact is named here.
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: prep_for_meeting
+    args:
+      record_type: activity
+      record_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21
+  rubric: >
+    The only record this turn holds is the meeting itself, and prep_for_meeting
+    takes a meeting: naming the event as the anchor is what makes the server work
+    out which account, deal or person the meeting is about. Score high only if the
+    turn calls prep_for_meeting with record_type activity and the event id the
+    grounding gives. Searching for an account the grounding never names, reading
+    the event as a bare record, or ending the turn to ask which account is meant
+    all score low — the anchor was in hand.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

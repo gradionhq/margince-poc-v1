@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -20,16 +21,16 @@ import (
 // successful reset. Reaching 200 also proves the live session path populates
 // the admin RoleKeys that RequireAdmin gates on.
 func TestResetDataOverHTTP(t *testing.T) {
-	e := setupWithOptions(t,
+	e := apptest.SetupAppWithOptions(t,
 		compose.WithDataReset(nil, deployconfig.Seeds{}, runtimeenv.Development),
 		compose.WithNonProduction(runtimeenv.Development),
 	)
-	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
+	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 
 	var me struct {
 		NonProduction bool `json:"non_production"`
 	}
-	if code := e.call(t, "GET", "/v1/me", nil, nil, &me); code != 200 {
+	if code := e.Call(t, "GET", "/v1/me", nil, nil, &me); code != 200 {
 		t.Fatalf("GET /me = %d, want 200", code)
 	}
 	if !me.NonProduction {
@@ -37,7 +38,7 @@ func TestResetDataOverHTTP(t *testing.T) {
 	}
 
 	// Wrong confirmation is refused before anything is deleted.
-	if code := e.call(t, "POST", "/v1/admin/reset-data", anyMap{"confirmation": "wrong"}, nil, nil); code != 422 {
+	if code := e.Call(t, "POST", "/v1/admin/reset-data", apptest.AnyMap{"confirmation": "wrong"}, nil, nil); code != 422 {
 		t.Fatalf("reset with wrong confirmation = %d, want 422", code)
 	}
 
@@ -46,7 +47,7 @@ func TestResetDataOverHTTP(t *testing.T) {
 		Status        string `json:"status"`
 		TablesCleared int    `json:"tables_cleared"`
 	}
-	if code := e.call(t, "POST", "/v1/admin/reset-data", anyMap{"confirmation": "Fable E2E"}, nil, &out); code != 200 {
+	if code := e.Call(t, "POST", "/v1/admin/reset-data", apptest.AnyMap{"confirmation": "Fable E2E"}, nil, &out); code != 200 {
 		t.Fatalf("reset with the org name = %d, want 200", code)
 	}
 	if out.Status != "reset" {

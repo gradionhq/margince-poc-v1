@@ -349,3 +349,33 @@ func queueDeals(queue []BriefQueueItem) []ids.UUID {
 	}
 	return out
 }
+
+// The evidence list is the DEAL row, then the activity rows behind momentum
+// and warmth — in that order, deduplicated.
+//
+// It is pinned because a consumer reads the shape rather than the values: the
+// agent surface charges every named row against the caller's read bound and has
+// to say what kind each one is, and the only thing that tells it is this
+// construction. A ranker that cited some other kind of row, or dropped the deal
+// from its own evidence, would have that consumer labelling rows wrongly with
+// nothing failing.
+func TestBriefEvidenceIsTheDealThenItsActivityRows(t *testing.T) {
+	deal, overnight, warmth := uuidAt(1), uuidAt(2), uuidAt(3)
+	f := briefDealFacts{
+		dealID: deal, winProbability: 50, warmthStrength: 80,
+		overnightActivityIDs: []ids.UUID{overnight, deal},
+		warmthEvidence:       []ids.UUID{warmth, overnight},
+	}
+
+	item := briefScore(f, briefRevenueNormFallbackMinor, briefTestClock)
+
+	want := []ids.UUID{deal, overnight, warmth}
+	if len(item.EvidenceIDs) != len(want) {
+		t.Fatalf("evidence = %v, want %v — the deal first, then each activity once", item.EvidenceIDs, want)
+	}
+	for i, id := range want {
+		if item.EvidenceIDs[i] != id {
+			t.Errorf("evidence[%d] = %v, want %v", i, item.EvidenceIDs[i], id)
+		}
+	}
+}

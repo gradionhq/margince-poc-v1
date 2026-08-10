@@ -50,6 +50,23 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}
+	// Who on our side can reach each of them. Read for the whole set in one
+	// query rather than per contact — see contactroutes.go.
+	rawIDs := make([]ids.UUID, len(personIDs))
+	for i, id := range personIDs {
+		rawIDs[i] = id.UUID
+	}
+	allowed, err := mayReadRoutes(ctx)
+	if err != nil {
+		return nil, crmcontracts.PageInfo{}, err
+	}
+	var routes map[ids.UUID]crmcontracts.Organization360ContactRoutes
+	if allowed {
+		routes, err = contactRoutes(ctx, tx, rawIDs, now)
+		if err != nil {
+			return nil, crmcontracts.PageInfo{}, err
+		}
+	}
 
 	out := make([]crmcontracts.Organization360Contact, 0, len(strengths))
 	for _, s := range strengths {
@@ -65,6 +82,9 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 		}
 		if card.Consent == nil {
 			card.Consent = map[string]crmcontracts.Organization360ContactConsent{}
+		}
+		if route, ok := routes[id.UUID]; ok {
+			card.Routes = &route
 		}
 		if who, ok := identity[id]; ok {
 			card.FullName = who.fullName

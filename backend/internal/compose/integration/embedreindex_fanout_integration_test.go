@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -27,7 +29,7 @@ import (
 
 // reembedFleetEnv is one search harness plus a claimed run over a named fleet.
 type reembedFleetEnv struct {
-	*searchEnv
+	*SearchEnv
 	embedder search.Embedder
 	identity string
 	run      ids.UUID
@@ -39,20 +41,20 @@ type reembedFleetEnv struct {
 // exercise is the RUN, and the confirm has its own suite.
 func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 	t.Helper()
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	ApplyRiverSchema(t)
 	embedder := fakeEmbedderNamed(t, ai.NewFakeClient(), "model-fanout")
 	identity, _ := embedder.EmbedIdentity()
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	run := ids.NewV7()
-	if err := e.store.ClaimAndEnqueueReembedding(ctx,
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx,
 		search.ReembedClaim{Run: run, TargetIdentity: identity}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run: %v", err)
 	}
-	return &reembedFleetEnv{searchEnv: e, embedder: embedder, identity: identity, run: run}
+	return &reembedFleetEnv{SearchEnv: e, embedder: embedder, identity: identity, run: run}
 }
 
 // TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
@@ -64,23 +66,23 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 // reached every workspace it is ever going to.
 func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	re := setupReembedFleet(t)
-	healthy := seedExtraWorkspace(t, re.owner, "reindex-healthy", false)
-	archived := seedExtraWorkspace(t, re.owner, "reindex-archived", true)
+	healthy := SeedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
+	archived := SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
 	// Both live tenants get an entity to embed, so each child has real work and
 	// the victim's write actually reaches the fault.
-	re.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
+	re.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
-	if _, err := re.owner.Exec(context.Background(),
+	if _, err := re.Owner.Exec(context.Background(),
 		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Fanout Person', 'manual', 'human:x')`,
 		healthyPersonID, healthy); err != nil {
 		t.Fatalf("seeding the healthy tenant's person: %v", err)
 	}
 	// Permanent, not transient: a fault that healed would let the tenant
 	// complete on a later attempt and read as green — the outcome this denies.
-	failEmbeddingWritesFor(t, re.owner, re.WS)
+	failEmbeddingWritesFor(t, re.Owner, re.WS)
 
-	runner, completed, failed := startTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
+	runner, completed, failed := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -93,7 +95,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	kind := compose.EmbedReindexWorkspaceArgs{}.Kind()
-	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
+	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
 
 	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
 		t.Errorf("no re-embed ran for workspace %s — a tenant the fan-out skipped keeps a stale index, and no row records that it did not", healthy)
@@ -106,7 +108,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	}
 	// The pass is only worth a row if it did the work.
 	var model string
-	if err := re.owner.QueryRow(context.Background(),
+	if err := re.Owner.QueryRow(context.Background(),
 		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
 		healthy, healthyPersonID).Scan(&model); err != nil {
 		t.Fatalf("reading the healthy tenant's embedding: %v", err)
@@ -143,19 +145,19 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 	router := embedReindexRouter(t, "reindex-wedged-v1")
 	e := setupEmbedReindex(t, router)
 
-	if status, _, _ := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+	if status, _, _ := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusAccepted {
 		t.Fatalf("first confirm -> %d, want 202", status)
 	}
 	// A forced confirm while the run is genuinely moving must still be refused:
 	// the marker was claimed a moment ago, so nothing here is stale.
-	if status, _, problem := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusConflict || problem.Code != "reindex_running" {
+	if status, _, problem := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusConflict || problem.Code != "reindex_running" {
 		t.Fatalf("forced confirm over a live run -> %d %+v, want 409 reindex_running", status, problem)
 	}
 
 	// The run's only child was killed outright: its workspace never left the set
 	// and the marker has not moved since. Aged rather than waited out — a suite
 	// that waited an hour is a suite nobody runs.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
 		t.Fatalf("ageing the wedged marker: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 	if status, _, problem := embedConfirm(t, e, nil); status != http.StatusConflict || problem.Code != "reindex_running" {
 		t.Fatalf("bare confirm over a wedged marker -> %d %+v, want 409 — taking a run's marker away is something a human asks for", status, problem)
 	}
-	status, confirmed, problem := embedConfirm(t, e, anyMap{"force": true})
+	status, confirmed, problem := embedConfirm(t, e, apptest.AnyMap{"force": true})
 	if status != http.StatusAccepted {
 		t.Fatalf("forced confirm over a wedged marker -> %d %+v, want 202 — an installation with no way back answers 409 forever", status, problem)
 	}
@@ -179,12 +181,12 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 // with no job anywhere to explain why.
 func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) {
 	re := setupReembedFleet(t)
-	if _, err := re.owner.Exec(context.Background(),
+	if _, err := re.Owner.Exec(context.Background(),
 		`UPDATE workspace SET archived_at = now() WHERE id = $1`, re.WS); err != nil {
 		t.Fatalf("archiving the only workspace: %v", err)
 	}
 
-	runner, completed, _ := startTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
+	runner, completed, _ := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -195,9 +197,9 @@ func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) 
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
+	jobtest.AwaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
 
-	populated, status, _, err := re.store.PopulatedIdentity(context.Background())
+	populated, status, _, err := re.Store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}

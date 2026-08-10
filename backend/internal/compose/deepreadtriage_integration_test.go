@@ -46,6 +46,7 @@ func newTriageTestWorker(e *integration.Env, site *fakeSite, extractBrain comple
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
+		pool:        e.Pool,
 		people:      e.People,
 		crawler:     testSiteCrawler(site),
 		extract:     evidenceExtractor{brain: extractBrain, factBrain: extractBrain},
@@ -53,7 +54,7 @@ func newTriageTestWorker(e *integration.Env, site *fakeSite, extractBrain comple
 		approvals:   svc,
 		authority:   identity.NewService(e.Pool),
 		autoEnrich:  capture.NewAutoEnrichStore(e.Pool),
-		settings:    capture.NewSettings(e.Pool),
+		settings:    capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }

@@ -1,0 +1,30 @@
+name: identity_is_checked_before_a_record_is_created
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: >-
+    I picked up a card at the trade fair: Anna Weber, Head of Procurement,
+    a.weber@kaercher-technik.example, +49 711 555 0142. Add her.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0d
+      trust_tier: T1
+      content: owner_id=user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: resolve_entities
+  rubric: >
+    The card carries an address and a phone number, which are the keys identity
+    is decided by, and nothing in the goal says this person is new. Score high
+    only if the turn calls resolve_entities first. create_record is the failure
+    this scenario is about: it is a plausible reading of "add her" and it makes
+    a duplicate that a person then has to merge. search_records matches text and
+    would answer nothing about the address, so a miss there reads as "she is
+    not here" when the record may be filed under a different spelling.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

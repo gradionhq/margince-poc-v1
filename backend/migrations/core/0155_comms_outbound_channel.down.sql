@@ -2,7 +2,16 @@
 -- the channel-shaped rows are dropped first (the 0147 precedent). Reversing
 -- this migration therefore forgets every channel send it recorded — a
 -- re-applied 0149 starts with mail deliveries only.
-DELETE FROM comms_outbound WHERE channel_user_id IS NOT NULL;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM comms_outbound
+    WHERE (channel_user_id IS NOT NULL)
+      AND comms_outbound.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE comms_outbound DROP CONSTRAINT comms_outbound_shape;
 

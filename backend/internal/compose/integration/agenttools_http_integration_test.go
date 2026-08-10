@@ -8,6 +8,8 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type agentToolWire struct {
@@ -21,11 +23,11 @@ type agentToolListWire struct {
 }
 
 func TestListAgentToolsMirrorsTheGovernedSurface(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var page agentToolListWire
-	status := e.call(t, "GET", "/v1/agent-tools", nil, nil, &page)
+	status := e.Call(t, "GET", "/v1/agent-tools", nil, nil, &page)
 	if status != http.StatusOK {
 		t.Fatalf("GET /agent-tools status = %d, want 200", status)
 	}

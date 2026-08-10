@@ -80,16 +80,40 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	if err != nil {
 		return a, err
 	}
-	// The kind's follow-on effect runs after the decision committed: the
-	// approval IS decided either way; an effect failure surfaces to the
-	// deciding human (the approved-unredeemed row and its audit trail
-	// say exactly how far it got) rather than un-deciding anything.
+	return a, s.runDecisionEffect(ctx, id, a, approve)
+}
+
+// runDecisionEffect runs what a COMMITTED decision releases: a step-up's window
+// widening, or the kind's registered follow-on executor.
+//
+// It is spelled once because two callers release decisions — one approval at a
+// time here, a whole bundle at a time in bundle.go — and a second copy of this
+// branch is how a bundle member would quietly stop executing what a human
+// approved.
+//
+// The decision is already committed when this runs, so a failure never un-decides
+// anything: the approval IS decided either way, and the approved-unredeemed row
+// and its audit trail say exactly how far it got. That is also why the error says
+// "approved, but …" — a human told only "redis is unreachable" would reasonably
+// decide again, and the row would refuse them as already decided.
+func (s *Service) runDecisionEffect(ctx context.Context, id ids.ApprovalID, a row, approve bool) error {
+	// A step-up's effect is not a write into another module, so it does not run
+	// through the effect table — which is closed to agent-minted stagings for
+	// the reason serverProposed states, and a step-up is always agent-minted.
+	// It widens the window the staging named, from that row's own passport
+	// (quotarelease.go).
+	if approve && a.Kind == KindQuotaRelease {
+		if err := s.applyQuotaRelease(ctx, a); err != nil {
+			return fmt.Errorf("approved, but widening the agent's window failed: %w", err)
+		}
+		return nil
+	}
 	if effect, ok := s.effects[a.Kind]; ok && approve && serverProposed(a) {
 		if err := effect(ctx, id, a.ProposedChange, a.DiffHash); err != nil {
-			return a, fmt.Errorf("approved, but executing the %s effect failed: %w", a.Kind, err)
+			return fmt.Errorf("approved, but executing the %s effect failed: %w", a.Kind, err)
 		}
 	}
-	return a, err
+	return nil
 }
 
 // serverProposed reports whether this staging was minted by a SERVER-SIDE
@@ -156,6 +180,19 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),
 	}
 	if edited != nil {
+		// A step-up carries nothing a human should rewrite. Its payload IS the
+		// question they were shown — which counter, which window, how much was
+		// spent — so an edit releases something other than what was asked. The
+		// meter refuses the impossible ones (a hard-stop counter, a window that
+		// has not started), but a read step-up edited into a write release is
+		// neither impossible nor what anyone saw.
+		//
+		// Refused inside the transaction, before the edit lands and before the
+		// status is written: there is no correct edit here, so there is nothing
+		// to salvage and nothing should be recorded as decided.
+		if a.Kind == KindQuotaRelease {
+			return row{}, &InvalidEditError{Cause: errors.New("a step-up is answered yes or no, not edited")}
+		}
 		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, &decidedPayload); err != nil {
 			return row{}, err
 		}

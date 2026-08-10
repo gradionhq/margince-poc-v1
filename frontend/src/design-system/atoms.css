@@ -91,10 +91,15 @@
 
 /* An avatar beside its label on one line — a list cell, a search hit, a node
    row. The label keeps the baseline it had before the mark joined it. */
+/* display:flex, not inline-flex. An inline flex box takes its baseline from its
+ * first item, and a chip showing a logo has no text in it — so its baseline is
+ * its bottom edge, which pushed the label up and grew the row. Out of the inline
+ * formatting context the row centres and every row is the same height. */
 .avatar-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .avatar-lg {
@@ -139,6 +144,11 @@
 .avatar-has-logo {
   background: var(--bgCard);
   position: relative;
+}
+/* Once the mark is on screen it is the whole chip: no tint behind it to tint a
+ * transparent logo, and no monogram left to read through it. */
+.avatar-painted {
+  background: none;
 }
 
 .avatar-img {
@@ -197,6 +207,50 @@
 .modal-wide {
   width: min(720px, calc(100vw - 40px));
 }
+/* The right-anchored drawer: the composer and the evidence receipt. Full
+   height against the right edge so the record behind stays legible as
+   context. The width is a share of the viewport with both ends pinned —
+   below 320px a form field stops being usable, above 460px the drawer starts
+   covering the page it is meant to sit beside. */
+.overlay-right {
+  place-items: stretch end;
+}
+.modal-drawer {
+  width: clamp(320px, 24vw, 460px);
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  box-shadow: var(--shadow-pop);
+  padding: var(--space-5);
+}
+/* On a phone a dialog is a full-screen sheet (plan §10.3). The 40px inset that
+ * frames it on a desktop wastes the only two dimensions a phone is short of,
+ * and the evidence drawer and the composer are both content a rep reads and
+ * types into rather than glances at.
+ *
+ * The close control stays visible because the sheet scrolls INSIDE itself —
+ * the header does not scroll away with the body. */
+@media (max-width: 720px) {
+  .modal,
+  .modal-wide,
+  .modal-drawer {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: var(--space-4);
+  }
+  /* The actions sit at the foot of the sheet rather than after the content,
+     so a long form does not bury its own confirm button. */
+  .modal .actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--bgElevated);
+    padding-top: var(--space-3);
+  }
+}
+
 .modal .actions {
   display: flex;
   justify-content: flex-end;
@@ -467,8 +521,46 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
-select.input {
+/* No `select.input` rule: there is no native dropdown in this product. The
+   Margince select's trigger is a button that reads `.input` for the same field
+   surface and owns its own layout in select.css. */
+
+/* The Checkbox/Radio row: control, then its words, on one line the whole of
+   which is the click target.
+
+   `--space-2` is the gap because the hand-rolled sites this replaces used six
+   different ones (4px, 6px, 8px, 10px, --space-1, --space-3) for the same row —
+   8px is the on-scale middle, and one value is the point.
+
+   The control sits beside the FIRST line of the label, whether the label is one
+   line or five. Two grid rows carry that: row one is a single line tall — never
+   shorter than the control's own box — and the label spans it plus the implicit
+   row that takes the lines after the first, so centring the control in row one
+   centres it on line one. A one-line label leaves row two empty, so that row is
+   the whole label; `align-content` then keeps it centred inside a caller that
+   asks for a taller row (a touch target).
+
+   The gap is `column-gap` alone: a row gap would fall between the label's own
+   two rows and pad the middle of its text. */
+.checkfield {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: minmax(1lh, auto);
+  justify-content: start;
+  align-items: center;
+  align-content: center;
+  column-gap: var(--space-2);
   cursor: pointer;
+}
+.checkfield > input {
+  grid-row: 1;
+}
+.checkfield > span {
+  grid-row: 1 / span 2;
+}
+/* A disabled control is not actionable, so its row does not invite the click. */
+.checkfield:has(input:disabled) {
+  cursor: not-allowed;
 }
 
 .input-icon {
@@ -488,15 +580,27 @@ select.input {
   padding-left: 30px;
 }
 
+/* A textarea is the same field as .input, only taller: the two sit next to each
+   other in the same form, so type size, padding and focus transition are the
+   SAME values, not near ones. Only `resize` differs — that is what makes it a
+   textarea.
+
+   `width: 100%` is part of the atom rather than each caller's job. Without it a
+   textarea falls back to its intrinsic `cols`, which is narrower than the column
+   it sits in — so every caller that noticed re-added the width locally, and the
+   three that did not (the ask panel, the onboarding company form, the activity
+   logger) rendered a short box in a wide field. */
 .textarea {
   font-family: var(--f-body);
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  padding: 8px 11px;
+  padding: 9px 11px;
+  width: 100%;
   outline: none;
+  transition: 0.15s;
   resize: vertical;
 }
 .textarea:focus {
@@ -693,6 +797,19 @@ select.input {
 .stat-card-label,
 .stat-card-detail {
   color: var(--textMuted);
+}
+
+/* The label owns the row, and the source badge sits at its far end — beside
+ * the name of the reading rather than under the figure, so it qualifies the
+ * label without competing with the number. */
+.stat-card-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.stat-card-source {
+  flex-shrink: 0;
 }
 
 .stat-card-value {

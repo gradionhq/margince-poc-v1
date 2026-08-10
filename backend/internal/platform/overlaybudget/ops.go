@@ -14,6 +14,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// keyPrefix is the namespace every budget counter shares. Named because the
+// reset's purge scans for it (purge.go) and a writer that spelled it
+// differently would leave counters no purge can find.
+const keyPrefix = "ovb:"
+
 // Redis key layout, keyed per workspace + incumbent + window so one
 // connection's counters never dent another's (OVB-AC-3). The time bucket
 // makes each key a FIXED window with expiry — the per-second search window
@@ -23,15 +28,15 @@ import (
 // UTC midnight). The bucket comes from the injected clock, never redis
 // TIME, so window rollover is deterministic under test (T11).
 func searchKey(ws ids.UUID, incumbent string, second int64) string {
-	return fmt.Sprintf("ovb:%s:%s:search:%d", ws.String(), incumbent, second)
+	return fmt.Sprintf(keyPrefix+"%s:%s:search:%d", ws.String(), incumbent, second)
 }
 
 func restTotalKey(ws ids.UUID, incumbent string, day int64) string {
-	return fmt.Sprintf("ovb:%s:%s:rest:%d", ws.String(), incumbent, day)
+	return fmt.Sprintf(keyPrefix+"%s:%s:rest:%d", ws.String(), incumbent, day)
 }
 
 func restSourceKey(ws ids.UUID, incumbent string, day int64, src Source) string {
-	return fmt.Sprintf("ovb:%s:%s:rest:%d:src:%s", ws.String(), incumbent, day, src)
+	return fmt.Sprintf(keyPrefix+"%s:%s:rest:%d:src:%s", ws.String(), incumbent, day, src)
 }
 
 // reserveRestScript is the force-fresh REST gate: it declines (return 0,

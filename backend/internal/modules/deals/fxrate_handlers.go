@@ -43,11 +43,21 @@ func (h Handlers) ListFxRates(w http.ResponseWriter, r *http.Request, params crm
 		writeStoreErr(w, r, err)
 		return
 	}
+	// The base currency comes from the workspace, not from row zero: a
+	// workspace that has entered no rates still has a base, and inferring it
+	// from the first row leaves that case with nothing to show (AAD-AC-N-1).
+	base, err := h.store.BaseCurrency(r.Context())
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
 	out := make([]crmcontracts.FxRate, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, toContractFxRate(row))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.FxRateListResponse{Data: out})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.FxRateListResponse{
+		Data: out, BaseCurrency: &base,
+	})
 }
 
 // SetFxRate appends (or same-day corrects) one effective-dated FX rate.

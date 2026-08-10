@@ -27,6 +27,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -49,9 +50,10 @@ type reconcileEnv struct {
 var reconcilePerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"activity": {Create: true, Read: true},
-		"deal":     {Read: true, Update: true},
-		"pipeline": {Read: true},
+		"activity":              {Create: true, Read: true},
+		"deal":                  {Read: true, Update: true},
+		"pipeline":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
@@ -293,6 +295,48 @@ func TestFollowUpConfirmCreatesTheTaskExactlyOnce(t *testing.T) {
 	}
 	if again, _, _, _ := e.dealTasks(t, deal); again != 1 {
 		t.Errorf("tasks after a replayed decision = %d, want still 1", again)
+	}
+}
+
+// An overnight proposal waits until somebody works their morning inbox, and
+// that is exactly the window a rep moves the stage, edits the amount or
+// corrects the close date in. None of those can make "this deal was touched and
+// has no next step" false, and the effect creates an ACTIVITY — it reads no
+// field of the deal at all.
+//
+// The stager has always said it carries no pin. That stopped being true when
+// the pin moved server-side, and nothing failed until a human approved after an
+// edit: the decision commits first, so the refusal arrives as an approved
+// proposal whose task was never created.
+func TestADealEditDoesNotCancelAWaitingFollowUp(t *testing.T) {
+	e := setupReconcile(t)
+	deal := e.SeedDeal(t, "Edited while the question waited", e.pipeline, e.open, &e.Rep1)
+	e.seedInteraction(t, deal, "call", "Discovery", 1)
+	if err := e.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	approvalID, _ := e.followUpApproval(t, deal)
+
+	human := e.As(e.Rep1, []ids.UUID{e.Team1}, reconcilePerms)
+	before := e.dealVersion(t, deal)
+	// Through the real writer, so the row's version moves the way any edit in
+	// the product moves it.
+	renamed := "Renamed while it waited"
+	if _, err := deals.NewStore(e.Pool, identity.BaseCurrencyOf).UpdateDeal(human, ids.From[ids.DealKind](deal),
+		deals.UpdateDealInput{Name: &renamed}); err != nil {
+		t.Fatalf("editing the deal: %v", err)
+	}
+	if after := e.dealVersion(t, deal); after == before {
+		t.Fatalf("the deal's version did not move (still %d), so this test would pass whether or "+
+			"not the pin is declined", after)
+	}
+
+	if _, err := e.svc.Decide(human, approvalID, true, nil); err != nil {
+		t.Fatalf("approve after the edit: %v — a deal edit must not cancel a waiting follow-up", err)
+	}
+	if count, _, _, _ := e.dealTasks(t, deal); count != 1 {
+		t.Errorf("follow-up tasks created = %d, want 1 — the approval was released but its effect "+
+			"did not run", count)
 	}
 }
 

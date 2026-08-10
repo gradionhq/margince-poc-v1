@@ -149,7 +149,7 @@ func (s *Store) QuotaAttainment(ctx context.Context, id ids.UUID) (Attainment, e
 		if q.TargetMinor == 0 {
 			return ErrAttainmentTargetZero
 		}
-		if targetBase, base, err = targetInBase(ctx, tx, q, asOf); err != nil {
+		if targetBase, base, err = s.targetInBase(ctx, tx, q, asOf); err != nil {
 			return err
 		}
 		owners, err := measuredOwners(ctx, tx, q)
@@ -182,7 +182,7 @@ func (s *Store) QuotaAttainment(ctx context.Context, id ids.UUID) (Attainment, e
 	}, nil
 }
 
-// targetInBase converts the human-set target into the workspace base
+// targetInBase converts the human-set target into the installation's base
 // currency. The conversion runs in SQL: round() over numeric is the
 // exact half-away-from-zero arithmetic deal.amount_minor_base's own
 // GENERATED expression uses (0065), so target and closed-won round by
@@ -190,18 +190,17 @@ func (s *Store) QuotaAttainment(ctx context.Context, id ids.UUID) (Attainment, e
 // the house fx_rate read (deals.freezeFx, the rollup's fxConverter):
 // latest stored rate on or before the UTC as-of day, and a missing rate
 // refuses loudly — the system never invents a rate.
-func targetInBase(ctx context.Context, tx pgx.Tx, q crmcontracts.Quota, asOf time.Time) (int64, string, error) {
-	var base string
-	if err := tx.QueryRow(ctx,
-		`SELECT base_currency FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
-		return 0, "", fmt.Errorf("load workspace base currency: %w", err)
+func (s *Store) targetInBase(ctx context.Context, tx pgx.Tx, q crmcontracts.Quota, asOf time.Time) (int64, string, error) {
+	base, err := s.baseCurrency(ctx, tx)
+	if err != nil {
+		return 0, "", fmt.Errorf("load the installation's base currency: %w", err)
 	}
 	if q.Currency == base {
 		return q.TargetMinor, base, nil
 	}
 	asOfDay := asOf.Format(time.DateOnly)
 	var converted int64
-	err := tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT round($1::numeric * rate)::bigint FROM fx_rate
 		 WHERE from_currency = $2 AND to_currency = $3 AND rate_date <= $4::date
 		 ORDER BY rate_date DESC LIMIT 1`,

@@ -14,6 +14,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -89,37 +90,37 @@ func (s stubEmbedder) Embed(context.Context, model.EmbedRequest) (model.Embeddin
 func (s stubEmbedder) EmbedIdentity() (string, int) { return s.identity, s.dims }
 
 func TestEmbeddingUpsertReusesUnchangedText(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedder(t, fake)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Vector Person', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Vector Person', 'manual', 'human:x')`)
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
 	if err != nil || !fresh {
 		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
 	}
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
+	fresh, err = e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
 	if err != nil || fresh {
 		t.Fatalf("unchanged text recomputed: fresh=%v err=%v", fresh, err)
 	}
 	if calls := len(fake.Calls()); calls != 1 {
 		t.Fatalf("embedder called %d times for unchanged text, want 1", calls)
 	}
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person renamed", embedder)
+	fresh, err = e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person renamed", embedder)
 	if err != nil || !fresh {
 		t.Fatalf("changed text not re-embedded: fresh=%v err=%v", fresh, err)
 	}
 }
 
 func TestSimilarityRankingAndRowScope(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedder(t, fake)
 
-	shared := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Anke Schulz', 'manual', 'human:x')`)
-	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Bernd Kruse', $3, 'manual', 'human:x')`, e.Rep3)
+	shared := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Anke Schulz', 'manual', 'human:x')`)
+	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Bernd Kruse', $3, 'manual', 'human:x')`, e.Rep3)
 	for id, text := range map[ids.UUID]string{shared: "Anke Schulz", foreign: "Bernd Kruse"} {
-		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
+		if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -134,7 +135,7 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity, _ := embedder.EmbedIdentity()
-	hits, err := e.store.SimilarEntities(e.Admin(), queryVec.Vectors[0], identity, 10)
+	hits, err := e.Store.SimilarEntities(e.Admin(), queryVec.Vectors[0], identity, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 	}
 
 	// rep1 (team1) cannot see rep3's row through the vector lane either.
-	hits, err = e.store.SimilarEntities(e.asTeamRep(e.Rep1, e.Team1), queryVec.Vectors[0], identity, 10)
+	hits, err = e.Store.SimilarEntities(e.AsTeamRep(e.Rep1, e.Team1), queryVec.Vectors[0], identity, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,13 +156,13 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 }
 
 func TestHybridRRFAgreementWins(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedder(t, fake)
 
-	agree := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Grid', 'manual', 'human:x')`)
-	lexOnly := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Panels', 'manual', 'human:x')`)
-	vecOnly := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Photovoltaik Cluster', 'manual', 'human:x')`)
+	agree := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Grid', 'manual', 'human:x')`)
+	lexOnly := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Panels', 'manual', 'human:x')`)
+	vecOnly := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Photovoltaik Cluster', 'manual', 'human:x')`)
 
 	// Embeddings: the agreeing row and the vector-only row both embed
 	// the QUERY text (identical vector); the lexical-only row embeds
@@ -171,14 +172,17 @@ func TestHybridRRFAgreementWins(t *testing.T) {
 		vecOnly: "solar grid",
 		lexOnly: "completely different topic",
 	} {
-		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
+		if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	hits, err := e.store.HybridSearch(e.Admin(), "solar grid", embedder, 10)
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "solar grid", embedder, 10)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !semantic {
+		t.Fatal("a bound embed lane that answered must report its ranking as semantic")
 	}
 	if len(hits) < 3 {
 		t.Fatalf("expected all three lanes' rows fused, got %+v", hits)
@@ -196,11 +200,11 @@ func TestHybridRRFAgreementWins(t *testing.T) {
 }
 
 func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
-	gen := search.NewEmbedGen(e.store, fakeEmbedder(t, fake))
+	gen := search.NewEmbedGen(e.Store, fakeEmbedder(t, fake))
 
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Event Driven', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Event Driven', 'manual', 'human:x')`)
 	env := kevents.Envelope{
 		EventID:     ids.NewV7(),
 		Type:        "person.created",
@@ -236,10 +240,10 @@ func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 // assertion surface for "which binding actually produced this row" the
 // tests below need. Every current caller checks a person row; narrow to
 // that instead of carrying an entityType parameter no test varies.
-func (e *searchEnv) storedEmbeddingModel(t *testing.T, entityID ids.UUID) string {
+func (e *SearchEnv) storedEmbeddingModel(t *testing.T, entityID ids.UUID) string {
 	t.Helper()
 	var model string
-	err := e.owner.QueryRow(context.Background(),
+	err := e.Owner.QueryRow(context.Background(),
 		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
 		e.WS, entityID).Scan(&model)
 	if err != nil {
@@ -254,13 +258,13 @@ func (e *searchEnv) storedEmbeddingModel(t *testing.T, entityID ids.UUID) string
 // on hash-only would leave every existing row stamped with a model that
 // no longer serves the workspace, indistinguishable from a live one.
 func TestUpsertReembedsOnIdentityChange(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
 	embedderA := fakeEmbedderNamed(t, fake, "model-a")
 	embedderB := fakeEmbedderNamed(t, fake, "model-b")
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Identity Person', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Identity Person', 'manual', 'human:x')`)
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderA)
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderA)
 	if err != nil || !fresh {
 		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
 	}
@@ -269,7 +273,7 @@ func TestUpsertReembedsOnIdentityChange(t *testing.T) {
 		t.Fatalf("stored model = %q, want %q", gotModel, wantIdentityA)
 	}
 
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderB)
+	fresh, err = e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderB)
 	if err != nil || !fresh {
 		t.Fatalf("identity change did not re-embed unchanged text: fresh=%v err=%v", fresh, err)
 	}
@@ -287,16 +291,16 @@ func TestUpsertReembedsOnIdentityChange(t *testing.T) {
 // counterpart to the re-embed test above, so a same-binding no-op stays
 // free even after this task adds the identity comparison.
 func TestUpsertSkipsUnchangedUnderSameIdentity(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-c")
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stable Person', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stable Person', 'manual', 'human:x')`)
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
 	if err != nil || !fresh {
 		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
 	}
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
+	fresh, err = e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
 	if err != nil || fresh {
 		t.Fatalf("unchanged text+identity recomputed: fresh=%v err=%v", fresh, err)
 	}
@@ -310,8 +314,8 @@ func TestUpsertSkipsUnchangedUnderSameIdentity(t *testing.T) {
 // EmbedIdentity dims — fails loudly instead of writing an unrankable
 // vector into a column other rows expect at a fixed width.
 func TestUpsertRejectsWidthMismatch(t *testing.T) {
-	e := setupSearch(t)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Width Mismatch', 'manual', 'human:x')`)
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Width Mismatch', 'manual', 'human:x')`)
 	// dims (999) deliberately differs from resDims (1024): the declared
 	// identity and the actual response disagree, which the width guard
 	// must catch by comparing against the IDENTITY's width, not a fixed
@@ -321,7 +325,7 @@ func TestUpsertRejectsWidthMismatch(t *testing.T) {
 		vectors: [][]float32{make([]float32, 1024)}, resDims: 1024,
 	}
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Width Mismatch Text", stub)
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Width Mismatch Text", stub)
 	if err == nil {
 		t.Fatal("width mismatch must be a hard error")
 	}
@@ -335,8 +339,8 @@ func TestUpsertRejectsWidthMismatch(t *testing.T) {
 // sorts FIRST, silently outranking every real match — is rejected before
 // it ever reaches storage.
 func TestUpsertRejectsZeroVector(t *testing.T) {
-	e := setupSearch(t)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Zero Vector', 'manual', 'human:x')`)
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Zero Vector', 'manual', 'human:x')`)
 	// Width matches (1024/1024) so only the zero-vector guard can be what
 	// rejects this — a decoy width mismatch would leave the test proving
 	// the wrong guard fired.
@@ -345,7 +349,7 @@ func TestUpsertRejectsZeroVector(t *testing.T) {
 		vectors: [][]float32{make([]float32, 1024)}, resDims: 1024,
 	}
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Zero Vector Text", stub)
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Zero Vector Text", stub)
 	if err == nil {
 		t.Fatal("an all-zero vector must be a hard error")
 	}
@@ -364,23 +368,23 @@ func TestUpsertRejectsZeroVector(t *testing.T) {
 // the predicate were ever removed — must itself error with a dimension
 // mismatch, proving the filter is load-bearing, not decoration.
 func TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 
-	threeDim := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Three Dim Person', 'manual', 'human:x')`)
-	twoDim := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Two Dim Person', 'manual', 'human:x')`)
+	threeDim := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Three Dim Person', 'manual', 'human:x')`)
+	twoDim := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Two Dim Person', 'manual', 'human:x')`)
 
 	// Seed the unbounded embedding column directly at two different
 	// widths under two different identities — the mixed-width store
 	// Task 6's migration made possible, and Task 7's read-side filter
 	// must survive.
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'hash-three', 'm@3', '[1,2,3]'::vector)`,
 		e.WS, threeDim); err != nil {
 		t.Fatalf("seeding the 3-dim row: %v", err)
 	}
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'hash-two', 'm@2', '[1,2]'::vector)`,
 		e.WS, twoDim); err != nil {
@@ -389,7 +393,7 @@ func TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash(t *testing.T) {
 
 	// (a) Filtered to "m@3": returns only the m@3 hit and does not crash
 	// against the differently-sized m@2 sibling sharing the same column.
-	hits, err := e.store.SimilarEntities(e.Admin(), []float32{1, 2, 3}, "m@3", 10)
+	hits, err := e.Store.SimilarEntities(e.Admin(), []float32{1, 2, 3}, "m@3", 10)
 	if err != nil {
 		t.Fatalf("SimilarEntities must not cross-dim crash when identity-filtered: %v", err)
 	}
@@ -446,10 +450,10 @@ func (embedIdentityNeverCalled) EmbedIdentity() (string, int) { return "", 0 }
 // EVERY embedding write and keep search.EmbedGen.HandleEvent from ever
 // acking (platform/events' at-least-once bus then redelivers forever).
 func TestUpsertEmbeddingNoOpsAndWritesNoRowOnUnboundLane(t *testing.T) {
-	e := setupSearch(t)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unbound Person', 'manual', 'human:x')`)
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unbound Person', 'manual', 'human:x')`)
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Unbound Person", embedIdentityNeverCalled{})
+	fresh, err := e.Store.UpsertEmbedding(e.Admin(), "person", personID, "Unbound Person", embedIdentityNeverCalled{})
 	if err != nil {
 		t.Fatalf("unbound lane must not error, got %v", err)
 	}
@@ -458,7 +462,7 @@ func TestUpsertEmbeddingNoOpsAndWritesNoRowOnUnboundLane(t *testing.T) {
 	}
 
 	var count int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2`,
 		e.WS, personID).Scan(&count); err != nil {
 		t.Fatalf("counting embedding rows: %v", err)
@@ -474,12 +478,16 @@ func TestUpsertEmbeddingNoOpsAndWritesNoRowOnUnboundLane(t *testing.T) {
 // gets — rather than calling Embed/SimilarEntities against a lane with
 // no live width or model.
 func TestHybridSearchDegradesToLexicalOnUnboundLane(t *testing.T) {
-	e := setupSearch(t)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lexical Only Grid', 'manual', 'human:x')`)
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lexical Only Grid', 'manual', 'human:x')`)
 
-	hits, err := e.store.HybridSearch(e.Admin(), "Lexical Only Grid", embedIdentityNeverCalled{}, 10)
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "Lexical Only Grid", embedIdentityNeverCalled{}, 10)
 	if err != nil {
 		t.Fatalf("unbound lane must not error, got %v", err)
+	}
+	if semantic {
+		t.Fatal("an unbound embed lane must report its ranking as NOT semantic; a caller that " +
+			"publishes it as semantic would describe a word-overlap page as a meaning-ranked one")
 	}
 	found := false
 	for _, h := range hits {
@@ -489,5 +497,51 @@ func TestHybridSearchDegradesToLexicalOnUnboundLane(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("lexical lane must still find the seeded row on an unbound embed lane, got %+v", hits)
+	}
+}
+
+// embedCallFails is a BOUND embed lane — a real identity and width — whose
+// every call fails, which is what an unreachable or rate-limited provider
+// looks like from the query side. It is a different shape from
+// embedIdentityNeverCalled on purpose: that one is a lane that was never
+// configured, this one is a lane that exists and is down, and only the second
+// can happen to a deployment that was working a minute ago.
+type embedCallFails struct{}
+
+func (embedCallFails) Embed(context.Context, model.EmbedRequest) (model.Embeddings, error) {
+	return model.Embeddings{}, errors.New("embed provider unreachable")
+}
+
+func (embedCallFails) EmbedIdentity() (string, int) { return "fake/embed@8", 8 }
+
+// TestHybridSearchDegradesToLexicalWhenTheEmbedCallFails pins the posture the
+// request-path embed binding needs: a provider fault must not turn a ranked
+// question into a failed one.
+//
+// Before the embed lane was bound to a request path this could only happen to
+// a background job, where an error is the right answer — the job retries. On a
+// request it is not: the same deployment answered this question lexically
+// yesterday, and a 5xx is strictly worse than a lexical page that says it is
+// lexical. So the hits still come back and `semantic` is false, exactly as for
+// a lane that was never bound, because both are one fact to the caller.
+func TestHybridSearchDegradesToLexicalWhenTheEmbedCallFails(t *testing.T) {
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Provider Down Grid', 'manual', 'human:x')`)
+
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "Provider Down Grid", embedCallFails{}, 10)
+	if err != nil {
+		t.Fatalf("a failed embed call must degrade rather than fail the search, got %v", err)
+	}
+	if semantic {
+		t.Fatal("a failed embed call must report its ranking as NOT semantic")
+	}
+	found := false
+	for _, h := range hits {
+		if h.ID == personID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the lexical lane must still answer when the embed call failed, got %+v", hits)
 	}
 }

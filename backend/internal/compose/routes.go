@@ -14,6 +14,7 @@ package compose
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 
@@ -21,11 +22,13 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -35,8 +38,26 @@ import (
 // admission layer, idempotency, and the overlay-mode write guard wrapped
 // around it (outermost last — see the wrap-order note inline).
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
-	gate := auth.NewGate(identitySvc)
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send)
+	// The SAME meter the tool registry charges: this door refuses on the bound
+	// the other door pays into, so a Passport cannot spend its window on one
+	// and keep reading on the other.
+	gate := auth.NewGate(identitySvc, auth.WithQuota(srv.quotaMeter))
+	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
+	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
+	// spec's cap and tier, and the ZERO value supplies those. Deliberately not
+	// the address of this by-value parameter: that would be a second reference
+	// to a pre-option copy, the exact shape the wrap-order note below warns
+	// about, and it would read as if something ran through it. The MCP
+	// transport invokes tools through srv.toolRegistry, which holds the live
+	// server.
+	//
+	// It DOES carry the quota charger, even though it invokes nothing: the two
+	// charge points agentGate calls (ChargeAdmittedCall, ChargeEffect) hang off
+	// this registry, so a registry built without one would refuse REST calls on
+	// a counter it then never paid — the exact half-a-control this change exists
+	// to remove.
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
+		companyEnricher{}, srv.retrievalEmbedder, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
@@ -51,7 +72,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
-			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
+			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, gate),
 			idempotency(pool, replayProbes(staging.svc)),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
@@ -92,18 +113,21 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// /v1 served the configured one — silently, since both compile.
 	authH := srv.authHandlers
 	// The session middleware (authH.Middleware) fronts BOTH /v1 and the
-	// /oauth/ authorization server; the health probes, metrics, discovery
-	// documents, and the provider push webhooks are unauthenticated by
-	// design (each webhook verifies itself).
+	// /oauth/ authorization server; the health probes and discovery
+	// documents are unauthenticated by design, and the provider push
+	// webhooks verify themselves. /metrics is different: it discloses
+	// per-workspace job telemetry (which connectors and GDPR engines this
+	// installation runs, queue depth, connection counts), so it is gated
+	// behind requireMetricsToken rather than left open beside them.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
-	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
+	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
-		srv.writeAIMetrics,
+		srv.writeMetricsSections,
 		jobMetricsSection(func(ctx context.Context) (jobs.Snapshot, error) { return jobs.Stats(ctx, pool) }),
-		overlayMetricsSection(srv, pool)))
+		overlayMetricsSection(srv, pool))))
 	// The anonymous public edges sit between the session middleware (which
 	// lets /v1/public/ through without session or workspace) and the
 	// router: each resolves its own token/slug → tenant, throttles, and
@@ -135,7 +159,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// gate signal: with the connector off none of these routes is
 	// registered, so the mux's own 404 answers all of them identically and
 	// nothing tells a prober which gate is closed.
-	if mcp := srv.mcpHandler(identitySvc, log); mcp != nil {
+	if mcp := srv.mcpHandler(pool, identitySvc, log); mcp != nil {
 		// ONE set of limiters for the whole group: the transport and the
 		// authorization server are two halves of one internet-facing surface,
 		// and a second construction would give each its own private ceilings.
@@ -170,5 +194,43 @@ func mountProviderPushWebhooks(mux *http.ServeMux, srv Server, log *slog.Logger)
 	}
 	if srv.overlayWebhook != nil {
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
+	}
+}
+
+// requireMetricsToken gates the metrics exposition behind a deployment-
+// configured shared secret. An empty token means the operator never opted
+// in: the route answers the mux's own 404 rather than 401, so an anonymous
+// probe learns nothing (no route there) instead of learning that a
+// protected one exists. A configured token is checked as a bearer
+// credential in constant time, the same comparison the connector-state CSRF
+// nonce uses (connectors_csrf.go), so a scrape's authorization header
+// cannot be timed byte-by-byte against the configured value. The credential
+// is read through httpserver.BearerToken — the one reading of an
+// Authorization header this process uses everywhere else — rather than a
+// second parse that could drift from it and accept or refuse a scheme
+// spelling the rest of the surface disagrees on.
+func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			http.NotFound(w, r)
+			return
+		}
+		presented := httpserver.BearerToken(r.Header.Get("Authorization"))
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			httperr.Unauthorized(w, r, "invalid or missing metrics token")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// WithMetricsToken sets the shared secret /metrics requires. Called
+// unconditionally at boot (an empty string is the safe default: the
+// endpoint stays off, matching the worker role's own --observe-addr
+// posture of "no listener at all" until an operator asks for one).
+func WithMetricsToken(token string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.metricsToken = token
 	}
 }

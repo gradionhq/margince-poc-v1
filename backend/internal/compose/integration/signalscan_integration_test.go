@@ -57,7 +57,7 @@ func ghostedPass(t *testing.T, e *Env, now time.Time) compose.GhostedPass {
 func mailViaEmployee(t *testing.T, e *Env, org ids.UUID, subject, direction string, at time.Time) {
 	t.Helper()
 	owner := OwnerConn(t)
-	id := accountMailDirectedAt(t, owner, e.WS, subject, direction, at)
+	id := AccountMailDirectedAt(t, owner, e.WS, subject, direction, at)
 	LinkActivity(t, owner, e.WS, id, "person", employeeOf(t, e, org, subject+" contact"))
 }
 

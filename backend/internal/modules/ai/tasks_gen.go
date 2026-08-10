@@ -23,6 +23,8 @@ const (
 	// TaskDraftReply is One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site.
 	TaskDraftReply Task = "draft_reply"
 	TaskEnrich     Task = "enrich"
+	// TaskGrowthFit is How well one company fits what we sell. The only site on the company view that must read OUR offering as well as theirs — a fit is a claim about two companies, and judging one against a guess about the other is what the DOSS-AC-13 band cap exists to stop. Our own context is never citable: evidence is target-side only, so a factor drawn from what we sell is labelled an assessment and still cites their records, or the grounding filter drops it (DOSS-AC-6). The band the model proposes is not the band served — the deterministic completeness gate can lower it to `unknown` or cap it at `moderate`, and never raises it.
+	TaskGrowthFit Task = "growth_fit"
 	// TaskNlSearch is Declared, not built (ADR-0074).
 	TaskNlSearch   Task = "nl_search"
 	TaskOfferDraft Task = "offer_draft"
@@ -36,7 +38,7 @@ const (
 	TaskSiteFactExtract Task = "site_fact_extract"
 	// TaskSiteTriage is what a mail domain's own site says it IS, before any organization is created from it: a company, one person's site, or a mailbox vendor selling addresses to the public. Runs on the SEED PAGE ALONE and leads with a fast tier because its whole job is to stop the crawl early — a personal page answered here costs one page instead of twelve. The provider class is the live.fr trap: that site belongs to a real company (Microsoft's) which is emphatically not the sender's employer.
 	TaskSiteTriage Task = "site_triage"
-	// TaskSummarize is Two sites on the company view, both grounded prose over what the VIEWER can already see, assembled per viewer because visibility is per viewer. org_brief — the standing account brief: what this account is, where it stands, what changed. org_ask — the prepared questions behind Ask Margince: the question is chosen from a fixed list rather than typed, because each one names the records its answer must be written from, which is what lets every sentence cite a record the reader could open themselves.
+	// TaskSummarize is Three sites on the company view, all grounded prose over what the VIEWER can already see, assembled per viewer because visibility is per viewer. org_brief — the standing account brief: what this account is, where it stands, what changed. org_ask — the prepared questions behind Ask Margince: the question is chosen from a fixed list rather than typed, because each one names the records its answer must be written from, which is what lets every sentence cite a record the reader could open themselves. org_dossier — what the COMPANY is, from its own recorded facts: deliberately not the account composite, because a dossier that could see the pipeline would describe the pipeline and the separation from the brief would collapse on the first prompt revision.
 	TaskSummarize Task = "summarize"
 	// TaskTranscript is Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands.
 	TaskTranscript Task = "transcript"
@@ -68,7 +70,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "2b16b8b80804ab54e0fd2586210eb87523396924ac613adbc19dacc1d6479de3"
+const TaskContractHash = "5f568984678f428dedf2a7c0338bcd9b18e18906d7c7145b7b58abe9964fbefb"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -84,6 +86,7 @@ func AllTasks() []Task {
 		TaskDealHealth,
 		TaskDraftReply,
 		TaskEnrich,
+		TaskGrowthFit,
 		TaskNlSearch,
 		TaskOfferDraft,
 		TaskRateExtract,
@@ -109,6 +112,7 @@ var taskLadders = map[Task][]Tier{
 	TaskDealHealth:                 {TierCheapCloud, TierPremium},
 	TaskDraftReply:                 {TierCheapCloud, TierPremium},
 	TaskEnrich:                     {TierLocalSmall, TierCheapCloud},
+	TaskGrowthFit:                  {TierCheapCloud, TierPremium},
 	TaskNlSearch:                   {TierCheapCloud, TierPremium},
 	TaskOfferDraft:                 {TierCheapCloud, TierPremium},
 	TaskRateExtract:                {TierPremium, TierCheapCloud},
@@ -142,6 +146,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskDealHealth:                 ExecutionModeInteractive,
 	TaskDraftReply:                 ExecutionModeInteractive,
 	TaskEnrich:                     ExecutionModeBackground,
+	TaskGrowthFit:                  ExecutionModeInteractive,
 	TaskNlSearch:                   ExecutionModeInteractive,
 	TaskOfferDraft:                 ExecutionModeInteractive,
 	TaskRateExtract:                ExecutionModeBackground,
@@ -182,6 +187,7 @@ var taskStatus = map[Task]string{
 	TaskDealHealth:                 "planned",
 	TaskDraftReply:                 "shipped",
 	TaskEnrich:                     "shipped",
+	TaskGrowthFit:                  "shipped",
 	TaskNlSearch:                   "planned",
 	TaskOfferDraft:                 "shipped",
 	TaskRateExtract:                "shipped",
@@ -241,6 +247,9 @@ var taskSites = map[Task][]Site{
 	TaskEnrich: {
 		{Name: "signature", Kind: "one_shot"},
 	},
+	TaskGrowthFit: {
+		{Name: "growth_fit", Kind: "one_shot"},
+	},
 	TaskOfferDraft: {
 		{Name: "draft", Kind: "one_shot"},
 	},
@@ -263,6 +272,7 @@ var taskSites = map[Task][]Site{
 	TaskSummarize: {
 		{Name: "org_brief", Kind: "one_shot"},
 		{Name: "org_ask", Kind: "one_shot"},
+		{Name: "org_dossier", Kind: "one_shot"},
 	},
 	TaskVoiceBuild: {
 		{Name: "derive", Kind: "one_shot"},
@@ -306,6 +316,7 @@ var taskCompanyContext = map[Task]CompanyContextPolicy{
 	TaskDealHealth:                 {TokenBudget: 0, Conditional: false},
 	TaskDraftReply:                 {Scopes: []string{"positioning", "sales", "proof", "market"}, TokenBudget: 1400, Conditional: false},
 	TaskEnrich:                     {TokenBudget: 0, Conditional: false},
+	TaskGrowthFit:                  {Scopes: []string{"offer", "positioning", "proof"}, TokenBudget: 1200, Conditional: false},
 	TaskNlSearch:                   {Scopes: []string{"offer", "market"}, TokenBudget: 600, Conditional: false},
 	TaskOfferDraft:                 {Scopes: []string{"offer", "positioning", "proof"}, TokenBudget: 1600, Conditional: false},
 	TaskRateExtract:                {TokenBudget: 0, Conditional: false},

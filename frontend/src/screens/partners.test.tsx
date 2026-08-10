@@ -5,10 +5,12 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { PartnersScreen, PartnerTab } from "./partners";
 
@@ -73,6 +75,7 @@ const partner = {
 
 describe("PartnerTab — not yet a partner", () => {
   it("shows the setup form and PUTs the chosen role with no If-Match", async () => {
+    const user = userEvent.setup();
     let putBody: unknown = null;
     let putHeader: string | null = null;
     stubFetch(async (url, method, request) => {
@@ -92,11 +95,12 @@ describe("PartnerTab — not yet a partner", () => {
     await waitFor(() =>
       expect(screen.getByText("Not a partner yet")).toBeTruthy(),
     );
-    await userEvent.selectOptions(
+    await pickOption(
+      user,
       screen.getByLabelText("Partner role *"),
-      "consulting",
+      "Consulting",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(putBody).toBeTruthy());
     expect(putBody).toMatchObject({ partner_role: "consulting" });
@@ -138,6 +142,27 @@ describe("PartnerTab — existing partner", () => {
   });
 });
 
+// The columns picker also offers a "Partner role"/"Certification status"
+// checkbox (one per column, sharing the column header text), so a plain name
+// match is ambiguous — each click is scoped to the filter menu, which names
+// the step it is on: "Filter" while listing attributes, the attribute once one
+// is picked.
+async function openFilterMenu(): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  return screen.getByRole("group", { name: "Filter" });
+}
+
+async function pickFilter(attribute: string, value: string) {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const step = (name: string) => screen.getByRole("group", { name });
+  await userEvent.click(
+    within(step("Filter")).getByRole("button", { name: attribute }),
+  );
+  await userEvent.click(
+    within(step(attribute)).getByRole("button", { name: value }),
+  );
+}
+
 describe("PartnersScreen", () => {
   it("lists partners and sends the role filter", async () => {
     const { urls } = stubFetch(async () =>
@@ -151,10 +176,7 @@ describe("PartnersScreen", () => {
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
     expect(screen.getByText("Active")).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText("Partner role"),
-      "hosting",
-    );
+    await pickFilter("Partner role", "Hosting");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("partner_role=hosting"))).toBe(
@@ -174,10 +196,15 @@ describe("PartnersScreen", () => {
 
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
 
-    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByPlaceholderText("Search")).toBeNull();
     expect(screen.queryByLabelText("Show archived")).toBeNull();
-    expect(screen.getByLabelText("Partner role")).toBeTruthy();
-    expect(screen.getByLabelText("Certification status")).toBeTruthy();
+    const menu = await openFilterMenu();
+    expect(
+      within(menu).getByRole("button", { name: "Partner role" }),
+    ).toBeTruthy();
+    expect(
+      within(menu).getByRole("button", { name: "Certification status" }),
+    ).toBeTruthy();
   });
 
   it("navigates to the org's 360 on row click", async () => {

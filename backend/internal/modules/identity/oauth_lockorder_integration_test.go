@@ -120,7 +120,7 @@ func TestARevokeRacingARotationNeverDeadlocksOrLeavesACredentialLive(t *testing.
 		go func() {
 			defer wg.Done()
 			revokeErr = database.WithWorkspaceTx(revokeCtx, e.svc.pool, func(tx pgx.Tx) error {
-				return e.svc.revokeGrantTx(revokeCtx, tx, fixture.grantID, "the human ended the connection")
+				return revokeGrantTx(revokeCtx, tx, fixture.grantID, "the human ended the connection")
 			})
 		}()
 		wg.Wait()

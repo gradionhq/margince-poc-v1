@@ -2,11 +2,13 @@ import {
   createContext,
   type ReactNode,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 import { de } from "./de";
 import { en, type MessageKey } from "./en";
+import { vi } from "./vi";
 
 // Locale is a presentation concern only (architecture/10 §3): it resolves at
 // the render edge and never participates in storage or math. The resolution
@@ -16,12 +18,39 @@ import { en, type MessageKey } from "./en";
 // language we don't ship. An explicit `initial` (later fed from /v1/me)
 // always wins; the switch flips it locally after mount.
 
-export type Locale = "de" | "en";
+// The catalog registry is what we ship. `Locale` derives from it, so the type
+// needs no edit when a locale arrives. `LOCALES` below does NOT derive: it is
+// hand-ordered because it also fixes the order the switcher shows, and both
+// the switcher and browser detection read that written list. `satisfies
+// readonly Locale[]` proves each entry is a real locale — it does not prove
+// the list is COMPLETE. Completeness is enforced by i18n.test.ts.
+export const catalogs = { en, de, vi } satisfies Record<
+  string,
+  Record<MessageKey, string>
+>;
+
+export type Locale = keyof typeof catalogs;
+
+// Display order for the switcher. `satisfies` proves each entry is a real
+// locale; i18n.test.ts proves the list is exhaustive.
+export const LOCALES = ["en", "de", "vi"] as const satisfies readonly Locale[];
+
 export const DEFAULT_LOCALE: Locale = "en";
 
+function isLocale(value: string): value is Locale {
+  return LOCALES.some((locale) => locale === value);
+}
+
+// The endonym key for a locale. The template literal is checked against
+// MessageKey, so adding a locale without adding its `locale.name.<code>` key
+// fails the build rather than rendering a raw key at runtime.
+export function localeNameKey(locale: Locale): MessageKey {
+  return `locale.name.${locale}`;
+}
+
 // detectLocale reads the visitor's own language preference and maps it to a
-// locale we ship, falling back to the A100 default when neither German nor
-// English is asked for. It never throws off-browser (SSR, tests): an absent
+// locale we ship, falling back to the A100 default when none of the shipped
+// locales is asked for. It never throws off-browser (SSR, tests): an absent
 // navigator yields the default.
 export function detectLocale(
   languages: readonly string[] = globalThis.navigator?.languages ??
@@ -29,14 +58,12 @@ export function detectLocale(
 ): Locale {
   for (const tag of languages) {
     const base = tag.toLowerCase().split("-")[0];
-    if (base === "de" || base === "en") {
+    if (isLocale(base)) {
       return base;
     }
   }
   return DEFAULT_LOCALE;
 }
-
-const catalogs: Record<Locale, Record<MessageKey, string>> = { de, en };
 
 export function translate(
   locale: Locale,
@@ -72,6 +99,20 @@ export function LocaleProvider({
   // An explicit initial (a server-provided locale, once /v1/me carries one)
   // is authoritative; otherwise fall to the browser's own preference.
   const [locale, setLocale] = useState<Locale>(() => initial ?? detectLocale());
+  /*
+   * The document's own language follows the catalog. index.html can only ship a
+   * static `lang`, so without this every German reader gets German text inside a
+   * document declared English — a screen reader then applies English phonemes to
+   * German words, which is the difference between a page that can be listened to
+   * and one that cannot. WCAG 3.1.1.
+   *
+   * It fails on FIRST LOAD, not only after the switcher is used, because
+   * `detectLocale` reads the browser's own preference — so the reader most likely
+   * to need it is the one who never touches the switch.
+   */
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
   const value = useMemo(() => ({ locale, setLocale }), [locale]);
   return (
     <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>

@@ -11,7 +11,7 @@ package integration
 // drives — that suite calls privacy.ListFieldHistory directly, so the
 // query-validation branches and the JSON shape only exist at the
 // transport. This suite rides the same real-handler-stack e2e harness as
-// e2e_integration_test.go (TLS httptest server, session cookie, workspace
+// integration/apptest (TLS httptest server, session cookie, workspace
 // header) and reuses fieldhistory_integration_test.go's seedAuditDiffRow
 // to write the audit rows the handler reads back.
 
@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -87,15 +88,15 @@ func assertFieldHistoryValidation422(t *testing.T, status int, problem fieldHist
 
 // fieldHistoryHTTPEnv resolves the workspace id the HTTP harness's
 // bootstrap created and opens a second pgxpool.Pool onto the same live
-// schema — exactly how setup() itself pairs its owner connection with an
+// schema — exactly how apptest.SetupApp itself pairs its owner connection with an
 // app pool — so the store-level suite's seedAuditDiffRow can write
 // straight through the real audit-spine path this handler reads back.
-func fieldHistoryHTTPEnv(t *testing.T, e *env) *Env {
+func fieldHistoryHTTPEnv(t *testing.T, e *apptest.AppEnv) *Env {
 	t.Helper()
 	ctx := context.Background()
 	var ws ids.UUID
-	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&ws); err != nil {
-		t.Fatalf("resolving workspace id for %q: %v", e.slug, err)
+	if err := e.Owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&ws); err != nil {
+		t.Fatalf("resolving workspace id for %q: %v", e.Slug, err)
 	}
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	pool, err := database.NewPool(ctx, appDSN)
@@ -155,10 +156,10 @@ type fieldHistoryHTTPFixture struct {
 
 // seedFieldHistoryHTTPFixture creates the subject and seeds the two audit
 // diff rows the happy-path subtest below asserts on.
-func seedFieldHistoryHTTPFixture(t *testing.T, e *env, dbEnv *Env) fieldHistoryHTTPFixture {
+func seedFieldHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) fieldHistoryHTTPFixture {
 	t.Helper()
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "History Wire Subject",
 		"source":    "ui",
 	}, nil, &person); status != http.StatusCreated {
@@ -188,10 +189,10 @@ func seedFieldHistoryHTTPFixture(t *testing.T, e *env, dbEnv *Env) fieldHistoryH
 // data[0] carries the required scalar fields plus the newest (agent) row's
 // passport/evidence, the seeded human diff surfaces with both absent, and
 // the page envelope is present.
-func assertFieldHistoryHappyPath(t *testing.T, e *env, fx fieldHistoryHTTPFixture) {
+func assertFieldHistoryHappyPath(t *testing.T, e *apptest.AppEnv, fx fieldHistoryHTTPFixture) {
 	t.Helper()
 	var page fieldHistoryListWire
-	status := e.call(t, "GET", "/v1/field-history?entity_type=person&entity_id="+fx.personID.String(), nil, nil, &page)
+	status := e.Call(t, "GET", "/v1/field-history?entity_type=person&entity_id="+fx.personID.String(), nil, nil, &page)
 	if status != http.StatusOK {
 		t.Fatalf("field-history status = %d, want 200: %+v", status, page)
 	}
@@ -235,8 +236,8 @@ func assertFieldHistoryHappyPath(t *testing.T, e *env, fx fieldHistoryHTTPFixtur
 }
 
 func TestFieldHistoryHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	dbEnv := fieldHistoryHTTPEnv(t, e)
 	fx := seedFieldHistoryHTTPFixture(t, e, dbEnv)
 
@@ -246,20 +247,20 @@ func TestFieldHistoryHTTP(t *testing.T) {
 
 	t.Run("422 invalid entity_type", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET", "/v1/field-history?entity_type=bogus&entity_id="+ids.NewV7().String(), nil, nil, &problem)
+		status := e.Call(t, "GET", "/v1/field-history?entity_type=bogus&entity_id="+ids.NewV7().String(), nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "entity_type", "invalid_entity_type")
 	})
 
 	t.Run("422 invalid actor_type", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET",
+		status := e.Call(t, "GET",
 			"/v1/field-history?entity_type=person&entity_id="+ids.NewV7().String()+"&actor_type=bogus", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "actor_type", "invalid_actor_type")
 	})
 
 	t.Run("422 malformed cursor", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET",
+		status := e.Call(t, "GET",
 			"/v1/field-history?entity_type=person&entity_id="+ids.NewV7().String()+"&cursor=!!!notatoken", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "cursor", "malformed_cursor")
 	})

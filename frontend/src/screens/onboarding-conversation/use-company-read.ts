@@ -4,22 +4,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
-import { problemMessage } from "../common";
+import type { MessageKey } from "../../i18n/en";
+import { ProblemError, problemMessageOf, throwProblem } from "../common";
 import type { CompanyDraft } from "../onboarding";
-import { changeDraftField, MAX_SELECTED_FACTS, prefill } from "../onboarding";
+import { changeDraftField, prefill } from "../onboarding";
+import { defaultSelectedFactKeys } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
-import { toMachineQuestion } from "./company-proposal";
+import {
+  draftWithSoleLegalEntity,
+  toMachineQuestion,
+} from "./company-proposal";
 import type {
   ConversationEvent,
   ConversationState,
 } from "./conversation-machine";
 import { diffSiteRead, useNarrationQueue } from "./narration";
+import { onboardingLocale } from "./onboarding-locale";
 
 // The read lifecycle of the company act as one hook: start the read, poll
 // it, narrate poll deltas through the paced queue, prefill the draft per
-// dossier version, and conclude — clarify question first (while the run is
-// still active), then the terminal outcome, then review when nothing is
-// open. Everything the conversation shows goes through machine events.
+// dossier version, and conclude — the first open question while the run is
+// still active, then the terminal outcome, then review. Any FURTHER open
+// question the proposal carries is promoted one at a time once review has
+// none live, so the review card is never reachable while one is stranded.
+// Everything the conversation shows goes through machine events.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
@@ -27,8 +35,35 @@ type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type ReadTerminal = Readonly<{
   readId: string;
   status: "ready" | "partial";
-  findings: number;
 }>;
+
+// The one failure `startRead`'s mutationFn may report verbatim: the
+// site-reads endpoint's own RFC 7807 body, carried whole so the reader path
+// below can read its detail. A network TypeError (the fetch itself never
+// reached the server) throws unclassified and is never wrapped in this —
+// safeStartError below is what keeps that distinction alive for every reader
+// of `startRead.error`.
+class ReadStartError extends ProblemError {}
+
+/**
+ * `startRead.error` narrowed to what is safe to show: the server's own
+ * guidance when the failure is a classified `ReadStartError`, and nothing at
+ * all for anything else. `ob.gate.startFailed` already reads correctly with an
+ * empty `{detail}`, so a failure the server never described still gets an
+ * honest, catalog-only sentence rather than a raw exception message.
+ *
+ * Reporting is not this function's job and cannot be: it is called while
+ * rendering, once per render for as long as the error stands, and a console
+ * the same failure fills a screenful of is one nobody can read. The mutation
+ * that failed is observed by the client's own sink, which keeps exactly the
+ * failures nobody wrote words for, once each (app/queryclient.ts, FE-PARAM-4).
+ */
+export function safeStartError(
+  error: unknown,
+  t: (key: MessageKey) => string,
+): string {
+  return error instanceof ReadStartError ? problemMessageOf(error, t, "") : "";
+}
 
 type UseCompanyReadArgs = Readonly<{
   dispatch: Dispatch<ConversationEvent>;
@@ -94,13 +129,8 @@ export function useCompanyRead({
   // waits for the proposal so a clarify question can precede the outcome.
   const concludeFreshTerminal = useCallback(
     (next: CompanySiteRead) => {
-      const findings = next.profile_fields.length;
       if (next.status === "ready" || next.status === "partial") {
-        pendingTerminal.current = {
-          readId: next.id,
-          status: next.status,
-          findings,
-        };
+        pendingTerminal.current = { readId: next.id, status: next.status };
         setProposalArmed(true);
         return;
       }
@@ -109,7 +139,6 @@ export function useCompanyRead({
           type: "READ_TERMINAL",
           readId: next.id,
           status: next.status,
-          findings,
         });
       }
     },
@@ -139,13 +168,13 @@ export function useCompanyRead({
       prevSnapshot.current = next;
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
-        setDraft((current) => prefill(current, next.profile_fields));
-        setSelectedFactKeys(
-          [...new Set(next.facts.map((fact) => fact.value_key))].slice(
-            0,
-            MAX_SELECTED_FACTS,
+        setDraft((current) =>
+          draftWithSoleLegalEntity(
+            prefill(current, next.profile_fields),
+            next.legal_entities,
           ),
         );
+        setSelectedFactKeys(defaultSelectedFactKeys(next.facts));
       }
       // Progress first, outcome second: the flush inside a terminal diff
       // drains every queued bubble before any terminal event is dispatched.
@@ -179,7 +208,10 @@ export function useCompanyRead({
     prevSnapshot.current = adoptedRead;
     appliedReadVersion.current = adoptedRead.draft_version;
     setDraft((current) => {
-      const prefilled = prefill(current, adoptedRead.profile_fields);
+      const prefilled = draftWithSoleLegalEntity(
+        prefill(current, adoptedRead.profile_fields),
+        adoptedRead.legal_entities,
+      );
       // The confirm contract requires the website; a draft persisted before
       // the composer wrote URLs into it (or wiped by an old client) heals
       // from the adopted read's own root - the one URL this read IS.
@@ -188,12 +220,7 @@ export function useCompanyRead({
       }
       return changeDraftField(prefilled, "website", adoptedRead.root_url);
     });
-    setSelectedFactKeys(
-      [...new Set(adoptedRead.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
+    setSelectedFactKeys(defaultSelectedFactKeys(adoptedRead.facts));
     if (adoptedRead.status === "ready" || adoptedRead.status === "partial") {
       concludeFreshTerminal(adoptedRead);
     }
@@ -206,7 +233,7 @@ export function useCompanyRead({
         body: { url },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new ReadStartError(error);
       }
       return data;
     },
@@ -249,7 +276,7 @@ export function useCompanyRead({
         params: { path: { readId: readId ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -294,22 +321,22 @@ export function useCompanyRead({
       type: "READ_TERMINAL",
       readId: activeReadId,
       status: "failed",
-      findings: prevSnapshot.current?.profile_fields.length ?? 0,
     });
   }, [siteRead.isError, dispatch, machine]);
 
   const { locale } = useLocale();
+  const promptLocale = onboardingLocale(locale);
   const proposal = useQuery({
-    queryKey: ["onboarding-company-proposal", readId, locale],
+    queryKey: ["onboarding-company-proposal", readId, promptLocale],
     enabled: proposalArmed && proposalJoin === "ready",
     queryFn: async (): Promise<Proposal> => {
       // The open questions' copy speaks the user's language; option values
       // stay locale-invariant server-side.
       const { data, error } = await api.GET("/onboarding/company/proposal", {
-        params: { query: { locale } },
+        params: { query: { locale: promptLocale } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -330,9 +357,18 @@ export function useCompanyRead({
   // readCompleted flag, so review stays reachable after the run retires.
   // Reordering these dispatches, or correlating REVIEW_READY, would strand
   // a completed read one event short of its review.
+  //
+  // `proposalArmed` is read here, and that is the point rather than a
+  // formality: the pending terminal is a ref, and a ref cannot wake an
+  // effect. The flag is set in the same tick the ref is, so it is the
+  // observable half of "a terminal is now waiting". Without it in the
+  // dependency list, a join that had ALREADY failed before the read finished
+  // leaves every dependency unchanged at the moment the terminal arrives —
+  // and the act sits on "opening your review" forever, with no way out but a
+  // reload.
   useEffect(() => {
     const terminal = pendingTerminal.current;
-    if (!terminal) {
+    if (!proposalArmed || !terminal) {
       return;
     }
     // A failed wizard-state join means the proposal can only answer for a
@@ -373,7 +409,50 @@ export function useCompanyRead({
     if (open.length === 0) {
       dispatch({ type: "REVIEW_READY" });
     }
-  }, [proposal.data, proposal.isError, proposalJoin, answers, dispatch]);
+  }, [
+    proposal.data,
+    proposal.isError,
+    proposalJoin,
+    proposalArmed,
+    answers,
+    dispatch,
+  ]);
+
+  // The invariant this effect exists for: a question the server still
+  // considers open always has exactly one place to answer it. The terminal
+  // effect above asks only the FIRST one — it dispatches once, before the
+  // run retires, and never runs again. Every question after that is asked
+  // here instead, one at a time: once co.review has no question live, the
+  // next still-unanswered entry in the proposal's own `open_questions`
+  // (an answer or a dismissal both count — either way the human resolved
+  // it) is promoted the same way, and none is skipped. Legal only from
+  // co.review (conversation-legality.ts), which the machine cannot reach
+  // while another read is active, so this can never ask about a stale run.
+  useEffect(() => {
+    if (
+      machine.current.phase !== "co.review" ||
+      machine.current.pendingQuestion !== null
+    ) {
+      return;
+    }
+    const data = proposal.data;
+    const readId = prevSnapshot.current?.id;
+    if (!data || readId === undefined || readId === null) {
+      return;
+    }
+    const open = (data.open_questions ?? []).filter(
+      (question) => !answers.some((answer) => answer.clarifyId === question.id),
+    );
+    const next = open[0];
+    if (next && !askedClarifies.current.has(next.id)) {
+      askedClarifies.current.add(next.id);
+      dispatch({
+        type: "CLARIFY",
+        readId,
+        question: toMachineQuestion(next, prevSnapshot.current?.comparisons),
+      });
+    }
+  }, [proposal.data, answers, dispatch, machine]);
 
   return { startRead, siteRead, proposal, prevSnapshot };
 }

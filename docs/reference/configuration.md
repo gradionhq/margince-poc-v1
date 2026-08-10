@@ -1,20 +1,21 @@
 # Configuration reference
 
-Four process-role binaries live under `backend/cmd/`. Configuration is
+Three process-role binaries live under `backend/cmd/`. Configuration is
 flags; where a flag has an environment fallback it is listed. An empty
 required value is a boot error, as is an invalid `--log-level` /
 `--log-format`.
 
-## Common log flags (api, worker, mcp)
+## Common log flags (api, worker)
 
 | Flag | Env | Default | Values |
 |---|---|---|---|
 | `--log-level` | `MARGINCE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-format` | `MARGINCE_LOG_FORMAT` | `text` | `text` (slog text), `json` |
 
-api and worker log to stdout; mcp logs to **stderr** (stdout is the
-stdio protocol channel). Log lines carry the per-request
-`correlation_id` via the correlation slog wrapper.
+Both roles log to stdout, and their log lines carry the per-request
+`correlation_id` via the correlation slog wrapper. `cmd/migrate` takes neither
+flag: it writes confirmations to stdout and failures to stderr, with no
+configurable logger.
 
 ## cmd/api — the HTTP process role
 
@@ -27,6 +28,8 @@ stdio protocol channel). Log lines carry the per-request
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
+| `--metrics-token` | `MARGINCE_METRICS_TOKEN` | — | shared secret `/metrics` requires as a Bearer credential. This is the access control the fleet-wide-exposition note below calls for: unset (the default) `/metrics` answers **404**, rather than serving per-workspace job telemetry to anyone who asks. Set it wherever the scraper can present it |
+| `--hubspot-app-secret` | `MARGINCE_HUBSPOT_APP_SECRET` | — | the HubSpot app client secret. Verifies inbound overlay-webhook v3 signatures and, when set, mounts `/webhooks/hubspot`; unset, that route is absent rather than present-and-unverified |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
@@ -48,7 +51,9 @@ Operational endpoints (served next to `/v1`):
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`, the
   AI router's counters, the overlay sync-health section, and the
-  **job-runtime section** below.
+  **job-runtime section** below. Gated by `--metrics-token`: without one the
+  route answers 404, so a deployment that wants scraping must set the token and
+  give it to the scraper.
 - `GET /v1/admin/job-health` — the per-workspace read of the same job
   table, for an admin rather than a scrape. See
   [Reading the job surfaces](#reading-the-job-surfaces).
@@ -296,7 +301,7 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
-| `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
+| `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al.) — the River periodic schedule of the `time_scan` dispatcher, which enqueues one `time_scan_workspace` job per live workspace |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
 | `--webhook-retry-interval` | — | `30s` | how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace (worker role only) |
@@ -403,23 +408,30 @@ runs the background sync.
 
 | Flag | Env | Role | Meaning |
 |---|---|---|---|
-| `--gmail-client-id` / `--gmail-client-secret` | `MARGINCE_GMAIL_CLIENT_ID` / `…_SECRET` | api + worker | the Google OAuth app; with the state key and `--public-base-url`, enables `/connectors/gmail/*` (api) and the sync poll (worker) |
-| `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `…_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
+| `--gmail-client-id` / `--gmail-client-secret` | `MARGINCE_GMAIL_CLIENT_ID` / `MARGINCE_GMAIL_CLIENT_SECRET` | api + worker | the Google OAuth app; with the state key and `--public-base-url`, enables `/connectors/gmail/*` (api) and the sync poll (worker) |
+| `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `MARGINCE_GRAPH_CLIENT_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
 | `--graph-tenant` | `MARGINCE_GRAPH_TENANT` | api + worker | Microsoft identity tenant (default `common` — any organization) |
 | `--connector-state-key` | `MARGINCE_CONNECTOR_STATE_KEY` | api | HMAC key (≥32 bytes) signing the OAuth connect `state`; required for both connect flows |
+| `--mcp-apps-base-url` | `MARGINCE_MCP_APPS_BASE_URL` | api | the origin the api reads the MCP App view documents from (`GET <origin>/mcp-apps/<view>.html`), fetched once at startup and refreshed periodically. Defaults to `--public-base-url`, which the connector gate already makes a boot error to omit — so wherever `/mcp` is served the chain cannot be empty. The value must be **API-reachable**, which is not the same as publicly reachable: a container may lack ingress hairpin routing, external DNS or egress, and that is the case this setting exists for. A CDN origin is supported and recommended — it trades a dependency on the web tier for a better one rather than removing it. **The scheme must be `https` unless the host is a literal loopback or private address (or `localhost`)** — a cleartext *hostname* such as `http://web.internal` is refused at BOOT, naming the setting, rather than accepted and then refused by every fetch. With the connector gate off, no fetch happens at all |
 | `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the OAuth callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev). Messaging channels need NO public address of their own — Telegram ingress long-polls, so nothing is ever told where to reach this installation |
 | `--gmail-sync-interval` | — | worker | Gmail incremental-sync poll interval (default `2m`) |
 | `--gmail-pubsub-topic` | `MARGINCE_GMAIL_PUBSUB_TOPIC` | worker | Gmail Pub/Sub topic (`projects/<p>/topics/<t>`); enables the push-watch register+renew job (empty = poll only) |
 | `--gmail-watch-interval` / `--gmail-watch-renew-within` | — | worker | push-watch maintenance scan (`6h`) / renew this far ahead of the 7-day expiry (`48h`) |
 | `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail` (empty = route absent) |
-| `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `…_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
+| `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
 | `--gmail-jwks-url` | `MARGINCE_GMAIL_JWKS_URL` | api | override Google's OIDC JWKS URL; test/dev only |
 
-## Object storage (api, worker) — attachments
+## Object storage (api, worker) — attachments and company logos
 
 Env-only, shared by both roles; secrets never appear on the command line
 (argv is world-readable). Leave `MARGINCE_BLOBSTORE_ENDPOINT` unset and the
 `/attachments` endpoints answer 501; set it to enable them.
+Company logos ride the same store. With none configured the resolve lane
+returns before fetching, so no logo object is ever written and
+`GET /organizations/{id}/logo` answers 404 — every company renders its
+deterministic monogram instead. (The 501 on that route is the narrower case: a
+record that already names an object on a deployment whose store has since gone
+away.)
 If attachment rows already exist (uploaded while a store was configured) but
 the erasing process has none, Art. 17 erasure **fails and rolls back** rather
 than stranding the bytes — it stays retryable until a store is configured. The bucket is created on first connect,
@@ -427,7 +439,7 @@ and the store tolerates a still-starting backend with a bounded retry.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MARGINCE_BLOBSTORE_ENDPOINT` | — | S3/MinIO `host:port`; set to enable attachments |
+| `MARGINCE_BLOBSTORE_ENDPOINT` | — | S3/MinIO `host:port`; set to enable attachments and company logos |
 | `MARGINCE_BLOBSTORE_ACCESS_KEY` | — | access key |
 | `MARGINCE_BLOBSTORE_SECRET_KEY` | — | secret key |
 | `MARGINCE_BLOBSTORE_BUCKET` | — | bucket name (created on first connect) |
@@ -488,7 +500,7 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role. For the db verbs it must name a maintenance database (`postgres`): `CREATE`/`DROP DATABASE` cannot run inside the database being dropped |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
-| `--email` | — | — | user email (`reset-password` only): the operator break-glass — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
+| `--email` | — | — | user email (`reset-password` only): the operator break-glass — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured. It covers **lockout and operator-led recovery**, not routine member provisioning: an admin without a database credential onboards members from Settings → Users & roles, where an installation with no outbound email offers a per-member "Get set-password link" to deliver out of band (ADR-0061 Amendment 1) |
 | `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`; the drops are `WITH (FORCE)`, so a lingering session dies rather than flaking the teardown. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout. A name (or template) over the server's identifier limit (63 bytes stock) is rejected, never silently truncated onto a different database |
 | `--template` | — | — | template database to copy (`recreate-db` only): `CREATE DATABASE … TEMPLATE`, a fast file copy |
 
@@ -499,6 +511,12 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 | `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev`, `staging`, or `test` yield a non-production posture; unset, `production`, or any unrecognized value ⇒ production, which disables every dev-only destructive switch (today: the admin data-reset endpoint below). The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
+| `MARGINCE_TEST_BLOBSTORE_ENDPOINT`, `MARGINCE_TEST_BLOBSTORE_ACCESS_KEY`, `MARGINCE_TEST_BLOBSTORE_SECRET_KEY`, `MARGINCE_TEST_BLOBSTORE_BUCKET` | integration tests | the object store the blobstore lane runs against; exported by the Makefile at the `make db-up` MinIO, on its own `margince-test` bucket. The endpoint being unset **fails** the lane rather than skipping it — a skipped storage gate reads exactly like a passing one. |
+| `MARGINCE_AICERT` | `make e2e-ai` | the AI-certification lane's runtime switch. The `e2e_llm` build tag keeps this paid, live lane out of every ordinary lane; once the tag is set, an empty value here **fails** rather than skips, so the lane can never report success for having done nothing. |
+| `MARGINCE_AICERT_TASK`, `MARGINCE_AICERT_MODEL`, `MARGINCE_AICERT_RUNS`, `MARGINCE_AICERT_TRACE` | `make e2e-ai` | narrow certification to one task / override the candidate model / repeat count / directory for the request+response dump. All optional: unset certifies everything the corpus covers, on the routing file's own bindings. Surfaced as `TASK=`, `MODEL=`, `RUNS=`, `TRACE=` on the make target. |
+| `MARGINCE_ANTHROPIC_KEY` | `ai` package smoke test | BYOK Anthropic key for the live Anthropic smoke test. Distinct from `ANTHROPIC_API_KEY`, which is what the **runtime** reads for a bound `anthropic` provider. |
+| `MARGINCE_BENCH_TIER` | `make bench-perf` | the PERF-3/PERF-7 seed tier the perfbench suite builds — `smb` (default) or `mid_market`. An unrecognized value fails the bench loudly. |
+| `MARGINCE_AITASK_DIR` | `worker aitask` | working directory for the `ai-probe` debug loop's artifacts (flag `--work-dir`, default the gitignored `.tmp/aitask/`). A fetched page carries whatever the source carried, so this stays out of the tree. |
 
 ### `POST /v1/admin/reset-data` — non-production data reset
 
@@ -519,10 +537,24 @@ On success it wipes workspace domain + seeded-config data back to the
 first-boot bootstrapped state and re-runs the module seeders (pipeline/stages,
 consent purposes + retention, AI defaults, starter automations, the booking
 page) — the same seed path `identity`'s installation bootstrap uses. It
-**preserves** the identity/auth layer (`workspace`, every `app_user`, roles,
-role assignments, teams, team memberships, sessions, passports, tokens — so
-login keeps working) and the append-only ledgers `audit_log` / `system_log`.
+**preserves** the identity/auth layer (every `app_user`, roles, role
+assignments, teams, team memberships, sessions, passports, tokens — so login
+keeps working) and the append-only ledgers `audit_log` / `system_log`.
 The reset itself is recorded as an `audit_log` row (action `reset_data`).
+
+The `workspace` row survives too — it carries the organization — but only its
+**installation identity** is preserved: the primary key, the name, slug, base
+currency and timezone bootstrap took from `margince.yaml`, and `created_at`.
+(`updated_at` moves, as it does for any write — the reset did write the row.)
+Every other column on it is a workspace-level **setting**, and each
+one goes back to the default its migration declared (the overlay mode columns
+today, and whatever is added next). Nothing here is a kept list:
+the columns are derived from the catalog, so a setting added later is restored
+the day its column exists, and a column that genuinely belongs to the
+installation's identity has to be declared preserved to be spared. Settings
+that live in the `setting` table rather than on this row are restored on the
+same path, by the same split — configuration returns to its registered
+default, the installation's identity does not.
 
 The sweep runs as the app role — no superuser, no disabled triggers — so it
 discovers a safe delete order at runtime (a savepoint per table per pass,
@@ -531,6 +563,96 @@ ordering; an unbreakable FK cycle is surfaced as an error, never silently
 skipped. Orphaned `cf_*` custom-field columns are dropped afterward through
 the owner schema pool (`--schema-dsn`); with no schema pool configured that
 step is skipped (logged, not swallowed) and the reset itself still succeeds.
+
+#### It resets the runtime, not only the rows
+
+Table rows are not the whole installation. Queued jobs, bus entries, Redis
+counters, every process's in-memory caches and the stored object bytes all
+outlive a row sweep, so a reset that stopped there would leave work executing
+against records that no longer exist. The endpoint therefore also:
+
+1. **Pauses every job queue and drains it**, bounded to 10 seconds. The pause
+   is mediated by `river_queue`, so the api quiets the queues the *worker*
+   process owns. A drain that does not finish never fails the reset — a long
+   pass must not make an installation unresettable — but it sets
+   `drain_timed_out` in the response, the audit evidence and the log, and the
+   surviving job's completion write will fail against the wiped rows.
+2. **Drains the staged outbox** — this workspace's `event_outbox` rows, in a
+   transaction of its own *before* the streams are purged. The outbox relay is
+   not part of the job fleet the pause stopped, so rows left staged would be
+   shipped into the streams moments after they were emptied. This narrows that
+   window to one in-flight relay batch rather than closing it.
+3. **Purges job rows** (`river_job`): this workspace's rows plus the fleet
+   dispatchers, which the periodic ticks re-insert on the next cadence — in
+   every state, including River's retained completed/discarded/cancelled
+   history, which an installation wiped back to first-boot state must not carry.
+4. **Purges the event bus** — the catalog streams, their consumer groups
+   (deleted and immediately re-created, so live subscribers keep reading), the
+   processed-event dedupe marks, and this workspace's overlay budget counters.
+5. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
+   It also redeems the **sealed credentials** those swept connection rows
+   referenced. `vault_secret` deliberately carries no `workspace_id` — the
+   tenant lives inside the ref and inside the AES-256-GCM AAD — so the sweep
+   cannot see it, and the handles are collected inside the sweep's transaction
+   before the rows naming them go. Which tables hold one is derived from the
+   catalog on the `credential_ref` column, so a connection table added later is
+   covered the day its column exists.
+6. **Restores every workspace-level setting**, including returning an
+   overlay-mode installation to native. The table sweep reaches none of them:
+   its target list is derived from the tables carrying a `workspace_id` column,
+   and `workspace` keys on `id`, so that row is not a candidate for it at all.
+   The overlay columns are the consequential case — everything overlay mode
+   depends on IS swept (the incumbent connection, the mirror, the budget
+   counters), so a workspace left in overlay would claim to read from an
+   incumbent it no longer has a connection to, dispatching every read at an
+   empty mirror. `x_sor_mode` and `x_incumbent` flip together, as the schema
+   requires. This is not the governed `Disconnect` teardown: those rows are
+   already gone with the sweep, the reset carries its own audit row, and no
+   `incumbent.disconnected` event is emitted into an outbox this reset just
+   drained. Whether it happened is recorded as `sor_mode_reverted` in the audit
+   evidence and the completion log line.
+7. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
+   the api and the worker each drop the caches they hold — model results and
+   the resolved system-of-record mode. No HTTP call reaches the worker process;
+   this channel is the only path to it.
+
+   The announcement clears **caches and nothing else**. The channel carries no
+   signature, so anyone who can reach that Redis can publish on it, and a cache
+   drop costs a recomputation. The auth lockout buckets are deliberately not
+   reachable this way: they brake brute-force login and password-reset email
+   spam, so the process that ran the audited, gated reset clears its own and no
+   announcement clears anyone else's.
+
+The queues are resumed on every exit path, including a failure and a panic,
+on a context detached from the request — an operator whose client disconnects
+mid-reset must not leave the fleet paused. Killing the process outright
+(SIGKILL) runs no exit path at all and does strand the pause; re-running the
+reset lifts it.
+
+The Redis half is **installation-wide**, from a declared key inventory — the
+stream catalog, the `gw:dedupe:` namespace and `ovb:<workspace>:` — and never
+`FLUSHDB`, so anything else sharing that Redis survives. Installation-wide is
+exact here because one installation serves one organization (A107/ADR-0061).
+One consequence worth knowing locally: parallel `DEV_SLUG` stacks share a
+single Redis database, so a reset in one stack clears the other's bus.
+
+The 200 body reports what was actually cleared — `tables_cleared`,
+`jobs_deleted` (job rows in every state, history included — not a backlog
+depth), `streams_purged` (stream *keys*, not entries), `cache_keys_deleted`
+(dedupe marks plus budget counters), `objects_deleted` and `drain_timed_out`.
+The same counts go into the `audit_log` evidence, with one deliberate
+exception: `objects_deleted` is not in the audit row, because the object purge
+cannot join the transaction that writes it.
+
+Any purge step failing fails the whole request with an opaque 500 (the cause
+is logged server-side). What a failure leaves behind depends on which side of
+the commit it happened. The queue, bus and budget purges run *before* the
+database transaction, so failing there leaves a safe partial state — those
+surfaces clear, the data intact — that re-running the reset recovers. The
+object purge is the exception: it cannot join that transaction and so runs
+*after* it commits, which means a 500 from the object store reports failure
+with the rows already wiped and some stored bytes still present. Re-running
+the reset is again the recovery.
 
 `GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
 show the action only where it will work: Admin settings → *data* tab → Danger
@@ -672,10 +794,14 @@ from search until re-embedded, never served as if current.
 
 Two operator gotchas, verified against current vendor docs:
 
-1. **`openai_compatible`'s embeddings lane 404s on OpenRouter, Groq, and
-   DeepSeek** — they serve chat only. Bind `embeddings:` to a vendor that
-   has the lane (OpenAI, Mistral, a Gemini-compat layer, Together) or a
-   local model (ollama `bge-m3`).
+1. **Not every `openai_compatible` vendor serves the embeddings lane.**
+   OpenRouter does — `/v1/embeddings`, with the catalog at
+   `GET /api/v1/embeddings/models` — while chat-only vendors such as Groq
+   and DeepSeek 404. Bind `embeddings:` to a vendor that has the lane
+   (`gemini`, `openai`, Mistral, OpenRouter) or a local model (ollama
+   `bge-m3`). On `openai_compatible` the adapter deliberately never sends
+   `dimensions`, so the configured width must EQUAL the model's native
+   width; a binding that returns another width fails loudly.
 2. **Vendor `-latest` model aliases drift and some are being deprecated**
    (e.g. Mistral). Pin an explicit versioned id, or resolve via the
    vendor's `/models` endpoint, rather than hardcoding an alias.

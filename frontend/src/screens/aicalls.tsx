@@ -8,10 +8,11 @@ import {
   EmptyState,
   SectionHeader,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
-import { problemMessage, QueryStates } from "./common";
+import { QueryStates, throwProblem } from "./common";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -31,7 +32,7 @@ export function CallDetailPanel({
       const { data, error } = await api.GET("/ai/calls/{id}", {
         params: { path: { id } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
   });
@@ -132,7 +133,7 @@ export function AiCallsCard() {
           query: { cursor: pageParam ?? undefined, task: task || undefined },
         },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     getNextPageParam: (last) => last.page.next_cursor ?? null,
@@ -148,16 +149,22 @@ export function AiCallsCard() {
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
-        <select
-          className="input"
+        <Select
+          // The column header names what this filters on; the control sits above
+          // the table with nothing beside it, so without a name of its own a
+          // screen reader reaches an unnamed combobox.
+          aria-label={t("aicalls.col.task")}
           value={task}
-          onChange={(event) => setTask(event.target.value)}
-        >
-          <option value="">{t("aicalls.filter.all")}</option>
-          {tasks.map((value) => (
-            <option key={value}>{value}</option>
-          ))}
-        </select>
+          onChange={setTask}
+          // "All tasks" is a real option, not the select's placeholder: a
+          // reader who filtered to one task has to be able to come back.
+          // A task name is a wire value the server owns, so it is its own
+          // label — there is nothing to translate.
+          options={[
+            { value: "", label: t("aicalls.filter.all") },
+            ...tasks.map((value) => ({ value, label: value })),
+          ]}
+        />
         {calls.length === 0 ? (
           <EmptyState>{t("aicalls.empty")}</EmptyState>
         ) : (

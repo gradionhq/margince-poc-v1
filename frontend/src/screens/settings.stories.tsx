@@ -4,6 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
+import { pickOption } from "../design-system/select-testing";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 import {
   installFetchStub,
@@ -99,7 +100,7 @@ function tab(tabId: string, routes: RouteMap) {
 }
 
 const meta: Meta<typeof SettingsScreen> = {
-  title: "screens/settings",
+  title: "Screens/settings",
   component: SettingsScreen,
 };
 export default meta;
@@ -140,8 +141,13 @@ export const AiToolConsole: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByText("search_records");
-    const select = canvas.getByRole("combobox", { name: "All passports" });
-    await userEvent.selectOptions(select, "Reachable by Scout");
+    // The listbox is portalled to the body, outside this story's canvas, so the
+    // pick goes through the shared helper rather than a canvas-scoped query.
+    await pickOption(
+      userEvent.setup(),
+      canvas.getByRole("combobox", { name: "All passports" }),
+      "Reachable by Scout",
+    );
   },
 };
 

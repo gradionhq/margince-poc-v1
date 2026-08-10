@@ -20,6 +20,16 @@ services:
     # pgvector ships inside the Postgres image: the search module's hybrid
     # retrieval needs the extension available at migrate time.
     image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+    # The lock table, sized for the integration lane rather than for one app.
+    # Postgres pre-allocates max_locks_per_transaction * max_connections slots at
+    # boot and shares them across every backend, and the lane's reset takes one
+    # per relation — every table AND every index — inside a single transaction,
+    # on up to INTEGRATION_JOBS databases at once. At the default 64 that pool is
+    # exhausted well before max_connections is, and the failure is
+    # `out of shared memory (SQLSTATE 53200)` in whichever package happened to
+    # ask next. Slots are a few hundred bytes each, so this costs single-digit
+    # megabytes and buys the lane its concurrency back.
+    command: ["postgres", "-c", "max_locks_per_transaction=512"]
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev
@@ -42,6 +52,13 @@ services:
 
   redis:
     image: redis:7@sha256:595cc6f2bb3af6e03347b90deb6123c6aa2c81dea05ce08128de8a174b6ac67b
+    # 64 logical dbs, not the default 16. The integration lane gives each package
+    # its own db so two packages can never share one — several of them FLUSHDB
+    # between tests, which makes a shared db a silent corruption rather than a
+    # slowdown. The lane has more packages than 16 and keeps growing; keep this
+    # in step with REDIS_DBS in scripts/test-integration-parallel.sh, which
+    # refuses to run rather than wrap the mapping.
+    command: ["redis-server", "--databases", "64"]
     ports:
       - "56379:6379"
     healthcheck:

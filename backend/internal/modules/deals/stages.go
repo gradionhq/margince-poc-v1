@@ -155,7 +155,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 			return fmt.Errorf("insert stage: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "create", "stage", stageID.UUID, nil, map[string]any{
-			"pipeline_id": in.PipelineID, "name": in.Name, "semantic": in.Semantic,
+			"pipeline_id": in.PipelineID, "name": in.Name, stageSemanticField: in.Semantic,
 		})
 		if err != nil {
 			return fmt.Errorf("audit stage create: %w", err)
@@ -293,7 +293,7 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 			return fmt.Errorf("update stage: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "stage", id.UUID, nil, map[string]any{
-			"name": in.Name, "position": in.Position, "semantic": in.Semantic, "win_probability": in.WinProbability,
+			"name": in.Name, "position": in.Position, stageSemanticField: in.Semantic, "win_probability": in.WinProbability,
 		})
 		if err != nil {
 			return fmt.Errorf("audit stage update: %w", err)

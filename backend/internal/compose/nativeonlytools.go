@@ -7,9 +7,10 @@ package compose
 // mode.
 //
 // Most of the agent surface rides the datasource seam, so the Dispatcher
-// already routes it per workspace. Three dependencies cannot: the compiled
-// report engine, the retrieval seam behind the context intents, and the
-// pipeline-risk lister all query the native domain tables directly.
+// already routes it per workspace. Four dependencies cannot: the compiled
+// report engine, the retrieval seam behind the context intents, the
+// pipeline-risk lister and the query-plan executor all query the native domain
+// tables directly.
 //
 // Reports have a seam verb, but not this one: RunReport carries an ad-hoc
 // ReportPlan, while the tool names a prebuilt report key and answers with
@@ -106,21 +107,21 @@ func (s Server) ExplainReport(w http.ResponseWriter, r *http.Request, report str
 	s.reportHandlers.ExplainReport(w, r, report, params)
 }
 
-// nativeOnlyRetriever guards catch_me_up_on and prep_for_meeting, whose
-// grounding is the full-text index and context graph — neither of which
-// holds mirrored content.
+// nativeOnlyRetriever guards catch_me_up_on, prep_for_meeting and
+// search_context, whose grounding is the full-text index, the vector index and
+// the context graph — none of which holds mirrored content.
 type nativeOnlyRetriever struct {
 	mode  overlayModeChecker
 	inner retrieval.Retriever
 }
 
-func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
+func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) (retrieval.Result, error) {
 	overlay, err := r.mode.isOverlayUncached(ctx)
 	if err != nil {
-		return nil, err
+		return retrieval.Result{}, err
 	}
 	if overlay {
-		return nil, apperrors.ErrUnsupportedBySoR
+		return retrieval.Result{}, apperrors.ErrUnsupportedBySoR
 	}
 	return r.inner.Search(ctx, q)
 }
@@ -203,5 +204,133 @@ func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingListe
 			return nil, apperrors.ErrUnsupportedBySoR
 		}
 		return list(ctx)
+	}
+}
+
+// nativeOnlyCommitments guards review_commitments. Open promises are task
+// ACTIVITIES, and an overlay workspace's timeline is mirrored rather than
+// native — the mirror holds no task projection to read, so an unguarded call
+// would answer "nothing is outstanding" out of a table that has none of its
+// rows. That is the silent break AC-OV-2 forbids, and it is the worst
+// possible wrong answer to this particular question.
+func nativeOnlyCommitments(mode overlayModeChecker, list agents.CommitmentLister) agents.CommitmentLister {
+	return func(ctx context.Context, in agents.CommitmentQuery) (agents.CommitmentSweep, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.CommitmentSweep{}, err
+		}
+		if overlay {
+			return agents.CommitmentSweep{}, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx, in)
+	}
+}
+
+// nativeOnlyHandoff guards prepare_handoff. A project is a native record with
+// no incumbent analogue at all, so an overlay workspace has no project to
+// prepare a handover for — the refusal is the declared answer rather than a
+// degradation.
+func nativeOnlyHandoff(mode overlayModeChecker, read agents.HandoffReader) agents.HandoffReader {
+	return func(ctx context.Context, projectID ids.UUID) (agents.HandoffFacts, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.HandoffFacts{}, err
+		}
+		if overlay {
+			return agents.HandoffFacts{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx, projectID)
+	}
+}
+
+// nativeOnlyDisqualifier guards disqualify_lead, and it is the tool half of a
+// refusal REST already makes.
+//
+// The middleware in overlaywrite.go refuses this verb for every principal on
+// the REST surface: `disqualify_lead` is a record write (overlayRecordWriteTools)
+// against a mirrored type (`lead`), and it has no overlayWriteVerbs entry, so
+// the provider cannot serve it and the native `lead` table is empty in overlay
+// mode. The tool reaches the people store directly — the same entry point the
+// route calls, which is the point — so nothing on that path passes the
+// middleware, and without this the tool would commit to the empty native table
+// while the route refused. A tool and its route are two transports onto one
+// behaviour or they are a silent divergence (ADR-0018/AC-OV-2).
+//
+// TestEveryUnservableRecordWriteVerbRefusesOnItsToolPath derives which verbs
+// need this, so a lifecycle seam added for another such verb fails the gate
+// rather than shipping unguarded.
+func nativeOnlyDisqualifier(mode overlayModeChecker, disqualifier agents.LeadDisqualifier) disqualifierGuard {
+	return disqualifierGuard{mode: mode, inner: disqualifier}
+}
+
+type disqualifierGuard struct {
+	mode  overlayModeChecker
+	inner agents.LeadDisqualifier
+}
+
+func (g disqualifierGuard) DisqualifyLead(ctx context.Context, id ids.UUID) (json.RawMessage, error) {
+	overlay, err := g.mode.isOverlayUncached(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if overlay {
+		return nil, apperrors.ErrUnsupportedBySoR
+	}
+	return g.inner.DisqualifyLead(ctx, id)
+}
+
+// nativeOnlyResolver guards resolve_entities. The match ladder reads the native
+// person and organization tables, and an overlay workspace's records are not in
+// them — so unguarded it would answer `unresolved` for every candidate. That is
+// the most damaging well-formed empty answer on this surface: `unresolved` is
+// the one decision that tells a caller creating a record is safe, so the tool
+// built to prevent duplicates would be the thing producing them.
+func nativeOnlyResolver(mode overlayModeChecker, resolve agents.EntityResolver) agents.EntityResolver {
+	return func(ctx context.Context, in []agents.ResolveCandidate) ([]agents.ResolveOutcome, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if overlay {
+			return nil, apperrors.ErrUnsupportedBySoR
+		}
+		return resolve(ctx, in)
+	}
+}
+
+// nativeOnlyQueryRunner guards query_workspace, for the reason every other
+// guard in nativeonlytools.go exists: the executor reads the native domain
+// tables directly, and an overlay workspace's records are not in them. An
+// answer assembled from tables holding none of this workspace's data is a
+// well-formed empty result — visibly right and actually wrong.
+func nativeOnlyQueryRunner(mode overlayModeChecker, run agents.QueryRunner) agents.QueryRunner {
+	return func(ctx context.Context, plan json.RawMessage) (agents.QueryAnswer, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.QueryAnswer{}, err
+		}
+		if overlay {
+			return agents.QueryAnswer{}, apperrors.ErrUnsupportedBySoR
+		}
+		return run(ctx, plan)
+	}
+}
+
+// nativeOnlyBriefReader guards read_brief. The brief ranks the rep's own open
+// deals out of the native tables, and an overlay workspace keeps its deals in
+// the incumbent — so the run would be assembled from rows this workspace does
+// not have. An empty queue is the one failure shape a caller cannot see through:
+// "nothing needs your attention today" and "this cannot be answered here" read
+// identically, and only one of them is true.
+func nativeOnlyBriefReader(mode overlayModeChecker, read agents.BriefReader) agents.BriefReader {
+	return func(ctx context.Context) (agents.ReadBriefResult, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.ReadBriefResult{}, err
+		}
+		if overlay {
+			return agents.ReadBriefResult{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx)
 	}
 }

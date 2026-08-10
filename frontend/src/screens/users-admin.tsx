@@ -11,15 +11,28 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
+import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
+
+// roleLabel names a held role key. The catalog covers the five system roles;
+// a workspace-defined key has no translation, so it reads as itself rather
+// than as a missing-translation marker — the admin still learns what is held.
+const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
+  isOption(key, ROLES) ? t(`users.role.${key}`) : key;
+
+// The five system roles as pickable options — shared by the invite form and
+// every roster row so the two lists cannot drift apart.
+const roleOptions = (t: ReturnType<typeof useT>): SelectOption[] =>
+  ROLES.map((role) => ({ value: role, label: t(`users.role.${role}`) }));
 
 // Admin member management (org settings). Every user-management write is
 // admin-only server-side, so the whole card is admin-only here — an ops seat in
@@ -36,7 +49,7 @@ function useMembers(enabled: boolean) {
         params: { query: { include_inactive: true } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -48,6 +61,11 @@ export function UsersAdminCard() {
   const me = useMe();
   const isAdmin = (me.data?.roles ?? []).includes("admin");
   const members = useMembers(isAdmin);
+  // The server answers whether THIS caller can mint set-password links: admin,
+  // on an installation with no email channel and a configured base URL. Where
+  // email works, the invite mail carries the link and this action would only
+  // ever 409 — so it is not rendered at all.
+  const canIssueLink = me.data?.admin_password_link ?? false;
   return (
     <section className="card">
       <SectionHeader title={t("users.title")} sub={t("users.sub")} />
@@ -57,7 +75,7 @@ export function UsersAdminCard() {
         {() =>
           isAdmin ? (
             <>
-              <InviteForm />
+              <InviteForm canIssueLink={canIssueLink} />
               <QueryGate query={members}>
                 {(list) =>
                   list.length === 0 ? (
@@ -67,7 +85,11 @@ export function UsersAdminCard() {
                   ) : (
                     <ul className="users-list">
                       {list.map((u) => (
-                        <MemberRow key={u.id} member={u} />
+                        <MemberRow
+                          key={u.id}
+                          member={u}
+                          canIssueLink={canIssueLink}
+                        />
                       ))}
                     </ul>
                   )
@@ -85,31 +107,45 @@ export function UsersAdminCard() {
   );
 }
 
-function InviteForm() {
+function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("rep");
   const [error, setError] = useState<string | null>(null);
+  // Where no email channel exists the invite alone leaves a member who cannot
+  // sign in, so the dialog opens straight away and mints the link. The member
+  // row keeps its own action, which is what makes a dismissed dialog
+  // recoverable.
+  const [invited, setInvited] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const passwordLink = usePasswordLink();
 
   const invite = useMutation({
-    mutationFn: async () => {
-      const { error: err } = await api.POST("/users", {
+    mutationFn: async (): Promise<string> => {
+      const { data, error: err } = await api.POST("/users", {
         body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
+      return data.id;
     },
-    onSuccess: () => {
+    onSuccess: (newUserId) => {
+      const invitedName = name.trim();
       setEmail("");
       setName("");
       setRole("rep");
       setError(null);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
+      if (canIssueLink) {
+        setInvited({ id: newUserId, name: invitedName });
+        void passwordLink.mint(newUserId);
+      }
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   const canInvite =
@@ -138,21 +174,14 @@ function InviteForm() {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      <select
-        className="input"
+      <Select
         aria-label={t("users.roleLabel")}
         value={role}
-        onChange={(e) => {
-          const value = e.target.value;
+        onChange={(value) => {
           if (isOption(value, ROLES)) setRole(value);
         }}
-      >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {t(`users.role.${r}`)}
-          </option>
-        ))}
-      </select>
+        options={roleOptions(t)}
+      />
       <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
@@ -161,20 +190,48 @@ function InviteForm() {
           {error}
         </p>
       )}
+      {invited && (
+        <PasswordLinkModal
+          memberName={invited.name}
+          link={passwordLink.state.link}
+          pending={passwordLink.state.pending}
+          error={passwordLink.state.error}
+          onRetry={() => void passwordLink.mint(invited.id)}
+          onClose={() => {
+            // Drop the credential with the dialog, never merely hide it.
+            passwordLink.clear();
+            setInvited(null);
+          }}
+        />
+      )}
     </form>
   );
 }
 
-function MemberRow({ member }: Readonly<{ member: User }>) {
+function MemberRow({
+  member,
+  canIssueLink,
+}: Readonly<{ member: User; canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const passwordLink = usePasswordLink();
+  const openLink = () => {
+    setLinkOpen(true);
+    void passwordLink.mint(member.id);
+  };
+  // Returns the refetch so each onSuccess can hand it back to react-query,
+  // which then keeps the mutation pending until the new roster lands. Without
+  // that the mutation settles first and the row renders the pre-change roster
+  // it still has cached — the member's OLD role, briefly, right after a
+  // successful change.
   const refresh = () => {
     setError(null);
-    qc.invalidateQueries({ queryKey: ["users-admin"] });
+    return qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
-  const onError = (e: Error) => setError(e.message);
+  const onError = (e: Error) => setError(problemMessageOf(e, t));
 
   const setRole = useMutation({
     mutationFn: async (role: Role) => {
@@ -183,7 +240,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         body: { role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -196,12 +253,12 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setConfirmOff(false);
-      refresh();
+      return refresh();
     },
     onError,
   });
@@ -212,7 +269,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -221,6 +278,27 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
 
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
+
+  // The role the select reads back. `roles` arrives only for an admin caller —
+  // which this card always is — and normally holds exactly one key. No key (an
+  // unassigned seat) and several keys both leave the select on its placeholder,
+  // because neither has one current role to show.
+  const heldRoles = member.roles ?? [];
+  const currentRole =
+    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
+  // A member holding SEVERAL roles is the case worth naming: any choice here
+  // replaces the whole set, so a neutral "Set role…" would let an admin strip
+  // privileges they never saw. The placeholder says what is held instead.
+  const placeholder =
+    heldRoles.length > 1
+      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
+      : t("users.setRole");
+  // While a change is in flight the select shows the role being applied — and
+  // it stays in flight until the refreshed roster lands (see refresh), so the
+  // row never renders the replaced role. A FAILED change leaves the select on
+  // the role still held, which is what keeps a retry live: re-picking the same
+  // target still fires onChange.
+  const inFlightRole = setRole.isPending ? setRole.variables : undefined;
 
   return (
     <li className="users-row">
@@ -231,27 +309,29 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
-      {/* Controlled at "" so the label always resets — re-selecting the same
-          role after a failed change still fires onChange. */}
-      <select
-        className="input"
+      {/* The unset state is the select's PLACEHOLDER, not an option: picking it
+          back would set no role, so it belongs on the closed face and nowhere in
+          the list. It is only ever seen when there is no single role to show. */}
+      <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
-        value=""
+        value={inFlightRole ?? currentRole}
+        placeholder={placeholder}
         disabled={pending}
-        onChange={(e) => {
-          const value = e.target.value;
+        onChange={(value) => {
           if (isOption(value, ROLES)) {
             setRole.mutate(value);
           }
         }}
-      >
-        <option value="">{t("users.setRole")}</option>
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {t(`users.role.${r}`)}
-          </option>
-        ))}
-      </select>
+        options={roleOptions(t)}
+      />
+      {/* Only an ACTIVE member can redeem a link — redemption updates an active
+          account and refuses otherwise — so offering one on a deactivated row
+          would hand the admin a link that is dead on arrival. */}
+      {canIssueLink && member.status === "active" && (
+        <Button small disabled={pending} onClick={openLink}>
+          {t("users.link.action")}
+        </Button>
+      )}
       {member.status === "active" && (
         <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
           {t("users.deactivate")}
@@ -274,11 +354,25 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         confirmLabel={t("users.deactivate")}
         confirmVariant="danger"
         pending={deactivate.isPending}
-        error={deactivate.error?.message}
+        error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>
       </ConfirmModal>
+      {linkOpen && (
+        <PasswordLinkModal
+          memberName={member.display_name}
+          link={passwordLink.state.link}
+          pending={passwordLink.state.pending}
+          error={passwordLink.state.error}
+          onRetry={openLink}
+          onClose={() => {
+            // Drop the credential with the dialog, never merely hide it.
+            passwordLink.clear();
+            setLinkOpen(false);
+          }}
+        />
+      )}
     </li>
   );
 }

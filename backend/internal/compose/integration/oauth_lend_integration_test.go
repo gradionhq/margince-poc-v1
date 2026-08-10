@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // approve is one consent decision that LENDS a named passport: the GET arms the
@@ -159,7 +161,7 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 	// The human whose authority was lent, derived from the row the flow itself
 	// wrote rather than restated — the audit actor must be that same human.
 	var human string
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT on_behalf_of FROM passport WHERE id = $1`, lent).Scan(&human); err != nil {
 		t.Fatalf("reading the lent passport's human: %v", err)
 	}
@@ -172,7 +174,7 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 		action, actorType, actorID, entityID string
 		afterJSON                            []byte
 	)
-	if err := o.owner.QueryRow(ctx, `
+	if err := o.Owner.QueryRow(ctx, `
 		SELECT action, actor_type, actor_id, entity_id, after
 		FROM audit_log WHERE entity_type = 'oauth_authorization_code'`).
 		Scan(&action, &actorType, &actorID, &entityID, &afterJSON); err != nil {
@@ -185,7 +187,7 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 	// It hangs off the code the consent produced, which is what makes the two
 	// rows one fact rather than two coincidences.
 	var codeID string
-	if err := o.owner.QueryRow(ctx, `SELECT id FROM oauth_authorization_code`).Scan(&codeID); err != nil {
+	if err := o.Owner.QueryRow(ctx, `SELECT id FROM oauth_authorization_code`).Scan(&codeID); err != nil {
 		t.Fatalf("reading the authorization code row: %v", err)
 	}
 	if entityID != codeID {
@@ -326,13 +328,13 @@ func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
 	// no way back. A second admin is what the guard is protecting against, so
 	// inviting one is what lets the real endpoint run.
 	var second userWire
-	if status := o.call(t, "POST", "/v1/users", anyMap{
+	if status := o.Call(t, "POST", "/v1/users", apptest.AnyMap{
 		"email": "second-admin@fable.test", "display_name": "Second Admin", "role": "admin",
 	}, nil, &second); status != http.StatusCreated {
 		t.Fatalf("inviting a second admin → %d", status)
 	}
 	granter := o.userIDByEmail(t, "granter@fable.test")
-	if status := o.call(t, "POST", "/v1/users/"+granter+"/deactivate", anyMap{
+	if status := o.Call(t, "POST", "/v1/users/"+granter+"/deactivate", apptest.AnyMap{
 		"reason": "left the company",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("deactivate → %d", status)
@@ -342,7 +344,7 @@ func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
 	// restores nothing else. Driven over SQL rather than the endpoint because
 	// the deactivation just revoked the only session this suite can call with,
 	// and whether an admin can log in is not what this test is about.
-	if _, err := o.owner.Exec(context.Background(),
+	if _, err := o.Owner.Exec(context.Background(),
 		`UPDATE app_user SET status = 'active' WHERE id = $1`, granter); err != nil {
 		t.Fatalf("reactivating the human: %v", err)
 	}
@@ -370,7 +372,7 @@ func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
 func (o *oauthEnv) userIDByEmail(t *testing.T, email string) string {
 	t.Helper()
 	var id string
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT id FROM app_user WHERE email = $1`, email).Scan(&id); err != nil {
 		t.Fatalf("resolving %s: %v", email, err)
 	}

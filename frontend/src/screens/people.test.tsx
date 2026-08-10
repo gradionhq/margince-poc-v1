@@ -9,7 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -42,6 +42,21 @@ function render(ui: ReactNode) {
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+// What a dropdown offers, in order. The options live in a portalled popup that
+// only exists while the control is open, and only one popup is open at a time —
+// so a list is read by opening its own control and closing it again, which is
+// also what lets two Type selects on the same form be compared.
+async function optionTextOf(user: UserEvent, control: HTMLElement) {
+  await user.click(control);
+  const text = within(screen.getByRole("listbox"))
+    .getAllByRole("option")
+    .map((option) => option.textContent);
+  // Closed by the trigger, not by Escape: these controls sit inside a modal,
+  // and Escape reaches the dialog too.
+  await user.click(control);
+  return text;
 }
 
 const anna = {
@@ -143,6 +158,17 @@ function stubFetch(
     if (pathname.endsWith("/strength")) {
       return jsonResponse(options?.strength ?? dormantStrength);
     }
+    if (pathname.endsWith("/360")) {
+      return jsonResponse({
+        as_of: "2026-08-04T09:00:00Z",
+        person: anna,
+        sections_omitted: [],
+        strength: options?.strength ?? dormantStrength,
+        last_inbound_at: "2026-07-01T09:00:00Z",
+        last_outbound_at: "2026-06-20T09:00:00Z",
+        network: { colleagues: [] },
+      });
+    }
     if (pathname.endsWith("/context")) {
       return jsonResponse({
         anchor: { type: "person", id: "p-1" },
@@ -170,7 +196,7 @@ describe("ContactsScreen — search/sort/pagination (P-14)", () => {
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByRole("searchbox"), {
+      fireEvent.change(screen.getByPlaceholderText("Search"), {
         target: { value: "anna" },
       });
       act(() => {
@@ -185,7 +211,7 @@ describe("ContactsScreen — search/sort/pagination (P-14)", () => {
     );
   });
 
-  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+  it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
         return jsonResponse({
@@ -201,8 +227,9 @@ describe("ContactsScreen — search/sort/pagination (P-14)", () => {
     render(<ContactsScreen />);
     await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
 
-    const loadMore = screen.getByRole("button", { name: "Load more" });
-    await userEvent.click(loadMore);
+    const next = screen.getByRole("button", { name: "Next ›" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(next);
 
     await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
     expect(urls.some((url) => url.includes("cursor=c1"))).toBe(true);
@@ -226,27 +253,31 @@ describe("ContactsScreen — rich create (P-15)", () => {
   // MessageKey string (fieldControl in create.tsx renders option.label
   // verbatim, so an untranslated key would leak straight to the DOM).
   it("shows translated Type option text, not the raw i18n key", async () => {
+    const user = userEvent.setup();
     stubFetch(async () => emptyPage());
     render(<ContactsScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.click(screen.getByText("Add email"));
-    await userEvent.click(screen.getByText("Add phone"));
+    await user.click(screen.getByTestId("new-record"));
+    await user.click(screen.getByText("Add email"));
+    await user.click(screen.getByText("Add phone"));
     const [emailType, phoneType] = screen.getAllByLabelText("Type");
 
-    const emailOptionText = within(emailType as HTMLElement)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(emailOptionText).toEqual(["", "Work", "Personal", "Other"]);
+    const emailOptionText = await optionTextOf(user, emailType);
+    expect(emailOptionText).toEqual(["Not set", "Work", "Personal", "Other"]);
     expect(emailOptionText).not.toContain("field.emailWork");
 
-    const phoneOptionText = within(phoneType as HTMLElement)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(phoneOptionText).toEqual(["", "Work", "Mobile", "Home", "Other"]);
+    const phoneOptionText = await optionTextOf(user, phoneType);
+    expect(phoneOptionText).toEqual([
+      "Not set",
+      "Work",
+      "Mobile",
+      "Home",
+      "Other",
+    ]);
     expect(phoneOptionText).not.toContain("field.phoneWork");
   });
 
   it("shows German Type option text under the de locale", async () => {
+    const user = userEvent.setup();
     stubFetch(async () => emptyPage());
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -258,13 +289,15 @@ describe("ContactsScreen — rich create (P-15)", () => {
         </LocaleProvider>
       </QueryClientProvider>,
     );
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.click(screen.getByText("E-Mail hinzufügen"));
-    const emailType = screen.getByLabelText("Typ");
-    const optionText = within(emailType)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(optionText).toEqual(["", "Geschäftlich", "Privat", "Sonstige"]);
+    await user.click(screen.getByTestId("new-record"));
+    await user.click(screen.getByText("E-Mail hinzufügen"));
+    const optionText = await optionTextOf(user, screen.getByLabelText("Typ"));
+    expect(optionText).toEqual([
+      "Nicht gesetzt",
+      "Geschäftlich",
+      "Privat",
+      "Sonstige",
+    ]);
   });
 
   it("posts full_name + emails + source:manual on submit", async () => {
@@ -736,7 +769,7 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
 });
 
 describe("PersonScreen — relationship-strength card (P-4)", () => {
-  it("renders the bucket badge, score, and all four factor labels", async () => {
+  it("leads with the relationship in words, not a verdict number", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -748,12 +781,7 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
         strength: {
           score: 72,
           bucket: "strong",
-          factors: {
-            recency: 0.9,
-            frequency: 0.6,
-            reciprocity: 0.5,
-            direction: 0.8,
-          },
+          factors: { recency: 0.9, frequency: 0.6, reciprocity: 0.5 },
           last_interaction: "2026-07-01T09:00:00Z",
           inbound_90d: 5,
           outbound_90d: 7,
@@ -763,18 +791,20 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
     );
     render(<PersonScreen id="p-1" />);
 
-    await waitFor(() => expect(screen.getByText("Strong")).toBeTruthy());
-    expect(screen.getByText("Score 72/100")).toBeTruthy();
-    expect(screen.getByText("Recency")).toBeTruthy();
-    expect(screen.getByText("Frequency")).toBeTruthy();
-    expect(screen.getByText("Reciprocity")).toBeTruthy();
-    expect(screen.getByText("Direction")).toBeTruthy();
-    expect(screen.getByText("90%")).toBeTruthy();
-    expect(screen.getByText("5 in · 7 out (90d)")).toBeTruthy();
-    expect(screen.getByText("Computed from 3 activities")).toBeTruthy();
+    // Both directions, never folded: which way went last is the fact a rep
+    // acts on, and one "last touch" date hides it.
+    await waitFor(() =>
+      expect(screen.getByText("They last wrote")).toBeTruthy(),
+    );
+    expect(screen.getByText("We last wrote")).toBeTruthy();
+
+    // The score is computed and inspectable, but it does not lead: nothing
+    // on the face of the card states it as a verdict.
+    expect(screen.queryByText("Score 72/100")).toBeNull();
+    expect(screen.getByText("How this is computed")).toBeTruthy();
   });
 
-  it("renders an honest 'no interactions yet' state for a dormant/score-0 record", async () => {
+  it("says plainly when nobody here has spoken to them", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -786,10 +816,13 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
     );
     render(<PersonScreen id="p-1" />);
 
-    await waitFor(() => expect(screen.getByText("Dormant")).toBeTruthy());
-    expect(screen.getByText("Score 0/100")).toBeTruthy();
-    expect(screen.getByText("No interactions yet")).toBeTruthy();
-    expect(screen.queryByText(/^0$/)).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Nobody here has a recorded exchange with them yet."),
+      ).toBeTruthy(),
+    );
+    // A bare 0 is the absence inventory this state exists to replace.
+    expect(screen.queryByText("Score 0/100")).toBeNull();
   });
 });
 
@@ -812,6 +845,7 @@ describe("PersonScreen — archived is read-only (P-3)", () => {
 
 describe("PersonScreen — relationship kinds by scope (P-5)", () => {
   it("offers deal_stakeholder (not org↔org) from a person, searches deals, confirms, and POSTs deal_id", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/relationships")) {
@@ -834,19 +868,24 @@ describe("PersonScreen — relationship kinds by scope (P-5)", () => {
     });
     render(<PersonScreen id="p-1" />);
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("People & companies"));
+    await user.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByTestId("add-relationship"));
+    await user.click(screen.getByTestId("add-relationship"));
 
     // A person can anchor employment + deal_stakeholder; the org↔org kinds
-    // (partner_of/…) need two orgs and must not be offered here.
-    const kind = screen.getByLabelText("Kind");
-    expect(within(kind).queryByText("Partner of")).toBeNull();
-    await userEvent.selectOptions(kind, "deal_stakeholder");
+    // (partner_of/…) need two orgs and must not be offered here. The kinds only
+    // exist in the DOM while the popup is open, hence the click before the
+    // absence is asserted.
+    await user.click(screen.getByLabelText("Kind"));
+    const kinds = screen.getByRole("listbox");
+    expect(within(kinds).queryByText("Partner of")).toBeNull();
+    await user.click(
+      within(kinds).getByRole("option", { name: "Deal stakeholder" }),
+    );
 
-    await userEvent.type(screen.getByPlaceholderText("Search…"), "q3");
+    await user.type(screen.getByPlaceholderText("Search…"), "q3");
     vi.useFakeTimers();
     try {
       act(() => {
@@ -856,14 +895,14 @@ describe("PersonScreen — relationship kinds by scope (P-5)", () => {
       vi.useRealTimers();
     }
     await waitFor(() => expect(screen.getByText("Q3 Renewal")).toBeTruthy());
-    await userEvent.click(screen.getByText("Q3 Renewal"));
+    await user.click(screen.getByText("Q3 Renewal"));
 
     // A meaningful confirmation after select, consistent with merge.
     expect(
       screen.getByText("Add a Deal stakeholder link to Q3 Renewal."),
     ).toBeTruthy();
 
-    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+    await user.click(screen.getByTestId("add-relationship-submit"));
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({
       person_id: "p-1",

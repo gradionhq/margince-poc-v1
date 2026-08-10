@@ -33,6 +33,9 @@ type Sink struct {
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
 	transactional  *TransactionalList
+	// files is the timeline module's attachment writer. Nil is a role that
+	// keeps no files: messages still land, and their attachments do not.
+	files FileKeeper
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -67,6 +70,14 @@ type MergeProposal struct {
 
 func NewSink(pool *pgxpool.Pool) *Sink {
 	return &Sink{pool: pool}
+}
+
+// WithFileKeeper returns a copy that keeps the files a captured message
+// carried. Without it the messages still land; their attachments do not.
+func (s *Sink) WithFileKeeper(files FileKeeper) *Sink {
+	c := *s
+	c.files = files
+	return &c
 }
 
 // WithStager returns a copy wired to the merge-staging path.
@@ -104,6 +115,11 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var dedupeFields json.RawMessage
 	var activityCreated bool
 	var decision counterpartyDecision
+	// internalOnly is set INSIDE the transaction and read after it commits.
+	// The skip has to commit — its breadcrumb is the proof that a message
+	// produced no rows, and returning ErrSkip from inside the callback would
+	// roll that proof back along with everything else (ADR-0082 §1).
+	var internalOnly bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
@@ -112,6 +128,21 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
 			return err
 		}
+
+		// The internal gate runs BEFORE the raw store, which is the whole point:
+		// raw capture is append-once evidence, so a message that gets that far
+		// has been kept whatever happens next. Colleague correspondence is not
+		// evidence of a customer relationship — it is two employees talking, and
+		// the CRM was never asked to hold it.
+		skip, err := s.internalOnlyTx(ctx, tx, rec)
+		if err != nil {
+			return err
+		}
+		if skip {
+			internalOnly = true
+			return s.logBreadcrumbTx(ctx, tx, actionCaptureInternalDropped, rec, reasonInternalOnly)
+		}
+
 		if err := storeRawCapture(ctx, tx, rec); err != nil {
 			return err
 		}
@@ -131,6 +162,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	})
 	if err != nil {
 		return datasource.EntityRef{}, err
+	}
+	if internalOnly {
+		// The breadcrumb is committed; only now does the connector learn the
+		// message was dropped. ErrSkip is counted by every sync loop and fails
+		// none of them, so the watermark advances past the message exactly as it
+		// does for any other skip — which is what makes the classification
+		// irreversible, and why the own-domain set is admin-visible (ADR-0082 §4).
+		return datasource.EntityRef{}, fmt.Errorf("%w: all participants are on the workspace's own domains", connector.ErrSkip)
 	}
 	if activityCreated {
 		// The tier ladder already decided, and recorded its decision, inside
@@ -206,12 +245,43 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	// The files, after the links: the account roll-up a captured file carries is
+	// read from the activity's own organization link, which does not exist until
+	// the line above has run.
+	//
+	// Staged HERE, inside the transaction and only once the message is known to
+	// be new. The bytes still land before the row that points at them — the put
+	// is not transactional — but two things now cannot happen. Colleague mail
+	// the internal gate drops never has its files written at all, which it did
+	// when staging ran ahead of that gate. And a replayed message writes no
+	// second copy: every pull minted fresh keys and then skipped the insert, so
+	// a routine backfill left an unreferenced object per attachment per pass.
+	staged, err := s.stageParts(ctx, rec)
+	if err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := s.recordParts(ctx, tx, id, rec, staged); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := s.logPartDrops(ctx, tx, rec); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the
 	// connector principal bound to THIS context is the only place the mailbox
 	// owner is known — every consumer downstream sees an activity whose
 	// captured_by reads `connector:gmail` and cannot recover the human behind
 	// it. The participant rows are the record of that fact.
 	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Kind, fields.Direction, rec.Counterparty.Email); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	// Everyone else who was in it — the CCs, the meeting's organizer and
+	// attendees. Separate from the two ends above because these are resolved
+	// against our own people here rather than promoted later.
+	// The recipient list is OURS to trust only when the provider attested our
+	// own mailbox owner sent this message — then the Cc line is what our user
+	// typed. On anything inbound it is the sender's text.
+	if err := StampFurtherParticipants(ctx, tx, id, fields.Kind,
+		rec.Counterparty.SentByOwner(), rec.Participants); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is

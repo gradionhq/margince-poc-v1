@@ -106,6 +106,10 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		// mail surface does.
 		WithChannelDelivery(send.Delivery).
 		WithChannelReachability(send.ChannelRecipients).
+		// Wired unconditionally, like the unsubscribe linker below: it needs
+		// nothing but the caller's transaction, so a deployment cannot forget
+		// it and leave an account-started send unable to resolve anyone.
+		WithRecipientDirectory(recipientDirectory{}).
 		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
 }
@@ -123,6 +127,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 		WithPublicBaseURL(send.PublicBaseURL).
 		WithSendAuthority(send.SendAuthority).
 		WithChannelReachability(send.ChannelRecipients).
+		WithRecipientDirectory(recipientDirectory{}).
 		WithDraftOutcome(send.DraftOutcome)
 }
 

@@ -21,7 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // defaultOfferTemplateLocale is the DE/EN launch default (WP7/OP-T02):
@@ -42,16 +43,6 @@ const defaultOfferTemplateLocale = "de-DE"
 // key in the one place both the Patch call and the two audit maps
 // (create, update) reference it.
 const offerTemplateIsDefaultField = "is_default"
-
-// offerTemplateWhereSeed and offerTemplateArchivedAtClause are the
-// list/read query-builder's repeated SQL fragments, named once so this
-// file's own occurrences aren't raw duplicated literals (the same
-// fragments recur, unnamed, in the package's older files — that backlog
-// is untouched here).
-const (
-	offerTemplateWhereSeed        = "1=1"
-	offerTemplateArchivedAtClause = " AND archived_at IS NULL"
-)
 
 // DuplicateTemplateNameError reports a live-row name collision
 // (offer_template_name_unique). The pre-check ahead of INSERT/UPDATE is
@@ -235,6 +226,25 @@ type ListOfferTemplatesInput struct {
 	Limit           *int
 	Locale          *string
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the vocabulary
+	// below.
+	Sort *string
+}
+
+// offerTemplateListFields is the template list's sortable vocabulary:
+// every column the list shows.
+// The template columns the list orders by.
+const (
+	offerTemplateLocaleColumn  = "locale"
+	offerTemplateDefaultColumn = "is_default"
+)
+
+var offerTemplateListFields = map[string]string{
+	listCreatedAtColumn:        storekit.KindTimestamp,
+	listUpdatedAtColumn:        storekit.KindTimestamp,
+	offerTemplateNameField:     fieldcatalog.TypeText,
+	offerTemplateLocaleColumn:  fieldcatalog.TypeText,
+	offerTemplateDefaultColumn: fieldcatalog.TypeBoolean,
 }
 
 // ListOfferTemplates pages the workspace's templates keyset-style
@@ -245,57 +255,47 @@ func (s *Store) ListOfferTemplates(ctx context.Context, in ListOfferTemplatesInp
 	if err := auth.Require(ctx, "offer_template", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
-
-	where := []string{offerTemplateWhereSeed}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
+	// Templates carry no custom columns, so the vocabulary is the fixed one
+	// and there is nothing to append to the select.
+	pre, err := buildListPrelude(ctx, "", offerTemplateListFields, nil,
+		in.Sort, in.Limit, in.Cursor, nil)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where := pre.where
 	if !in.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Locale != nil && *in.Locale != "" {
-		where = append(where, storekit.SQLf("locale = $%d", arg(*in.Locale)))
-	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, storekit.SQLf(offerTemplateLocaleColumn+" = $%d", pre.arg(*in.Locale)))
 	}
 
+	return runListPage(ctx, s, pre, "offer_template", offerTemplateColumns, nil, where, scanOfferTemplatePage,
+		func(t crmcontracts.OfferTemplate) (time.Time, ids.UUID) { return t.CreatedAt, ids.UUID(t.Id) })
+}
+
+// scanOfferTemplatePage drains one list query's rows: each template plus,
+// under a non-default sort, the row's trailing __cursor_key.
+func scanOfferTemplatePage(rows pgx.Rows, _ []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.OfferTemplate, []*string, error) {
 	var templates []crmcontracts.OfferTemplate
-	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+offerTemplateColumns+` FROM offer_template WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
-			args...)
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		t, err := scanOfferTemplate(rows, extra...)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			t, err := scanOfferTemplate(rows)
-			if err != nil {
-				return err
-			}
-			templates = append(templates, t)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(templates) > limit {
-			templates = templates[:limit]
-			last := templates[len(templates)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if templates == nil {
-		templates = []crmcontracts.OfferTemplate{}
+		templates = append(templates, t)
+		cursorKeys = append(cursorKeys, key)
 	}
-	return templates, page, err
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return templates, cursorKeys, nil
 }
 
 // UpdateOfferTemplateInput is a full-replace PUT: every writable field
@@ -401,7 +401,7 @@ const offerTemplateColumns = `id, workspace_id, name, locale, is_default, layout
 func readOfferTemplate(ctx context.Context, tx pgx.Tx, id ids.OfferTemplateID, archived storekit.ArchivedFilter) (crmcontracts.OfferTemplate, error) {
 	q := `SELECT ` + offerTemplateColumns + ` FROM offer_template WHERE id = $1`
 	if archived == storekit.LiveOnly {
-		q += offerTemplateArchivedAtClause
+		q += liveRowsClause
 	}
 	t, err := scanOfferTemplate(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -410,13 +410,16 @@ func readOfferTemplate(ctx context.Context, tx pgx.Tx, id ids.OfferTemplateID, a
 	return t, err
 }
 
-func scanOfferTemplate(row pgx.Row) (crmcontracts.OfferTemplate, error) {
+func scanOfferTemplate(row pgx.Row, extra ...any) (crmcontracts.OfferTemplate, error) {
 	var t crmcontracts.OfferTemplate
 	var id, wsID ids.UUID
 	var version int64
 
-	err := row.Scan(&id, &wsID, &t.Name, &t.Locale, &t.IsDefault, &t.Layout,
-		&version, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt)
+	dests := []any{
+		&id, &wsID, &t.Name, &t.Locale, &t.IsDefault, &t.Layout,
+		&version, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt,
+	}
+	err := row.Scan(append(dests, extra...)...)
 	if err != nil {
 		return t, err
 	}

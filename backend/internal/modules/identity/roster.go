@@ -35,6 +35,12 @@ type ListUsersInput struct {
 	// the admin management view; the default active-only roster serves the
 	// share/assignee pickers. The server gates the widened view to admins.
 	IncludeInactive bool
+	// WithRoles reads each member's role keys. Admin-only, and the reason the
+	// read is optional at all: the pickers every other member uses this roster
+	// for never render a role, so they should not pay per row to fetch one.
+	// The wire mapping withholds the keys independently — this makes the
+	// non-admin page not even carry them out of the database.
+	WithRoles bool
 }
 
 type userRow struct {
@@ -44,27 +50,52 @@ type userRow struct {
 	DisplayName string
 	Status      string
 	IsAgent     bool
-	CreatedAt   time.Time
+	// Roles are the member's assigned system role keys. NIL means the read did
+	// not ask for them; EMPTY means it did and the member holds none. Keeping
+	// those apart is what stops a caller that forgot the flag from reporting
+	// "holds no role" — a false statement about someone's privileges — and it
+	// is why the SQL returns NULL rather than '{}' on the unread path.
+	Roles     []string
+	CreatedAt time.Time
 }
 
-const userColumns = `id, workspace_id, email, display_name, status, is_agent, created_at`
+// roleKeys aggregates the member's assigned role keys, sorted so a member
+// holding more than one reads the same way on every request. Only an admin's
+// response carries them, and the picker reads every other member makes would
+// throw them away, so $1 gates the lookup: the ELSE arm makes the whole
+// aggregate unevaluated work the row never does. It correlates to the UNALIASED
+// app_user of the enclosing SELECT — every userColumns query spells it that
+// way; an alias there would silently break the correlation.
+const roleKeys = `CASE WHEN $1::boolean THEN
+	  (SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
+	     FROM role_assignment ra JOIN role r ON r.id = ra.role_id
+	     WHERE ra.user_id = app_user.id)
+	  ELSE NULL::text[] END`
 
+const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
+
+// $1 is the "read role keys?" flag on every user query below, so the aggregate
+// stays inside ONE fixed query string instead of two the caller picks between.
+// The untaken CASE arm's subquery is not EXECUTED (EXPLAIN ANALYZE with the
+// flag bound false shows no SubPlan running), so a non-admin page pays no
+// per-row role lookup — it still carries the arm in its plan. NULL (not read)
+// is deliberately not '{}' (read, holds none) — see userRow.Roles.
 const listUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
-	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
+	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
-	LIMIT $3`
+	LIMIT $4`
 
 const listUsersFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
-	  AND (display_name ILIKE $1 OR email ILIKE $1)
-	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
+	  AND (display_name ILIKE $2 OR email ILIKE $2)
+	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
-	LIMIT $4`
+	LIMIT $5`
 
 // The admin management roster: every non-archived member regardless of status,
 // so a deactivated member is visible to reactivate.
@@ -72,34 +103,34 @@ const listUsersAllQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
-	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
+	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
-	LIMIT $3`
+	LIMIT $4`
 
 const listUsersAllFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
-	  AND (display_name ILIKE $1 OR email ILIKE $1)
-	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
+	  AND (display_name ILIKE $2 OR email ILIKE $2)
+	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
-	LIMIT $4`
+	LIMIT $5`
 
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
-	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.CreatedAt)
+	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.Roles, &u.CreatedAt)
 	return u, err
 }
 
-const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $1 AND archived_at IS NULL`
+const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $2 AND archived_at IS NULL`
 
 // GetUser reads one member by id regardless of status (RLS-scoped to the
-// caller's workspace) — the read the admin write handlers return after a
-// mutation. ErrNotFound when absent or archived.
+// caller's workspace) — the read every admin write returns after a mutation, so
+// it always asks for the role keys. ErrNotFound when absent or archived.
 func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
 	var u userRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, userID))
+		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, true, userID))
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -122,6 +153,7 @@ func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, 
 	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
 		plain:     plain,
 		filtered:  filtered,
+		leadArgs:  []any{in.WithRoles},
 		scan:      scanUser,
 		cursorKey: func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID },
 	})
@@ -187,9 +219,11 @@ func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, 
 	})
 }
 
-// rosterCursor is the decoded keyset position both roster lists page from:
-// the house (created_at, id) tuple, nil when the caller sent no cursor (the
-// $1::timestamptz IS NULL branch in both queries then matches every row).
+// rosterCursor is the decoded keyset position both roster lists page from: the
+// house (created_at, id) tuple, nil when the caller sent no cursor — the
+// `::timestamptz IS NULL` branch then matches every row. Its bind NUMBER differs
+// per list (the user queries spend $1 on the role-key flag), which is exactly
+// why this says which branch rather than which parameter.
 type rosterCursor struct {
 	createdAt *time.Time
 	id        *ids.UUID
@@ -212,8 +246,13 @@ func decodeRosterCursor(token *string) (rosterCursor, error) {
 // fixed query strings (unfiltered + q-filtered), the row scanner, and the
 // keyset-cursor extractor.
 type rosterQuery[T userRow | teamRow] struct {
-	plain     string
-	filtered  string
+	plain    string
+	filtered string
+	// leadArgs bind BEFORE the pager's own cursor/limit args, so a row type
+	// that needs its own parameter — the user roster's "read role keys?" flag —
+	// declares it here and takes $1, leaving the pager's numbering identical
+	// for a list that declares none.
+	leadArgs  []any
 	scan      func(pgx.Row) (T, error)
 	cursorKey func(T) (time.Time, ids.UUID)
 }
@@ -239,9 +278,11 @@ func listRosterPage[T userRow | teamRow](
 		var rows pgx.Rows
 		var err error
 		if q != nil && *q != "" {
-			rows, err = tx.Query(ctx, spec.filtered, "%"+*q+"%", after.createdAt, after.id, limit+1)
+			args := append(append([]any{}, spec.leadArgs...), "%"+*q+"%", after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.filtered, args...)
 		} else {
-			rows, err = tx.Query(ctx, spec.plain, after.createdAt, after.id, limit+1)
+			args := append(append([]any{}, spec.leadArgs...), after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.plain, args...)
 		}
 		if err != nil {
 			return err

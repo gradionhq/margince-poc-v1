@@ -12,6 +12,10 @@ fixture:
       content: owner_id=user_42
   tools:
     - name: list_open_deals
+      description: >-
+        List the deals this rep currently has open. It returns the deals themselves,
+        not a count or a summary of them, and it needs the owner whose deals are
+        wanted.
       input_schema:
         type: object
         properties:
@@ -19,6 +23,9 @@ fixture:
             type: string
         required: [owner_id]
     - name: log_activity
+      description: >-
+        Record a note against one deal's timeline. It needs the deal it belongs to,
+        which no part of this window supplies on its own.
       input_schema:
         type: object
         properties:

@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { OfferScreen } from "./offers";
 
@@ -759,6 +760,7 @@ describe("offer lifecycle actions (OP-8/OP-9/OP-10)", () => {
 
 describe("edit offer header modal", () => {
   it("lets the user change the currency and applies the response directly (no refetch)", async () => {
+    const user = userEvent.setup();
     const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
     stubOfferWithHeaderPatch(
       baseOffer,
@@ -769,9 +771,9 @@ describe("edit offer header modal", () => {
     await screen.findByText("ANG-2026-0007");
     const invalidateSpy = vi.spyOn(client, "invalidateQueries");
 
-    await userEvent.click(screen.getByTestId("edit-offer-header"));
-    await userEvent.selectOptions(screen.getByLabelText("Currency"), "USD");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByTestId("edit-offer-header"));
+    await pickOption(user, screen.getByLabelText("Currency"), "USD");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].ifMatch).toBe("3");

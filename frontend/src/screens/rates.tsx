@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCanWrite } from "../app/capability";
+import { useCanUpsert } from "../app/capability";
 import {
   Button,
   DataTable,
@@ -12,7 +12,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import "./rates.css";
 
 type FxRate = components["schemas"]["FxRate"];
@@ -54,7 +54,7 @@ function RefreshFromSources({
     mutationFn: async () => {
       const { error } = await api.POST(path);
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
   });
@@ -79,7 +79,7 @@ function RefreshFromSources({
           role="alert"
           style={{ color: "var(--danger)" }}
         >
-          {refresh.error.message}
+          {problemMessageOf(refresh.error, t)}
         </span>
       ) : null}
     </span>
@@ -90,10 +90,13 @@ function RefreshFromSources({
 
 export function FxRatesCard() {
   const t = useT();
-  // create, not update: setting a rate for a currency pair and day is a Set
-  // upsert the server gates on fx_rate:create, and correcting the same day's
-  // rate runs through that same path. No endpoint checks fx_rate:update.
-  const canManage = useCanWrite("fx_rate", "create");
+  // Either write grant, because the endpoint is one upsert: setting a rate for
+  // a (currency, day) inserts under fx_rate:create and replaces an existing one
+  // under fx_rate:update, and which it will be is only known once the server
+  // has read the row. It admits on either and demands the specific verb inside
+  // the transaction, so asking for one here would hide the editor from a
+  // principal the server would have let write.
+  const canManage = useCanUpsert("fx_rate");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["fx-rates"],
@@ -102,7 +105,7 @@ export function FxRatesCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -181,14 +184,14 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fx-rates"] });
       onClose();
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => setError(problemMessageOf(err, t)),
   });
 
   return (
@@ -258,8 +261,9 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
 export function ModelCostsCard() {
   const t = useT();
-  // create, for the same reason as FxRatesCard above.
-  const canManage = useCanWrite("ai_model_rate", "create");
+  // Either write grant, for the same reason as FxRatesCard above: one endpoint,
+  // insert or replace, the specific verb resolved inside the transaction.
+  const canManage = useCanUpsert("ai_model_rate");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["ai-model-rates"],
@@ -268,7 +272,7 @@ export function ModelCostsCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -373,14 +377,14 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ai-model-rates"] });
       onClose();
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => setError(problemMessageOf(err, t)),
   });
 
   const field = (

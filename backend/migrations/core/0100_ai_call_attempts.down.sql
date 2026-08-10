@@ -7,7 +7,16 @@ DROP TABLE IF EXISTS ai_call_config;
 -- lane row (it assumes every row is a completion terminal) — delete both
 -- before the columns that distinguish them disappear, or they survive as
 -- ordinary rows that double-count calls under the reverted schema.
-DELETE FROM ai_call WHERE NOT is_terminal OR kind = 'embedding';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM ai_call
+    WHERE (NOT is_terminal OR kind = 'embedding')
+      AND ai_call.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE ai_call DROP CONSTRAINT ai_call_source_check;
 ALTER TABLE ai_call DROP CONSTRAINT ai_call_kind_check;

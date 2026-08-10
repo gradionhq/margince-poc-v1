@@ -49,7 +49,7 @@ func TestMeResponseAuthorizationUsesTheContractSpelling(t *testing.T) {
 			Objects  map[string]map[string]bool `json:"objects"`
 		} `json:"authorization"`
 	}
-	raw, err := json.Marshal(meResponse(id, crmcontracts.Native, false))
+	raw, err := json.Marshal(NewHandlers(&Service{}).meResponse(id, crmcontracts.Native))
 	if err != nil {
 		t.Fatalf("marshalling /me: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestMeResponseSeatTypeFailsClosed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := meResponse(Identity{SeatType: tt.seat}, crmcontracts.Native, false)
+			got := NewHandlers(&Service{}).meResponse(Identity{SeatType: tt.seat}, crmcontracts.Native)
 			if got.Authorization == nil {
 				t.Fatal("authorization must always be present on a human /me")
 			}

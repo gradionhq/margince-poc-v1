@@ -4,8 +4,15 @@
 package compose
 
 import (
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -15,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/finance"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -46,5 +54,20 @@ type (
 	overlayHandlers      = overlay.Handlers
 	webhooksHandlers     = webhooks.Handlers
 	org360Handlers       = org360.Handlers
+	person360Handlers    = person360.Handlers
 	orgBriefHandlers     = orgbrief.Handlers
+	orgDossierHandlers   = orgdossier.Handlers
+	accountDraftHandlers = accountdraft.Handlers
+	financeHandlers      = finance.Handlers
 )
+
+// wirePerson360 binds the person record page — the organization page's
+// sibling: same one-transaction assembly, same omitted-and-named sections,
+// same overlay refusal. Its own function so the composition root reads as a
+// list of what is wired rather than how each piece is built.
+func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
+	srv.person360Handlers = person360.NewHandlers(
+		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now),
+		srv.sorDispatch.isOverlay,
+	)
+}

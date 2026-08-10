@@ -22,21 +22,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/finance"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -75,6 +79,8 @@ type Server struct {
 	connectorHandlers
 	backfillHandlers
 	captureSettingsHandlers
+	ownDomainHandlers
+	installationSettingsHandlers
 	consumerMailDomainHandlers
 	channelHandlers
 	filteredExportHandlers
@@ -91,7 +97,11 @@ type Server struct {
 	dataResetHandlers
 	jobHealthHandlers
 	org360Handlers
+	person360Handlers
 	orgBriefHandlers
+	orgDossierHandlers
+	accountDraftHandlers
+	financeHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -109,11 +119,21 @@ type Server struct {
 	// ONE group — transport, authorization server, both discovery documents —
 	// and routes.go, where the group is mounted, carries why.
 	mcpConnectorEnabled bool
+	// appViews holds the MCP App documents this api is serving. Nil for the
+	// worker and for an api that composed no views — see mcpappviews.go.
+	appViews *apps.Provider
 
 	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
 	// admits — derived by WithMCPResource from the configured
 	// --public-base-url, never from a request header a caller controls.
 	mcpAllowedOrigin string
+
+	// metricsToken gates /metrics, injected by WithMetricsToken from the
+	// deployment's --metrics-token. Unlike /healthz and /readyz it discloses
+	// per-workspace job-runtime telemetry (queue depth, which connectors are
+	// configured), so it stays off — routes.go answers 404 rather than
+	// serving it — until an operator opts in by setting one.
+	metricsToken string
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -215,6 +235,24 @@ type Server struct {
 	// at all. WithOverlayMeter Rebinds this shared pointer to the live
 	// Redis-backed meter at boot.
 	overlayMeter *overlaybudget.Meter
+	// quotaMeter is the MCP-SESS-READS bound this role enforces on agent
+	// the five MCP-SESS-* counters, shared by everything that must agree about
+	// them: the admission gate that REFUSES on them, both doors' registries that
+	// CHARGE them, the approvals service that WIDENS one when a lender says
+	// continue, and the model path that charges the soft cost share.
+	//
+	// Always non-nil (newServer constructs it unconditionally, fail-closed
+	// with no Redis), and WithAgentQuota Rebinds this ONE pointer to the live
+	// Redis-backed meter at boot — so no option order can leave the gate
+	// enforcing a different counter from the one the registry pays into.
+	quotaMeter *agentquota.Meter
+	// retrievalEmbedder is this role's embed lane for REQUEST-TIME ranking —
+	// the same ModelPath.Embedder the background reindex and drift sweep use,
+	// bound here so the hybrid arm's vector half is available to a caller and
+	// not only to a job (#629). Nil in a role that resolved no model path, and
+	// nil is honest rather than broken: every surface that ranks says which
+	// lane ranked it.
+	retrievalEmbedder search.Embedder
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -232,6 +270,25 @@ type Server struct {
 	// peopleStore is shared by the 360 and the account brief: the brief reads
 	// the company's curated profile through it, under the caller's own gates.
 	peopleStore *people.Store
+
+	// orgDossierSvc and orgGrowthFitSvc are the company view's other two
+	// generated surfaces. They are held for WithGrowthFit's sake: rebinding one
+	// lane must not silently drop the other's handler, which is what building a
+	// fresh handler set from a half-remembered pair would do.
+	orgDossierSvc   *orgdossier.Service
+	orgGrowthFitSvc *orgdossier.GrowthFitService
+
+	// resetRuntime is the non-Postgres purge set POST /admin/reset-data runs —
+	// the job queue, the event bus, the cache-flush announcement — injected by
+	// WithResetRuntime. Zero value = a Postgres-only reset, which is the honest
+	// posture for a role that wired no queue and no bus.
+	//
+	// dataResetHandlers holds a POINTER to this field rather than a copy:
+	// options run in the order the caller passed them, so a copy taken by
+	// WithDataReset would be the zero value whenever WithResetRuntime is listed
+	// after it — silently reducing a full wipe to a table sweep, with nothing
+	// failing to say so.
+	resetRuntime ResetRuntime
 
 	// sorDispatch is the per-workspace native/overlay provider dispatch:
 	// the ONE instance both the ADR-0055 admission layer (contractAPI's
@@ -255,7 +312,7 @@ var _ crmcontracts.ServerInterface = Server{}
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
 	// note): active cf_* deal columns ride deal payloads on both surfaces.
-	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
+	dealsH := deals.NewHandlers(pool, identity.BaseCurrencyOf).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
 	// serves the already-bound singleton organization.
@@ -267,6 +324,11 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		opt(&srv, pool)
 	}
 	srv.applySendPath(pool)
+	// The tool registry is built HERE, after the options, on the Server that is
+	// actually served — so every engine an option installed is one the tools can
+	// reach. The rebuild each option performs keeps a half-configured Server
+	// coherent while the loop runs; this one is what the surface ends up with.
+	srv.rebuildToolRegistry(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
 	// ONE identity.Service for the whole process: contractAPI's admission
@@ -286,7 +348,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: newActivitiesHandlers(pool),
-		approvalsHandlers:  approvalsHandlersWithEffects(pool),
 		searchHandlers:     search.NewHandlers(pool),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
@@ -299,6 +360,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
+		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(pool),
 		automationHandlers: automation.NewHandlers(pool),
@@ -314,7 +376,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
-		quotasHandlers:       quotas.NewHandlers(pool),
+		quotasHandlers:       quotas.NewHandlers(pool, identity.BaseCurrencyOf),
 		// The accept-write's default engine rides the honest-empty NoOp
 		// extractor (nothing is ever grounded, so nothing is acceptable);
 		// WithExtractor rebuilds it together with the activities read so
@@ -326,7 +388,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the environment). Without it those paths answer an honest 503.
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
-		dealsStore:       deals.NewStore(pool),
+		dealsStore:       deals.NewStore(pool, identity.BaseCurrencyOf),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
@@ -334,7 +396,16 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
 		// Redis client + config.
 		overlayMeter: failClosedOverlayMeter(),
+		// Fail-closed until WithAgentQuota Rebinds it: a role serving the agent
+		// surface with no Redis cannot tell whether an agent has passed its
+		// read bound, and answers that it has.
+		quotaMeter: agentquota.New(nil, agentquota.Limits{}, agentquota.DefaultWindow),
 	}
+	// After the literal, because the decision path takes the SAME meter pointer
+	// the gate and the registry take: a step-up refused against one counter and
+	// released into another would read, from the human's side, as an approval
+	// that did nothing.
+	srv.approvalsHandlers = approvalsHandlersWithEffects(pool, srv.quotaMeter, log)
 	srv.wireCaptureSettingsSurface(pool)
 	srv.wireExportSurface(pool, log)
 	srv.wireOnboardingSurface(pool)
@@ -343,9 +414,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// the vault-backed live-incumbent resolver that lets force-fresh reads and
 	// HUMAN write-back reach HubSpot (an AGENT write is refused before it gets
 	// there — egressbackstop.go).
-	// The closure captures srv and reads srv.vault LAZILY at request time, so
-	// building it here (before WithKeyvault installs the vault) is fine.
-	srv.rebuildToolRegistry(pool)
+	//
+	// The tool registry is NOT built here: newServer returns by value and New
+	// applies the options to its own copy, so a registry built on this one
+	// would hold a Server that WithScrape and WithDeepRead never reach — an
+	// enrich tool answering "not configured" while its REST twin works. New
+	// builds it after the option loop, where the Server is the one served.
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
@@ -361,8 +435,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The closure captures s and reads s.vault LAZILY at request time, so
 	// rebuilding before WithKeyvault installs the vault is fine.
-	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
+	// The gate and the registry take the SAME meter pointer: one refuses on the
+	// bound, the other pays into it, and a surface where those were two
+	// counters would step an agent up against a number nothing was charging.
+	s.toolRegistry = registryWithGate(pool,
+		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
+		s.retrievalEmbedder,
+		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

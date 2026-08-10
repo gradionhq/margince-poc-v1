@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -43,13 +44,13 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := o.call(t, "POST", "/v1/people", anyMap{"full_name": "JWS Target"}, nil, &person); status != http.StatusCreated {
+	if status := o.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "JWS Target"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 	var problem struct {
 		Detail string `json:"detail"`
 	}
-	if status := o.call(t, "DELETE", "/v1/people/"+person.ID, nil, agentBearer, &problem); status != http.StatusForbidden {
+	if status := o.Call(t, "DELETE", "/v1/people/"+person.ID, nil, agentBearer, &problem); status != http.StatusForbidden {
 		t.Fatalf("agent archive → %d, want staged 403", status)
 	}
 	approvalID := extractStagedApprovalID(t, problem.Detail)
@@ -57,7 +58,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	var approved struct {
 		ApprovalToken *string `json:"approval_token"`
 	}
-	if status := o.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, &approved); status != http.StatusOK {
+	if status := o.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, nil, &approved); status != http.StatusOK {
 		t.Fatalf("approve → %d", status)
 	}
 	if approved.ApprovalToken == nil || strings.Count(*approved.ApprovalToken, ".") != 2 {
@@ -70,7 +71,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var wsRaw string
-	if err := o.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, o.slug).Scan(&wsRaw); err != nil {
+	if err := o.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, o.Slug).Scan(&wsRaw); err != nil {
 		t.Fatal(err)
 	}
 	wsID, err := ids.Parse(wsRaw)
@@ -134,7 +135,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer closeBody(t, resp)
+		defer apptest.CloseBody(t, resp)
 		raw, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(raw)
 	}
@@ -151,11 +152,11 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	// Revocation binds between two calls: kill the passport via the
 	// session surface, the next hosted call answers 401 + RFC 9728.
 	var passportID string
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT id FROM passport WHERE token_hash = $1`, sha256Hex(token)).Scan(&passportID); err != nil {
 		t.Fatal(err)
 	}
-	if status := o.call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {
+	if status := o.Call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("revoke → %d", status)
 	}
 	req, _ := http.NewRequest(http.MethodPost, hosted.URL, strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`))
@@ -164,7 +165,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), "oauth-protected-resource") {
 		t.Fatalf("revoked bearer → %d %q, want 401 + RFC 9728 pointer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}

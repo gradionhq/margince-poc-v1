@@ -18,8 +18,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -71,12 +73,26 @@ type whatsSlippingThisWeek struct {
 func (t whatsSlippingThisWeek) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "whats_slipping_this_week", Title: "What's slipping this week", Version: toolVersionV1,
+		Description:   whatsSlippingCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals",
 		InputSchema: schema(`{"type":"object","properties":{
 			"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Cap the ranked set; omit for the full evidenced set"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[WhatsSlippingResult](),
+		// The view renders this tool's own answer as a ranked list with each
+		// deal's evidence under it. What it buys over the text is the evidence
+		// beside the claim: the rank is only defensible if the reason for it is
+		// readable in the same glance.
+		//
+		// It hangs off THIS tool and not also off run_report, which the product
+		// concept names alongside it. A view reads one payload shape; run_report
+		// answers a different {columns, rows} shape per report and per plan, so
+		// one document over both would either render half of them wrongly or
+		// become a generic table renderer, which is a different product. The
+		// payload shape is hand-mirrored across the Go/TS seam with no gate
+		// (#808), which makes a shape that varies per call strictly worse.
+		UI: &mcp.ToolUI{ResourceURI: apps.PipelineReviewURI},
 	}
 }
 
@@ -95,11 +111,15 @@ func (t whatsSlippingThisWeek) Handle(ctx context.Context, in json.RawMessage) (
 	if args.Limit > 0 && len(ranked) > args.Limit {
 		ranked = ranked[:args.Limit]
 	}
-	items := make([]map[string]any, 0, len(ranked))
+	// The ranked items carry names, amounts and evidence snippets read off deals
+	// this call does not hand over, so the answer is tainted with their content.
+	noteDerivedContent(ctx)
+	items := make([]SlippingDealItem, 0, len(ranked))
 	for i, it := range ranked {
+		noteEvidence(ctx, datasource.EntityDeal, it.deal.DealID)
 		items = append(items, it.wire(i+1))
 	}
-	return json.Marshal(map[string]any{"deals": items})
+	return json.Marshal(WhatsSlippingResult{Deals: items})
 }
 
 // --- draft_follow_ups_for (🟢 draft — proposes, never sends) ---
@@ -121,13 +141,14 @@ type draftFollowUpsFor struct {
 func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "draft_follow_ups_for", Title: "Draft follow-ups", Version: toolVersionV1,
+		Description:   draftFollowUpsForCopy.render(),
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + draftEmail + logActivity",
 		InputSchema: schema(`{"type":"object","required":["segment"],"properties":{
 			"segment":{"type":"string","enum":["slipping"],"description":"The deal set to draft follow-ups for; drafts land on each deal's timeline and are NEVER sent"},
 			"limit":{"type":"integer","minimum":1,"maximum":25,"description":"How many of the top-ranked deals to draft for; omit it for 25, the server-side ceiling on records one call may write"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[DraftFollowUpsResult](),
 	}
 }
 
@@ -161,20 +182,23 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 	if ceiling := followUpCap(args.Limit); len(ranked) > ceiling {
 		ranked = ranked[:ceiling]
 	}
-	drafts := make([]map[string]any, 0, len(ranked))
+	noteDerivedContent(ctx)
+	drafts := make([]FollowUpDraft, 0, len(ranked))
 	for _, it := range ranked {
 		activityID, summary, err := t.draft(ctx, it.deal)
 		if err != nil {
 			return nil, err
 		}
-		drafts = append(drafts, map[string]any{
-			"deal_id":           it.deal.DealID,
-			"draft_activity_id": activityID,
-			"summary":           summary,
-			"evidence":          it.evidence,
+		noteEvidence(ctx, datasource.EntityDeal, it.deal.DealID)
+		noteEvidence(ctx, datasource.EntityActivity, activityID)
+		drafts = append(drafts, FollowUpDraft{
+			DealID:          it.deal.DealID,
+			DraftActivityID: activityID,
+			Summary:         summary,
+			Evidence:        it.evidence,
 		})
 	}
-	return json.Marshal(map[string]any{"segment": args.Segment, "drafts": drafts})
+	return json.Marshal(DraftFollowUpsResult{Segment: args.Segment, Drafts: drafts})
 }
 
 // followUpCap resolves the write ceiling for one call: the caller may ask
@@ -192,23 +216,18 @@ func followUpCap(limit int) int {
 type slippingItem struct {
 	deal      SlippingDeal
 	idleSince *time.Time
-	evidence  []map[string]string
+	evidence  []SlippingEvidence
 }
 
-func (it slippingItem) wire(rank int) map[string]any {
-	out := map[string]any{
-		"rank":     rank,
-		"deal_id":  it.deal.DealID,
-		"name":     it.deal.Name,
-		"evidence": it.evidence,
+func (it slippingItem) wire(rank int) SlippingDealItem {
+	return SlippingDealItem{
+		Rank:        rank,
+		DealID:      it.deal.DealID,
+		Name:        it.deal.Name,
+		AmountMinor: it.deal.AmountMinor,
+		Currency:    it.deal.Currency,
+		Evidence:    it.evidence,
 	}
-	if it.deal.AmountMinor != nil {
-		out["amount_minor"] = *it.deal.AmountMinor
-	}
-	if it.deal.Currency != nil {
-		out["currency"] = *it.deal.Currency
-	}
-	return out
 }
 
 // rankSlipping applies the no-guess gate and the deterministic order.
@@ -225,15 +244,15 @@ func rankSlipping(candidates []SlippingDeal) []slippingItem {
 			if d.LastActivityAt == nil {
 				source = "deal.created_at"
 			}
-			it.evidence = append(it.evidence, map[string]string{
-				"source":  source,
-				"snippet": "no recorded activity since " + it.idleSince.UTC().Format("2006-01-02"),
+			it.evidence = append(it.evidence, SlippingEvidence{
+				Source:  source,
+				Snippet: "no recorded activity since " + it.idleSince.UTC().Format("2006-01-02"),
 			})
 		}
 		if d.CloseOverdue && d.ExpectedCloseDate != nil {
-			it.evidence = append(it.evidence, map[string]string{
-				"source":  "deal.expected_close_date",
-				"snippet": "expected close " + d.ExpectedCloseDate.UTC().Format("2006-01-02") + " is past due",
+			it.evidence = append(it.evidence, SlippingEvidence{
+				Source:  "deal.expected_close_date",
+				Snippet: "expected close " + d.ExpectedCloseDate.UTC().Format("2006-01-02") + " is past due",
 			})
 		}
 		if len(it.evidence) == 0 {

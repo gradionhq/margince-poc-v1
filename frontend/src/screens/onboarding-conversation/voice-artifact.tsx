@@ -1,6 +1,8 @@
 import { Check, Loader } from "lucide-react";
 import type { components } from "../../api/schema";
+import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
+import type { MessageKey } from "../../i18n/en";
 import type { BuildStage } from "./conversation-machine";
 import { bandLabelKeys } from "./narration";
 import type { CorpusManifestEntry } from "./use-voice-corpus";
@@ -27,6 +29,16 @@ const stageLabelKeys = {
   activate: "ob.conv.build.activate",
 } as const;
 
+// Which outcome the reader is leaving the voice act from: picks the pinned
+// bar's status line, and only "failed" ever offers a retry beside Continue.
+export type VoiceContinueReason = "skipped" | "failed" | "deferred";
+
+const continueStatusKeys: Record<VoiceContinueReason, MessageKey> = {
+  skipped: "ob.conv.voice.continueSkippedStatus",
+  failed: "ob.conv.voice.continueFailedStatus",
+  deferred: "ob.conv.voice.continueDeferredStatus",
+};
+
 type VoiceActArtifactProps = Readonly<{
   summary: CorpusSummary | null;
   manifest: readonly CorpusManifestEntry[];
@@ -34,6 +46,17 @@ type VoiceActArtifactProps = Readonly<{
   stage: BuildStage | null;
   /** Whether a build is in flight (queued counts: the tracker shows). */
   building: boolean;
+  /**
+   * The act's own primary action, pinned to the surface's foot — never the
+   * rail. Absent while a scene owns Continue itself (collecting, the
+   * speaker decision, a succeeded result).
+   */
+  continueBar?: Readonly<{
+    reason: VoiceContinueReason;
+    onContinue: () => void;
+    retryPending?: boolean;
+    onRetry?: () => void;
+  }>;
 }>;
 
 export function VoiceActArtifact({
@@ -41,6 +64,7 @@ export function VoiceActArtifact({
   manifest,
   stage,
   building,
+  continueBar,
 }: VoiceActArtifactProps) {
   const t = useT();
   return (
@@ -82,6 +106,27 @@ export function VoiceActArtifact({
         </>
       )}
       {building && <BuildTracker stage={stage} />}
+      {continueBar && (
+        <div className="ob-triage-continue">
+          <p className="ob-triage-continue-status" role="status">
+            {t(continueStatusKeys[continueBar.reason])}
+          </p>
+          <div className="ob-voice-continue-acts">
+            {continueBar.reason === "failed" && continueBar.onRetry && (
+              <Button
+                small
+                disabled={continueBar.retryPending}
+                onClick={continueBar.onRetry}
+              >
+                {t("ob.conv.voice.retryBuild")}
+              </Button>
+            )}
+            <Button small variant="primary" onClick={continueBar.onContinue}>
+              {t("ob.conv.results.continue")}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

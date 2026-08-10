@@ -85,6 +85,23 @@ func (s *Store) PersonStrength(ctx context.Context, personID ids.PersonID, now t
 	return out, nil
 }
 
+// PersonStrengthTx is PersonStrength inside a caller-opened transaction —
+// the composite record read. Same gates in the same order.
+func (s *Store) PersonStrengthTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time) (RelationshipStrength, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return RelationshipStrength{}, err
+	}
+	if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		return RelationshipStrength{}, err
+	}
+	var out RelationshipStrength
+	if err := strengthInputs(ctx, tx, personID, now, &out); err != nil {
+		return RelationshipStrength{}, err
+	}
+	out.finish(now)
+	return out, nil
+}
+
 // AccountStrength is the §4 org roll-up: the strongest current contact's
 // score, which contact carries it, and how many contacts it was chosen
 // from. The two extra facts exist because the number alone is not

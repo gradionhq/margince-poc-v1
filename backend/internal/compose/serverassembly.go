@@ -17,8 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -64,7 +66,14 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 	// read the auto-enrich posture (all roles), toggle it (admin/ops).
-	s.captureSettingsHandlers = captureSettingsHandlers{store: capture.NewSettings(pool)}
+	s.captureSettingsHandlers = captureSettingsHandlers{store: capture.NewSettings(NewSettingsStore(pool))}
+	s.ownDomainHandlers = ownDomainHandlers{store: capture.NewOwnDomainStore(pool)}
+	// The installation's own identity and reporting basis (ADR-0090/A135):
+	// name, reporting zone, base currency — the last of which locks once a
+	// deal has converted against it (ADR-0085 §7).
+	s.installationSettingsHandlers = installationSettingsHandlers{
+		store: identity.NewInstallationSettings(pool, NewSettingsStore(pool)),
+	}
 	// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
 	// domain control, and the only way an operator corrects a shipped
 	// baseline that is wrong about one of their customers.
@@ -128,8 +137,31 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
+	// The account-started draft reads through the same 360 and writes nothing,
+	// so it needs no pool of its own. Nil lane here for the same reason as the
+	// brief's: WithAccountDraft binds the api role's, and without it the
+	// endpoint answers from its deterministic floor rather than 501-ing.
+	s.accountDraftHandlers = accountdraft.NewHandlers(
+		accountdraft.NewService(s.org360Svc, nil), s.sorDispatch.isOverlay)
+	// The dossier reads the SAME people store the 360 and the brief read, so
+	// the three cannot drift about what a company's facts are. No model lane is
+	// wired yet: every assembly is the deterministic floor and says so.
+	// Both lanes are nil here: WithCompanyDossier and WithGrowthFit bind the
+	// api role's, and without them each surface serves its deterministic floor.
+	// The two floors differ in kind — the dossier's still describes the company,
+	// where growth fit's can only abstain — which is why they are separate
+	// options rather than one.
+	s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, nil, "", time.Now)
+	s.orgGrowthFitSvc = orgdossier.NewGrowthFitService(
+		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
+	s.orgDossierHandlers = orgdossier.NewHandlers(
+		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,
 	)
+	// The person page is the company page's sibling and rides the same
+	// dispatch, so it is wired here rather than beside the handler sets: a
+	// workspace on the incumbent mirror refuses both the same way.
+	s.wirePerson360(pool)
 }

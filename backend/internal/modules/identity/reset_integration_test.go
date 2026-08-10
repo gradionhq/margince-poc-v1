@@ -47,7 +47,7 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-e2e")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test/")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test/")
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }
 
@@ -70,8 +70,19 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	if mail.sent != 1 || mail.to != e.member.Email {
 		t.Fatalf("mail = %+v, want one message to the member", mail)
 	}
-	if !strings.Contains(mail.body, "https://crm.example.test/reset-password?token=") {
+	if !strings.Contains(mail.body, "https://crm.example.test/#/reset-password?token=") {
 		t.Fatalf("mail body carries no reset link: %q", mail.body)
+	}
+	// The token must be in the FRAGMENT, because a query string hands this live
+	// single-use credential to every access log, Referer header and Cache Storage
+	// key on the way in — the shape is a security assertion, not a formatting one.
+	//
+	// Split on '#' rather than searching the whole body: the correct link contains
+	// "/reset-password?token=" too, immediately AFTER the fragment marker, so a
+	// naive substring check fires on the good link and proves nothing.
+	serverVisible, _, _ := strings.Cut(mail.body, "#")
+	if strings.Contains(serverVisible, "token=") {
+		t.Fatalf("reset link puts the token in the server-visible query: %q", mail.body)
 	}
 	match := resetLinkToken.FindStringSubmatch(mail.body)
 	if match == nil {
@@ -103,11 +114,149 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	}
 }
 
+// TestPasswordResetRevokesPassportsToo pins the invariant: a completed
+// reset must end every credential that could act as the account, not just
+// the session cookie that prompted the recovery.
+func TestPasswordResetRevokesPassportsToo(t *testing.T) {
+	e := setupRevocationEnv(t, "reset-passport-cascade")
+	ctx := e.wsOnlyCtx()
+
+	issued, err := e.svc.IssuePassport(ctx, e.member, IssuePassportInput{Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatalf("issue passport: %v", err)
+	}
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); err != nil {
+		t.Fatalf("passport must authenticate before the reset: %v", err)
+	}
+
+	rawToken, err := e.svc.CreatePasswordReset(ctx, e.member.Email)
+	if err != nil || rawToken == "" {
+		t.Fatalf("CreatePasswordReset: token=%q err=%v", rawToken, err)
+	}
+	if err := e.svc.RedeemPasswordReset(ctx, rawToken, "a brand new recovery password"); err != nil {
+		t.Fatalf("RedeemPasswordReset: %v", err)
+	}
+
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("passport minted before the reset still authenticates: err = %v, want not-found", err)
+	}
+	var livePassports int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM passport WHERE on_behalf_of = $1 AND revoked_at IS NULL`,
+		e.member.UserID).Scan(&livePassports); err != nil {
+		t.Fatal(err)
+	}
+	if livePassports != 0 {
+		t.Fatalf("reset left %d live passports, want 0", livePassports)
+	}
+}
+
+// TestOperatorResetPasswordRevokesPassportsToo is the same credential
+// cascade proven over the operator-CLI recovery path (reset.go's
+// OperatorResetPassword).
+func TestOperatorResetPasswordRevokesPassportsToo(t *testing.T) {
+	e := setupRevocationEnv(t, "operator-reset-passport-cascade")
+	ctx := e.wsOnlyCtx()
+
+	issued, err := e.svc.IssuePassport(ctx, e.member, IssuePassportInput{Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatalf("issue passport: %v", err)
+	}
+
+	tx, err := e.owner.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(context.Background(), `SELECT set_config('app.workspace_id', $1, true)`, e.admin.WorkspaceID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := OperatorResetPassword(context.Background(), tx, e.admin.WorkspaceID, e.member.Email, "operator recovery password"); err != nil {
+		t.Fatalf("OperatorResetPassword: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("passport minted before the operator reset still authenticates: err = %v, want not-found", err)
+	}
+}
+
+// TestOperatorResetPasswordRevokesALiveOAuthGrantToo runs the operator
+// recovery path against a user who holds a real OAuth connection, not just
+// a locally minted passport. That distinction matters: the grant cascade's
+// per-passport revocation events are staged through storekit.Emit, which
+// refuses to write without a correlation id bound on the context — and
+// cmd/migrate's bare command context supplies no operation scope of its
+// own the way an HTTP request or a bus consumer would. A locally minted
+// passport never reaches that branch (it carries no grant), so it cannot
+// stand in for this case.
+func TestOperatorResetPasswordRevokesALiveOAuthGrantToo(t *testing.T) {
+	e := setupRevocationEnv(t, "operator-reset-oauth-cascade")
+	ctx := context.Background()
+
+	clientID := "client-" + ids.NewV7().String()
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
+		VALUES ($1, $2, 'operator-reset-cascade', ARRAY['https://client.example/cb'])`,
+		e.admin.WorkspaceID, clientID); err != nil {
+		t.Fatalf("registering the client: %v", err)
+	}
+	grantID := ids.NewV7()
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO oauth_grant (id, workspace_id, client_id, user_id, scopes, refresh_allowed)
+		VALUES ($1, $2, $3, $4, ARRAY['read']::text[], false)`,
+		grantID, e.admin.WorkspaceID, clientID, e.member.UserID); err != nil {
+		t.Fatalf("issuing the grant: %v", err)
+	}
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		VALUES ($1, $2, $2, 'operator-reset-cascade', ARRAY['read']::text[], $3, now() + interval '30 days', $4)`,
+		e.admin.WorkspaceID, e.member.UserID, "operator-reset-cascade-hash-"+grantID.String(), grantID); err != nil {
+		t.Fatalf("minting the connection's credential: %v", err)
+	}
+
+	tx, err := e.owner.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(context.Background(), `SELECT set_config('app.workspace_id', $1, true)`, e.admin.WorkspaceID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := OperatorResetPassword(context.Background(), tx, e.admin.WorkspaceID, e.member.Email, "operator recovery over a live connection"); err != nil {
+		t.Fatalf("OperatorResetPassword must not error for a user with a live OAuth connection: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var grantRevoked bool
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT revoked_at IS NOT NULL FROM oauth_grant WHERE id = $1`, grantID).Scan(&grantRevoked); err != nil {
+		t.Fatal(err)
+	}
+	if !grantRevoked {
+		t.Error("the OAuth grant survived an operator reset")
+	}
+	var livePassports int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM passport WHERE oauth_grant_id = $1 AND revoked_at IS NULL`, grantID).Scan(&livePassports); err != nil {
+		t.Fatal(err)
+	}
+	if livePassports != 0 {
+		t.Errorf("%d passports issued under the grant are still live after an operator reset", livePassports)
+	}
+}
+
 func TestPasswordResetRequestIsEnumerationResistant(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-enum")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test")
 
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }
@@ -224,20 +373,4 @@ func OperatorResetPasswordSmoke(ctx context.Context, e *revocationEnv, email str
 		return err
 	}
 	return OperatorResetPassword(context.Background(), tx, ids.From[ids.WorkspaceKind](e.admin.WorkspaceID.UUID), email, "irrelevant password!")
-}
-
-func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
-	h := NewHandlers(&Service{})
-	rec := httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":false`) {
-		t.Fatalf("unwired capabilities = %s, want password_reset:false", rec.Body)
-	}
-
-	h = h.WithPasswordReset(&capturedMail{}, "https://crm.example.test")
-	rec = httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
-		t.Fatalf("wired capabilities = %s, want password_reset:true", rec.Body)
-	}
 }

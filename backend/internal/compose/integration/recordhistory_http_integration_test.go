@@ -11,7 +11,7 @@ package integration
 // drives — that suite calls privacy.ListRecordHistory directly, so the
 // entity_type path-param validation, the malformed-cursor 422, and the
 // JSON shape only exist at the transport. This suite rides the same
-// real-handler-stack e2e harness as e2e_integration_test.go (TLS httptest
+// real-handler-stack e2e harness apptest.AppEnv (TLS httptest
 // server, session cookie, workspace header) and reuses
 // recordhistory_integration_test.go's seedRecordAuditRow/seedWorkspaceUser
 // plus fieldhistory_integration_test.go's seedAuditDiffRow to write the
@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -61,10 +62,10 @@ type recordHistoryHTTPFixture struct {
 	adaID    ids.UUID
 }
 
-func seedRecordHistoryHTTPFixture(t *testing.T, e *env, dbEnv *Env) recordHistoryHTTPFixture {
+func seedRecordHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) recordHistoryHTTPFixture {
 	t.Helper()
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Record History Subject",
 		"source":    "ui",
 	}, nil, &person); status != http.StatusCreated {
@@ -93,10 +94,10 @@ func seedRecordHistoryHTTPFixture(t *testing.T, e *env, dbEnv *Env) recordHistor
 // chronological ordering, the genesis line's resolved display name, the
 // human diff's exact (no-phantom-key) before/after images, and the
 // agent line's woven-in delegated authority.
-func assertRecordHistoryHappyPath(t *testing.T, e *env, fx recordHistoryHTTPFixture) {
+func assertRecordHistoryHappyPath(t *testing.T, e *apptest.AppEnv, fx recordHistoryHTTPFixture) {
 	t.Helper()
 	var page recordHistoryListWire
-	status := e.call(t, "GET", "/v1/records/person/"+fx.personID.String()+"/history", nil, nil, &page)
+	status := e.Call(t, "GET", "/v1/records/person/"+fx.personID.String()+"/history", nil, nil, &page)
 	if status != http.StatusOK {
 		t.Fatalf("record-history status = %d, want 200: %+v", status, page)
 	}
@@ -158,8 +159,8 @@ func assertRecordHistoryHappyPath(t *testing.T, e *env, fx recordHistoryHTTPFixt
 }
 
 func TestRecordHistoryHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	dbEnv := fieldHistoryHTTPEnv(t, e)
 	fx := seedRecordHistoryHTTPFixture(t, e, dbEnv)
 
@@ -169,13 +170,13 @@ func TestRecordHistoryHTTP(t *testing.T) {
 
 	t.Run("422 invalid entity_type", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET", "/v1/records/bogus/"+ids.NewV7().String()+"/history", nil, nil, &problem)
+		status := e.Call(t, "GET", "/v1/records/bogus/"+ids.NewV7().String()+"/history", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "entity_type", "invalid_entity_type")
 	})
 
 	t.Run("422 malformed cursor", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET",
+		status := e.Call(t, "GET",
 			"/v1/records/person/"+fx.personID.String()+"/history?cursor=!!!notatoken", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "cursor", "malformed_cursor")
 	})
@@ -190,7 +191,7 @@ func TestRecordHistoryHTTP(t *testing.T) {
 			if cursor != "" {
 				reqURL += "&cursor=" + cursor
 			}
-			status := e.call(t, "GET", reqURL, nil, nil, &got)
+			status := e.Call(t, "GET", reqURL, nil, nil, &got)
 			if status != http.StatusOK {
 				t.Fatalf("page %d status = %d: %+v", page, status, got)
 			}

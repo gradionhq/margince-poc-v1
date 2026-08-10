@@ -15,12 +15,19 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Radio,
   SectionHeader,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { coldFieldLabel, problemMessage, QueryGate } from "./common";
+import {
+  coldFieldLabel,
+  problemMessageOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
 
 type Capabilities = components["schemas"]["CompanyContextCapabilities"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -82,14 +89,22 @@ const MULTILINE_FIELDS = new Set<keyof CompanyInput>([
   "history",
 ]);
 
+// The rollout answer every surface that gates on the flag shares — the page
+// here, the onboarding entry, and the settings nav. Named so a caller can ask
+// the cache whether the answer has LANDED, which is a different question from
+// whether the request went out.
+export const companyContextCapabilitiesQueryKey = [
+  "company-context-capabilities",
+];
+
 export function useCompanyContextCapabilities(enabled = true) {
   return useQuery({
-    queryKey: ["company-context-capabilities"],
+    queryKey: companyContextCapabilitiesQueryKey,
     enabled,
     queryFn: async (): Promise<Capabilities> => {
       const { data, error } = await api.GET("/company/context/capabilities");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -109,7 +124,7 @@ export function ManualCompanySetup() {
         body: trimCompanyInput(form),
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -142,8 +157,7 @@ export function ManualCompanySetup() {
                 }
               />
             ) : (
-              <textarea
-                className="textarea"
+              <Textarea
                 rows={4}
                 value={String(form[field] ?? "")}
                 aria-label={coldFieldLabel(field, t)}
@@ -155,7 +169,9 @@ export function ManualCompanySetup() {
           </div>
         ))}
         {save.isError && (
-          <p className="company-context-error">{save.error.message}</p>
+          <p className="company-context-error">
+            {problemMessageOf(save.error, t)}
+          </p>
         )}
         <div className="company-context-actions">
           <Button
@@ -206,6 +222,24 @@ function absoluteWebsite(raw: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
+// What the refresh area may say when the website read goes wrong. Only the
+// START failure speaks verbatim: that problem answers the URL the reader just
+// typed — the site is unreachable, robots refused it, the budget is spent —
+// and it is guidance they can act on. A status poll that fails answers a read
+// id nobody typed, so its detail is machinery talk and the catalog sentence is
+// the honest thing to show; the failure itself still reaches the console
+// through the shared query cache, which reports every query failure.
+function refreshProblem(
+  start: Readonly<{ isError: boolean; error: unknown }>,
+  poll: Readonly<{ isError: boolean; error: unknown }>,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (start.isError) {
+    return problemMessageOf(start.error, t);
+  }
+  return poll.isError ? t("settings.companyRefreshUnreadable") : null;
+}
+
 export function CompanyContextCard() {
   const t = useT();
   const queryClient = useQueryClient();
@@ -215,7 +249,7 @@ export function CompanyContextCard() {
     queryFn: async (): Promise<CompanyProfile> => {
       const { data, error } = await api.GET("/company");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -237,7 +271,7 @@ export function CompanyContextCard() {
     mutationFn: async (body: CompanyInput) => {
       const { data, error } = await api.PUT("/company", { body });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -251,14 +285,14 @@ export function CompanyContextCard() {
     mutationFn: async () => {
       const website = form?.website?.trim() ?? "";
       if (!website) {
-        throw new Error(t("settings.companyWebsiteRequired"));
+        throwProblem({ title: t("settings.companyWebsiteRequired") });
       }
       const { data, error } = await api.POST("/company/site-reads", {
         params: { header: { "Idempotency-Key": crypto.randomUUID() } },
         body: { url: absoluteWebsite(website) },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -277,7 +311,7 @@ export function CompanyContextCard() {
         params: { path: { readId: readID ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -308,7 +342,7 @@ export function CompanyContextCard() {
   const confirm = useMutation({
     mutationFn: async () => {
       if (!siteRead.data || !form) {
-        throw new Error(t("settings.companyRefreshUnavailable"));
+        throwProblem({ title: t("settings.companyRefreshUnavailable") });
       }
       const body = refreshConfirmation(
         form,
@@ -328,9 +362,9 @@ export function CompanyContextCard() {
       );
       if (error) {
         if (response.status === 409) {
-          throw new Error(t("settings.companyRefreshStale"));
+          throwProblem({ title: t("settings.companyRefreshStale") });
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -341,6 +375,8 @@ export function CompanyContextCard() {
       setResolutions({});
     },
   });
+
+  const refreshFailure = refreshProblem(startRefresh, siteRead, t);
 
   if (capabilities.data && !capabilities.data.read_enabled) {
     return null;
@@ -412,7 +448,7 @@ export function CompanyContextCard() {
                 <div className="company-context-actions">
                   {save.isError && (
                     <p className="company-context-error">
-                      {save.error.message}
+                      {problemMessageOf(save.error, t)}
                     </p>
                   )}
                   {save.isSuccess && (
@@ -429,10 +465,8 @@ export function CompanyContextCard() {
                   </Button>
                 </div>
               </div>
-              {(startRefresh.isError || siteRead.isError) && (
-                <p className="company-context-error">
-                  {startRefresh.error?.message ?? siteRead.error?.message}
-                </p>
+              {refreshFailure !== null && (
+                <p className="company-context-error">{refreshFailure}</p>
               )}
               {siteRead.data && (
                 <RefreshReview
@@ -448,7 +482,11 @@ export function CompanyContextCard() {
                   }
                   onConfirm={() => confirm.mutate()}
                   confirming={confirm.isPending}
-                  error={confirm.error?.message}
+                  error={
+                    confirm.error
+                      ? problemMessageOf(confirm.error, t)
+                      : undefined
+                  }
                 />
               )}
             </>
@@ -473,8 +511,7 @@ function CompanyField({
   const t = useT();
   const provenance = profile.fields?.find((item) => item.field === field);
   const control = MULTILINE_FIELDS.has(field) ? (
-    <textarea
-      className="textarea"
+    <Textarea
       rows={3}
       value={value}
       aria-label={coldFieldLabel(field, t)}
@@ -604,13 +641,16 @@ function ComparisonRow(
   const t = useT();
   const { item } = props;
   const conflict = item.classification === "human_conflict";
+  // The field this card is about, named once: it heads the card AND names the
+  // checkbox. A row of boxes that all announce the same words is a list a
+  // screen reader cannot tell apart, and picking the wrong change here is what
+  // gets written to the record.
+  const fieldLabel = coldFieldLabel(item.key.split("/").at(-2) ?? item.key, t);
   return (
     <article className={`company-context-comparison is-${item.classification}`}>
       <div className="company-context-comparison-title">
         <div>
-          <strong>
-            {coldFieldLabel(item.key.split("/").at(-2) ?? item.key, t)}
-          </strong>
+          <strong>{fieldLabel}</strong>
           <Badge>
             {t(`settings.companyClass.${item.classification}` as MessageKey)}
           </Badge>
@@ -620,7 +660,9 @@ function ComparisonRow(
             type="checkbox"
             checked={props.selected}
             onChange={props.onToggle}
-            aria-label={t("settings.companySelectChange")}
+            aria-label={t("settings.companySelectChange", {
+              field: fieldLabel,
+            })}
           />
         )}
       </div>
@@ -637,31 +679,26 @@ function ComparisonRow(
       {conflict && (
         <div className="company-context-resolutions">
           {(["keep_current", "accept_proposal"] as const).map((action) => (
-            <label key={action}>
-              <input
-                type="radio"
-                name={`resolution-${item.key}`}
-                checked={props.resolution?.action === action}
-                onChange={() => props.onResolve({ key: item.key, action })}
-              />
-              {t(`settings.companyResolution.${action}` as MessageKey)}
-            </label>
-          ))}
-          <label>
-            <input
-              type="radio"
+            <Radio
+              key={action}
               name={`resolution-${item.key}`}
-              checked={props.resolution?.action === "use_value"}
-              onChange={() =>
-                props.onResolve({
-                  key: item.key,
-                  action: "use_value",
-                  value: item.current_value ?? "",
-                })
-              }
+              checked={props.resolution?.action === action}
+              onChange={() => props.onResolve({ key: item.key, action })}
+              label={t(`settings.companyResolution.${action}` as MessageKey)}
             />
-            {t("settings.companyResolution.use_value")}
-          </label>
+          ))}
+          <Radio
+            name={`resolution-${item.key}`}
+            checked={props.resolution?.action === "use_value"}
+            onChange={() =>
+              props.onResolve({
+                key: item.key,
+                action: "use_value",
+                value: item.current_value ?? "",
+              })
+            }
+            label={t("settings.companyResolution.use_value")}
+          />
           {props.resolution?.action === "use_value" && (
             <TextInput
               value={props.resolution.value ?? ""}

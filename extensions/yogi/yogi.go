@@ -25,7 +25,12 @@ func New() extension.Extension {
 		Name:    "yogi",
 		Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name:           "yogi_quote",
+			Name:  "yogi_quote",
+			Title: "Yogi Berra quote",
+			Description: "Return one Yogi Berra quote, chosen at random, when a light note " +
+				"is what is wanted. It reads nothing from this workspace and changes nothing " +
+				"in it, so no record, person or deal is involved either way. There is nothing " +
+				"in the result to carry into a follow-up call.",
 			Version:        "1.0.0",
 			Tier:           extension.TierAutoExecute,
 			RequestedScope: extension.ScopeRead,

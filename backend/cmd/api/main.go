@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -97,17 +98,25 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer closeSchemaPool()
 
-	surfaceOpts, err := declaredSurfaceOptions(cfg, deployCfg, schemaPool, stdout)
+	rdb, closeRedis := sharedRedisClient(cfg, logger)
+	defer closeRedis()
+
+	surfaceOpts, resetLane, err := declaredSurfaceOptions(cfg, deployCfg, pool, schemaPool, rdb, logger, stdout)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, surfaceOpts...)
 
-	overlayOpts, closeOverlayBudget, err := overlayOptions(cfg, deployCfg, pool, logger, stdout)
+	// The per-Passport volume meter, built once and shared: the admission gate
+	// and the tool registry take it through WithAgentQuota, and the model path
+	// takes it below so a model call charges the agent that caused it. This is
+	// the role that serves agent principals, so leaving it fail-closed would
+	// refuse every agent read an api with Redis configured could count.
+	quotaMeter := agentquota.New(rdb, agentquota.Limits{}, agentquota.DefaultWindow)
+	overlayOpts, err := overlayOptions(cfg, deployCfg, rdb, quotaMeter, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
-	defer closeOverlayBudget()
 	opts = append(opts, overlayOpts...)
 
 	relayOpts, stopRelay, err := inlineRelayLane(ctx, cfg, pool, logger, stdout)
@@ -120,23 +129,43 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	opts = append(opts, relayOpts...)
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelOpts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
+	modelOpts, modelPath, err := modelAndHandoffOptions(cfg, deployCfg, pool, logger)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, modelOpts...)
+	// MCP-SESS-COST: the same meter the gate reads, charged where the tokens
+	// are known. A model path bound to a different meter would meter an agent's
+	// spend into a window nothing else looks at.
+	//
+	// Nil is a SUPPORTED deployment, not an error: an api started with neither
+	// --ai-routing nor --ai-fake resolves no model path at all, and every other
+	// consumer here guards it the same way. There is no model call to charge in
+	// that shape, so there is nothing to bind.
+	if modelPath != nil {
+		*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
+	}
+	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
-	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
+	viewOpts, stopViewRefresh, err := mcpAppViewsLane(ctx, cfg, deployCfg, logger)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, handoffOpts...)
-	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
+	defer stopViewRefresh()
+	opts = append(opts, viewOpts...)
 
-	return serveUntilSignal(ctx, cfg, compose.New(pool, logger, opts...), stdout)
+	apiHandler := compose.New(pool, logger, opts...)
+	// Only now: the flush it listens with is captured while the options run.
+	resetLane.listen(ctx, modelPath)
+	return serveUntilSignal(ctx, cfg, apiHandler, stdout)
 }
 
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
+//
+// It is validateBareOrigin under the one flag name that has always used it; the
+// rule is shared with --mcp-apps-base-url, which needs exactly the same shape for
+// a different reason (a path there would make the derived document URL
+// unreachable rather than the advertised resource).
 // Presence alone is not enough: every value here is copied verbatim into the
 // OAuth audience, the RFC 9728 protected-resource document and the advertised
 // MCP URL, and a client dereferences all three exactly as given. A malformed
@@ -150,33 +179,40 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // normalized, because guessing what an operator meant is how the wrong origin
 // ends up published.
 func validatePublicBaseURL(raw string) error {
+	return validateBareOrigin("--public-base-url", raw)
+}
+
+// validateBareOrigin holds one operator-supplied origin to scheme+host and
+// nothing else. The flag name is a parameter so the refusal names the setting
+// the operator actually typed.
+func validateBareOrigin(flagName, raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", raw, err)
+		return fmt.Errorf("api: %s %q is not a URL: %w", flagName, raw, err)
 	}
 	// Userinfo is refused BEFORE any error that quotes the value, because that
 	// is where a password would be: an origin carrying credentials would put
 	// them in this boot error and every log line that copies it.
 	if parsed.User != nil {
-		return errors.New("api: --public-base-url carries userinfo; it must be a bare origin " +
-			"(value withheld: it may contain a credential)")
+		return fmt.Errorf("api: %s carries userinfo; it must be a bare origin "+
+			"(value withheld: it may contain a credential)", flagName)
 	}
 	switch {
 	case parsed.Scheme != "http" && parsed.Scheme != "https":
-		return fmt.Errorf("api: --public-base-url %q needs an http or https scheme, got %q", raw, parsed.Scheme)
+		return fmt.Errorf("api: %s %q needs an http or https scheme, got %q", flagName, raw, parsed.Scheme)
 	// Hostname(), not Host: Host keeps the port, so ":8080" is a non-empty
 	// authority that names no host at all.
 	case parsed.Hostname() == "":
-		return fmt.Errorf("api: --public-base-url %q names no host", raw)
+		return fmt.Errorf("api: %s %q names no host", flagName, raw)
 	// Exactly "" or "/" — NOT a trimmed comparison. url.Parse decodes as it
 	// goes, so "//" and "/%2F" both arrive as a path that trims to empty while
 	// the RAW value is what gets published: appending "/mcp" to either yields a
 	// URL with a doubled or encoded separator that no client resolves.
 	case parsed.Path != "" && parsed.Path != "/":
-		return fmt.Errorf("api: --public-base-url %q must be a bare origin: the MCP resource is "+
-			"derived by appending /mcp, so a path here publishes an unreachable URL", raw)
+		return fmt.Errorf("api: %s %q must be a bare origin: a URL is derived by appending "+
+			"a path to it, so a path here produces one nothing resolves", flagName, raw)
 	case parsed.RawQuery != "" || parsed.Fragment != "":
-		return fmt.Errorf("api: --public-base-url %q must be a bare origin, with no query or fragment", raw)
+		return fmt.Errorf("api: %s %q must be a bare origin, with no query or fragment", flagName, raw)
 	}
 	return nil
 }
@@ -196,6 +232,9 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// registry rebuilds in WithKeyvault/WithGraphCapture apply it too — not just
 	// the Gmail path WithGmailCapture threads it into (ADR-0072).
 	opts = append(opts, compose.WithCaptureConfig(capCfg))
+	// Always applied, including the empty default: /metrics stays off until
+	// an operator sets --metrics-token, never silently open.
+	opts = append(opts, compose.WithMetricsToken(cfg.metricsToken))
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 		// The canonical MCP resource (RFC 9728) is the same configured
@@ -284,7 +323,9 @@ func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, s
 		FromAddress: deployCfg.Email.FromAddress,
 	}
 	_, _ = fmt.Fprintln(stdout, "api password reset enabled (outbound email configured)")
-	return []compose.Option{compose.WithPasswordReset(m, publicBaseURL)}, nil
+	// The link base rides compose.WithPublicBaseURL, assembled with the base
+	// options — this option carries the transport alone.
+	return []compose.Option{compose.WithPasswordReset(m)}, nil
 }
 
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +

@@ -257,6 +257,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"deal.project_id":                      "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
 	"lead.project_id":                      "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
 	"suggestion_dismissal.organization_id": "gated: auth.EnsureVisible in org360.Service.DismissSuggestion, inside the same transaction as the insert — dismissing advice about an account the caller cannot read would confirm it exists",
+	"org_dossier.organization_id":          "gated: the dossier is assembled only after orgdossier.Service.Get runs the caller's OWN sidecar reads, and people.ListOrganizationProfileFields opens with auth.Require + ensureOrgReadable — a company the caller cannot read has no dossier written for it, and the row is keyed on that same caller",
+	"org_growth_fit.organization_id":       "gated: same path as org_dossier — the assessment is written only after the caller's own gated sidecar reads succeed, and the row is keyed on that caller",
 	"org_brief.organization_id":            "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
@@ -348,7 +350,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// row is folded from activity_participant rows by the consumer, and no
 	// request body ever names a person here. Reads of it carry the person
 	// predicate, so an edge never discloses a contact the caller cannot open.
-	"graph_interaction_edge.person_id": "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	"graph_interaction_edge.person_id":        "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	"activity_participant_replay.activity_id": "job bookkeeping: written by the system-principal replay pass sweeping every activity in the workspace, never from a request. The row records THAT an original was re-read and what the parse found — it returns no record to any caller and discloses nothing about the activity it names",
 	// The LinkedIn ghost's match arms (CG-DDL-2). A ghost is not a record and
 	// carries no client-supplied reference: the matcher resolves both ids from
 	// its own row-scoped lookups, and a human confirming a suggestion
@@ -360,6 +363,16 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// that conversation is owed a fresh reading. Resolved by the producer's own
 	// three-arm walk inside a workspace transaction, never from a request body.
 	"signal_thread_scan.resolved_org_id": "server-derived: the account the signal producer's own account walk resolved, never from a request body",
+	// The finance mirror (FIN-DDL-2..4). Exactly ONE of these three is
+	// client-supplied: the customer LINK is a human's mapping decision, so the
+	// company it names is gated by auth.EnsureLinkTarget at the write, exactly
+	// like an activity link. The invoice and payment rows never carry a
+	// client-named company — the connector writes them, and it resolves the
+	// organization by reading the link that human already made, so a mirrored
+	// row can only land on a company somebody deliberately mapped.
+	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
+	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

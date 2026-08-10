@@ -7,10 +7,12 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import {
   LeadScreen,
@@ -133,12 +135,16 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Promote to contact" }),
     );
-    expect(
-      (screen.getByLabelText("Promotion trigger") as HTMLSelectElement).value,
-    ).toBe("human_qualify");
+    // The control is a button whose face IS the selected option's label, so
+    // the default choice is read the way the user reads it — human_qualify's
+    // label — rather than off a `value` property no button carries.
+    expect(screen.getByLabelText("Promotion trigger").textContent).toBe(
+      "Human qualified",
+    );
   });
 
   it("promote posts the picked trigger + note and lands on the resulting person 360", async () => {
+    const user = userEvent.setup();
     let promoteBody: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/leads/l-1/promote")) {
@@ -148,18 +154,19 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
       return jsonResponse(lead);
     });
     render(<LeadScreen id="l-1" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: "Promote to contact" }),
     );
-    await userEvent.selectOptions(
+    await pickOption(
+      user,
       screen.getByLabelText("Promotion trigger"),
-      "meeting_booked",
+      "Meeting booked",
     );
-    await userEvent.type(
+    await user.type(
       screen.getByLabelText("Evidence note (optional)"),
       "Booked via calendly",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+    await user.click(screen.getByRole("button", { name: "Promote" }));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-1"));
     expect(promoteBody).toEqual({
       trigger: "meeting_booked",
@@ -249,6 +256,24 @@ function stubFetch(
   return { fetchMock, urls };
 }
 
+// The columns picker also offers a "Status" checkbox (the status column
+// shares its header text with the filter attribute's label), so a plain
+// name match is ambiguous — scope both the attribute pick and the value
+// pick to the Filter button's own open menu.
+// The menu names the step it is on — "Filter" while it lists attributes, then
+// the attribute once one is picked — so each click is scoped to the menu as it
+// stands at that moment rather than to a class name.
+async function pickFilter(attribute: string, value: string) {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const step = (name: string) => screen.getByRole("group", { name });
+  await userEvent.click(
+    within(step("Filter")).getByRole("button", { name: attribute }),
+  );
+  await userEvent.click(
+    within(step(attribute)).getByRole("button", { name: value }),
+  );
+}
+
 function emptyPage() {
   return jsonResponse({
     data: [],
@@ -264,7 +289,7 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByRole("searchbox"), {
+      fireEvent.change(screen.getByPlaceholderText("Search"), {
         target: { value: "jonas" },
       });
       act(() => {
@@ -284,14 +309,14 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
     render(<LeadsScreen />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
 
-    await userEvent.selectOptions(screen.getByLabelText("Status"), "working");
+    await pickFilter("Status", "Working");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("status=working"))).toBe(true),
     );
   });
 
-  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+  it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
         return jsonResponse({
@@ -309,8 +334,9 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
       expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
     );
 
-    const loadMore = screen.getByRole("button", { name: "Load more" });
-    await userEvent.click(loadMore);
+    const next = screen.getByRole("button", { name: "Next ›" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(next);
 
     await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
     expect(urls.some((url) => url.includes("cursor=c1"))).toBe(true);

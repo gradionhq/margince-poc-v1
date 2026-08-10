@@ -76,7 +76,7 @@ func TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly(t *testing.T) {
 func (c *telegramEnv) assertTokenSealed(t *testing.T) {
 	t.Helper()
 	var credentialRef string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT credential_ref FROM channel_connection WHERE id = $1`, c.conn.ID).Scan(&credentialRef)
 	}); err != nil {
@@ -161,7 +161,7 @@ func (c *telegramEnv) assertConnectionIsWorkspaceOwned(t *testing.T) {
 			Provider string `json:"provider"`
 		} `json:"data"`
 	}
-	if status := c.call(t, "GET", "/v1/channel-connections", nil, nil, &listed); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/channel-connections", nil, nil, &listed); status != http.StatusOK {
 		t.Fatalf("GET /v1/channel-connections → %d, want 200 (501 means the transport is not wired)", status)
 	}
 	if len(listed.Data) != 1 || listed.Data[0].ID != c.conn.ID.String() ||

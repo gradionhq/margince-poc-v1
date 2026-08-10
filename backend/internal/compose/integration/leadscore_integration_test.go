@@ -24,32 +24,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// asFullUser binds a principal that may log activities and work leads.
-func (e *searchEnv) asFullUser() context.Context {
-	grants := map[string]principal.ObjectGrant{}
-	for _, object := range []string{"person", "organization", "deal", "lead", "activity"} {
-		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
-	}
-	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	return principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
-		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
-	})
-}
-
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
-	ctx := e.asFullUser()
+	ctx := e.AsFullUser()
 
 	// A working lead with a decision-maker title from a high-intent
 	// source: fit = 15 + 8 = 23 (§3.1). Inserted with score 0 so the
 	// recompute demonstrably rebuilds fit AND behavior.
-	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
+	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
 	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
 	// An inbound email linked to the lead = one fresh reply (+25).
@@ -89,7 +74,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE activity SET meeting_status = 'held' WHERE id = $1`, ids.UUID(meeting.Id)); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +98,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 
 	// The recompute emitted the catalog's lead.updated with the score delta.
 	var events int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'lead.updated'
 		   AND envelope->'payload'->'changed_fields'->'delta' ? 'score'`).Scan(&events); err != nil {
 		t.Fatal(err)
@@ -137,10 +122,10 @@ func dispatchActivityCaptured(t *testing.T, engine *automation.WorkflowEngine, w
 }
 
 // currentLeadScore reads the lead's score through the owner connection.
-func currentLeadScore(t *testing.T, e *searchEnv, leadID ids.UUID) int {
+func currentLeadScore(t *testing.T, e *SearchEnv, leadID ids.UUID) int {
 	t.Helper()
 	var score int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT score FROM lead WHERE id = $1`, leadID).Scan(&score); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +135,7 @@ func currentLeadScore(t *testing.T, e *searchEnv, leadID ids.UUID) int {
 // assertRecomputeRanExactlyOnce checks a redelivered event applied
 // nothing twice: one workflow run row and exactly one audited lead
 // score update.
-func assertRecomputeRanExactlyOnce(t *testing.T, e *searchEnv) {
+func assertRecomputeRanExactlyOnce(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	var runs, audits int
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

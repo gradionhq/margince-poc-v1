@@ -8,12 +8,14 @@ package integration
 // End-to-end lane, agent-governance slice: the passport Bearer surface
 // (mint → ride → revoke), the ADR-0055 governed agent writes (🟢 lands
 // with agent provenance, 🟡 stages an approval a human must decide), and
-// the C2 read-seat capability ceiling. Shares setup/env/call with
-// e2e_integration_test.go.
+// the C2 read-seat capability ceiling. Rides apptest.AppEnv, the same booted
+// application the rest of the e2e lane does.
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // The agent path on the REST surface (ADR-0013: agents are clients of the
@@ -21,8 +23,8 @@ import (
 // the read scope, writes refused without the write scope, revocation as
 // the kill switch.
 func TestEndToEnd_passportBearerSurface(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A human session mints the passport; the response carries the token
 	// exactly once.
@@ -30,7 +32,7 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 		PassportID string `json:"passport_id"`
 		Token      string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "e2e agent", "scopes": []string{"read"},
 	}, nil, &minted); status != 201 {
 		t.Fatalf("issue passport → %d", status)
@@ -46,7 +48,7 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 	var listed struct {
 		Data []map[string]any `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/passports", nil, nil, &listed); status != 200 {
+	if status := e.Call(t, "GET", "/v1/passports", nil, nil, &listed); status != 200 {
 		t.Fatalf("list passports → %d", status)
 	}
 	if len(listed.Data) != 1 {
@@ -69,19 +71,19 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 	// agent bearer is refused with the same permission_denied a human-only
 	// mutation answers, not the incidental 401 the handler used to give for
 	// wanting a session identity.
-	if status := e.call(t, "GET", "/v1/passports", nil, bearer, nil); status != 403 {
+	if status := e.Call(t, "GET", "/v1/passports", nil, bearer, nil); status != 403 {
 		t.Fatalf("agent bearer lists passports → %d, want 403 (human-only read)", status)
 	}
 
 	// The read scope reads…
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 200 {
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != 200 {
 		t.Fatalf("bearer GET /people → %d", status)
 	}
 	// …and cannot write: refused with the scope code, and no row lands.
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "POST", "/v1/people", anyMap{
+	status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Should not exist", "source": "mcp", "captured_by": "x",
 	}, bearer, &problem)
 	if status != 403 || problem.Code != "scope_exceeds_grantor" {
@@ -89,15 +91,15 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 	}
 
 	// Bad tokens are 401, not 500.
-	if status := e.call(t, "GET", "/v1/people", nil, map[string]string{"Authorization": "Bearer mgp_bogus"}, nil); status != 401 {
+	if status := e.Call(t, "GET", "/v1/people", nil, map[string]string{"Authorization": "Bearer mgp_bogus"}, nil); status != 401 {
 		t.Fatalf("bogus bearer → %d", status)
 	}
 
 	// Revoke over HTTP (session-authenticated); the token dies with it.
-	if status := e.call(t, "DELETE", "/v1/passports/"+minted.PassportID, nil, nil, nil); status != 204 {
+	if status := e.Call(t, "DELETE", "/v1/passports/"+minted.PassportID, nil, nil, nil); status != 204 {
 		t.Fatalf("revoke → %d", status)
 	}
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 401 {
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != 401 {
 		t.Fatalf("revoked bearer still reads: %d", status)
 	}
 }
@@ -109,13 +111,13 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 // rejected on principal type; human-only config ops reject the agent
 // outright.
 func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "write agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != 201 {
 		t.Fatalf("issue passport → %d", status)
@@ -128,7 +130,7 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 		ID         string `json:"id"`
 		CapturedBy string `json:"captured_by"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Governed Green Write", "source": "mcp", "captured_by": "human:forged",
 	}, bearer, &created); status != 201 {
 		t.Fatalf("write-scope 🟢 REST mutation → %d, want 201 (ADR-0055 admits governed agent writes)", status)
@@ -143,11 +145,11 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, bearer, &problem)
+	status := e.Call(t, "DELETE", "/v1/people/"+created.ID, nil, bearer, &problem)
 	if status != 403 || problem.Code != "approval_required" {
 		t.Fatalf("🟡 REST mutation → %d %q, want 403 approval_required", status, problem.Code)
 	}
-	if getStatus := e.call(t, "GET", "/v1/people/"+created.ID, nil, bearer, nil); getStatus != 200 {
+	if getStatus := e.Call(t, "GET", "/v1/people/"+created.ID, nil, bearer, nil); getStatus != 200 {
 		t.Fatalf("staged archive must not have executed; GET → %d", getStatus)
 	}
 	approvalID := extractStagedApprovalID(t, problem.Detail)
@@ -156,26 +158,26 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 	var denyBody struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
+	if status := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
 		t.Fatalf("agent self-approval → %d %q, want 403 permission_denied", status, denyBody.Code)
 	}
 
 	// Human-only config surface rejects the agent whatever its scopes.
-	if status := e.call(t, "POST", "/v1/pipelines", anyMap{"name": "Shadow"}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
+	if status := e.Call(t, "POST", "/v1/pipelines", apptest.AnyMap{"name": "Shadow"}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
 		t.Fatalf("agent on human-only pipeline config → %d %q, want 403 permission_denied", status, denyBody.Code)
 	}
 
 	// A human approves; the agent repeats the IDENTICAL request with the
 	// approval token and the effect lands exactly once.
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != 200 {
+	if status := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, nil, nil); status != 200 {
 		t.Fatalf("human approve → %d", status)
 	}
 	withToken := map[string]string{"Authorization": "Bearer " + minted.Token, "X-Approval-Token": approvalID}
-	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, nil); status != 200 {
+	if status := e.Call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, nil); status != 200 {
 		t.Fatalf("approved retry → %d, want the archive to execute", status)
 	}
 	// Single-use: the same token cannot authorize a second effect.
-	if e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem) == 200 {
+	if e.Call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem) == 200 {
 		t.Fatal("a consumed approval token authorized a second effect")
 	}
 }
@@ -201,14 +203,14 @@ func extractStagedApprovalID(t *testing.T, detail string) string {
 // bootstrap admin is a full seat that mutates; flipping the workspace to
 // read seats turns the same authenticated call into a 403.
 func TestEndToEnd_readSeatCannotMutate(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A full-seat admin creates freely.
 	var created struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Full Seat Made", "source": "manual", "captured_by": "admin",
 	}, nil, &created); status != 201 {
 		t.Fatalf("full-seat create → %d", status)
@@ -216,22 +218,22 @@ func TestEndToEnd_readSeatCannotMutate(t *testing.T) {
 
 	// Demote to a read seat; the live seat is read at authentication, so the
 	// same session now hits the ceiling.
-	e.setWorkspaceSeat(t, e.slug, "read")
+	e.SetWorkspaceSeat(t, e.Slug, "read")
 
 	// Reads still succeed…
-	if status := e.call(t, "GET", "/v1/people", nil, nil, nil); status != 200 {
+	if status := e.Call(t, "GET", "/v1/people", nil, nil, nil); status != 200 {
 		t.Fatalf("read-seat GET → %d", status)
 	}
 	// …every mutation is refused with the seat code, before RBAC.
 	var problem struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Read Seat Blocked", "source": "manual", "captured_by": "admin",
 	}, nil, &problem); status != 403 || problem.Code != "seat_tier_insufficient" {
 		t.Fatalf("read-seat create → %d %q, want 403 seat_tier_insufficient", status, problem.Code)
 	}
-	if status := e.call(t, "PATCH", "/v1/people/"+created.ID, anyMap{"title": "X"}, nil, &problem); status != 403 || problem.Code != "seat_tier_insufficient" {
+	if status := e.Call(t, "PATCH", "/v1/people/"+created.ID, apptest.AnyMap{"title": "X"}, nil, &problem); status != 403 || problem.Code != "seat_tier_insufficient" {
 		t.Fatalf("read-seat update → %d %q, want 403 seat_tier_insufficient", status, problem.Code)
 	}
 }

@@ -1,0 +1,29 @@
+name: who_knows_needs_the_person
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Does anyone on our side actually know Anna Weber?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e05
+  grounding:
+    - source_id: person:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e12
+      trust_tier: T1
+      content: Anna Weber — person_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e12
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: who_knows
+    args:
+      person_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e12
+  rubric: >
+    The question is about one named person's relationships inside the workspace,
+    which is what who_knows answers. Score high only if the turn calls it on the
+    person the grounding identifies. intro_path_to takes an organization and
+    answers about an account rather than an individual, and a search would only
+    re-find the person already supplied.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

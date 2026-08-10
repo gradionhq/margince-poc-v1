@@ -27,8 +27,10 @@ type Provider struct {
 	store *Store
 }
 
-func NewProvider(pool *pgxpool.Pool) *Provider {
-	return &Provider{store: NewStore(pool)}
+// NewProvider wires the datasource verbs over the same store the transport
+// uses, base-currency seam included.
+func NewProvider(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Provider {
+	return &Provider{store: NewStore(pool, baseCurrency)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the
@@ -62,11 +64,22 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	}
 }
 
-// SearchEntity lists deals under the shared search contract.
-func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string) ([]datasource.Record, string, bool, error) {
+// SearchEntity lists deals and projects under the shared search contract.
+//
+// A filter this type has no binding for is an ERROR rather than a dropped
+// clause — see listfilters.go. It is unreachable while the composition root
+// publishes only what ListFilters names, which is what makes it a safe
+// assertion instead of a silent widening.
+func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string,
+	filters map[string]string,
+) ([]datasource.Record, string, bool, error) {
 	switch t {
 	case datasource.EntityDeal:
-		rows, page, err := p.store.ListDeals(ctx, ListDealsInput{Query: text, Limit: &limit, Cursor: cursor})
+		in := ListDealsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := dealListFilters.Apply(&in, filters); err != nil {
+			return nil, "", false, err
+		}
+		rows, page, err := p.store.ListDeals(ctx, in)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -80,7 +93,11 @@ func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, te
 		}
 		return records, page.NextCursor, page.HasMore, nil
 	case datasource.EntityProject:
-		rows, page, err := p.store.ListProjects(ctx, ListProjectsInput{Query: text, Limit: &limit, Cursor: cursor})
+		in := ListProjectsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := projectListFilters.Apply(&in, filters); err != nil {
+			return nil, "", false, err
+		}
+		rows, page, err := p.store.ListProjects(ctx, in)
 		if err != nil {
 			return nil, "", false, err
 		}

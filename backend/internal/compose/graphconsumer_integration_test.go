@@ -164,9 +164,12 @@ func TestTheAgentSeamsAnswerThroughTheSameGates(t *testing.T) {
 	}
 
 	// who_knows, through the seam the tool actually calls.
-	colleagues, err := whoKnowsLister(e.Pool)(e.Admin(), person)
+	colleagues, truncated, err := whoKnowsLister(e.Pool)(e.Admin(), person)
 	if err != nil {
 		t.Fatalf("who_knows seam: %v", err)
+	}
+	if truncated {
+		t.Error("one colleague was reported as a capped list — the cap signal would make every answer look partial")
 	}
 	if len(colleagues) != 1 || colleagues[0].UserID != e.Rep1 {
 		t.Fatalf("who_knows answered %+v, want the one colleague who exchanged mail", colleagues)
@@ -177,7 +180,7 @@ func TestTheAgentSeamsAnswerThroughTheSameGates(t *testing.T) {
 
 	// An unknown contact refuses rather than answering an empty network:
 	// through the agent exactly as through the URL.
-	if _, err := whoKnowsLister(e.Pool)(e.Admin(), ids.NewV7()); err == nil {
+	if _, _, err := whoKnowsLister(e.Pool)(e.Admin(), ids.NewV7()); err == nil {
 		t.Error("the seam answered for a contact that does not exist")
 	}
 }
@@ -371,6 +374,88 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	if status != "unmatched" || matched != nil {
 		t.Errorf("the sweep matched a contact outside the ghost owner's row scope: %q → %v — "+
 			"match_status is then an oracle for records the member cannot read", status, matched)
+	}
+}
+
+// TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope is the
+// per-person twin of the test above, over the path that actually matters in
+// practice — the one a normal capture/manual-entry write reaches
+// (person.created/person.updated), not just an organization sweep.
+//
+// Passing the owner filter as ids.Nil (SQL NULL, "every owner") would let a
+// member with wide row scope, iterated by forEachGhostOwner for their OWN
+// unrelated ghost, also match every OTHER member's ghosts under that wide
+// scope — turning a one-row CSV upload into a contact-existence oracle for
+// a workspace-visible contact the uploader's own row scope hides.
+func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+
+	// Rep3: narrow (own) scope, holds the attacker's guessed-address ghost.
+	grantReadPeopleRole(t, e, e.Rep3, "own")
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep3)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding Rep3's ghost: %v", err)
+	}
+
+	// Rep2: wide (all) scope, holds an UNRELATED unmatched ghost — just
+	// enough to put Rep2 in forEachGhostOwner's enumeration, the way a real
+	// admin or ops member with their own pending import would be.
+	grantReadPeopleRole(t, e, e.Rep2, "all")
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Someone Else', 'someone else', 'csv_export')`, e.Rep2)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding Rep2's unrelated ghost: %v", err)
+	}
+
+	// Rep1's contact, on a third team, carrying the address the attacker's
+	// ghost guessed. Visible to Rep2 (all-scope), hidden from Rep3 (own-scope).
+	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	person, err := e.People.CreatePerson(rep1, people.CreatePersonInput{
+		FullName: "Dana Buyer", Source: "manual",
+		Emails: []people.PersonEmailInput{{Email: "dana@acme.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("creating Rep1's contact: %v", err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE person SET owner_id = $2 WHERE id = $1`, ids.UUID(person.Id), e.Rep1)
+		return err
+	}); err != nil {
+		t.Fatalf("assigning the contact to Rep1: %v", err)
+	}
+
+	// The per-person path: what a real capture/manual write triggers.
+	matcher := NewLinkedInMatchGen(e.Pool, e.People, identity.NewService(e.Pool), slog.New(slog.DiscardHandler))
+	if err := matcher.HandleEvent(ctx,
+		envelopeFor(e.WS, "person.updated", "person", ids.UUID(person.Id))); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+
+	var status string
+	var matched *ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT match_status, matched_person_id FROM linkedin_connection
+			  WHERE normalized_name = 'dana buyer'`).Scan(&status, &matched)
+	}); err != nil {
+		t.Fatalf("reading the ghost back: %v", err)
+	}
+	if status != "unmatched" || matched != nil {
+		t.Errorf("the per-person match matched a contact outside the ghost owner's row scope: %q → %v — "+
+			"match_status is then an oracle for records the ghost's real owner cannot read", status, matched)
 	}
 }
 

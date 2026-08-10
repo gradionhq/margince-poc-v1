@@ -7,6 +7,15 @@ export const en = {
     "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
+  // The account menu's theme row: the value it is set to NOW, and the action that
+  // names the row for a screen reader. The two labels above stay the names of the
+  // ICON-ONLY control on sign-in and onboarding, where the surrounding row has no
+  // room for a sentence; in a menu the action is spelled out, so it reads in
+  // parallel with the language row beside it ("Switch to German").
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.switchToDark": "Switch to dark theme",
+  "theme.switchToLight": "Switch to light theme",
 
   "section.surfaces": "Surfaces",
   "section.accentAi": "Accent & AI",
@@ -33,6 +42,7 @@ export const en = {
   "trust.stagedProposal": "staged proposal",
   "trust.resolvedValue": "resolved value",
   "trust.editValue": "Edit {description}",
+  "trust.evidenceFrom": "Evidence from {source}",
 
   "history.created": "— created —",
   "history.oldValue": "Previous value",
@@ -89,6 +99,7 @@ export const en = {
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
+  "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
   "agent.title": "Margince AI",
@@ -97,8 +108,10 @@ export const en = {
   "agent.exampleRouting": "Local + cloud",
   "agent.exampleCost": "€2.41 today",
   "agent.fixture": "Example data",
-  "locale.toEnglish": "Switch to English",
-  "locale.toGerman": "Switch to German",
+  "locale.name.en": "English",
+  "locale.name.de": "Deutsch",
+  "locale.name.vi": "Tiếng Việt",
+  "locale.switchLabel": "Language",
 
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
@@ -161,6 +174,8 @@ export const en = {
   "record.disqualifyConfirm":
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
+  "record.archivedReadOnly":
+    "This company is archived. Restore it to change anything on it.",
   "record.share": "Share",
   "record.moreActions": "More actions",
   "record.fullHistory": "Full history",
@@ -241,7 +256,9 @@ export const en = {
   "partner.none": "Not a partner yet",
   "partner.organization": "Organization",
   "partner.role": "Partner role",
+  "partner.roleAll": "All roles",
   "partner.certStatus": "Certification status",
+  "partner.certStatusAll": "All statuses",
   "partner.marginTier": "Margin tier",
   "partner.stage": "Relationship stage",
   "partner.nextStep": "Next step",
@@ -290,9 +307,21 @@ export const en = {
   "rel.kind.coSellWith": "Co-sell with",
 
   "common.error": "Couldn't load this view.",
+  // What a failure that carries no server problem is allowed to say. A rejected
+  // fetch and a bug in our own code both report in wording nobody authored for
+  // a reader, so the screen states the fact it can stand behind and stops.
+  "common.errorNoCause": "The request failed. No cause reported.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
+
+  // The app-level boundary's fallback. It says what happened and what to do
+  // next, and nothing about the error itself: a render throw carries our own
+  // internals, which the reader can neither read nor act on. Two sentences,
+  // no dash (VOICE-RULE-5).
+  "app.errorTitle": "This view stopped working.",
+  "app.errorBody": "Try it again. If it keeps failing, reload the page.",
+  "app.errorRetry": "Try again",
 
   "list.search": "Search",
   "list.sort": "Sort",
@@ -300,8 +329,50 @@ export const en = {
   "list.loadMore": "Load more",
   "list.sortNewest": "Newest",
   "list.sortScore": "Score",
+  "list.viewAll": "All",
+  "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Highest score",
+  "list.viewHot": "Hot",
   "list.overlayReadOnly":
     "Sorting and filters read through HubSpot — open it there",
+
+  // The list surface (design-system/listtable.tsx). The count says "loaded"
+  // rather than a total on purpose: paging is a keyset cursor, so the number
+  // of rows in hand is the only figure the client can state honestly.
+  "table.range": "{first}–{last} of {count} {unit}",
+  "table.prev": "‹ Prev",
+  "table.next": "Next ›",
+  "table.rowsPerPage": "Rows per page",
+  "table.perPage": "{count} per page",
+  "table.sortedBy": "sorted by {column}",
+  "table.columns": "Columns",
+  "table.shownColumns": "Shown columns",
+  "table.compact": "Compact",
+  "table.sortBy": "Sort by {column}",
+  "table.clearFilter": "Clear the {filter} filter",
+  "table.noMatches": "No {unit} match these filters.",
+  "table.clearFilters": "Clear filters",
+  "table.none": "No {unit} yet.",
+  "table.actions": "Actions",
+  "table.rangeLoaded": "{first}–{last} of {count} {unit} loaded so far",
+  "unit.contacts": "contacts",
+  "unit.companies": "companies",
+  "unit.leads": "leads",
+  "unit.partners": "partners",
+  "unit.products": "products",
+  "unit.offerTemplates": "offer templates",
+  "table.filter": "Filter",
+  "table.filterSearch": "Search attributes",
+  "table.addFilter": "Add a filter",
+  "table.filterIs": "is",
+  "table.filterCondition": "Condition",
+  "table.filterMore": "More actions for the {filter} filter",
+  "table.deleteFilter": "Delete filter",
+  "table.filterValueSearch": "Search {filter} values",
+  "table.filterTypeToSearch": "Type to search",
+  "table.filterSearching": "Searching…",
+  "table.filterSearchFailed": "The search failed. Try again.",
+  "table.filterNoMatches": "No matches.",
   "overlay.unavailable":
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
@@ -470,7 +541,7 @@ export const en = {
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
   // questions the retired classification answered with one value.
-  "org.lifecycle": "Stage",
+  "org.lifecycle": "Account lifecycle",
   "org.relationshipTypes": "Relationship to us",
   "org.lifecycle.unknown": "Not assessed",
   "org.lifecycle.target": "Target",
@@ -497,6 +568,40 @@ export const en = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Where this account stands",
+  "co.strip.convertedAsOf": "{count} converted, rates from {date}",
+  "co.strip.noOpenDeals": "No open deals",
+  "co.strip.pipeline": "Open pipeline",
+  "co.description.label": "Description",
+  "co.description.placeholder": "Add what this company does",
+  "co.chip.linkedin": "LinkedIn",
+  "co.chip.employees": "{band} employees",
+  "co.chip.rowLabel": "Company details",
+  "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
+  "co.strip.netInvoiced": "Net invoiced · 12 months",
+  "co.strip.openInvoices": "Open invoices",
+  "co.strip.overdue": "Overdue",
+  "co.strip.paidAfterDue": "Median paid after due",
+  "co.strip.financeUnknown": "—",
+  "co.strip.fin.noConnection": "Connect your accounting",
+  "co.strip.fin.unmapped": "Not matched to a customer yet",
+  "co.strip.fin.syncing": "Syncing…",
+  "co.strip.fin.withheld": "You may not see this account's finance",
+  "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
+  "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
+  "co.strip.fin.nothingBilled": "Nothing invoiced yet",
+  "co.strip.fin.tooFewSettled": "Too few settled invoices to say",
+  "co.strip.fin.error": "Could not be read",
+  "co.strip.fin.loading": "Loading…",
+  "co.strip.unpriced": "No convertible amount on these deals",
+  "co.strip.pricedPartly": "{priced} of {total} deals priced",
+  "co.strip.expectedClose": "Expected close",
+  "co.strip.health": "Relationship",
+  "co.strip.healthOneSided": "One-sided",
+  "co.strip.healthBalanced": "Balanced exchange",
+  "co.strip.replyShare": "{percent}% of the exchange is theirs",
+  "co.strip.healthActive": "In conversation",
+  "co.strip.healthQuiet": "Gone quiet",
+  "co.strip.noInboundEver": "They have never written",
   "co.strip.account": "Stage",
   "co.strip.engagement": "Whose move",
   "co.strip.commercial": "Open work",
@@ -524,6 +629,7 @@ export const en = {
   "timeline.group.mayContinue": "may continue earlier",
   "tab.people": "People",
   "tab.timeline": "History",
+  "tab.documents": "Documents",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
@@ -535,6 +641,17 @@ export const en = {
   "co.brief.nature.assessment": "Our read",
   "co.brief.nature.recommendation": "Suggested",
   "co.health.title": "How it stands",
+  "co.health.dim.relationship": "Relationship",
+  "co.health.dim.commercial": "Commercial",
+  "co.health.dim.payment": "Payment",
+  "co.health.overall": "Overall",
+  "co.health.ratedOf": "from {rated} of 3",
+  "co.health.rating.atRisk": "At risk",
+  "co.health.rating.good": "Good",
+  "co.health.rating.strong": "Strong",
+  "co.health.payment.overdue": "Money is overdue right now.",
+  "co.health.payment.late": "Typically pays {days} days after due.",
+  "co.health.payment.onTime": "Pays on time.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
   "co.health.activeContacts": "{count} people here have ever interacted",
@@ -579,6 +696,8 @@ export const en = {
   "co.routeIn.band.unknown": "contact on file, no pattern yet",
   "record.profile": "Profile",
   "record.business": "Business",
+  "record.context": "Context",
+  "record.accountContext": "Account context",
   "co.pulse.strongestLead": "Way in",
   "co.pulse.strengthTail.one": "\u2014 the only contact here",
   "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
@@ -601,7 +720,67 @@ export const en = {
   "evidence.fullHistory": "Full history",
   "co.section.unavailable":
     "Could not be loaded — this may not be the whole picture",
+  "finance.title": "Finance",
+  "finance.titleHistorical": "Finance · historical",
+  "finance.none": "Nothing recorded.",
+  "finance.noConnection":
+    "No financial source connected — connect one to see what this customer has been invoiced and whether they pay on time",
+  "finance.unmapped":
+    "Connected, but this company is not matched to a customer in the accounting system yet",
+  "finance.netInvoiced": "Net invoiced · 12 months",
+  "finance.openBalance": "Open",
+  "finance.overdue": "Overdue",
+  "finance.behaviour": "Payment behaviour",
+  "finance.medianAfterDue": "Typically {days} days after due",
+  "finance.medianEarly": "Typically {days} days early",
+  "finance.col.invoice": "Invoice",
+  "finance.col.issued": "Issued",
+  "finance.col.due": "Due",
+  "finance.col.paid": "Paid",
+  "finance.paidDaysLate": "{days} days late",
+  "finance.overdueDays": "{days} days overdue",
+  "finance.col.amount": "Amount",
+  "finance.col.status": "Status",
+  "finance.unnumbered": "No number",
+  "finance.moreInvoices": "More invoices in the accounting system",
+  "finance.connect": "Connect finance",
+  "finance.syncedFrom": "From {provider} · synced {when}",
+  "finance.fromNeverSynced": "From {provider} · not yet synced",
+  "finance.status.draft": "Draft",
+  "finance.status.open": "Open",
+  "finance.status.partiallyPaid": "Part paid",
+  "finance.status.paid": "Paid",
+  "finance.status.overdue": "Overdue",
+  "finance.status.disputed": "Disputed",
+  "finance.status.credited": "Credited",
+  "finance.status.void": "Void",
+  "commercial.title": "Commercial relationship",
+  "commercial.noneOpen": "No open opportunity on this account.",
+  "commercial.openOpportunities": "Open opportunities",
+  "commercial.unpriced": "Not priced",
+  "commercial.closes": "closes {when}",
+  "commercial.lastOffer": "Last offer · {deal}",
+  "commercial.offerUnnumbered": "Offer",
+  "commercial.validUntil": "valid until {when}",
+  "commercial.offer.draft": "Draft",
+  "commercial.offer.sent": "Sent",
+  "commercial.offer.accepted": "Accepted",
+  "commercial.offer.rejected": "Rejected",
+  "commercial.offer.expired": "Expired",
+  "commercial.offer.superseded": "Superseded",
+  "co.coverage.contacts": "{count} contacts",
+  "co.coverage.contactsAtLeast": "{count}+ contacts",
+  "co.coverage.untried": "{count} never written to",
+  "co.coverage.gaps": "{count} role gaps",
   "co.section.restricted": "Hidden \u2014 your role cannot read this",
+  "co.section.unsupported":
+    "Not available in this mode \u2014 the connected system does not hold it",
+  "co.section.failed": "This section did not load.",
+  "co.section.retry": "Try again",
+  "co.section.stale": "Last known values \u2014 not refreshed since",
+  "co.section.staleAsOf": "Last known values, as of {when}",
+  "co.section.partial": "Showing part of the list",
+  "co.section.partialCount": "{count} more not shown",
   "co.next.title": "Next steps",
   "co.next.empty": "No open task on this account.",
   "co.next.overdue": "Overdue",
@@ -626,11 +805,61 @@ export const en = {
   "co.brief.by.model": "Written by Margince",
   "co.brief.by.deterministic": "Assembled from your records",
   "co.brief.generatedAt": "as of {when}",
+  "co.growthFit.title": "What they are worth to you",
+  "co.growthFit.unavailable":
+    "This assessment could not be read. Nothing about the company has changed.",
+  "co.growthFit.reassess": "Assess it again",
+  "co.growthFit.reassessing": "Assessing…",
+  "co.growthFit.band.strong": "Strong fit",
+  "co.growthFit.dim.industryFit": "Industry fit",
+  "co.growthFit.dim.companySize": "Company size",
+  "co.growthFit.dim.transformationNeed": "Transformation need",
+  "co.growthFit.dim.access": "Access",
+  "co.growthFit.band.moderate": "Moderate fit",
+  "co.growthFit.band.weak": "Weak fit",
+  "co.growthFit.band.unknown": "Not enough to judge",
+  "co.growthFit.completeness": "{present} of {expected} inputs recorded",
+  "co.growthFit.missing": "Still missing: {inputs}.",
+  "co.growthFit.capped": "Held back: {reason}.",
+  "co.growthFit.nextStep": "Next: {step}.",
+  "co.growthFit.positive": "What argues for them",
+  "co.growthFit.negative": "What argues against them",
+  "co.growthFit.whitespace": "What they do not buy from you yet",
+  "co.growthFit.objections": "What they are likely to push back with",
+  "co.growthFit.angle": "Suggested approach",
+  "co.writeEmail": "Write email",
+  "co.dossier.title": "What this company is",
+  "co.dossier.unavailable":
+    "This description could not be read. Nothing about the company has changed.",
+  "co.dossier.empty":
+    "Nothing has been recorded about this company yet. Read their website, or fill in the profile below.",
+  "co.dossier.stale": "Read over a month ago",
+  "co.dossier.rewrite": "Write it again",
+  "co.dossier.rewriting": "Writing…",
+  "co.dossier.section.summary": "In short",
+  "co.dossier.section.products_services": "What they sell",
+  "co.dossier.section.markets": "Where and to whom",
+  "co.dossier.section.buying_center": "Who decides",
+  "co.dossier.section.differentiation": "What sets them apart",
+  "co.dossier.section.firmographics": "Size, age and registration",
+  "co.evidence.unavailable":
+    "This receipt could not be read. The record itself is unchanged.",
+  "co.evidence.producedBy": "recorded by {who}",
+  "co.evidence.retrievedAt": "Read {when}",
+  "co.evidence.verifiedAt": "Confirmed by a person {when}",
+  "co.evidence.confidence": "The model was {percent}% confident",
+  "co.evidence.gaps": "Not recorded: {fields}.",
+  "co.evidence.kind.site_read": "Read from their website",
+  "co.evidence.kind.connector": "From a connected system",
+  "co.evidence.kind.human": "Entered by a person",
+  "co.evidence.kind.migration": "Imported",
+  "co.evidence.kind.rule": "Derived",
   "co.brief.cite.deal": "deal",
   "co.brief.cite.activity": "activity",
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "account",
   "co.brief.cite.fact": "fact",
+  "co.brief.cite.profile_field": "profile field",
   // Several sources of one kind that have no screen to open collapse into one
   // counted chip, rather than a run of identical labels.
   "co.brief.cite.deal.many": "{count} deals",
@@ -638,6 +867,7 @@ export const en = {
   "co.brief.cite.person.many": "{count} contacts",
   "co.brief.cite.organization.many": "{count} accounts",
   "co.brief.cite.fact.many": "{count} facts",
+  "co.brief.cite.profile_field.many": "{count} profile fields",
   "approval.kind.advance_deal": "Move a deal forward",
   "approval.kind.close_date_correction": "Correct a close date",
   "approval.kind.deal_follow_up": "Add a follow-up on a deal",
@@ -650,6 +880,7 @@ export const en = {
   "approval.kind.send_email": "Send an email",
   "approval.kind.book_meeting": "Book a meeting",
   "approval.kind.send_offer": "Send an offer",
+  "approval.kind.quota_release": "Let an agent continue",
   "approval.kind.coldstart": "Fill in a new account",
   "approval.kind.enrich": "Enrich from the web",
   "approval.kind.deepread": "Read the company site",
@@ -802,6 +1033,9 @@ export const en = {
     "No {roles} is named on the open deal yet — set one on the contact who is.",
   "co.people.untriedHint": "{count} people here have never been approached.",
   "co.people.untriedHintOne": "One person here has never been approached.",
+  "co.evidence.extractedUnconfirmed": "AI extracted · not yet confirmed",
+  "co.evidence.previous": "Previous claim",
+  "co.evidence.next": "Next claim",
   "co.evidence.title": "Where this came from",
   "co.relationships.title": "Linked people and companies",
   "co.tools.title": "Data & tools",
@@ -864,6 +1098,8 @@ export const en = {
   "co.tags.pick": "Tag name",
   "co.lists.add": "Add to list",
   "co.lists.pick": "List name",
+  "co.recent.title": "Recent activity",
+  "co.recent.empty": "Nothing logged with them yet.",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
   "co.timeline.filterKind": "Filter by type",
@@ -890,6 +1126,7 @@ export const en = {
   "lead.promote": "Promote to contact",
   "lead.promoteIneligible": "needs an email and an open status",
   "lead.filterStatus": "Status",
+  "lead.filterStatusAll": "All statuses",
   "lead.statusNew": "New",
   "lead.statusWorking": "Working",
   "lead.statusPromoted": "Promoted",
@@ -924,6 +1161,8 @@ export const en = {
   "deals.viewBoard": "Board",
   "deals.viewTable": "Table",
   "deals.amount": "Value",
+  "deals.lastSignal": "Last signal",
+  "deals.lastSignalNone": "no signal yet",
   "deals.stage": "Stage",
   "deals.close": "Expected close",
   "deals.confirmAdvance": "Move to {stage}?",
@@ -966,6 +1205,9 @@ export const en = {
   "deals.sortNewest": "Newest",
   "deals.sortClose": "Close date",
   "deals.sortAmount": "Largest",
+  "deals.unit": "deals",
+  "deals.capped":
+    "Showing the deals loaded so far. Narrow the list to reach the rest.",
 
   "deal.offers": "Offers",
   "deal.newOffer": "New offer",
@@ -1162,6 +1404,12 @@ export const en = {
   "create.legalName": "Legal name",
   "create.industry": "Industry",
   "create.sizeBand": "Company size",
+  "create.addressLine1": "Street and number",
+  "create.addressLine2": "Address line 2",
+  "create.city": "City",
+  "create.region": "State / region",
+  "create.postalCode": "Postal code",
+  "create.country": "Country (ISO-3166, e.g. DE)",
   "create.domain": "Primary domain",
   "create.companyName": "Company",
   "create.dealName": "Deal name",
@@ -1171,6 +1419,7 @@ export const en = {
   "create.organization": "Company",
   "create.expectedClose": "Expected close",
 
+  "field.unset": "Not set",
   "field.addEmail": "Add email",
   "field.addPhone": "Add phone",
   "field.addDomain": "Add domain",
@@ -1191,7 +1440,95 @@ export const en = {
 
   "dedupe.viewExisting": "View existing record",
 
+  "today.title": "Today on this account",
+  "today.loading": "Reading the account…",
+  "today.failed":
+    "This could not be assembled. The rest of the page still shows what it could read.",
+  "today.quiet": "Nothing here needs you today.",
+  "today.withheld":
+    "Hidden from you: {sections}. This list is assembled without them.",
+  "today.nature.fact": "Fact",
+  "today.nature.assessment": "Assessment",
+  "today.nature.recommendation": "Suggested",
+  "today.source.nextSteps": "open tasks",
+  "today.source.nextMeeting": "the calendar",
+  "today.source.deals": "deals",
+  "today.task.overdue": "Was due {when}",
+  "today.task.due": "Due {when}",
+  "today.task.undated": "No date set",
+  "today.task.open": "Open task",
+  "today.meeting.headline": "{subject} — {when}",
+  "today.meeting.withWhen": "With {who} · {when}",
+  "today.meeting.prepare": "Prepare meeting",
+  "today.source.people": "the contacts",
+  "today.source.signals": "the signals",
+  "today.source.activities": "what was said",
+  "today.commitment.overdueAtLeast": "{count}+ overdue",
+  "today.commitment.openAtLeast": "{count}+ open",
+  "today.route.ofThoseShown": "of the contacts shown",
+  "today.deal.atLeast": "{count}+ open deals",
+  "today.deal.seePipeline": "Too many to rank here — see the pipeline",
+  "today.tile.signal": "Worth knowing",
+  "today.tile.commitment": "Next commitment",
+  "today.tile.meeting": "Next meeting",
+  "today.tile.route": "Best route",
+  "today.tile.lastInteraction": "Last meaningful interaction",
+  "today.tile.opportunity": "Active opportunity",
+  "today.tile.risk": "Risk",
+  "today.commitment.overdueCount": "{count} overdue",
+  "today.commitment.openCount": "{count} open",
+  "today.commitment.due": "Due {when}",
+  "today.commitment.overdue": "Overdue since {when}",
+  "today.commitment.undated": "No due date",
+  "today.route.headline": "{colleague} → {contact}",
+  "today.route.remainder": "{count} other colleagues have written to them",
+  "today.deal.headline": "{name} · {amount}",
+  "today.deal.count": "{count} open deals",
+  "today.deal.mixedCurrency": "In different currencies — see the pipeline",
+  "today.draft.to": "Draft follow-up to {name}",
+  "evidence.confirm": "Confirm",
+  "evidence.correct": "Correct",
+  "evidence.save": "Save",
+  "evidence.saving": "Saving…",
+  "evidence.cancel": "Cancel",
+  "evidence.correctedValue": "Corrected value",
+  "evidence.confirmedAt": "Confirmed by a person {when}",
+  "evidence.humanSet": "Set by a person",
+  "co.routes.untried": "Untried — nobody here has written to them",
+  "co.routes.more": "+{count} more",
+  "acctCoverage.open": "Compare coverage",
+  "acctCoverage.title": "Who covers this account",
+  "acctCoverage.contact": "Contact",
+  "acctCoverage.findContact": "Find a contact",
+  "acctCoverage.untried": "Untried",
+  "acctCoverage.noMatch": "No contact matches that.",
+  "acctCoverage.columnCap":
+    "Showing {cap} colleagues — deselect one to add another.",
+  "acctCoverage.partial":
+    "This grid was built from a partial read, so a blank cell may mean the read stopped short rather than that nobody has tried.",
+  "acctCoverage.noneButPartial":
+    "Nobody connected was returned, but the read was capped — this is not a claim that nobody covers this account.",
+  "acctCoverage.noneAtAll":
+    "Nobody here has exchanged messages with anyone at this company yet.",
+  "docs.title": "Documents",
+  "docs.empty": "No documents on this account yet.",
+  "docs.noneInCategory": "No documents of that kind on this account.",
+  "docs.pinned": "Pinned",
+  "docs.download": "Download",
+  "docs.scanning": "Scanning — not yet downloadable",
+  "docs.blocked": "Blocked by the scanner",
+  "docs.category.all": "All",
+  "docs.category.contract": "Contract",
+  "docs.category.offer": "Offer",
+  "docs.category.legal": "Legal",
+  "docs.category.email": "Email attachment",
+  "docs.category.other": "Other",
+  "docs.state.draft": "Draft",
+  "docs.state.current": "Current",
+  "docs.state.final": "Final",
+  "docs.state.superseded": "Superseded",
   "log.title": "Log activity",
+  "log.addTask": "Add task",
   "log.sub": "a note or task, straight onto this timeline",
   "log.kind": "Type",
   "log.kindNote": "Note",
@@ -1220,6 +1557,14 @@ export const en = {
   "compose.to": "To",
   "compose.cc": "Cc",
   "compose.subject": "Subject",
+  "compose.noGroundableRecipient":
+    "No contact on this account yet — write the message yourself, or add a contact first",
+  "compose.draftTo": "Draft to",
+  "compose.draftToUnset": "Choose a contact",
+  "compose.relatedTo": "Related to",
+  "compose.relatedToNone": "The account in general",
+  "compose.basedOn": "Based on: {inputs}",
+  "compose.whyThisDraft": "Why this draft?",
   "compose.body": "Body",
   "compose.purpose": "Consent purpose",
   "compose.purposeHint":
@@ -1310,6 +1655,9 @@ export const en = {
   "role.rep": "Rep",
   "role.readOnly": "Read-only",
   "role.ops": "Ops",
+  "inlineChoice.change": "Change {field}",
+  "inlineText.save": "Save",
+  "inlineText.cancel": "Cancel",
   "rbac.masked": "Masked value",
   "settings.saved": "Saved.",
   "settings.passports": "Agent passports",
@@ -1377,6 +1725,10 @@ export const en = {
     "Type your organization's name to confirm. This cannot be undone.",
   "settings.resetDataConfirmName": "Type this organization name:",
   "settings.resetDataConfirmLabel": "Confirm organization name",
+  "settings.resetDataResult":
+    "Cleared {tables} tables, {jobs} job rows, {streams} event streams, {keys} cache keys and {objects} stored files.",
+  "settings.resetDataDrainWarning":
+    "A background job was still running when the reset began. It will fail against the wiped data — harmless, but expect one error in the log.",
   "settings.audit": "Audit log",
   "audit.you": "You",
   "audit.teammate": "A teammate",
@@ -1472,7 +1824,7 @@ export const en = {
   "ob.readTrustBody": "I save nothing until you confirm it.",
   "ob.coreIntroTitle": "First, I need to know your legal company.",
   "ob.coreIntroBody":
-    "I need its legal identity, address and VAT or registration details. Then I'll learn what you sell, who you serve, and how you win business.",
+    "I need its legal name, address and VAT or register number. Then I learn what you sell and to whom.",
   "ob.coreLegalKicker": "I start with legal identity",
   "ob.corePathLabel": "What I'll learn",
   "ob.corePathLegal": "Legal identity",
@@ -1481,24 +1833,24 @@ export const en = {
   "ob.coreReadingPage": "I'm reading",
   "ob.coreWebsiteTitle": "Which website should I read?",
   "ob.coreWebsiteBody":
-    "I'll find the legal notice first, then I’ll read your products, ideal customers, positioning and sales approach.",
+    "I read the legal notice first, then your products, customers and positioning.",
   "ob.corePreparing": "I'm preparing to read {host}",
   "ob.coreLegalReading": "I'm reading the legal identity on {host}",
   "ob.coreLegalReadingBody":
-    "I'm looking for the legal notice, registered organization, address and register or VAT/UID details. I leave anything unstated empty.",
+    "I look for the legal notice, address and register or VAT number. Unstated details stay empty.",
   "ob.coreBusinessReading": "I'm learning how the business works",
   "ob.coreBusinessReadingBody":
     "I'm connecting products, customers and positioning to the exact public text that supports them.",
   "ob.coreReady": "I found {count} cited company details",
   "ob.corePartial": "I found {count} useful details, with some gaps",
   "ob.coreReadyBody":
-    "I haven't saved anything yet. Please review the legal identity first, then the offer and ideal customer.",
+    "Nothing is saved yet. Review the legal identity first, then the offer and customer.",
   "ob.coreDeferredBody": "I'll resume this read automatically.",
   "ob.coreFailedBody":
-    "I couldn't reliably access or ground this website, so I stopped instead of guessing. You can tell me the same information yourself.",
+    "I could not read this site well enough, so I stopped instead of guessing. You can tell me yourself.",
   "ob.coreFindingsTitle": "What I found and can support",
   "ob.coreFindingsBody":
-    "I attach the public wording behind every value. If I couldn't verify a legal detail, I leave it empty.",
+    "Every value carries the public wording behind it. What I cannot verify, I leave empty.",
   "ob.ai.identity": "Hi, I'm Margince",
   "ob.ai.role": "Your company research AI",
   "ob.ai.speaker": "M",
@@ -1515,10 +1867,31 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
+  // The runtime disclosure is a chip you can open rather than a permanent
+  // band: cost is stated WHILE it is being spent, but a reader deciding
+  // whether a legal entity is right should not have to read a billing table
+  // to get to it.
+  "ob.ai.runtimeChip": "What is answering, and what it costs",
+  "ob.ai.answeringNow": "What is answering right now",
+  "ob.ai.runScope": "This run only. The full log is in Settings → AI.",
   "ob.ai.tier.localSmall": "local, fast",
   "ob.ai.tier.cheapCloud": "cloud, efficient",
   "ob.ai.tier.premium": "premium reasoning",
   "ob.ai.tier.localLarge": "local, advanced",
+  // The rail footer's plain-language line: the exact ids sit one click away
+  // in the runtime chip's "Configured AI" row, so this says only what a
+  // non-technical reader needs at a glance — how many models, and where.
+  "ob.ai.summary.cloud.one": "1 model, running in the cloud",
+  "ob.ai.summary.cloud.other": "{count} models, running in the cloud",
+  "ob.ai.summary.local.one": "1 model, running locally",
+  "ob.ai.summary.local.other": "{count} models, running locally",
+  "ob.ai.summary.hybrid.one": "1 model, split between cloud and local",
+  "ob.ai.summary.hybrid.other": "{count} models, split between cloud and local",
+  "ob.ai.summary.development.one": "1 model, development mode",
+  "ob.ai.summary.development.other": "{count} models, development mode",
+  "ob.ai.summary.none": "No model configured yet",
+  "ob.ai.summaryProviders.one": "1 provider configured",
+  "ob.ai.summaryProviders.other": "{count} providers configured",
   "ob.ai.readFirst": "Start company setup before asking about it.",
   "ob.ai.liveArtifact": "Live, reviewable artifact",
   "ob.ai.companyKnowledge": "What I understand about your company",
@@ -1562,7 +1935,7 @@ export const en = {
   "ob.coverageDetails": "What I covered and couldn't read",
   "ob.legalFoundTitle": "Legal entities I found",
   "ob.legalFoundBody":
-    "I keep each legal block together: registered name, address and register or VAT/UID number. If the site names several entities, you'll choose yours in the review.",
+    "Each block keeps the registered name, address and register or VAT number. Pick yours in the review.",
   "ob.legalEntity": "Legal entity",
   "ob.confirmWebsite":
     "I grounded this in {count} public pages. Edit anything; untouched values keep their evidence.",
@@ -1577,7 +1950,7 @@ export const en = {
     "Untick anything that should not become company context — up to 100 facts can be selected.",
   "ob.nowUnderstands": "I now understand",
   "ob.contextReady":
-    "I can now use this context for relevant drafts, search, agents and Voice DNA — with provenance attached.",
+    "I can use this context for drafts, search, agents and Voice DNA, with sources attached.",
 
   "ob.s1.kick": "Step 2 of 5 · confirm",
   "ob.s1.title": "Review what I learned about your company",
@@ -1586,7 +1959,7 @@ export const en = {
   "ob.s1.urlPlaceholder": "yourcompany.com",
   "ob.s1.identityLabel": "Legal organization",
   "ob.s1.offerLabel": "Products and offer",
-  "ob.s1.customerLabel": "Ideal customer",
+  "ob.s1.customerLabel": "Customer",
   "ob.s1.salesLabel": "Positioning and sales context",
   "ob.s1.fieldRequired": "Required.",
   "ob.s1.requiredMissing": "Fill these in before you continue: {fields}",
@@ -1679,26 +2052,25 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
-    "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
+    "Your workspace knows your business and your voice. Connect your inbox and it fills itself.",
   "ob.s3.subNoVoice":
-    "Your workspace already knows your business. Connect your inbox next and it fills itself with your real people, companies, and deals.",
+    "Your workspace knows your business. Connect your inbox and it fills itself.",
   "ob.s3.cardProfile": "Business profile",
   "ob.s3.cardProfileBody":
-    "Confirmed and saved to your company page. Fields read from your site keep their source; the rest are in your own words.",
+    "Confirmed and saved to your company page. Fields read from your site keep their source.",
   "ob.s3.cardProfileSkippedBody":
-    "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
+    "Read from your site but not saved — you skipped the confirm step. Go back to confirm it.",
   "ob.s3.cardVoice": "Your writing voice",
   "ob.s3.cardVoiceBody":
     "Built from the corpus you just gave us. Drafts will sound like you from day one.",
   "ob.s3.cardVoiceSkippedBody":
-    "You skipped the voice step — drafts start in a neutral starter voice until you build yours. Two minutes, anytime, in Settings.",
+    "You skipped this step, so drafts use a neutral starter voice. Build yours anytime in Settings.",
   "ob.s3.cardPipeline": "Sales pipeline",
   "ob.s3.cardPipelineBody":
-    "The standard 7-stage B2B template, pre-tuned to your industry. Empty until you connect — then deals fill in from your mail.",
+    "The standard 7-stage B2B template, tuned to your industry. Empty until you connect your inbox.",
   "ob.s3.cardDraft": "A sample draft, in your voice",
   "ob.s3.cardDraftExample": "A sample draft",
   "ob.s3.cardDraftBody": "See it below.",
@@ -1708,7 +2080,7 @@ export const en = {
     "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
   "ob.s3.originLabel": "Where this pipeline comes from",
   "ob.s3.originBody":
-    "No magic — it's the standard B2B stage template, tuned to your industry from the Step-1 read. It's empty right now. When you connect your inbox, capture reads your sent mail and meetings, then proposes deals into these stages — each one evidenced and reversible. You approve what becomes a deal.",
+    "The standard B2B stage template, tuned to your industry from the read. Empty until you connect. You approve what becomes a deal.",
   "ob.s3.stillNothing":
     "Still nothing connected. You're in control of when that changes.",
 
@@ -1717,7 +2089,7 @@ export const en = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
-  "ob.s4.microsoftBtn": "Connect Microsoft",
+  "ob.s4.microsoftBtn": "Allow access to my Microsoft",
   "ob.s4.microsoftHint":
     "Read-only mail access. You can disconnect any time from Settings.",
   "ob.s4.microsoftUnverified":
@@ -1732,12 +2104,12 @@ export const en = {
   "ob.s4.connectRetry":
     "Head to Settings → Integrations to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
-  "ob.s4.googleBtn": "Continue with Google",
+  "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
-    "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
+    "Reads your mail, and sends only what you approve. You grant it on Google's own screen, and can disconnect any time.",
   "ob.s4.googleUnverified":
-    "If Google shows an “unverified app” notice, choose Advanced → Continue. Margince only ever reads your mail — it never sends.",
+    "If Google warns about an “unverified app”, choose Advanced → Continue. Nothing sends without your approval.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
@@ -1944,14 +2316,16 @@ export const en = {
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapPort": "Port",
   "ob.s4.imapEmail": "Email",
   "ob.s4.imapPassword": "App password",
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
-    "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
-  "ob.s4.imapConnect": "Connect mailbox",
+    "Use an app password. We store it encrypted, and disconnecting deletes it.",
+  "ob.s4.imapConnect": "Test and connect",
   "ob.s4.connecting": "Connecting securely…",
+  "ob.s4.accessToggle": "What access this gives",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
     "Your mail becomes contacts, companies and activities, captured automatically.",
@@ -1963,26 +2337,22 @@ export const en = {
   "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
   "ob.s4.capturedTitle": "Mailbox connected",
   "ob.s4.capturedBody":
-    "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
+    "Your CRM is building itself. New mail lands here as the first sweep runs, usually in minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
-  "ob.s4.skipLater": "Skip for now — I'll connect later",
+  "ob.s4.notNow": "Not now",
 
   "ob.conv.threadLabel": "Onboarding conversation",
   "ob.conv.welcome":
-    "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
+    "Hi, I am Margince. I set up your CRM from what already exists, and I show a source for everything.",
   "ob.conv.welcomeMember":
     "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
-  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
   "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
   "ob.conv.read.pages": "Pages read so far: {pages}.",
   "ob.conv.read.learnedField": "Learned {field}: {value}",
   "ob.conv.read.extracting":
     "Done crawling. Now extracting what the site says about your business.",
   "ob.conv.read.warning": "Heads up: {warning}",
-  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
-  "ob.conv.read.partial":
-    "I could not read everything. Findings with sources: {count}.",
   "ob.conv.read.failed":
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
@@ -1998,18 +2368,24 @@ export const en = {
   "ob.conv.company.confirmed":
     "Company profile confirmed. Everything I stored carries its source.",
   "ob.conv.manual.chosen": "I will type it in myself.",
-  "ob.conv.voice.invite":
-    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
-  "ob.conv.voice.optIn": "Yes, learn my voice.",
   "ob.conv.voice.skipped": "Skip voice for now.",
   "ob.conv.voice.uploadAdded": "Added {name}.",
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
   "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
+  "ob.conv.voice.guideSpeaker":
+    "A speaker choice is waiting on the right — pick which one is you.",
+  "ob.conv.voice.speakerFoot": "Your choice applies to this file only.",
+  "ob.conv.voice.speakerContinue": "Use this speaker",
+  "ob.conv.voice.continueSkippedStatus":
+    "Skipped for now — add it later in Settings.",
+  "ob.conv.voice.continueFailedStatus":
+    "Your material is safe — retry now, or continue and pick this up later.",
+  "ob.conv.voice.continueDeferredStatus":
+    "No action needed here — continue, and it finishes on its own.",
   "ob.conv.voice.collectAsk":
-    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too, and you can paste text below.",
-  "ob.conv.voice.composer": "Paste a text you wrote, or attach files",
-  "ob.conv.voice.attach": "Attach files",
+    "Send me things you wrote. Call transcripts work best; plain documents work too.",
+  "ob.conv.voice.composer": "Paste the text you wrote here",
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
   "ob.conv.voice.fileSkipped":
@@ -2017,27 +2393,25 @@ export const en = {
   "ob.conv.voice.fileEmpty":
     "There are no words in {name}, so nothing was counted.",
   "ob.conv.voice.reactionTranscript":
-    "Words kept: {kept} of {total}. Only your turns count, and spoken register is exactly what sharpens your voice.",
+    "Words kept: {kept} of {total}. Only your turns count; speech sharpens your voice most.",
   "ob.conv.voice.reactionDocument":
     "Words counted: {words}. Every word here is yours, so all of them count.",
   "ob.conv.voice.refusalUnattributed":
-    "That looks like a conversation, but I cannot tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+    "That looks like a conversation, but I cannot tell which words are yours, so I counted none.",
   "ob.conv.voice.refusalSpeaker":
     "I could not find that speaker in the transcript. Nothing was counted.",
   "ob.conv.voice.refusalUnsupported":
     "I could not parse that file as text or a transcript. Nothing was counted.",
   "ob.conv.voice.ingestFailed": "I could not add that source: {detail}",
-  "ob.conv.voice.pasteOffer":
-    "That reads like voice material. Should I add it to your corpus?",
+  "ob.conv.voice.ingestUnexpected":
+    "I could not add that source. Try again in a moment.",
   "ob.conv.voice.pasteAdd": "Yes, add it to my corpus.",
   "ob.conv.voice.pasteDiscard": "No, discard it.",
-  "ob.conv.voice.pasteTooShort":
-    "That is too short to teach me much. Attach files, or paste a longer text you wrote.",
   "ob.conv.voice.pasteSource": "Pasted text",
   "ob.conv.voice.buildFloor":
     "Own words so far: {words}. I need at least {min} before I can build.",
   "ob.conv.voice.buildNudge":
-    "I have enough to build. More material still helps: 4,000 or more words make your voice noticeably sharper.",
+    "I have enough to build. More helps: 4,000 words or more sharpen your voice noticeably.",
   "ob.conv.voice.buildChip": "Build my voice profile",
   "ob.conv.voice.retryBuild": "Try the build again",
   "ob.conv.voice.buildPollFailed":
@@ -2076,8 +2450,7 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
-  "ob.conv.composer": "Type your website address, or ask me a question",
-  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.composer": "Ask me, or paste your website",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
@@ -2090,16 +2463,187 @@ export const en = {
   "ob.conv.loadFailed": "I could not check your setup. Please try again.",
   "ob.conv.retry": "Try again",
   "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
-  "ob.conv.review.title": "Company profile, prepared from sources",
-  "ob.conv.review.openQuestions": "Decide these before I save anything.",
-  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
-  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.title": "Here is everything I found. Correct me.",
+  "ob.conv.review.showMore": "Show full text",
+  "ob.conv.review.showLess": "Show less",
+  "ob.conv.review.continue": "Continue",
+  "ob.conv.review.progressLabel": "Required fields completed",
+  "ob.conv.review.requiredRemaining.one":
+    "{count} field needed before you can continue",
+  "ob.conv.review.requiredRemaining.other":
+    "{count} fields needed before you can continue",
+  "ob.conv.review.requiredDone": "Nothing more needed — you can continue.",
+  "ob.conv.review.confirmQuestionOpen":
+    "A decision is still open. Answer it to continue.",
+  "ob.conv.triage.stateRequired": "required, still empty",
+  "ob.conv.triage.stateEmpty": "empty",
+  "ob.conv.triage.stateTyped": "typed by you",
+  "ob.conv.triage.stateStored": "from your profile",
+  // A value the entity census read off the legal notice — the one company the
+  // site names, or the candidate the human picked from several. Nothing ever
+  // scored it, so the word names WHERE it came from; "chosen by you" would be
+  // false on the sole-candidate path, where nobody was asked anything.
+  "ob.conv.triage.stateQuoted": "read from your legal notice",
+  // Where a value would stand on an empty row. It says only that the row is
+  // empty: the same line serves the manual path, where nothing ever read the
+  // site, and a read-backed board, where the wire says nothing about why any
+  // one field came back missing. Naming a cause here would invent one.
+  "ob.conv.triage.emptyHint": "Nothing here yet. Yours to add.",
+  "ob.conv.triage.legalNotPublished":
+    "Not stated on your legal or imprint page. Yours to add.",
+  "ob.conv.triage.legalNotChecked":
+    "I did not find a legal or imprint page on your site to check. Yours to add.",
+  // Several companies stand on the one imprint. The value IS on the page, so
+  // saying it is not stated would be false; what is missing is the human's
+  // decision about which company this installation belongs to.
+  "ob.conv.triage.legalUnpicked":
+    "Your imprint names more than one company. Choose which one is yours and I will fill this in.",
+  // The omission notice on an empty row, once a read has actually run: the
+  // field is named as withheld rather than left blank, and the reason is only
+  // ever one the read can support for THAT field. The read's crawl-wide
+  // warnings belong to the coverage card, which states each under its own
+  // heading; beside a field they would name a cause the read never gave.
+  "ob.conv.triage.omittedLabel": "Omitted, not guessed",
+  "ob.conv.triage.omittedField": "{field}: {reason}",
+  "ob.conv.triage.mapLabel": "Jump to a section",
+  "ob.conv.triage.sectionBlocking": "{count} needed to continue",
+  "ob.conv.triage.sectionAdvisory": "{count} worth a check",
+  "ob.conv.triage.blockingHead": "Needed to continue",
+  "ob.conv.triage.advisoryHead": "Worth a check",
+  "ob.conv.triage.sectionSettled": "Nothing outstanding here",
+  "ob.conv.triage.sectionMore": "+{count} more",
+  "ob.conv.triage.restTitle": "Background, not work",
+  "ob.conv.triage.looksSolid": "Looks solid · {count}",
+  "ob.conv.triage.companyWebsite": "Website",
+  "ob.conv.triage.sourceCount": "{count} src",
+  "ob.conv.triage.peopleLabel": "People",
+  "ob.conv.triage.peopleCount": "{count} found",
+  "ob.conv.triage.peopleEmpty": "No people found on your site.",
+  "ob.conv.triage.factsLabel": "Facts",
+  "ob.conv.triage.factsCount": "{count} found",
+  "ob.rail.spend": "Tokens this setup",
+  "ob.rail.tokensUnit": "tok",
+  "ob.conv.scene.step": "Step {n} of {m} · {label}",
+  "ob.conv.scene.detour": "A quick detour",
+  "ob.conv.scene.decisionSub":
+    "Your site names several legal entities. The one you pick goes on every quote and invoice.",
+  "ob.conv.scene.continue": "Continue",
+  "ob.conv.scene.candidates": "{count} candidates",
+  "ob.conv.connect.sceneTitle": "Connect your accounts.",
+  "ob.conv.connect.sceneSub":
+    "I build your contacts, companies and history from what is already in your inbox.",
+  "ob.conv.connect.mailboxTitle": "Your mailbox",
+  "ob.conv.connect.mailboxHint":
+    "Pick one. This is where your contacts, companies and history come from.",
+  "ob.conv.connect.networkTitle": "Your network",
+  "ob.conv.connect.networkHint":
+    "Optional but worth it. Turns who you know into accounts and watches them for triggers.",
+  "ob.conv.connect.required": "required",
+  "ob.conv.connect.recommended": "recommended",
+  "ob.conv.connect.gmailBrings": "Mail, contacts and calendar from Google",
+  "ob.conv.connect.microsoftBrings":
+    "Mail, contacts and calendar over the Graph API",
+  "ob.conv.connect.imapBrings": "Any other mail host, with an app password",
+  "ob.conv.connect.linkedinAuth": "Profile link, read only",
+  "ob.conv.connect.scopeGoogle": "OAuth, read and send scopes",
+  "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
+  "ob.conv.connect.scopeImap": "Any other provider, app password",
+  "ob.conv.connect.connectCta": "connect →",
+  "ob.conv.connect.connectedCta": "connected",
+  "ob.conv.connect.blockedCard":
+    "You already picked a mailbox. Disconnect it in Settings to switch.",
+  "ob.conv.connect.guaranteesToggle": "What connecting actually does",
+  "ob.conv.connect.railPromise":
+    "We only read, and nothing sends without your approval.",
+  "ob.conv.connect.dialogHeadlineAccess": "{name} access needed",
+  "ob.conv.connect.dialogHeadlineImap": "Connect your mail host",
+  "ob.conv.connect.dialogIntro":
+    "{brings}. I read it once to build your contacts and history, then keep it in sync.",
+  "ob.conv.connect.dialogClose": "Close",
+  "ob.conv.connect.linkedinName": "LinkedIn",
+  "ob.conv.connect.linkedinConnected": "Connected",
+  "ob.conv.connect.linkedinSkippedNote": "Skipped: add it later in Settings",
+  "ob.conv.connect.rosterFailedTitle": "Could not check your mailboxes",
+  "ob.conv.connect.rosterFailedBody":
+    "Something went wrong loading your connection status. Try again before picking a provider.",
+  "ob.conv.voice.sceneTitle": "Teach me how you write.",
+  "ob.conv.voice.sceneSub":
+    "This CRM drafts every email in your own words, and nothing sends until you approve it.",
+  "ob.conv.voice.heroBody":
+    "It learns your tone, rhythm and phrasing from your own writing, and from nobody else's.",
+  "ob.conv.voice.whyToggle": "Why this matters",
+  "ob.conv.voice.dropTitle": "Drop your writing here",
+  "ob.conv.voice.dropSub":
+    "Sent mail works best, because it shows how you write when you want something.",
+  "ob.conv.voice.browse": "Browse files",
+  "ob.conv.voice.pasteInstead": "Paste text instead",
+  "ob.conv.voice.sourcesTitle": "Sources",
+  "ob.conv.voice.meterLabel": "Progress toward the {min}-word minimum",
+  "ob.conv.voice.meterProgress": "{words} of {min} words",
+  "ob.conv.voice.meterReady":
+    "{words} words — enough to build. More still sharpens it.",
+  "ob.conv.voice.footReady":
+    "Training takes about a minute. You will see a sample before anything is saved.",
+  "ob.conv.voice.footFloor":
+    "{min} words minimum. Below that the model just copies phrasing.",
+  "ob.conv.voice.buildingTitle": "Learning your voice",
+  "ob.conv.voice.buildingMeta": "{words} words, {sources} sources",
+  "ob.conv.voice.resultSub":
+    "Read the sample first. If it lands, confirm. If it is off, add more sources and I rebuild.",
+  "ob.conv.voice.resultSubNoSample":
+    "Your corpus is too small for a sample draft. Here is what the build learned. Add more sources.",
+  "ob.conv.voice.resultContinue": "That is my voice",
+  "ob.conv.voice.sampleEyebrow": "Sample, not sent",
+  "ob.conv.voice.sampleAnother": "Another scenario",
+  "ob.conv.voice.sampleSubjectLabel": "Subject",
+  "ob.conv.voice.sampleWhyTag": "Why",
+  "ob.conv.voice.dimensionsTitle": "Measured dimensions",
+  "ob.conv.voice.dimensionsCount": "Measured: {count}",
+  "ob.conv.voice.dimSentenceName": "Sentence length",
+  "ob.conv.voice.dimSentencePoleLow": "Terse",
+  "ob.conv.voice.dimSentencePoleHigh": "Elaborate",
+  "ob.conv.voice.dimSentenceMeasured": "Measured",
+  "ob.conv.voice.dimSentenceEvidence": "{count} words per sentence on average.",
+  "ob.conv.scene.evidence": "evidence",
+  "ob.conv.scene.hideEvidence": "hide evidence",
+  "ob.conv.scene.whyThis": "What I read",
+  "ob.conv.scene.foundOn": "Found on",
+  "ob.conv.guide.decision":
+    "I need one decision from you: {question} It is on the right, with the evidence for each option.",
+  "ob.conv.guide.reviewBlocked.one":
+    "Your review is ready on the right. {count} field blocks confirm.",
+  "ob.conv.guide.reviewBlocked.other":
+    "Your review is ready on the right. {count} fields block confirm.",
+  "ob.conv.guide.reviewAdvisory.one":
+    "Your review is ready on the right. Nothing blocks you; {count} thing is worth a look.",
+  "ob.conv.guide.reviewAdvisory.other":
+    "Your review is ready on the right. Nothing blocks you; {count} things are worth a look.",
+  "ob.conv.guide.reviewClean":
+    "Your review is ready on the right. It looks clean, check what you want and confirm when ready.",
+  "ob.conv.guide.attentionHeading": "These need your input",
+  "ob.conv.guide.attentionGroup.blocking": "Needed before you can continue",
+  "ob.conv.guide.attentionGroup.decisions": "Needs a decision",
+  "ob.conv.guide.attentionGroup.advisory": "Worth a look",
+  "ob.conv.guide.attentionStatus.blocks": "needed to continue",
+  "ob.conv.guide.attentionStatus.empty": "still empty",
+  "ob.conv.guide.attentionStatus.decision": "needs a decision",
+  "ob.conv.guide.attentionStatus.check": "worth a check",
+  "ob.conv.activity.steps": "{count} steps",
+  "ob.conv.showField": "Show me",
   "ob.conv.review.editDirectly": "Edit fields directly",
   "ob.conv.review.backToDossier": "Back to the dossier",
   "ob.conv.review.proposalFallback":
     "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
   "ob.conv.review.confirmFailed":
     "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.review.confirmVersionSkew":
+    "Your review just picked up newer information. Have a look, then press Continue again.",
+  "ob.conv.review.confirmVersionSkewStuck":
+    "Nothing has changed yet, so Continue would fail again. Have another look, or try in a moment.",
+  "ob.conv.review.confirmNotReady":
+    "This read has no draft to confirm yet. Check again when it finishes, or start a fresh read.",
+  "ob.conv.review.confirmCheckFailed":
+    "This read is confirmed, but I could not load the company it created. Try again shortly.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
@@ -2125,7 +2669,7 @@ export const en = {
   "ob.conv.recap.corpus":
     "Your corpus already holds {words} of your own words.",
   "ob.conv.recap.readTerminal":
-    "Welcome back. I already finished reading {host}: {count} findings with sources. Your review is ready below.",
+    "Welcome back. I finished reading {host}: {count} findings with sources, ready below.",
   "ob.conv.recap.readReading":
     "Welcome back. I am still reading {host}. Pages so far: {pages}.",
   "ob.conv.recap.readFailed":
@@ -2135,13 +2679,9 @@ export const en = {
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
-  "ob.conv.linkedin.why":
-    "Before your inbox, one thing matters more: who your team already knows. Your mail says who you have spoken to. Your LinkedIn network says who you could reach \u2014 and on a brand-new CRM, that is the difference between an account that looks cold and one where a colleague can make an introduction today.",
-  "ob.conv.linkedin.ask":
-    "Connecting takes one authorization. I read your connection list and nothing else \u2014 no messages, no posts, no activity.",
-  "ob.conv.linkedin.artifactTitle": "LinkedIn connection",
-  "ob.conv.linkedin.artifactSub":
-    "So the CRM can tell you who on your team already knows someone at an account.",
+  "ob.conv.linkedin.cardBody":
+    "Turns your network into accounts and contacts, and flags it when a connection changes jobs.",
+  "ob.conv.linkedin.limitsToggle": "What Margince can and cannot see",
   "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
   "ob.conv.linkedin.scope1Rest":
     "name, position, company and the date you connected.",
@@ -2155,14 +2695,14 @@ export const en = {
   "ob.conv.linkedin.scope4Rest":
     "Connecting sends no invitations and no messages, ever.",
   "ob.conv.linkedin.neverContacts":
-    "Your connections do NOT become contacts. They never appear in search, lists or contact pages, nothing can be written to them, and nobody can email them. They exist only to answer one question: does anyone here already know someone at this company?",
+    "Your connections never become contacts. They answer one question: who here already knows them?",
   "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "Needed so the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+    "So the network is attributed to you: “Anna knows them”, never “the company knows them”.",
   "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
   "ob.conv.linkedin.appPending":
-    "Heads up: our LinkedIn developer app is still awaiting approval, so this records your consent and profile but no connections sync yet. Until it clears you can upload your own Connections.csv under Settings, which works today.",
+    "Our LinkedIn app is still awaiting approval, so nothing syncs yet. Upload Connections.csv in Settings.",
   "ob.conv.linkedin.skip": "Skip LinkedIn for now",
   "ob.conv.linkedin.connected":
     "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
@@ -2172,9 +2712,239 @@ export const en = {
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
   "ob.conv.next.decisionOne": "1 decision open",
-  "ob.conv.next.decisionMany": "{count} decisions open",
-  "ob.conv.next.review": "Your review is ready",
   "ob.conv.next.build": "Ready to build your voice",
+
+  // The setup rail: five stops, one word each. Long enough to name the step,
+  // short enough that five of them fit a column at 10px.
+  "ob.rail.read": "Read",
+  "ob.rail.confirm": "Confirm",
+  "ob.rail.voice": "Voice",
+  "ob.rail.ready": "Ready",
+  "ob.rail.connect": "Connect",
+
+  // --- the gate: the first screen after sign-in -------------------------
+  // One question and nothing else. Nobody should meet the whole tool on their
+  // first screen, so the gate names what it will do, what it costs the reader
+  // (two minutes), and who decides (they do) — then asks once.
+  "ob.gate.title": "Hi {name}, I am the Margince AI.",
+  "ob.gate.titleAnonymous": "I am the Margince AI.",
+  "ob.gate.sub":
+    "I read your site and draft your company profile. You approve before anything is saved. About two minutes.",
+  "ob.gate.trustToggle": "How this works",
+  "ob.gate.trustBody":
+    "I read only public pages. Nothing is saved until you confirm it, and nothing is ever sent without your approval.",
+  "ob.gate.field": "Your website address",
+  "ob.gate.placeholder": "yourcompany.com",
+  "ob.gate.submit": "Read my site",
+  "ob.gate.altPrompt": "No website handy?",
+  "ob.gate.altAction": "Enter the details yourself",
+  "ob.gate.invalidUrl":
+    "That does not look like a web address. Try it as yourcompany.com.",
+  // One string for two failures that look identical to the reader: the request
+  // to start never landed, or the read started and did not finish. {detail} is
+  // the server's own guidance and may be empty, so the sentence has to stand
+  // without it.
+  "ob.gate.startFailed":
+    "I could not read that site. {detail} Try another address, or enter the details yourself.",
+  // A deferred read is shelved, not broken: the server will come back to it. So
+  // this says what is true and names both doors, without asking the reader to
+  // fix anything.
+  "ob.gate.readPaused":
+    "That read is paused. {detail} It resumes on its own — or give me another address, or type it in.",
+
+  // --- the read theatre -------------------------------------------------
+  // Volume made visible. The wire gives no page-count denominator, so every
+  // number here is an open count — never "14 of 18", never a bar with a known
+  // end, because inventing the total would be inventing data.
+  "ob.scan.title": "Reading {host}",
+  "ob.scan.sub":
+    "Every fact keeps the page it came from, so you can check anything I claim.",
+  "ob.scan.doneTitle": "Read {host}",
+  "ob.scan.doneSub":
+    "{facts} facts and {fields} profile fields, each with the page it came from. Opening your review.",
+  "ob.scan.phaseCrawling": "Fetching pages",
+  "ob.scan.phaseExtracting": "Working out what you sell",
+  "ob.scan.phaseQueued": "Queued, starting shortly",
+  "ob.scan.phaseDeferred": "Paused for now",
+  "ob.scan.pagesRead": "{pages} pages read",
+  "ob.scan.pagesSkipped": "{count} skipped",
+  "ob.scan.factsSoFar": "{count} facts so far",
+  "ob.scan.stillReading": "still reading",
+  "ob.scan.pageStripLabel": "Pages read so far",
+  "ob.scan.logLabel": "The pages I am walking, newest first",
+  "ob.scan.pageFetched": "{url} — read",
+  "ob.scan.pageSkipped": "{url} — skipped: {reason}",
+  "ob.scan.pageFailed": "{url} — could not be read: {reason}",
+  "ob.scan.pageNoReason": "no reason recorded",
+  "ob.scan.pageStatusFetched": "read",
+  "ob.scan.pageStatusSkipped": "skipped: {reason}",
+  "ob.scan.pageStatusFailed": "could not be read: {reason}",
+  "ob.scan.skipReason.robots": "the site asked me not to read it",
+  "ob.scan.skipReason.offDomain": "it lives on another domain",
+  "ob.scan.skipReason.pageCap":
+    "I had already read as many pages as one read allows",
+  "ob.scan.skipReason.byteCap":
+    "this read had already taken in as much text as it allows",
+  "ob.scan.skipReason.unreadable": "I could not read the page",
+  "ob.scan.transparency": "Transparency",
+  "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
+  "ob.scan.costPending": "no model calls billed yet",
+  "ob.scan.costUnpriced": " · unpriced usage exists",
+
+  // --- the live panel: the sourced record building itself ----------------
+  "ob.live.headReading": "Reading {host}",
+  "ob.live.headDone": "Read {host}",
+  "ob.live.nothingSaved":
+    "Nothing is saved yet. I will show you everything when I am done.",
+  "ob.live.summaryHeading": "Here is what I understood",
+  "ob.live.summaryYouAre": "You are",
+  "ob.live.summaryYouSell": "You sell",
+  "ob.live.summaryYouSellTo": "You sell to",
+  "ob.live.summaryVolume":
+    "{facts} facts from {pages} pages, already filled in. Open any section to check it.",
+  "ob.live.stepWebsite": "From reading your website",
+  "ob.live.stepVoice": "Your writing voice",
+  "ob.live.stepConnect": "Inbox and calendar",
+  "ob.live.stateDone": "done",
+  "ob.live.stateNow": "in progress",
+  "ob.live.stateWaiting": "waiting",
+  "ob.live.review": "Review",
+  "ob.live.hide": "Hide",
+  "ob.live.countFields": "{count} fields",
+  "ob.live.countFacts": "{count} facts",
+  "ob.live.countPeople": "{count} lead proposals",
+  "ob.live.countPages": "{read} read · {skipped} skipped",
+  "ob.live.cardIdentity": "Company identity",
+  "ob.live.cardPositioning": "Positioning and sales angle",
+  "ob.live.cardPeople": "People found",
+  "ob.live.cardCoverage": "What I read, and what I skipped",
+  "ob.live.cardVoice": "Voice profile",
+  "ob.live.cardConnect": "Connected",
+  "ob.live.voiceNotBuilt": "not built yet",
+  "ob.live.connectNone": "nothing connected",
+  "ob.live.noValue": "—",
+  "ob.live.peopleEmpty":
+    "Nobody yet. I only propose a person when the page gives a name and a role.",
+  "ob.live.coverageWarning": "Warning",
+  // A bounded read has to say it was bounded: the page counts beside it
+  // otherwise read as the whole site.
+  "ob.live.coverageStopped": "Stopped early",
+  "ob.live.stoppedPageCap":
+    "I reached the page limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedByteCap":
+    "I reached the size limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedBudget":
+    "I reached the budget for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedDeadline":
+    "I ran out of time for one read, so there is more of your site I did not open.",
+  "ob.live.coverageSkipped": "Skipped",
+  "ob.live.coverageFailed": "Could not read",
+  "ob.live.coverageClean":
+    "Every page I tried came back. Nothing was skipped and nothing failed.",
+
+  // --- facts: preview card and the full table ----------------------------
+  "ob.facts.title": "Facts",
+  "ob.facts.catCompany": "Company",
+  "ob.facts.catOffering": "Offering",
+  "ob.facts.catMarket": "Market",
+  "ob.facts.catSignal": "Signal",
+  "ob.facts.catAll": "All",
+  "ob.facts.mixLabel": "Facts by category",
+  "ob.facts.selected": "{selected} of {total} will be saved",
+  "ob.facts.selectAll": "Select all",
+  "ob.facts.clearAll": "Clear all",
+  "ob.facts.previewNote": "Showing the {count} highest-confidence facts.",
+  "ob.facts.openTable": "Open the full table",
+  "ob.facts.tableTitle": "All facts I read",
+  "ob.facts.search": "Search facts",
+  "ob.facts.hits": "{hits} of {total}",
+  "ob.facts.colSave": "Save",
+  "ob.facts.colCategory": "Category",
+  "ob.facts.colFact": "Fact",
+  "ob.facts.colSource": "Source",
+  "ob.facts.colConfidence": "Confidence",
+  "ob.facts.rowSave": "Save the fact: {fact}",
+  "ob.facts.noMatch": "Nothing matches that search.",
+  // The card only mounts once the read has settled, so its empty state reports a
+  // finished search that found nothing — not one still in progress.
+  "ob.facts.empty":
+    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.",
+  "ob.facts.close": "Done",
+  "ob.facts.closeTable": "Close the table",
+  "ob.facts.capReached":
+    "You can save up to {max} facts. Clear one to make room for another.",
+
+  // --- the payoff: what two minutes actually bought ----------------------
+  // Counts, not congratulation. Every cell is a real number off the wire, and
+  // a cell with no number says so rather than showing a zero that looks earned.
+  // Two leads for one moment. The first is only true when the install really was
+  // empty minutes ago; a setup picked up across days is the supported path, and
+  // the payoff above all else may not overstate.
+  "ob.payoff.lead": "Minutes ago this was an empty install.",
+  "ob.payoff.leadResumed": "This started as an empty install.",
+  "ob.payoff.factsRead": "facts read",
+  "ob.payoff.factsConfirmed": "facts you confirmed",
+  "ob.payoff.peopleFound": "people found",
+  "ob.payoff.profileFields": "profile fields",
+  "ob.payoff.voiceWords": "words in your voice",
+  "ob.payoff.pagesRead": "pages read",
+  "ob.payoff.voiceNotTrained": "voice not trained yet",
+  "ob.payoff.body":
+    "Everything in there is yours to correct, and every value still points at the page it came from.",
+  "ob.payoff.defaults":
+    "I wait for your yes, and never overwrite what you typed. Both change in Settings → Autonomy.",
+  "ob.payoff.seats":
+    "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
+  "ob.payoff.understood": "Understood",
+
+  // --- the handoff into the app -----------------------------------------
+  "ob.enter.cta": "Enter Margince",
+  "ob.enter.assembling": "Assembling your workspace",
+
+  // --- the mailbox backread ---------------------------------------------
+  // A separate operation from connecting, and the copy has to keep them
+  // separate: connecting grants access, the backread spends budget reading
+  // history. Read-only, and it writes nothing until the reader approves.
+  "ob.backread.heading": "How far back should I read?",
+  "ob.backread.window3m": "3 months — recent context",
+  "ob.backread.window6m": "6 months — recommended",
+  "ob.backread.window12m": "12 months — full sales cycle",
+  "ob.backread.estimate": "About {messages} messages in that window.",
+  "ob.backread.estimateHeuristic":
+    "Estimated from the mailbox, not counted yet.",
+  "ob.backread.estimateCost": "Roughly {cost} in model calls.",
+  "ob.backread.estimateFailed":
+    "I could not estimate that window: {detail} You can still start, or pick another.",
+  "ob.backread.note":
+    "The backread only reads. You see every person and company I found before anything is written.",
+  "ob.backread.start": "Connect and read",
+  "ob.backread.startFailed":
+    "I could not start the backread: {detail} Try again, or continue and start it later in Settings.",
+  "ob.backread.running": "Reading your mailbox",
+  "ob.backread.runningNote":
+    "You can leave this running and keep working. I pick it up where I left off.",
+  "ob.backread.queued": "Queued. It starts in a moment.",
+  "ob.backread.progress": "{scanned} of about {total} messages",
+  "ob.backread.progressNoTotal": "{scanned} messages so far",
+  "ob.backread.tallyMessages": "messages read",
+  "ob.backread.tallyCaptured": "kept",
+  "ob.backread.tallySkipped": "ignored",
+  "ob.backread.tallyPeople": "people found",
+  "ob.backread.tallyCompanies": "companies found",
+  "ob.backread.doneHeading": "Here is what is in there.",
+  "ob.backread.doneNote":
+    "Nothing is written yet. Everything I found waits for your review in the inbox.",
+  "ob.backread.failed":
+    "The backread stopped: {detail} Your connection is fine — you can start it again in Settings.",
+  "ob.backread.cancelled": "I stopped reading. Nothing was written.",
+  "ob.backread.cancelledPartial":
+    "I stopped reading. What was already captured stays — it is waiting for you in the inbox.",
+  "ob.backread.cancelFailed":
+    "I could not stop the read: {detail} Try again — it keeps running meanwhile.",
+  "ob.backread.detailUnavailable": "Something unexpected went wrong.",
+  "ob.backread.cancel": "Stop reading",
+  "ob.backread.explore": "Explore Margince meanwhile",
+  "ob.backread.skip": "Do not read history now",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
@@ -2225,16 +2995,23 @@ export const en = {
   "auth.email": "Email",
   // A placeholder is an EXAMPLE, never an instruction and never the label
   // again. "Enter your email" in a placeholder is a label that disappears.
-  "auth.emailPlaceholder": "you@company.com",
+  // The address is the login spec §7.2's, and the reserved example domain
+  // rather than a plausible one: `company.com` belongs to somebody.
+  "auth.emailPlaceholder": "name@example.com",
   "auth.password": "Password",
   "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
   "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // NOT the label of a served provider button. A real installation's button text
+  // is `oidc_providers[].label` off the wire, server-owned, and the client never
+  // composes it. This is what the ui-preview fixture uses to stand in for that
+  // server in the reader's own language — see app/ui-preview.ts.
+  "auth.continueWith": "Continue with {brand}",
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
-  "auth.orWithEmail": "or with email",
+  "auth.orDivider": "or",
   // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
   // keeps `workspace` internal and §7.3 removed it from authentication. And the
   // line states that ACCESS is restricted, never that data is safe, encrypted or
@@ -2279,13 +3056,26 @@ export const en = {
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",
+  // The password was refused, not the link — so the link is still good and the
+  // user must not be sent to replace it.
+  "auth.resetRejectedPassword":
+    "That password was refused. Choose a different one and try again.",
+  // Neither the link's fault nor the user's: the token is untouched, so retrying
+  // the same one is the right advice. Two sentences, no dash (VOICE-RULE-5).
+  "auth.resetServerFailed":
+    "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
+  // Its own key rather than auth.errRateLimited, which says "sign-in attempts":
+  // this user is setting a password, not signing in, and copy that names the
+  // wrong action reads as the wrong error.
+  "auth.resetRateLimited":
+    "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
+  "auth.askAdminForNewLink":
+    "Ask your administrator for a new set-password link.",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
   "auth.backToLogin": "Back to sign in",
-  "auth.langDeutsch": "Deutsch",
-  "auth.langEnglish": "English",
   "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",
@@ -2675,6 +3465,7 @@ export const en = {
   "users.invite": "Invite",
   "users.setRole": "Set role…",
   "users.setRoleFor": "Set role for {name}",
+  "users.rolesHeld": "Holds {roles}. Choosing one replaces them all",
   "users.deactivate": "Deactivate",
   "users.reactivate": "Reactivate",
   "users.status.active": "Active",
@@ -2685,6 +3476,24 @@ export const en = {
   "users.role.rep": "Rep",
   "users.role.read_only": "Read-only",
   "users.role.ops": "Ops",
+  "users.link.action": "Get set-password link",
+  "users.link.title": "Set-password link for {name}",
+  "users.link.pending": "Creating the link…",
+  // Two sentences, no dash (VOICE-RULE-5).
+  "users.link.body":
+    "Send this link to the member over a channel you trust. It works once and is shown only now. Close this and you can create a new one from their row.",
+  "users.link.urlLabel": "Set-password link",
+  "users.link.copy": "Copy link",
+  "users.link.copied": "Copied",
+  "users.link.copyFailed":
+    "Could not copy automatically. Select the link and copy it.",
+  "users.link.expires": "Expires {when}.",
+  "users.link.failed":
+    "The member was created, but the link could not be. They cannot sign in until you send them one.",
+  "users.link.offline":
+    "Could not reach the server. Check your connection and try again.",
+  "users.link.retry": "Try again",
+  "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companySub":
@@ -2703,6 +3512,8 @@ export const en = {
   "settings.companySaved": "Saved",
   "settings.companyRefreshUnavailable":
     "This website refresh is no longer available.",
+  "settings.companyRefreshUnreadable":
+    "We lost track of this website read. Start the refresh again.",
   "settings.companyRefreshStale":
     "The website proposal changed. Review the refreshed comparison before applying it.",
   "settings.companyRefreshReview": "Website comparison",
@@ -2712,7 +3523,7 @@ export const en = {
   "settings.companyResolveAll":
     "Choose an outcome for every human-held conflict.",
   "settings.companyApplyRefresh": "Apply selected changes",
-  "settings.companySelectChange": "Select this website change",
+  "settings.companySelectChange": "Select the {field} change",
   "settings.companyCurrent": "Current confirmed value",
   "settings.companyWebsiteProposal": "Website proposal",
   "settings.companyClass.new": "New",
@@ -2744,6 +3555,7 @@ export const en = {
   "product.taxRate": "Default tax rate %",
   "product.active": "Active",
   "product.activeFilter": "Active only",
+  "product.activeFilterAll": "All",
   "product.inactive": "Inactive",
   "product.archived": "Archived",
   "product.sortName": "Name",
@@ -2764,6 +3576,7 @@ export const en = {
   "template.header": "Header text",
   "template.footer": "Footer text",
   "template.localeFilter": "Locale",
+  "template.localeFilterAll": "All locales",
   "template.localeDE": "German (DE)",
   "template.localeEN": "English (US)",
   "template.sortName": "Name",
@@ -2786,6 +3599,7 @@ export const en = {
   "aiusage.sub":
     "Your own bill, made visible — per task and tier, token-denominated.",
   "aiusage.budget": "{spent} of {budget} tokens · {pct}%",
+  "aiusage.budgetMeter": "Monthly token budget used",
   "aiusage.band.normal": "normal",
   "aiusage.band.degraded": "economy mode",
   "aiusage.band.queued": "budget reached — background AI queued",
@@ -2922,6 +3736,22 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "settings.tab.installation": "Installation",
+  "installationSettings.title": "Installation",
+  "installationSettings.sub":
+    "What this installation is called, and the zone and currency every report is computed in.",
+  "installationSettings.name": "Organization name",
+  "installationSettings.nameHint":
+    "Shown wherever the product names your organization.",
+  "installationSettings.timezone": "Reporting timezone",
+  "installationSettings.timezoneHint":
+    "IANA zone name (for example Europe/Berlin). Period boundaries in every report are computed in it, separate from your own display timezone.",
+  "installationSettings.baseCurrency": "Base currency",
+  "installationSettings.baseCurrencyHint":
+    "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
+  "installationSettings.baseCurrencyLocked":
+    "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
+  "installationSettings.save": "Save",
   "captureSettings.title": "Capture",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",
@@ -2929,6 +3759,21 @@ export const en = {
   "captureSettings.autoEnrich.help":
     "When on, each new company created from captured mail gets an automatic web dossier — its site is read and its profile filled in. Runs under a daily limit.",
   "captureSettings.adminOnly": "Only an admin or ops can change this.",
+
+  "ownDomains.title": "Own email domains",
+  "ownDomains.sub":
+    "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",
+  "ownDomains.irreversible":
+    "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
+  "ownDomains.fromCompany": "From the company profile. Change them there:",
+  "ownDomains.empty":
+    "No further domains registered. Add one if your company also writes from another domain.",
+  "ownDomains.confirmed": "confirmed",
+  "ownDomains.candidate": "seen on a connected mailbox, not confirmed yet",
+  "ownDomains.add": "Add",
+  "ownDomains.addLabel": "Add an own domain",
+  "ownDomains.placeholder": "example.com",
+  "ownDomains.remove": "Remove {domain}",
 
   "webhooks.title": "Webhooks",
   "webhooks.sub":
@@ -3013,6 +3858,9 @@ export const en = {
 
   "consent.title": "Authorize access",
   "consent.asks": "{client} wants to act in Margince as you.",
+  "consent.redirectsTo": "Margince will send the authorization back to {host}.",
+  "consent.redirectsToLoopback":
+    "That is an address on this computer, and this connection cannot prove which program is listening on it.",
   "consent.lend": "Lend it one of your agent passports",
   "consent.grantedNote":
     "This connection gets exactly the scopes shown — the ones this passport carries.",
@@ -3044,6 +3892,102 @@ export const en = {
   "consent.invalidBody":
     "This installation will not authorize the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
   "consent.unnamedPassport": "Unnamed passport ({id})",
+  "person.thin.title": "What we know so far",
+  "person.thin.known":
+    "We have {what} for {name}, but nobody here has a recorded exchange with them yet.",
+  "person.thin.remediation.capture":
+    "Connect the mailbox that writes to them, and this page fills itself in — every field with the source it came from.",
+  "person.thin.remediation.employer":
+    "Add their employer and Margince can read that company's site for their role.",
+  "person.thin.logFirst": "Log the first interaction",
+  "person.timeline.all": "All",
+  "person.timeline.messages": "Messages",
+  "person.timeline.meetings": "Meetings",
+  "person.timeline.tasks": "Tasks",
+  "person.enriched.title": "What Margince read",
+  "person.enriched.sub":
+    "Each value with the text it was read from. Correct one and the correction stands.",
+  "person.enriched.field.title": "Title",
+  "person.enriched.field.phone": "Phone",
+  "person.enriched.field.role": "Role",
+  "person.enriched.field.linkedin": "LinkedIn",
+  "person.enriched.field.org_name": "Company",
+  "person.enriched.readFrom": "Read from {source} on {when}",
+  "person.enriched.correctedByYou": "Corrected by you",
+  "person.enriched.confirmed": "Confirmed",
+  "person.enriched.correct": "Correct",
+  "person.enriched.confirm": "That is right",
+  "person.enriched.save": "Save the correction",
+  "person.enriched.cancel": "Cancel",
+  "person.graph.loading": "Reading the network around this contact…",
+  "person.graph.routeTitle": "The warmest way in",
+  "person.graph.routeDirect": "{name} already corresponds with them.",
+  "person.graph.routeVia":
+    "{name} corresponds with {through} at the same company.",
+  "person.graph.noRoute":
+    "Nobody here corresponds with them or with anyone at their company yet.",
+  "person.graph.direct": "Who knows them",
+  "person.graph.directSub":
+    "Colleagues who have corresponded with this contact themselves.",
+  "person.graph.noDirect": "Nobody here has corresponded with them.",
+  "person.graph.account": "At the same company",
+  "person.graph.accountSub":
+    "Their colleagues, and who here is warmest with each.",
+  "person.graph.noAccount": "No other contacts on record at their company.",
+  "person.graph.omitted":
+    "Part of this is hidden because you do not have the grant for it.",
+  "person.graph.noEdge": "No recorded correspondence with {name}.",
+  "person.graph.withColleague": "with {name}",
+  "person.graph.withContact": "with this contact",
+  "person.graph.counts":
+    "{total} interactions in 90 days · {inbound} in, {outbound} out",
+  "person.graph.countsOnly":
+    "Counts only — the messages themselves stay on the timeline.",
+  "person.graph.untitledMessage": "Message with no subject",
+  "person.graph.dropped": "{count} more not shown.",
+  "person.moment.dismiss": "Not now",
+  "person.moment.recommended": "Next:",
+  "person.moment.willConfirm": "will ask you to confirm",
+  "person.moment.blocked": "Not available on this record.",
+  "person.moment.kind.replied_after_gap": "They came back",
+  "person.moment.kind.unanswered_inbound": "You owe a reply",
+  "person.moment.kind.meeting_ahead": "Coming up",
+  "person.moment.kind.task_overdue": "Overdue",
+  "person.moment.kind.went_quiet": "Gone quiet",
+  "person.change.repliedAfterGap": "They replied after {days} quiet days.",
+  "person.change.wentQuiet": "Nothing has happened for {days} days.",
+  "person.change.warmed": "The relationship moved from {from} to {to}.",
+  "person.change.cooled": "The relationship fell from {from} to {to}.",
+  "person.band.none": "no contact",
+  "person.band.weak": "weak",
+  "person.band.moderate": "moderate",
+  "person.band.strong": "strong",
+  "person.pulse.title": "Relationship",
+  "person.pulse.warmestIs": "{name} has the warmest relationship here.",
+  "person.pulse.nobodyYet":
+    "Nobody here has a recorded exchange with them yet.",
+  "person.pulse.lastInbound": "They last wrote",
+  "person.pulse.lastOutbound": "We last wrote",
+  "person.pulse.neverInbound": "never",
+  "person.pulse.neverOutbound": "never",
+  "person.pulse.why": "How this is computed",
+  "person.pulse.arithmetic":
+    "Score {score}/100 = 100 x recency {recency} x frequency {frequency} x reciprocity {reciprocity}. Computed at read from captured cadence, never stored.",
+  "person.identity.title": "Identity",
+  "person.identity.email": "Email",
+  "person.identity.phone": "Phone",
+  "person.identity.currentRole": "Current role",
+  "person.identity.buyingRole": "Buying role",
+  "person.career.title": "Former roles",
+  "person.consent.title": "Outbound guard",
+  "person.consent.allowed": "Allowed: {purposes}",
+  "person.consent.noneGranted":
+    "No purpose is granted, so outbound stays blocked.",
+  "person.consent.blocked": "Blocked: {purposes}",
+  "person.network.title": "Who here knows them",
+  "person.network.twoWay": "{count} two-way exchanges in 90 days",
+  "person.network.oneSided": "{count} interactions in 90 days, one-sided",
+  "person.network.replied": "replied {when}",
 } as const;
 
 export type MessageKey = keyof typeof en;

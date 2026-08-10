@@ -16,7 +16,10 @@ async function animationsSettled(page: Page) {
   await page.waitForFunction(() =>
     document
       .getAnimations()
-      .filter((animation) => animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+      .filter(
+        (animation) =>
+          animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY,
+      )
       .every((animation) => animation.playState === "finished"),
   );
 }
@@ -131,8 +134,63 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
 }) => {
   await page.goto("/#/home");
   await expect(page.locator('nav.rail a[aria-label="Kontakte"]')).toBeVisible();
-  await page.getByRole("button", { name: "Auf Englisch umschalten" }).click();
+  // The language control is a preference, so it lives in the account menu rather
+  // than in the top bar: reaching it takes opening that menu, and the language
+  // itself is a list of the three shipped locales rather than a toggle.
+  await page.getByRole("button", { name: "Konto" }).click();
+  await page.getByRole("button", { name: "Sprache: Deutsch" }).click();
+  await page.getByRole("menuitemradio", { name: "English" }).click();
   await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
+  // The account menu is still open, and its language row now reads the locale
+  // that was just chosen.
+  await expect(
+    page.getByRole("button", { name: "Language: English" }),
+  ).toBeVisible();
+});
+
+/**
+ * Where the language menu's focus contract is actually testable.
+ *
+ * The jsdom suite (`src/app/localemenu.test.tsx`) asserts the same restoration,
+ * but jsdom does not move `document.activeElement` when the focused node is
+ * detached — so a menu that closed WITHOUT handing focus back would still read
+ * as focused there. Only a browser blanks the selection to `<body>`, which is
+ * exactly the stranding these two tests exist to catch: this menu is the only
+ * in-app control for changing language, so its reader is the one least able to
+ * recover from being dropped at the top of the document.
+ */
+test("features/10 §7: Escape closes the language menu back onto its trigger", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  // The language row lives in the account menu, so the trigger is reached through
+  // it — and Escape then closes ONE layer: the language list, not the menu around
+  // it, whose own row is where focus has to land.
+  await page.getByRole("button", { name: "Konto" }).click();
+  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "Sprache" });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("features/10 §7: Tab closes the language menu and carries on", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  await page.getByRole("button", { name: "Konto" }).click();
+  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "Sprache" });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(menu).toHaveCount(0);
+  // Tab says the reader is leaving, so focus must land on the next control —
+  // neither back on the trigger they just left nor nowhere at all.
+  await expect(trigger).not.toBeFocused();
+  await expect(page.locator("body")).not.toBeFocused();
 });
 
 test("AC-pipeline-7: board↔table swaps views preserving the deal set", async ({
@@ -299,11 +357,22 @@ test("AC-onboarding-1: onboarding is the rail-less conversational shell", async 
   // The onboarding wizard/stepper was replaced by the conversational shell
   // (#217): onboarding is a focused, rail-less flow whose journey is a
   // conversation thread, not a stepper.
+  //
+  // The flow now opens on the gate: one question, centred, before any thread
+  // exists — nobody should meet the whole tool on their first screen. So the AC
+  // asserts what it always meant (rail-less, no stepper) against the surface
+  // that is actually first, and that the single question is the whole ask.
   await page.goto("/#/onboarding");
   await expect(page.locator("nav.rail")).toHaveCount(0);
+  await expect(page.locator(".stepper")).toHaveCount(0);
+  await expect(page.getByLabel("Deine Website-Adresse")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Meine Website lesen" }),
+  ).toBeVisible();
+  // The thread belongs to the working view, not the gate.
   await expect(
     page.getByRole("log", { name: "Einrichtungsgespräch" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("AC-create-1: a contact is created from the list and lands on its 360", async ({
@@ -330,12 +399,23 @@ test("AC-create-2: the palette's New-deal action opens the create form; only ope
   // still offers open stages only.
   const stageSelect = page.getByRole("dialog").getByLabel("Phase");
   await expect(stageSelect).toBeVisible();
-  const stageNames = await stageSelect.locator("option").allTextContents();
+  // The choices exist only while the popup is open, and the popup is portalled
+  // to the body — so it is located from the page, not from inside the dialog.
+  await stageSelect.click();
+  const stageNames = await page
+    .locator('[role="listbox"]')
+    .getByRole("option")
+    .allTextContents();
   expect(stageNames.filter(Boolean)).toEqual([
     "Qualify",
     "Proposal",
     "Negotiation",
   ]);
+  // Looking is all this AC needs, so the list is put away the way it was
+  // opened — a second press on the trigger. NOT Escape: the surrounding Modal
+  // listens for it too and would take the whole create form down with it.
+  await stageSelect.click();
+  await expect(page.locator('[role="listbox"]')).toHaveCount(0);
   await page.getByLabel("Deal-Name").fill("Neuer Deal");
   await page.getByLabel("Wert").fill("480");
   await page.getByRole("button", { name: "Anlegen" }).click();
@@ -632,7 +712,9 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("E-Mail senden", { exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });
@@ -681,11 +763,12 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
   // because that is what the layout sees; deviceScaleFactor would change the
   // pixel ratio and nothing about the breakpoints.
   // `identity` is whether the identity REGION is part of the surface at that
-  // width. Below 561px it is not: the phone layout is the task alone, one
-  // full-height card, with the Core in its header (see the ≤560 block in
-  // auth.css). That is a deliberate reversal of Decision 1 for phones only —
-  // raised in STATUS.md — and it is pinned here rather than left to drift,
-  // because the alternative is a suite that still forbids the shipped design.
+  // width. Below 561px it is not: the phone layout is the task alone — the
+  // region goes, and the Core goes with it (see the ≤560 block in auth.css),
+  // because on a phone the form is the only thing the screen is for. That is a
+  // deliberate reversal of Decision 1 for phones only — raised in STATUS.md —
+  // and it is pinned here rather than left to drift, because the alternative is
+  // a suite that still forbids the shipped design.
   const NARROW = [
     { label: "390px mobile", width: 390, height: 844, identity: false },
     { label: "320px narrow", width: 320, height: 568, identity: false },
@@ -746,32 +829,42 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // rendered height, because a count alone passes on a hidden node.
       //
       // Where it is NOT — the phone layout — the region is absent by design and
-      // what remains is one card with the Core in its header. But the DISCLOSURE
-      // is not the region's to take with it: the Core is `aria-hidden`, so
-      // dropping the aside without the phone line leaves a phone user, and every
-      // screen-reader user on one, told nothing about the AI at all. Exactly one
-      // of the two statements is live at any width, so neither branch can pass
-      // by saying it twice.
+      // what remains is the task alone: no aside, no sphere, and no second copy
+      // of the region's copy either. The phone surface is the form (founder
+      // ruling, 2026-08-07): the disclosure the aside makes is a property of the
+      // region, and at this width the region is not on the screen for it to be a
+      // property of.
       test("shows the identity region whole, or not at all", async ({
         page,
       }) => {
         await page.goto("/");
         const region = page.locator("aside.auth-identity");
         const limits = page.locator(".auth-limits li");
-        const phoneLine = page.locator(".auth-phone-disclosure");
         if (identity) {
           await expect(region).toBeVisible();
           await expect(limits).toHaveCount(4);
           for (let index = 0; index < 4; index += 1) {
             await expect(limits.nth(index)).toBeVisible();
           }
-          await expect(phoneLine).toBeHidden();
         } else {
           await expect(region).toBeHidden();
-          await expect(page.locator("[data-core-state]")).toHaveCount(1);
-          await expect(page.locator("main.auth-task")).toBeVisible();
-          await expect(phoneLine).toBeVisible();
-          await expect(phoneLine).not.toBeEmpty();
+          // Hidden, not merely present: the sphere is drawn by the same markup at
+          // every width, so a count would pass on a Core the phone layout still
+          // shows — which is the thing this width is supposed to be free of.
+          await expect(page.locator("[data-core-state]")).toBeHidden();
+          // NONE of the region's copy survives either, named part by part: the
+          // region hides as one box, so a future rule that lifted a line of it
+          // back into the task column would leave this width claiming to be the
+          // form alone while a sentence about the AI sat above the fields.
+          await expect(page.locator(".auth-kicker")).toBeHidden();
+          await expect(page.locator(".auth-statement")).toBeHidden();
+          // The LIST, not its items: a locator that resolves to four elements is a
+          // strict-mode violation rather than an assertion.
+          await expect(page.locator(".auth-limits")).toBeHidden();
+          // The class, not the tag: `RaillessFrame` already wraps every
+          // rail-less screen in a `<main>`, so the task region is a `<div>` —
+          // a second `<main>` here would be an invalid, duplicate landmark.
+          await expect(page.locator(".auth-task")).toBeVisible();
         }
       });
     });
@@ -787,7 +880,9 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
     ).toBeVisible();
-    const task = await page.locator("main.auth-task").boundingBox();
+    // The class, not the tag: see the note beside the other `.auth-task`
+    // locator above — one `<main>` per screen, and it belongs to the frame.
+    const task = await page.locator(".auth-task").boundingBox();
     const identity = await page.locator("aside.auth-identity").boundingBox();
     expect(task).not.toBeNull();
     expect(identity).not.toBeNull();
@@ -863,7 +958,7 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
 
     // The divider sits between the providers and the form it labels.
     const divider = page.locator(".auth-or");
-    await expect(divider).toHaveText("oder per E-Mail");
+    await expect(divider).toHaveText("oder");
     const buttonsY = (await page.locator(".auth-sso").boundingBox())?.y ?? 0;
     const dividerY = (await divider.boundingBox())?.y ?? 0;
     const fieldsY = (await page.locator(".auth-fields").boundingBox())?.y ?? 0;

@@ -1,0 +1,835 @@
+/*
+ * The onboarding gate and the read theatre — the two full-column surfaces that
+ * come before the working view.
+ *
+ * Three rules here are behaviour rather than taste:
+ *
+ *  - the surface SCROLLS and is anchored from the top, never translated: the
+ *    column has to hold still while a read grows under it, and the submit
+ *    button has to survive 200% zoom and a phone keyboard;
+ *  - every region that changes while a read polls (the phase line, the count
+ *    row, the cost line) holds its own height, so an arriving page never moves
+ *    what someone is reading;
+ *  - under reduced motion the animations end rather than never happen: the tiles
+ *    are present, the phase line is legible, the entrance is complete.
+ *
+ * Copy never lives here (conformance gate) and no colour is a literal: literals
+ * live only in design-system/tokens.css.
+ */
+
+.ob-gate {
+  /* One measure for the question and everything that answers it — the field,
+     and the message about what is in the field. A notice that spans the whole
+     column reads as a banner over the page; at the field's own width it reads
+     as attached to the control it is about. */
+  --ob-gate-measure: 420px;
+  width: min(540px, 100%);
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Anchored under a deliberate top band rather than centred in the viewport.
+     A centred column re-centres on every arriving page, so the line someone is
+     reading travels upward while they read it; anchored, growth extends
+     downward into the band the bottom padding reserves. */
+  justify-content: flex-start;
+  gap: var(--space-5);
+  padding: clamp(var(--space-12), 13vh, var(--space-16)) var(--space-6)
+    var(--space-16);
+  text-align: center;
+}
+@supports (min-height: 100dvh) {
+  .ob-gate {
+    /* 100vh on iOS subtracts the browser chrome from the wrong side and puts
+       the primary action under the keyboard. */
+    min-height: 100dvh;
+  }
+}
+
+.ob-gate .core {
+  --coreSize: 170px;
+  --coreGlass: 108px;
+  /* The column's cadence is not one repeated gap. The Core stands clear of the
+     headline, the headline and its promise sentence sit together as a pair, and
+     the ask stands clear of both — so the reader's eye is given three things,
+     not five evenly spaced ones. The flex gap is the pair's spacing; these two
+     margins buy the breaks around it. */
+  margin-bottom: var(--space-4);
+}
+
+@keyframes ob-gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The column assembles in reading order. Every child needs its own rung or it
+   arrives at delay 0 — ahead of the headline it belongs under, which reads as
+   the page landing in pieces rather than as one thing settling. */
+.ob-gate > * {
+  animation: ob-gate-rise 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ob-gate-title {
+  animation-delay: 0.08s;
+}
+.ob-gate-sub {
+  animation-delay: 0.16s;
+}
+.ob-gate-form,
+.ob-scan-panel {
+  animation-delay: 0.24s;
+}
+.ob-gate-alert {
+  animation-delay: 0.32s;
+}
+.ob-gate-alt {
+  animation-delay: 0.4s;
+}
+.ob-gate-ai,
+.ob-scan-cost {
+  animation-delay: 0.48s;
+}
+
+.ob-gate-title {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+  color: var(--textPrimary);
+}
+.ob-gate-sub {
+  margin: 0 0 var(--space-4);
+  max-width: 452px;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
+  color: var(--textContent);
+}
+
+/* ===== the ask ========================================================== */
+
+.ob-gate-form {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+/* One box, two controls: the ring is on the wrapper (`:focus-within`) and
+   suppressed on the bare input, the way `.auth-shell` does it — a leading field
+   and a trailing action inside one outline rather than beside it.
+   Capped deliberately narrower than the promise sentence above it: a field that
+   spans the column reads as a form, and one question should read as one
+   question. */
+.ob-gate-field {
+  width: 100%;
+  max-width: var(--ob-gate-measure);
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 0 0 var(--space-4);
+  /* This border is the only visible sign the field accepts typing, so it
+     needs the interactive-control ratio (WCAG 1.4.11, 3:1), not the divider
+     ratio --borderStrong gives (1.45:1 on --bgElevated). */
+  border: 1px solid var(--borderControl);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.ob-gate-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+/* A refused field wears the danger boundary, focused or not. The accent ring
+   means "this is where you are", which on the value the gate just rejected
+   reads as approval of it — and it left the state resting entirely on the
+   message below, which is a second place to look. Same specificity as the
+   :focus-within rule above, so source order is what makes the state win. */
+.ob-gate-field:has([aria-invalid="true"]) {
+  border-color: var(--danger);
+}
+.ob-gate-field:has([aria-invalid="true"]):focus-within {
+  box-shadow: 0 0 0 3px var(--dangerBg);
+}
+.ob-gate-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: 0;
+  padding: 13px var(--space-3) 13px 0;
+  font-family: var(--f-body);
+  font-size: var(--fs-lead);
+  color: var(--textPrimary);
+}
+.ob-gate-input::placeholder {
+  color: var(--textMeta);
+}
+.ob-gate-submit {
+  flex: none;
+  align-self: stretch;
+  /* Inside the field's own corner rather than a smaller radius floating in it. */
+  margin: var(--space-1);
+  padding: 0 var(--space-4);
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+  font-family: var(--f-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ob-gate-submit:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 88%, var(--overlayDark));
+}
+.ob-gate-submit:disabled {
+  /* In-flight, and the control is coming back. Pale reads as "wait". */
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.ob-gate-alt {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--textMeta);
+}
+
+/*
+ * The trust fold, on a column where everything else is centred.
+ *
+ * The shared `.disclosure` atom is built for a left-aligned form: its summary
+ * hangs a chevron off the left edge and its rule spans whatever box it is in.
+ * Both read as a misalignment here — a lone left-aligned control under a
+ * centred headline, and a hairline wider than the field it sits under. So the
+ * control centres with its own chevron and the rule is cut to the same measure
+ * as the field, which is what makes it read as belonging to this column rather
+ * than to the page.
+ */
+.ob-gate .disclosure {
+  width: 100%;
+  max-width: var(--ob-gate-measure);
+  margin: 0 auto;
+  padding-top: var(--space-4);
+}
+.ob-gate .disclosure-summary {
+  justify-content: center;
+}
+.ob-gate-trust {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-relaxed);
+  color: var(--textMeta);
+  text-align: center;
+  text-wrap: pretty;
+}
+.ob-gate-link {
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  cursor: pointer;
+  font-family: var(--f-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--accent);
+}
+.ob-gate-link:hover,
+.ob-gate-link:focus-visible {
+  text-decoration: underline;
+}
+
+.ob-gate-alert {
+  margin: 0;
+  width: 100%;
+  /* The field's measure, not the column's: an error about what was typed has
+     to sit under the box it was typed into, edge to edge with it. */
+  max-width: var(--ob-gate-measure);
+  text-align: left;
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+  color: var(--textContent);
+}
+
+/* A paused read wears the warn family, not the danger family: the server will
+   come back to it, so it must not read as something the reader broke. The two
+   tones are also distinguished by their role (alert vs status), so the
+   difference survives without colour. */
+.ob-gate-alert.is-paused {
+  border-color: var(--warnBorder);
+  background: var(--warnBg);
+}
+
+/* Picking a setup back up is not a problem report. It wears the neutral card
+   surface so it reads as context for the question above it, and it announces as
+   a status rather than an alert. */
+.ob-gate-alert.is-resumed {
+  border-color: var(--borderStrong);
+  background: var(--bgCard);
+  color: var(--textMeta);
+}
+
+/* Which model is about to read the site, stated before the address is handed
+   over. AI indigo, never the brand accent — this is disclosure, not an action. */
+.ob-gate-ai {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: var(--space-3) 0 0;
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+}
+
+.ob-gate-ai span {
+  color: var(--aiText);
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+}
+
+/* A routing label names every model the installation can reach, so it can be a
+   long sentence. Visual clamp only: two lines here, and the full string stays in
+   the DOM — this is the disclosure that says what is about to read your site, so
+   none of it may be thrown away. */
+.ob-gate-ai b {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+}
+
+/* The gate and the theatre are full-viewport stages, not cards on a page: the
+   host page's own washes would sit behind a surface that already owns the
+   whole screen. */
+/* The full-width surface the column sits on. */
+.ob-gate-stage {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bgElevated);
+}
+@supports (min-height: 100dvh) {
+  .ob-gate-stage {
+    /* The stage and the column it holds have to agree on what the whole screen
+       is. Left on 100vh while .ob-gate resolves to 100dvh, the two differ by
+       the height of the mobile browser chrome, and the surface steps as that
+       chrome retracts. */
+    min-height: 100dvh;
+  }
+}
+
+/* ===== the read theatre ================================================= */
+
+/* ONE alignment for the whole theatre, the head included — and it is the gate's
+   own, inherited, not re-stated. Submitting a URL should change what the column
+   says, not where the column is: the orb, the headline and its subtitle are the
+   SAME elements before and after, so flipping the axis under them made the read
+   look like a different screen that had loaded over the first one.
+
+   That leaves the regions below to centre their own contents; each says so
+   where it is defined, because a strip of tiles and a line of counts centre for
+   different reasons and one blanket rule here would hide both. */
+
+/* Every region takes the column's full width, which is what lets the tile grid
+   and the wrapping model list stay inside it instead of shrink-wrapping to a
+   size the flex column then places past the edge. */
+.ob-scan-panel,
+.ob-scan-phase,
+.ob-scan-ticker,
+.ob-scan-counts,
+.ob-scan-cost {
+  width: 100%;
+}
+
+/* The instrument: the four readouts of a running crawl, in one frame. Loose on
+   the page they read as four unrelated widgets that happened to stack — the
+   phase, a grid of green squares, a path, a tally — and the squares in
+   particular looked like a decoration nobody had finished. Framed, they read as
+   one thing being watched. */
+.ob-scan-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgCard);
+}
+
+/* Fixed height so the crossfade cannot move the strip beneath it. */
+.ob-scan-phase {
+  margin: 0;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  letter-spacing: var(--tracking-normal);
+  color: var(--aiText);
+}
+@keyframes ob-scan-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Opacity only: the text changes in place and must not travel. */
+.ob-scan-phase-text {
+  animation: ob-scan-fade 0.4s ease both;
+}
+
+/* The phase row's own pulse. The Core says the machine is working, but the line
+   that reports WHAT it is working on had no liveness of its own, so a phase that
+   sits for a few seconds read as a stall. Decorative — the row already says the
+   phase in words, and the counts below already say the read is still running. */
+.ob-scan-phase-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+  animation: ob-scan-pulse 2s ease-in-out infinite;
+}
+@keyframes ob-scan-pulse {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.82);
+  }
+}
+/* Settled: the work is over, so nothing about the row may still imply motion. */
+.ob-scan.is-settled .ob-scan-phase-dot {
+  animation: none;
+  background: var(--success);
+}
+
+/* The pages, one tile each, in arrival order. No denominator exists on the
+   wire, so this is a growing row and never a filling bar. */
+.ob-scan-strip {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* The column is the ceiling, and the ONLY thing this box is told about its
+     own width — it fits its tiles and stops there. A shrink-wrapped row of flex
+     items would size itself to fit all of them on one line, which at 40+ tiles
+     runs past the column's edge; the cap is what re-wraps it against a size
+     that is correct however many pages arrive. Taking the full width instead
+     used to be the fix, but the sheen below spans this box, so on a short read
+     it was a bar of light crossing empty column beside seven tiles. */
+  max-width: 100%;
+  min-height: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  /* Centred on the column like everything else in the panel, and the LAST row
+     centres with the rest — which is the point: a part-filled final row hanging
+     off the left edge is what made a growing strip look like a grid that had
+     failed to fill rather than a count that is still climbing. */
+  justify-content: center;
+  /* Rows stack from the top as the strip grows, so a new row appears below
+     the ones already read rather than re-spacing all of them. */
+  align-content: flex-start;
+  gap: var(--space-1);
+  /* The sheen below travels 70% of this box's width in each direction, which
+     is a long way outside it. Clipped exactly at the horizontal edges and
+     deliberately NOT at the vertical ones, so the light stays inside the
+     panel's own padding while keeping the few pixels of vertical bleed that
+     make it read as light rather than as a filled bar. */
+  clip-path: inset(-6px 0);
+}
+/* Before the first page lands the strip has nothing to draw, and an empty box
+   with the reserved height of a full one is a hole in the middle of the panel.
+   One placeholder bar stands in for the row that is coming — the sheen below
+   crosses it, so the wait reads as work rather than as a gap. It claims no
+   count: it is one shape, not a guess at how many pages there will be. */
+.ob-scan-strip:empty {
+  inline-size: 8rem;
+  block-size: 14px;
+  border-radius: 3px;
+  background: var(--bgHover);
+}
+
+/* A slow light crossing the tiles: the strip's own way of saying the crawl is
+   still going, which the growing row alone cannot say (a row that has not gained
+   a tile for a few seconds looks finished). It stops when the read does. */
+.ob-scan-strip::after {
+  content: "";
+  position: absolute;
+  /* Bleeds vertically only. Sideways it would cross the column's own edge,
+     which on a flush-left report is the one line the eye uses to read down. */
+  inset: -4px 0;
+  pointer-events: none;
+  border-radius: var(--r-sm);
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    var(--accentLight) 50%,
+    transparent 70%
+  );
+  animation: ob-scan-sheen 2.6s ease-in-out infinite;
+}
+@keyframes ob-scan-sheen {
+  from {
+    transform: translateX(-70%);
+  }
+  to {
+    transform: translateX(70%);
+  }
+}
+.ob-scan.is-settled .ob-scan-strip::after {
+  animation: none;
+  opacity: 0;
+}
+@keyframes ob-scan-tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ob-scan-tile {
+  display: block;
+  /* Never squeezed by the row it lands in: a tile that shrinks stops being the
+     same shape as the tile beside it, and shape is what carries the status for
+     a reader who cannot use the colour. */
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  animation: ob-scan-tile-in 0.32s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+/* Shape as well as colour, because a tile is a colour to most people and a
+   shape to some: read is a filled square, skipped a hollow one, failed a hollow
+   circle. The accessible name says which in words regardless. */
+.ob-scan-tile[data-page-status="fetched"] {
+  background: var(--accent);
+}
+.ob-scan-tile[data-page-status="skipped"] {
+  background: var(--bgCard);
+  border: 1px solid var(--borderStrong);
+}
+.ob-scan-tile[data-page-status="failed"] {
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-full);
+}
+
+/* The tile that just landed wears a ring, so the eye has somewhere to be while
+   the crawl runs — forty identical squares give no clue which end is the live
+   one. It leaves the moment the read settles: a ring on a finished row would
+   claim work that is over. */
+.ob-scan:not(.is-settled) .ob-scan-strip li:last-child .ob-scan-tile {
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+.ob-scan-counts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--textMeta);
+}
+/* One of these three numbers is the payoff and the other two are context, so the
+   eye is told which one to follow. It is also the only one that climbs. */
+.ob-scan-counts .ob-scan-found {
+  color: var(--accent);
+  font-weight: var(--fw-medium);
+}
+/* A drawn separator rather than a character: a middot in a string would be copy
+   outside the catalog, and a screen reader reads it aloud. */
+.ob-scan-counts span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  border-radius: var(--r-full);
+  background: var(--borderStrong);
+}
+
+/* A footnote under a report, not a card on top of one.
+ *
+ * Filled and bordered, this block was the heaviest thing on a screen whose
+ * subject is the read — the disclosure outweighed the work it annotates. It
+ * says the same three things over a hairline instead: label, what it has
+ * cost, what is answering. The first two are the point and share one line;
+ * a three-column grid used to force the model list into whatever space the
+ * spend's own nowrap column left over, which was a sliver the moment more
+ * than one model, or one long id, was configured. The model list gets its
+ * own full-width row instead and simply wraps — it is the detail, not the
+ * headline, so it reads smaller and quieter than the line above it.
+ */
+.ob-scan-cost {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* The column's own gap is the distance above the rule; a margin here would
+     be a second one stacked on it. */
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+  text-align: center;
+}
+.ob-scan-cost-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.ob-scan-cost-label {
+  margin: 0;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--aiText);
+}
+.ob-scan-cost-line {
+  margin: 0;
+  min-height: 15px;
+  font-family: var(--f-mono);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--textMeta);
+}
+/* Warn, not the line's own meta tone: the figure beside it is missing a call
+   the provider billed with no effective rate, so it reads as a caveat on the
+   number rather than more of the same disclosure. */
+.ob-scan-cost-unpriced {
+  font-family: var(--f-body);
+  font-variant-numeric: normal;
+  color: var(--warn);
+}
+.ob-scan-cost-model {
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: var(--fs-meta);
+  overflow-wrap: anywhere;
+}
+
+/* The page ticker: which page the crawl just walked, one at a time. Fixed
+   height on the row so an arrival can never push the counts or the cost
+   strip beneath it — the old occupant fades out, the new one fades in, in
+   place. */
+.ob-scan-ticker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* min-height reserves the wrapped case (path's own line plus the reason's
+   2-line clamp below it, see .ob-scan-ticker-kind) so the row never has to
+   grow into the total/cost strip beneath it — the slot is sized for the
+   worst case up front instead of after the fact. */
+.ob-scan-ticker-row {
+  margin: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-sm);
+  list-style: none;
+}
+
+/* Wraps rather than clips the path away from the reason: at narrow phone
+   widths or 200% zoom the two cannot both fit on one line. The row's
+   reserved height (above) already covers this wrap, so it costs no layout
+   shift; what it does not cover on its own is an unbounded reason, which
+   .ob-scan-ticker-kind's own line-clamp caps. */
+.ob-scan-ticker-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  min-width: 0;
+  gap: var(--space-1) var(--space-3);
+  animation: ob-scan-ticker-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Sized to its own text rather than claiming the row: with `flex: 1` the path
+   took every spare pixel, which pushed the reason to the far edge and left the
+   pair reading as two columns of a table instead of one centred line. */
+.ob-scan-ticker-path {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: var(--fs-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-scan-ticker-entry[data-page-status="skipped"] .ob-scan-ticker-path {
+  color: var(--textMeta);
+  text-decoration: line-through;
+}
+
+/* Shrinks and wraps rather than sitting fixed-width beside the path: a long
+   skip or failure reason is prose, not a label, and clipping it silently
+   would hide the one thing a reader needs from a page that did not come
+   back clean. Clamped to 2 lines by default so an unusually long reason
+   still respects the row's reserved height instead of pushing the
+   total/cost strip below it — this is a `<button>`, not a `title`-carrying
+   span, because a hover tooltip is unreachable on a touch surface; a tap or
+   Enter/Space toggles `aria-expanded` (below), which is the reader's actual
+   route to the rest of the sentence, with `aria-label` on the element itself
+   (onboarding-gate.tsx) covering the same text for assistive tech regardless
+   of how much of it the clamp leaves in the DOM. */
+.ob-scan-ticker-kind {
+  display: -webkit-box;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: center;
+  cursor: pointer;
+  color: var(--textMeta);
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* The reader's own request to see the rest — the only thing that ever lifts
+   the clamp, so the row never grows on its own. */
+.ob-scan-ticker-kind[aria-expanded="true"] {
+  -webkit-line-clamp: unset;
+}
+
+/* The running total: the honest count beside the single page on show, so a
+   fast crawl never reads as a stalled one just because the ticker itself
+   can only ever hold one page at a time. */
+.ob-scan-ticker-total {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--textMeta);
+}
+
+@keyframes ob-scan-ticker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* ===== breakpoints ====================================================== */
+
+@media (max-width: 899px) {
+  .ob-gate {
+    gap: var(--space-4);
+    padding: var(--space-10) var(--space-4) var(--space-12);
+  }
+  .ob-gate .core {
+    --coreSize: 130px;
+    --coreGlass: 88px;
+  }
+  .ob-gate-title {
+    font-size: var(--fs-h1);
+  }
+  .ob-gate-input {
+    /* Never below 16px, or iOS zooms the page on focus. */
+    font-size: var(--fs-h3);
+  }
+}
+
+@media (max-width: 400px) {
+  /* The inline submit and a usable field cannot share 340px, so the action
+     takes its own row rather than shrinking to a stub. */
+  .ob-gate-field {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-2);
+  }
+  .ob-gate-input {
+    padding: var(--space-2);
+  }
+  .ob-gate-submit {
+    margin: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The END state, not nothing: the column, the phase line and every tile are
+     present and complete on the first frame. */
+  .ob-gate > *,
+  .ob-scan-phase-text,
+  .ob-scan-tile,
+  .ob-scan-ticker-entry {
+    animation: none;
+  }
+  /* The two liveness loops are pure motion, so under reduced motion they resolve
+     to their resting look rather than to a still frame mid-cycle: the dot stays
+     lit (the phase text and the counts already say the read is running) and the
+     sheen is simply not drawn. */
+  .ob-scan-phase-dot {
+    animation: none;
+    opacity: 1;
+  }
+  .ob-scan-strip::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .ob-scan-tile,
+  .ob-scan-cost,
+  .ob-gate-field {
+    forced-color-adjust: auto;
+  }
+}

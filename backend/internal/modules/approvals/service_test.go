@@ -236,15 +236,71 @@ func TestRequireDecisionGrants(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:  "share_record resolves update from the target type",
-			a:     row{Kind: "share_record", TargetType: &deal},
-			perms: grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
+			// The record-grant verbs refuse a non-human principal outright, so
+			// nothing stages this kind any more and deciding one is a kind the
+			// table no longer knows — undecidable, which is the fail-closed
+			// answer a zombie authority object would not have.
+			name:    "share_record is no longer a stageable kind",
+			a:       row{Kind: "share_record", TargetType: &deal},
+			perms:   grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
+			wantErr: true,
 		},
 		{
 			name:    "merge_records without a target type is undecidable",
 			a:       row{Kind: "merge_records"},
 			perms:   grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
 			wantErr: true,
+		},
+		// The release is an upsert whose verb is unknowable at decision time,
+		// and it applies as the system principal, so the store's specific check
+		// never fires. Either verb alone would authorize the operation it does
+		// not name — hence both, and each half is asserted separately so a
+		// requirement silently dropped from the pair fails here.
+		{
+			name:  "fx_rate_proposal admits an approver holding both write verbs",
+			a:     row{Kind: "fx_rate_proposal"},
+			perms: grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true, Update: true}}),
+		},
+		{
+			name:    "fx_rate_proposal refuses a create-only approver, who could not overwrite directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "fx_rate_proposal refuses an update-only approver, who could not insert directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "fx_rate_proposal refuses an approver holding only read",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:  "ai_model_rate_proposal admits an approver holding both write verbs",
+			a:     row{Kind: "ai_model_rate_proposal"},
+			perms: grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true, Update: true}}),
+		},
+		{
+			name:    "ai_model_rate_proposal refuses a create-only approver",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "ai_model_rate_proposal refuses an update-only approver",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "ai_model_rate_proposal refuses an approver holding only read",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true}}),
+			wantErr: true, denied: true,
 		},
 	}
 	for _, tc := range cases {
@@ -449,7 +505,15 @@ func TestDecisionGrantObjectsNamesWhatTheDecisionEnforces(t *testing.T) {
 			continue
 		}
 		if len(objects) == 0 {
-			t.Errorf("kind %q demands no object at all — anyone could release its stagings", kind)
+			// A kind may demand no OBJECT only if something else narrows it to
+			// one human, and selfOnlyKinds is the only such narrowing there is.
+			// Absent that clause an empty set means "anyone holding nothing in
+			// particular", which is precisely the failure this walk exists to
+			// catch — so the exemption is DERIVED from the narrowing rather than
+			// granted to a kind by name.
+			if !selfOnlyKinds[kind] {
+				t.Errorf("kind %q demands no object at all and is not self-only — anyone could release its stagings", kind)
+			}
 			continue
 		}
 		for _, withheld := range objects {

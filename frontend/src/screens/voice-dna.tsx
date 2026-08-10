@@ -8,9 +8,10 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Textarea,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { ensureProfileId, useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
@@ -32,11 +33,30 @@ function useVoiceSources(profileId: string) {
         params: { path: { id: profileId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { sources: data.data, summary: data.summary };
     },
   });
+}
+
+// What every mutation on this card does with a failure, spelled once: state it
+// in words written for the reader. Keeping the raw failure readable is the
+// client's mutation sink's job (app/queryclient.ts), so a save, a removal, an
+// add or a build that broke is diagnosable without every mutation here saying
+// so for itself.
+//
+// The parameter is `unknown` rather than react-query's default `Error`
+// because what a rejected promise carries is not ours to assume: a thrown
+// string reaches here just as a TypeError does, and problemMessageOf takes it
+// as it comes.
+function reportFailure(
+  setError: (message: string) => void,
+  t: ReturnType<typeof useT>,
+): (error: unknown) => void {
+  return (error: unknown) => {
+    setError(problemMessageOf(error, t));
+  };
 }
 
 // The two ADR-0066 maturity thresholds, mirrored so the build control can say
@@ -197,21 +217,20 @@ function PersonalityEditor({
         body: { personality_md: text },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onSaved();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: reportFailure(setError, t),
   });
   const dirty = text !== profile.personality_md;
   return (
     <div className="vdna-composer">
       <div className="vdna-label">{t("settings.voice.personalityLabel")}</div>
-      <textarea
-        className="textarea"
+      <Textarea
         rows={4}
         value={text}
         placeholder={t("settings.voice.personalityPlaceholder")}
@@ -250,14 +269,14 @@ function CorpusManifest({
         { params: { path: { id: profileId, sourceId } } },
       );
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: reportFailure(setError, t),
   });
 
   return (
@@ -328,7 +347,7 @@ function CorpusSources({
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
@@ -336,7 +355,7 @@ function CorpusSources({
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: reportFailure(setError, t),
   });
 
   return (
@@ -352,8 +371,7 @@ function CorpusSources({
       {/* The first sample is the one a user pastes a whole email into, so it
           opens tall enough to show one without scrolling; a later addition to
           an established corpus is a smaller act and gets a smaller box. */}
-      <textarea
-        className="textarea"
+      <Textarea
         rows={first ? 8 : 4}
         value={paste}
         placeholder={t("settings.voice.addPlaceholder")}
@@ -495,7 +513,7 @@ function BuildControls({
         body: { reason: "manual" },
       });
       if (created.error) {
-        throw new Error(problemMessage(created.error));
+        throwProblem(created.error);
       }
       const buildId = created.data.id;
       for (let attempt = 0; attempt < 40; attempt++) {
@@ -504,7 +522,7 @@ function BuildControls({
           { params: { path: { id: profile.id, buildId } } },
         );
         if (err) {
-          throw new Error(problemMessage(err));
+          throwProblem(err);
         }
         if (
           data.status === "succeeded" ||
@@ -526,7 +544,7 @@ function BuildControls({
       setError(null);
       onBuilt();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: reportFailure(setError, t),
   });
 
   // The corpus summary rides the same query key CorpusManifest already read,

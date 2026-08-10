@@ -15,6 +15,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // Deterministic writes the brief without a model. Every sentence cites the
@@ -54,7 +57,7 @@ func Deterministic(orgID string, in Input) []Sentence {
 	// Then what the company IS. Same two-part shape the model lane is asked
 	// for, so the card reads the same whichever wrote it.
 	sentences = append(sentences, profileLines(in, account)...)
-	return dedupedSentences(sentences)
+	return claims.Dedupe(sentences)
 }
 
 // profileLabels turn a stored field name into the question it answers.
@@ -153,14 +156,14 @@ func pipelineLine(in Input) string {
 	if ok && total > 0 {
 		// Minor units are rendered as a plain major-unit figure; the card
 		// formats money properly, and this text is the fallback.
-		line += fmt.Sprintf(" worth about %d %s", total/100, currency)
+		line += " worth about " + values.MajorUnits(total, currency) + " " + currency
 	}
 	// The won total carries its OWN currency: the 360 converts it to the
 	// workspace base at each deal's frozen close-time rate, which has no
 	// relation to whatever the open deals are priced in. Labelling it with
 	// the open currency reported a real figure under the wrong unit.
 	if in.WonLifetime > 0 && in.WonCurrency != "" {
-		line += fmt.Sprintf("; %d %s won to date", in.WonLifetime/100, in.WonCurrency)
+		line += "; " + values.MajorUnits(in.WonLifetime, in.WonCurrency) + " " + in.WonCurrency + " won to date"
 	}
 	return line + "."
 }
@@ -303,7 +306,7 @@ func DeterministicSections(orgID string, in Input) []Section {
 	}
 	health = append(health, perRecordSentences(stalledDeals(in), citeDeal, dealID, stalledLine)...)
 	if len(health) > 0 {
-		sections = append(sections, Section{Kind: sectionHealth, Sentences: dedupedSentences(health)})
+		sections = append(sections, Section{Kind: sectionHealth, Sentences: claims.Dedupe(health)})
 	}
 
 	var activity []Sentence

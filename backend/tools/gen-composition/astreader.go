@@ -189,7 +189,8 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
 		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
-	var name, version, tier, scope string
+	var name, title, description, version, tier, scope string
+	var served bool
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
@@ -203,16 +204,37 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 		switch key.Name {
 		case "Name":
 			name, err = r.stringLit(kv.Value, "Tool.Name")
+		case "Title":
+			// Read to be VALIDATED, not to be recorded: a display string
+			// grants nothing, so it stays out of the descriptor and its
+			// digest — but the core registry refuses a blank one at boot, and
+			// this is where a unit author is told so at the declaration.
+			title, err = r.stringLit(kv.Value, "Tool.Title")
+		case "Description":
+			// Read to be VALIDATED, like the title: selection prose grants
+			// nothing and stays out of the descriptor and its digest, but the
+			// composition refuses a SERVED tool without one, and this is where a
+			// unit author is told so — at the declaration, in their own source.
+			description, err = r.stringLit(kv.Value, "Tool.Description")
 		case "Version":
 			version, err = r.stringLit(kv.Value, "Tool.Version")
 		case "Tier":
 			tier, err = r.constValue(kv.Value, ext)
 		case "RequestedScope":
 			scope, err = r.constValue(kv.Value, ext)
-		case "Handle", "InputSchema", "OutputSchema":
-			// Behavior and client-facing I/O docs — recognized and skipped.
-			// The manifest records the governance descriptor, not the
-			// tool's code or its advertised schemas.
+		case "Handle":
+			// Behavior is not a static declaration and never reaches the
+			// manifest. Whether one is SERVED is read anyway, because that is
+			// what separates a tool owing a description from an inert manifest
+			// request that does not. A declared `Handle: nil` is inert — it is
+			// how the seam spells "declare it, serve nothing", and the runtime
+			// adapter skips exactly that — so the field's presence is not the
+			// question; its value being non-nil is. See isStaticallyNil for the
+			// spellings that count as nil.
+			served = !isStaticallyNil(kv.Value)
+		case "InputSchema", "OutputSchema":
+			// Client-facing I/O docs — recognized and skipped. The manifest
+			// records the governance descriptor, not the advertised schemas.
 		default:
 			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
 		}
@@ -220,25 +242,68 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			return riskTierRequest{}, err
 		}
 	}
-	return r.toolRequest(lit, name, version, tier, scope)
+	// The composition refuses a served tool with no description, because a
+	// verb is all a model would have to choose it by. That refusal is a boot
+	// failure in whatever process composes the unit; raised here it is a line
+	// and a column in the unit's own source, which is where it can be fixed.
+	if served && strings.TrimSpace(description) == "" {
+		return riskTierRequest{}, r.errAt(lit,
+			"tool %q serves a handler but declares no Description — the text a model selects it by", name)
+	}
+	return r.toolRequest(lit, declaredTool{
+		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
+	})
 }
+
+// isStaticallyNil reports whether an expression is nil at the declaration —
+// which is how a Tools entry says "declare it, serve nothing", and what the
+// runtime adapter skips on.
+//
+// Two spellings, because both reach the adapter as the same nil function value:
+// the bare `nil`, and a conversion of it (`extension.ToolHandler(nil)`), which a
+// unit author writes when the surrounding literal needs the type to be obvious.
+// Anything else — a function name, a literal, a call — is a handler this reader
+// must treat as served, since it cannot evaluate it to find out otherwise.
+func isStaticallyNil(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name == "nil"
+	case *ast.CallExpr:
+		// A conversion has exactly one argument; a call with one argument that
+		// is nil is indistinguishable from one syntactically, and reading it as
+		// inert is the conservative half — it asks for a description less
+		// often, and the composition still refuses a served tool without one.
+		return len(e.Args) == 1 && isStaticallyNil(e.Args[0])
+	case *ast.ParenExpr:
+		return isStaticallyNil(e.X)
+	}
+	return false
+}
+
+// declaredTool is one Tools entry as the source states it, before the
+// published grammar has passed judgement on it.
+type declaredTool struct{ name, title, description, version, tier, scope string }
 
 // toolRequest validates the declared tool through its published grammar
 // (the same Validate the boot preflight runs, raised here at the
 // declaration's position) and assembles its descriptor. A tool requires
 // one scope; the descriptor carries it as its (single-element) scope set,
-// the general shape shared across governed kinds. Version is not part
-// of the descriptor: resolutions bind to the digest, never a version.
-func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (riskTierRequest, error) {
-	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequestedScope: extension.Scope(scope)}
+// the general shape shared across governed kinds. Version and Title are not
+// part of the descriptor: resolutions bind to the digest, never to a version
+// string, and never to a label.
+func (r *unitReader) toolRequest(at ast.Node, d declaredTool) (riskTierRequest, error) {
+	declared := extension.Tool{
+		Name: d.name, Title: d.title, Description: d.description, Version: d.version,
+		Tier: extension.Tier(d.tier), RequestedScope: extension.Scope(d.scope),
+	}
 	if err := declared.Validate(); err != nil {
 		return riskTierRequest{}, r.errPos(at, "%v", err)
 	}
 	c := riskTierRequest{
-		ID:        "tool/" + name,
+		ID:        "tool/" + d.name,
 		Operation: opAgentToolInvoke,
-		Scopes:    []string{scope},
-		Tier:      tier,
+		Scopes:    []string{d.scope},
+		Tier:      d.tier,
 	}
 	digest, err := descriptorDigest(c)
 	if err != nil {
@@ -300,9 +365,25 @@ func (r *unitReader) singleReturn(fn *ast.FuncDecl) (ast.Expr, error) {
 }
 
 func (r *unitReader) stringLit(expr ast.Expr, field string) (string, error) {
+	// A concatenation of literals is still a literal: the value is fixed at the
+	// declaration and this reader can compute it without evaluating anything.
+	// Prose that will not fit on one line — a tool's description — has no other
+	// way to be written, and refusing it would push a unit author into a single
+	// unreadable line to satisfy a generator.
+	if bin, ok := expr.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+		left, err := r.stringLit(bin.X, field)
+		if err != nil {
+			return "", err
+		}
+		right, err := r.stringLit(bin.Y, field)
+		if err != nil {
+			return "", err
+		}
+		return left + right, nil
+	}
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
-		return "", r.errAt(expr, "%s must be a string literal", field)
+		return "", r.errAt(expr, "%s must be a string literal (or literals joined by +)", field)
 	}
 	return strconv.Unquote(lit.Value)
 }

@@ -1,0 +1,27 @@
+name: the_record_is_found_before_it_is_changed
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Set the next step on the Nordwind renewal to "send revised pricing by Friday".
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e06
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: acting rep — user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: search_records
+  rubric: >
+    The goal names a deal by words and the window carries no id for it. Every
+    tool that could change the deal takes an id, so the turn has to find the
+    record before it can touch it. Score high only if the turn searches. A turn
+    calling update_record or progress_deal here had to invent an identifier,
+    which is the failure this scenario exists to catch — and it is worse, not
+    better, when the invented id happens to be well-formed.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

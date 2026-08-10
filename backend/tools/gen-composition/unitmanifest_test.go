@@ -287,6 +287,80 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 	}
 }
 
+// TestADeclaredTitleDerivesButStaysOutOfTheDescriptor: a display string
+// grants nothing, so declaring one must neither fail the derivation (it did:
+// the field was unrecognized, which made a unit that named its tool
+// unbuildable) nor move the digest an operator decision binds to.
+func TestADeclaredTitleDerivesButStaysOutOfTheDescriptor(t *testing.T) {
+	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
+	untitled, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+	if err != nil {
+		t.Fatal(err)
+	}
+	titled, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tTitle: \"Sync contacts\",\n"+fields))
+	if err != nil {
+		t.Fatalf("a declared title must derive: %v", err)
+	}
+	if !bytes.Equal(untitled, titled) {
+		t.Fatalf("the title reached the governance descriptor:\n%s\nvs\n%s", untitled, titled)
+	}
+}
+
+// Prose that will not fit on one line is written as literals joined by +, and
+// that is still a value fixed at the declaration — the generator computes it
+// without evaluating anything. Refusing it would push a unit author into one
+// unreadable line to satisfy a tool that never had to be satisfied.
+func TestAConcatenatedLiteralDerivesLikeASingleOne(t *testing.T) {
+	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
+	joined, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tDescription: \"Keep the contacts in step. \" +\n\t\t\t\t\"It reads nothing this workspace holds.\",\n"+fields))
+	if err != nil {
+		t.Fatalf("literals joined by + must derive: %v", err)
+	}
+	// Like the title, it is validated and then left out of the governance
+	// descriptor: a resolution binds to a digest, never to prose.
+	plain, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(joined, plain) {
+		t.Fatalf("the description reached the governance descriptor:\n%s\nvs\n%s", joined, plain)
+	}
+}
+
+// A served tool with no description is refused by the composition at boot. The
+// generator can see the same thing — a Handle key and no Description — so it
+// says so at the declaration, with a line and a column, rather than leaving the
+// author a boot failure in whatever process composes their unit. An INERT tool
+// is untouched: it is a manifest request nothing serves to a client.
+func TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration(t *testing.T) {
+	handler := "\nfunc handle(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n"
+	imports := "package x\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n"
+	unit := func(fields string) string {
+		return imports + "\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"x\",\n\t\tVersion: \"0.1.0\",\n\t\tTools: []extension.Tool{{\n" + fields + "\n\t\t}},\n\t}\n}\n" + handler
+	}
+	base := "\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"
+
+	_, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: handle,"))
+	if err == nil || !strings.Contains(err.Error(), "serves a handler but declares no Description") {
+		t.Fatalf("err = %v, want the undescribed-served-tool refusal", err)
+	}
+	if _, err := deriveSynthetic(t, "x", unit(base)); err != nil {
+		t.Fatalf("an undescribed INERT tool must still derive: %v", err)
+	}
+	// The two spellings of an inert handler. Both reach the adapter as the same
+	// nil function value, so a reader that recognised only one would refuse a
+	// declaration the runtime serves nothing for.
+	for _, spelling := range []string{"nil", "extension.ToolHandler(nil)", "(nil)"} {
+		if _, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: "+spelling+",")); err != nil {
+			t.Errorf("an undescribed tool with Handle: %s must derive as inert: %v", spelling, err)
+		}
+	}
+	described := base + "\n\t\t\tDescription: \"Keeps the contacts in step, and reads nothing else.\",\n\t\t\tHandle: handle,"
+	if _, err := deriveSynthetic(t, "x", unit(described)); err != nil {
+		t.Fatalf("a described served tool must derive: %v", err)
+	}
+}
+
 // nonLiteralHeader opens every rejection case's synthetic unit.
 const nonLiteralHeader = `package x
 
@@ -363,6 +437,44 @@ var nonLiteralCases = []struct {
 		name:    "version with surrounding whitespace",
 		source:  nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \" 1.0.0\","),
 		wantErr: "surrounding whitespace",
+	},
+	{
+		// The core registry refuses a blank title with a boot panic, so the
+		// unit author has to hear it here, at the declaration, instead.
+		name:    "tool title that renders as nothing",
+		source:  toolUnitSource("\t\t\tName: \"t\", Title: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
+		wantErr: "is blank or carries surrounding whitespace",
+	},
+	{
+		// A concatenation is resolved literal by literal, so a computed piece
+		// on either side of the + is still a value the manifest cannot derive
+		// — and this is the shape it hides in most easily, next to real prose.
+		name:    "a computed piece opening a concatenated description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: opening() + \" It reads nothing.\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc opening() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
+		name:    "a computed piece closing a concatenated description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"Keeps the contacts in step. \" + closing(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc closing() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
+		// Selection prose is the one field a unit author is most likely to
+		// compute — from a constant, a helper, a template. The manifest derives
+		// statically, so it has to be told here rather than at boot.
+		name:    "computed tool description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: describe(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc describe() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
+		name:    "tool description that renders as nothing",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
+		wantErr: "is blank or carries surrounding whitespace",
+	},
+	{
+		name:    "computed tool title",
+		source:  toolUnitSource("\t\t\tName: \"t\", Title: titleOf(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc titleOf() string { return \"T\" }\n",
+		wantErr: "Tool.Title must be a string literal",
 	},
 }
 

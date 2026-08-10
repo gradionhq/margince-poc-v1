@@ -1,0 +1,29 @@
+name: coverage_names_the_gap
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Are we single-threaded on the Acme renewal, or do we have real coverage?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e04
+  grounding:
+    - source_id: deal:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11
+      trust_tier: T1
+      content: Acme renewal — deal_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11, stage=negotiation
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: account_coverage
+    args:
+      deal_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11
+  rubric: >
+    Single-threaded is a coverage question about one deal's stakeholders, and
+    account_coverage is the tool that answers it. Score high only if the turn
+    calls it on the deal the grounding identifies. intro_path_to finds a way in
+    to an account nobody knows, which is the opposite situation; catch_me_up_on
+    would narrate the deal without ever saying who is missing from it.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

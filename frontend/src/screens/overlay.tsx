@@ -13,15 +13,17 @@ import {
   Button,
   Card,
   EmptyState,
+  Field,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select } from "../design-system/select";
 import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
-import { problemCodeOf, throwProblem } from "./common";
+import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
 import type { Budget, SyncStatus } from "./overlay-health";
 import { converged, OverlayLiveSection } from "./overlay-health";
 
@@ -105,40 +107,33 @@ function OverlayConnectForm({
         onRequestConfirm(region, token);
       }}
     >
-      <div className="field">
-        <label className="t-label" htmlFor="overlay-region">
-          {t("overlay.region")}
-        </label>
-        <select
-          id="overlay-region"
-          className="input"
-          value={region}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (isOption(value, REGIONS)) setRegion(value);
-          }}
-        >
-          {REGIONS.map((r) => (
-            <option key={r} value={r}>
-              {t(regionLabel[r])}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor="overlay-token">
-          {t("overlay.token")}
-        </label>
-        <TextInput
-          id="overlay-token"
-          type="password"
-          autoComplete="off"
-          value={token}
-          required
-          onChange={(event) => setToken(event.target.value)}
-        />
-        <p className="t-caption">{t("overlay.tokenHint")}</p>
-      </div>
+      <Field label={t("overlay.region")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={region}
+            onChange={(value) => {
+              if (isOption(value, REGIONS)) setRegion(value);
+            }}
+            options={REGIONS.map((r) => ({
+              value: r,
+              label: t(regionLabel[r]),
+            }))}
+          />
+        )}
+      </Field>
+      <Field label={t("overlay.token")} hint={t("overlay.tokenHint")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            autoComplete="off"
+            value={token}
+            required
+            onChange={(event) => setToken(event.target.value)}
+          />
+        )}
+      </Field>
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button small variant="primary" type="submit" disabled={!ready}>
           <Plug aria-hidden />{" "}
@@ -400,9 +395,7 @@ export function OverlayCard() {
       )}
       {loadFailed && (
         <p className="t-small" style={{ color: "var(--danger)" }}>
-          {connection.error instanceof Error
-            ? connection.error.message
-            : t("overlay.loadFailed")}
+          {problemMessageOf(connection.error, t, t("overlay.loadFailed"))}
         </p>
       )}
       {connection.isSuccess && connection.data === null && (
@@ -433,7 +426,9 @@ export function OverlayCard() {
           onReconcile={() => reconcile.mutate()}
           reconcilePending={reconcile.isPending}
           reconcileQueued={reconcile.isSuccess}
-          reconcileError={reconcile.isError ? reconcile.error.message : null}
+          reconcileError={
+            reconcile.isError ? problemMessageOf(reconcile.error, t) : null
+          }
           onDisconnect={() => setConfirmingDisconnect(true)}
         />
       )}
@@ -451,7 +446,7 @@ export function OverlayCard() {
             : t("overlay.connect")
         }
         pending={connect.isPending}
-        error={connect.isError ? connect.error.message : null}
+        error={connect.isError ? problemMessageOf(connect.error, t) : null}
         onConfirm={() => {
           // Re-read at the moment of the write. /me refetches on focus and
           // after any 403, so a grant held when this dialog opened can be gone
@@ -474,7 +469,9 @@ export function OverlayCard() {
         confirmLabel={t("overlay.disconnect")}
         confirmVariant="danger"
         pending={disconnect.isPending}
-        error={disconnect.isError ? disconnect.error.message : null}
+        error={
+          disconnect.isError ? problemMessageOf(disconnect.error, t) : null
+        }
         onConfirm={() => {
           if (!canDisconnect) {
             return;

@@ -141,6 +141,12 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 		CreatedAt:   syncedAt,
 		UpdatedAt:   syncedAt,
 		Raw:         &fields,
+		// Stated rather than omitted: a mirror-backed organization is one of
+		// the incumbent's accounts, and the installation's own company is a
+		// native row that is never among them. Leaving the field absent would
+		// make a client read "unknown" where the answer is known
+		// (ADR-0082/A127).
+		IsAnchor: ptrBool(false),
 	}
 	if band := crmcontracts.OrganizationSizeBand(fieldString(fields, "size_band")); band.Valid() {
 		org.SizeBand = &band

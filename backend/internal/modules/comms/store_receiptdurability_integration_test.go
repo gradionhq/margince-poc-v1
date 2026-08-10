@@ -249,7 +249,7 @@ func TestDispatchRecordsTheReceiptWhenTheJobContextIsCancelledDuringTheSend(t *t
 	dispatcher := NewDispatcher(
 		e.storeWith(&recordingReconciler{}),
 		fakeResolver{sender: cancellingSender{cancel: cancel}, granted: []string{sendScope}},
-		liveSeat(), &stubConsent{}, nil,
+		liveSeat(), nil, &stubConsent{}, nil,
 		func() time.Time { return e.clockValue }, time.Hour, testMaxAttempts,
 	)
 

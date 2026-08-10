@@ -372,8 +372,104 @@ describe("TopBar (§2b contextual truth)", () => {
   it("shows the screen title and no actions that were not provided", () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     expect(screen.getByText("Pipeline")).toBeTruthy();
-    // exactly the four always-true controls: search, locale, theme, sign out
-    expect(screen.getAllByRole("button")).toHaveLength(4);
+    // Exactly the two always-true controls: search and the account menu. Language,
+    // theme and sign-out are this person's, so they live inside that menu — the bar
+    // carries screen actions, not preferences.
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+  });
+
+  it("keeps language, theme and sign-out in the account menu, in that order", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    // Closed, none of them is reachable — that is the point of moving them.
+    expect(screen.queryByRole("button", { name: /^Language: / })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    const menu = screen
+      .getByRole("button", { name: "Account" })
+      .parentElement?.querySelector(".accountmenu");
+    expect(menu).toBeTruthy();
+    // Settings · language · theme · sign out. The order is the grouping the menu
+    // promises: the account surface, the two preferences, then the way out.
+    const rows = [...(menu?.querySelectorAll("a,button") ?? [])].map(
+      (row) => row.textContent?.trim() ?? "",
+    );
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toBe("Settings");
+    // The two preference rows carry their current value after the name, which is
+    // asserted below — here the order is what matters.
+    expect(rows[1]?.startsWith("Language")).toBe(true);
+    expect(rows[2]?.startsWith("Theme")).toBe(true);
+    expect(rows[3]).toBe("Sign out");
+    // Each preference row names the setting and states what it is set to — the
+    // two halves a menu item needs.
+    const language = screen.getByRole("button", { name: "Language: English" });
+    expect(language.textContent).toContain("English");
+    expect(
+      screen.getByRole("button", {
+        name: /^Theme: Switch to (dark|light) theme$/,
+      }),
+    ).toBeTruthy();
+  });
+
+  // The language row opens a submenu INSIDE this popover, and both dismissals
+  // listen on the document. Without an owner for the keystroke one Escape would
+  // collapse both layers at once, leaving the reader two steps from where they
+  // were — and the language list is the one control a reader who cannot read the
+  // current locale needs most.
+  it("closes one layer per Escape when the language list is open", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Language: / }));
+    expect(screen.getByRole("menu", { name: "Language" })).toBeTruthy();
+
+    await userEvent.keyboard("{Escape}");
+    // The list is gone and the menu it belongs to is still open.
+    expect(screen.queryByRole("menu", { name: "Language" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Language: / })).toBeTruthy();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: /^Language: / })).toBeNull();
+  });
+
+  it("hands focus back to the avatar when Escape closes it", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    const avatar = screen.getByRole("button", { name: "Account" });
+    await userEvent.click(avatar);
+    // Standing on a row, the way a keyboard user arrives at one.
+    const language = screen.getByRole("button", { name: /^Language: / });
+    language.focus();
+    expect(document.activeElement).toBe(language);
+
+    await userEvent.keyboard("{Escape}");
+    // Not document.body: dismissing unmounts the focused row, and focus left on
+    // the body restarts the next Tab at the top of the page, having lost the top
+    // bar the user was standing in.
+    expect(document.activeElement).toBe(avatar);
+  });
+
+  it("stays open while a preference is being changed", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    const theme = screen.getByRole("button", {
+      name: /^Theme: Switch to (dark|light) theme$/,
+    });
+    const before = theme.getAttribute("aria-label");
+    await userEvent.click(theme);
+    // The row is still there, now offering the way back: a menu that dismissed
+    // itself would take the control out of view together with the change.
+    const after = screen.getByRole("button", {
+      name: /^Theme: Switch to (dark|light) theme$/,
+    });
+    expect(after.getAttribute("aria-label")).not.toBe(before);
+
+    // Put the theme back. It is document-wide state that outlives this test —
+    // persisted to localStorage and held in theme.ts's own store, neither of
+    // which `cleanup()` touches — so leaving it flipped would hand every later
+    // test in this file a theme that depends on test order.
+    await userEvent.click(after);
+    const restored = screen.getByRole("button", {
+      name: /^Theme: Switch to (dark|light) theme$/,
+    });
+    expect(restored.getAttribute("aria-label")).toBe(before);
   });
 
   // AC-shell-1k: every authenticated route resolves to real copy. This bites on

@@ -3,7 +3,7 @@ import type { Dispatch } from "react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import { pickBuiltVersion } from "../onboarding";
 import { ensureProfileId } from "../voice-profile";
 import type {
@@ -74,7 +74,7 @@ export function useVoiceBuild({ dispatch, machine }: UseVoiceBuildArgs) {
         body: { reason: "onboarding" },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { profileId: id, buildId: data.id };
     },
@@ -95,7 +95,7 @@ export function useVoiceBuild({ dispatch, machine }: UseVoiceBuildArgs) {
         { params: { path: { id: profileId ?? "", buildId: buildId ?? "" } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -171,7 +171,7 @@ export function useVoiceBuild({ dispatch, machine }: UseVoiceBuildArgs) {
         params: { path: { id: profileId ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return pickBuiltVersion(data.data);
     },

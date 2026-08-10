@@ -4,6 +4,8 @@
 package identity
 
 import (
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -57,6 +59,155 @@ func TestWireUser(t *testing.T) {
 	if got.Timezone != nil {
 		t.Errorf("Timezone = %v, want nil (roster read does not select it)", *got.Timezone)
 	}
+}
+
+// The roster answers every authenticated member, so the shared mapping must
+// withhold the role keys even when the row it is given carries them — that
+// omission is the whole disclosure gate, and a row read for an admin is the
+// same row read for a rep.
+func TestWireUserWithholdsRoleKeys(t *testing.T) {
+	got := wireUser(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles != nil {
+		t.Errorf("Roles = %v, want nil — a non-admin roster must not disclose who holds a role", *got.Roles)
+	}
+}
+
+func TestWireUserWithRolesCarriesTheRoleKeys(t *testing.T) {
+	row := userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	}
+	got := wireUserWithRoles(row)
+
+	if got.Roles == nil {
+		t.Fatal("Roles = nil, want the member's role keys — the admin card renders the current role from them")
+	}
+	if len(*got.Roles) != 1 || (*got.Roles)[0] != "admin" {
+		t.Errorf("Roles = %v, want [admin]", *got.Roles)
+	}
+	// Everything else is the shared mapping; only the role keys are added.
+	if got.DisplayName != row.DisplayName || string(got.Status) != row.Status {
+		t.Errorf("got %q/%q, want %q/%q", got.DisplayName, got.Status, row.DisplayName, row.Status)
+	}
+}
+
+// An unassigned seat has no role, and the admin card distinguishes that from
+// "not disclosed" — so it must arrive as an empty list, never as an absent one.
+func TestWireUserWithRolesKeepsAnUnassignedSeatDistinctFromAWithheldOne(t *testing.T) {
+	got := wireUserWithRoles(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "nora@example.com",
+		DisplayName: "Nora None",
+		Status:      "active",
+		Roles:       []string{},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles == nil {
+		t.Fatal("Roles = nil, want an empty list — absent means withheld, not unassigned")
+	}
+	if len(*got.Roles) != 0 {
+		t.Errorf("Roles = %v, want empty", *got.Roles)
+	}
+}
+
+// The roster serves both callers off the same rows, so which mapping the
+// caller gets IS the disclosure gate.
+func TestRosterUserMappingDisclosesRoleKeysOnlyToAnAdmin(t *testing.T) {
+	row := userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	}
+
+	if got := rosterUserMapping(false)(row); got.Roles != nil {
+		t.Errorf("non-admin roster Roles = %v, want nil", *got.Roles)
+	}
+	if got := rosterUserMapping(true)(row); got.Roles == nil {
+		t.Error("admin roster Roles = nil, want the member's role keys")
+	}
+}
+
+// A row the read never asked for role keys on arrives nil, and the wire answers
+// WITHOUT the field. Emitting "[]" instead would tell the client this member
+// holds no role — a statement about someone's privileges that nothing checked.
+func TestWireUserWithRolesOmitsTheFieldWhenTheReadDidNotAskForIt(t *testing.T) {
+	got := wireUserWithRoles(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       nil,
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles != nil {
+		t.Errorf("Roles = %v, want absent — nil means the read never fetched them", *got.Roles)
+	}
+}
+
+// The bind numbering is a contract between each query string and the args its
+// spec sends: leadArgs bind first, then the pager's own. Deriving the obligation
+// from the strings beats remembering it — a fifth query with the wrong offset
+// would otherwise fail at runtime in pgx, on whichever request first used it.
+func TestRosterQueryPlaceholdersMatchTheArgsTheirPagerSends(t *testing.T) {
+	// pager args: (q if filtered) + created_at + id + limit.
+	const plainPagerArgs, filteredPagerArgs = 3, 4
+	for _, c := range []struct {
+		name     string
+		query    string
+		leadArgs int
+		pager    int
+	}{
+		{"listUsers", listUsersQuery, 1, plainPagerArgs},
+		{"listUsersFiltered", listUsersFilteredQuery, 1, filteredPagerArgs},
+		{"listUsersAll", listUsersAllQuery, 1, plainPagerArgs},
+		{"listUsersAllFiltered", listUsersAllFilteredQuery, 1, filteredPagerArgs},
+		{"listTeams", listTeamsQuery, 0, plainPagerArgs},
+		{"listTeamsFiltered", listTeamsFilteredQuery, 0, filteredPagerArgs},
+	} {
+		want := c.leadArgs + c.pager
+		if got := highestPlaceholder(c.query); got != want {
+			t.Errorf("%s: highest placeholder $%d, but its spec sends %d args (%d lead + %d pager)",
+				c.name, got, want, c.leadArgs, c.pager)
+		}
+	}
+}
+
+// highestPlaceholder reports the largest $n in a query, which is the number of
+// arguments Postgres will expect.
+func highestPlaceholder(query string) int {
+	highest := 0
+	for _, m := range regexp.MustCompile(`\$(\d+)`).FindAllStringSubmatch(query, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue // $ followed by digits cannot fail Atoi; guard for the linter
+		}
+		if n > highest {
+			highest = n
+		}
+	}
+	return highest
 }
 
 func TestWireTeam(t *testing.T) {

@@ -38,7 +38,7 @@ type anchorArgs struct {
 }
 
 const anchorSchema = `{"type":"object","required":["record_type","record_id"],"properties":{
-	"record_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
+	"record_type":{"type":"string","enum":["person","organization","deal","lead","project","activity"]},
 	"record_id":{"type":"string","format":"uuid"},
 	"max_items":{"type":"integer","minimum":1,"maximum":20}},
 	"additionalProperties":false}`
@@ -46,26 +46,43 @@ const anchorSchema = `{"type":"object","required":["record_type","record_id"],"p
 // AssembledContextJSON renders a retrieval.Context in the
 // evidence-carrying wire shape both intent tools share (exported so the
 // composition tests pin the exact shape the tools return).
-func AssembledContextJSON(assembled retrieval.Context) (json.RawMessage, error) {
-	sections := make([]map[string]any, 0, len(assembled.Sections))
+func AssembledContextJSON(ctx context.Context, assembled retrieval.Context) (json.RawMessage, error) {
+	return json.Marshal(assembledContext(ctx, assembled))
+}
+
+// assembledContext is the one place a retrieval.Context becomes tool output, so
+// both intent tools report the same shape and neither can drift into its own.
+//
+// It sources the answer as it builds it: an assembled picture SUMMARIZES records
+// rather than serving them, so nothing else on the call's path names them, and a
+// summary whose records are absent from the envelope is exactly the unsourced
+// element the evidence rule refuses.
+func assembledContext(ctx context.Context, assembled retrieval.Context) AssembledContextResult {
+	// The summaries and snippets below are record CONTENT, assembled from rows
+	// the retriever read and this call never saw — so the answer is tainted with
+	// them, not merely sourced to them.
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, assembled.Anchor.Type, assembled.Anchor.ID)
+	sections := make([]ContextSection, 0, len(assembled.Sections))
 	for _, section := range assembled.Sections {
-		items := make([]map[string]any, 0, len(section.Items))
+		items := make([]ContextItem, 0, len(section.Items))
 		for _, item := range section.Items {
-			evidence := make([]map[string]string, 0, len(item.Evidence))
+			evidence := make([]ContextEvidence, 0, len(item.Evidence))
 			for _, ev := range item.Evidence {
-				evidence = append(evidence, map[string]string{"source": ev.Source, "snippet": ev.Snippet})
+				evidence = append(evidence, ContextEvidence{Source: ev.Source, Snippet: ev.Snippet})
 			}
-			items = append(items, map[string]any{
-				"record_type": item.Ref.Type, "record_id": item.Ref.ID,
-				"summary": item.Summary, "evidence": evidence,
+			noteEvidence(ctx, item.Ref.Type, item.Ref.ID)
+			items = append(items, ContextItem{
+				RecordType: item.Ref.Type, RecordID: item.Ref.ID,
+				Summary: item.Summary, Evidence: evidence,
 			})
 		}
-		sections = append(sections, map[string]any{"name": section.Name, "items": items})
+		sections = append(sections, ContextSection{Name: section.Name, Items: items})
 	}
-	return json.Marshal(map[string]any{
-		"anchor":   map[string]any{"record_type": assembled.Anchor.Type, "record_id": assembled.Anchor.ID},
-		"sections": sections,
-	})
+	return AssembledContextResult{
+		Anchor:   ContextAnchor{RecordType: assembled.Anchor.Type, RecordID: assembled.Anchor.ID},
+		Sections: sections,
+	}
 }
 
 // --- catch_me_up_on (🟢 read) ---
@@ -77,10 +94,11 @@ type catchMeUpOn struct {
 func (t catchMeUpOn) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "catch_me_up_on", Title: "Catch me up on a record", Version: toolVersionV1,
+		Description:   catchMeUpOnCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[AssembledContextResult](),
 	}
 }
 
@@ -95,7 +113,7 @@ func (t catchMeUpOn) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	return AssembledContextJSON(assembled)
+	return AssembledContextJSON(ctx, assembled)
 }
 
 // --- prep_for_meeting (🟢 read) ---
@@ -107,10 +125,11 @@ type prepForMeeting struct {
 func (t prepForMeeting) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "prep_for_meeting", Title: "Prepare for a meeting", Version: toolVersionV1,
+		Description:   prepForMeetingCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PrepForMeetingResult](),
 	}
 }
 
@@ -125,10 +144,7 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	briefing, err := AssembledContextJSON(assembled)
-	if err != nil {
-		return nil, err
-	}
+
 	// The prep affordance: same assembled picture, plus the open items
 	// pulled forward as the meeting's focus list.
 	var focus []retrieval.Item
@@ -137,14 +153,11 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 			focus = append(focus, section.Items...)
 		}
 	}
-	focusItems := make([]map[string]any, 0, len(focus))
+	focusItems := make([]MeetingFocusItem, 0, len(focus))
 	for _, item := range focus {
-		focusItems = append(focusItems, map[string]any{
-			"record_id": item.Ref.ID, "summary": item.Summary,
-		})
+		focusItems = append(focusItems, MeetingFocusItem{RecordID: item.Ref.ID, Summary: item.Summary})
 	}
-	return json.Marshal(map[string]any{
-		"briefing":      json.RawMessage(briefing),
-		"meeting_focus": focusItems,
+	return json.Marshal(PrepForMeetingResult{
+		Briefing: assembledContext(ctx, assembled), MeetingFocus: focusItems,
 	})
 }

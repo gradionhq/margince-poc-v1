@@ -155,10 +155,11 @@ var computedFieldNoGrantPerms = principal.Permissions{
 var computedFieldWorkspaceBPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization":   {Create: true, Read: true},
-		"deal":           {Create: true, Read: true},
-		"pipeline":       {Create: true, Read: true},
-		"computed_field": {Read: true},
+		"organization":          {Create: true, Read: true},
+		"deal":                  {Create: true, Read: true},
+		"pipeline":              {Create: true, Read: true},
+		"computed_field":        {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

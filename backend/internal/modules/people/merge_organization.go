@@ -69,6 +69,20 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 		if err != nil {
 			return err
 		}
+		// AFTER the pair lock, so the answer cannot change under the merge, and
+		// before anything is relinked. Either endpoint: merging the anchor away
+		// retires it, and merging a customer INTO it folds their people, deals
+		// and history onto the installation's own company with no way to tell
+		// them apart afterwards.
+		// Neither direction is open when one side is the anchor, so neither
+		// message may point at the other direction as the way out: archiving the
+		// duplicate is the only move that actually works.
+		if err := refuseIfAnchor(ctx, tx, sourceID, "id", "it cannot be merged into another company. Archive the duplicate instead, and edit this one on the company page"); err != nil {
+			return err
+		}
+		if err := refuseIfAnchor(ctx, tx, targetID, "target_id", "nothing can be merged into it. Archive the duplicate instead, and edit this one on the company page"); err != nil {
+			return err
+		}
 		if err := refuseWhenBothCarryProjects(ctx, tx, sourceID, targetID); err != nil {
 			return err
 		}
@@ -150,6 +164,7 @@ func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID id
 func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, tgtLock storekit.RowLock) (map[string]any, error) {
 	p := storekit.NewPatch()
 	fillString(p, fieldLegalName, tgt.LegalName, src.LegalName)
+	fillString(p, "description", tgt.Description, src.Description)
 	fillString(p, "industry", tgt.Industry, src.Industry)
 	if targetIsPartner {
 		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), ids.OrganizationID{UUID: ids.UUID(tgt.Id)},
@@ -207,6 +222,11 @@ func absorbOrgReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.
 		`UPDATE project SET organization_id = $2 WHERE organization_id = $1`,
 		`UPDATE deal SET organization_id = $2 WHERE organization_id = $1`,
 		`UPDATE deal SET partner_org_id = $2 WHERE partner_org_id = $1`,
+		// The document library's account pointer. It is a denormalized READ
+		// path, so nothing else moves it — and a file left pointing at the
+		// dissolved company is filed under a record that no longer exists,
+		// which reads to a user as the contract having vanished.
+		`UPDATE attachment SET organization_id = $2 WHERE organization_id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, stmt, sourceID, targetID); err != nil {
 			return false, fmt.Errorf("repoint project and deal attributions: %w", err)

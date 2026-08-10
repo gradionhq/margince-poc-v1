@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import {
   OAuthConnectPanel,
   OAuthReturnPanel,
@@ -41,12 +42,13 @@ afterEach(() => {
 
 describe("the Google connect panel", () => {
   it("warns about the unverified-app notice and how to get past it", () => {
-    render(<OAuthConnectPanel provider="gmail" onComplete={async () => {}} />);
-    expect(
-      screen.getByText(/unverified app.*Advanced.*Continue/i),
-    ).toBeTruthy();
+    render(<OAuthConnectPanel provider="gmail" onDismiss={() => {}} />);
+    // Both sentences read from the catalog: which caveat the panel carries is
+    // the behaviour under test, and a copy edit that leaves it carrying the
+    // same one should not read as a broken panel.
+    expect(screen.getByText(en["ob.s4.googleUnverified"])).toBeTruthy();
     // The reassurance is honest about scope: read-only, never sends.
-    expect(screen.getByText(/only ever reads/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.s4.googleHint"])).toBeTruthy();
   });
 });
 
@@ -57,9 +59,9 @@ it("OAuthConnectPanel posts the given provider and redirects", async () => {
     "POST /connectors/graph/connect": () =>
       jsonResponse({ authorize_url: "https://login.microsoftonline/x" }),
   });
-  render(<OAuthConnectPanel provider="graph" onComplete={vi.fn()} />);
+  render(<OAuthConnectPanel provider="graph" onDismiss={() => {}} />);
   await userEvent.click(
-    screen.getByRole("button", { name: "Connect Microsoft" }),
+    screen.getByRole("button", { name: "Allow access to my Microsoft" }),
   );
   await waitFor(() =>
     expect(assign).toHaveBeenCalledWith("https://login.microsoftonline/x"),

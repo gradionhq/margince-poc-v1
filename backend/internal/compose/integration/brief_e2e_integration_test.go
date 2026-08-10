@@ -15,11 +15,13 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestMorningBriefHTTPSurface(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	stages := discoverSeededPipeline(t, e)
 
 	// Two deals closing this week clear the §10 honest-short bar on timing
@@ -28,13 +30,13 @@ func TestMorningBriefHTTPSurface(t *testing.T) {
 	snoozableID := createDealClosingThisWeek(t, e, stages, "Also closing, but not today's problem")
 
 	// Before any run, the home read is an honest 404 — no brief yet.
-	if status := e.call(t, "GET", "/v1/brief", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/brief", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("GET /v1/brief before generate = %d, want 404", status)
 	}
 
 	// Generate the brief: ranks the candidate set and persists a run.
 	var generated briefResponse
-	if status := e.call(t, "POST", "/v1/brief", nil, nil, &generated); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/brief", nil, nil, &generated); status != http.StatusCreated {
 		t.Fatalf("POST /v1/brief = %d, want 201", status)
 	}
 	if generated.Id == "" || generated.CandidateCount < 2 || len(generated.Items) < 2 {
@@ -48,7 +50,7 @@ func TestMorningBriefHTTPSurface(t *testing.T) {
 
 	// The home read re-reads the same persisted run (no re-rank).
 	var read briefResponse
-	if status := e.call(t, "GET", "/v1/brief", nil, nil, &read); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/brief", nil, nil, &read); status != http.StatusOK {
 		t.Fatalf("GET /v1/brief = %d, want 200", status)
 	}
 	if read.Id != generated.Id || len(read.Items) != len(generated.Items) {
@@ -58,20 +60,20 @@ func TestMorningBriefHTTPSurface(t *testing.T) {
 	// A mark on an item that is not in the acting rep's runs is 404
 	// existence-hiding — the same shape another rep's item would take.
 	foreign := "00000000-0000-7000-8000-000000000000"
-	if status := e.call(t, "POST", "/v1/brief/items/"+foreign+"/act", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "POST", "/v1/brief/items/"+foreign+"/act", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("mark on a non-owned item = %d, want 404 (existence-hiding)", status)
 	}
 
 	// The rep's own item marks acted; a second mark is a conflict, never a
 	// silent overwrite.
 	var acted briefItemResponse
-	if status := e.call(t, "POST", "/v1/brief/items/"+item.Id+"/act", nil, nil, &acted); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/brief/items/"+item.Id+"/act", nil, nil, &acted); status != http.StatusOK {
 		t.Fatalf("mark own item acted = %d, want 200", status)
 	}
 	if acted.State != "acted" {
 		t.Fatalf("marked item state = %q, want acted", acted.State)
 	}
-	if status := e.call(t, "POST", "/v1/brief/items/"+item.Id+"/dismiss", nil, nil, nil); status != http.StatusConflict {
+	if status := e.Call(t, "POST", "/v1/brief/items/"+item.Id+"/dismiss", nil, nil, nil); status != http.StatusConflict {
 		t.Fatalf("double mark = %d, want 409", status)
 	}
 
@@ -80,12 +82,12 @@ func TestMorningBriefHTTPSurface(t *testing.T) {
 
 // createDealClosingThisWeek seeds one open deal whose close date clears
 // the §10 timing bar, so it ranks into the rep's brief.
-func createDealClosingThisWeek(t *testing.T, e *env, stages seededStages, name string) string {
+func createDealClosingThisWeek(t *testing.T, e *apptest.AppEnv, stages seededStages, name string) string {
 	t.Helper()
 	var created struct {
 		Id string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/deals", anyMap{
+	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name":                name,
 		"pipeline_id":         stages.pipelineID,
 		"stage_id":            stages.open,
@@ -100,18 +102,18 @@ func createDealClosingThisWeek(t *testing.T, e *env, stages seededStages, name s
 // assertSnoozeHidesItem drives the snooze verb (A77/AC-home-6): a snooze
 // into the past is refused, a future one lands, and the home read hides
 // the item while snoozed_until lies ahead.
-func assertSnoozeHidesItem(t *testing.T, e *env, toSnooze briefItemResponse) {
+func assertSnoozeHidesItem(t *testing.T, e *apptest.AppEnv, toSnooze briefItemResponse) {
 	t.Helper()
 	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
-	if status := e.call(t, "POST", "/v1/brief/items/"+toSnooze.Id+"/snooze",
-		anyMap{"snoozed_until": past}, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "POST", "/v1/brief/items/"+toSnooze.Id+"/snooze",
+		apptest.AnyMap{"snoozed_until": past}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("snooze into the past = %d, want 422", status)
 	}
 
 	until := time.Now().UTC().Add(48 * time.Hour).Format(time.RFC3339)
 	var snoozed briefItemResponse
-	if status := e.call(t, "POST", "/v1/brief/items/"+toSnooze.Id+"/snooze",
-		anyMap{"snoozed_until": until}, nil, &snoozed); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/brief/items/"+toSnooze.Id+"/snooze",
+		apptest.AnyMap{"snoozed_until": until}, nil, &snoozed); status != http.StatusOK {
 		t.Fatalf("snooze = %d, want 200", status)
 	}
 	if snoozed.State != "snoozed" || snoozed.SnoozedUntil == "" {
@@ -119,7 +121,7 @@ func assertSnoozeHidesItem(t *testing.T, e *env, toSnooze briefItemResponse) {
 	}
 
 	var afterSnooze briefResponse
-	if status := e.call(t, "GET", "/v1/brief", nil, nil, &afterSnooze); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/brief", nil, nil, &afterSnooze); status != http.StatusOK {
 		t.Fatalf("GET /v1/brief after snooze = %d, want 200", status)
 	}
 	for _, it := range afterSnooze.Items {

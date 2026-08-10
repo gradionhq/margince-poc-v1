@@ -4,14 +4,22 @@
 package identity
 
 // Account recovery (A74/ADR-0056, UI-gated by the A107 capabilities
-// probe): the forgot/reset password pair over the operator's
-// transactional-email channel. Enumeration-resistant end to end — the
-// request always answers 202, an invalid, used, or expired token is one
-// neutral refusal, and the reset email is the only place the raw token
-// ever appears. The surface exists only when a mailer is wired; without
-// one both operations answer their explicit 501 and the capabilities
-// probe reports password_reset=false, so the login UI never renders a
-// link this flow cannot honor.
+// probe): the forgot/reset password pair. Enumeration-resistant end to
+// end — the request always answers 202, and an invalid, used, or expired
+// token is one neutral refusal.
+//
+// The two halves are gated separately, because they are different
+// capabilities (ADR-0061 Amendment 1). ASKING for a reset needs the
+// outbound-email channel: without a mailer there is nothing to send, so
+// RequestPasswordReset answers 501 and the capabilities probe reports
+// password_reset=false — the login UI never renders a self-service link
+// this flow cannot honor. REDEEMING a token the holder already has needs
+// only that some channel could have delivered it, so ResetPassword also
+// serves an installation whose only channel is the admin-issued
+// set-password link.
+//
+// A raw token appears in exactly two places and nowhere else: the reset
+// mail, and the one response that hands an admin a link to pass on.
 
 import (
 	"context"
@@ -19,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -47,7 +56,11 @@ const inviteTokenTTL = 7 * 24 * time.Hour
 // single-use token and email its link. Always 202 — the response never
 // discloses whether the address maps to an account.
 func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
+	// Both halves, not just the mailer: sending a link built on an empty base
+	// would mint a live token and mail an unusable URL, consuming the one
+	// recovery attempt the owner gets. The capabilities probe answers from this
+	// same predicate, so the login UI never offers what this would refuse.
+	if !h.canSendPasswordLink() {
 		httperr.NotImplemented(w, r, "RequestPasswordReset")
 		return
 	}
@@ -87,6 +100,24 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if done != nil {
 			defer done()
 		}
+		// This goroutine OUTLIVES the request, so the chassis's recovery
+		// middleware — which wraps the handler — cannot see a panic in here, and an
+		// unrecovered panic in any goroutine takes the whole process down. The
+		// endpoint is unauthenticated, which is what makes that unacceptable rather
+		// than merely untidy: it would be a one-request denial of service for
+		// anybody who could reach a panicking path. Nothing below panics today; the
+		// point is that a future edit here must not be able to.
+		defer func() {
+			if panicked := recover(); panicked != nil {
+				// The stack, not just the panic value: this runs off the
+				// request goroutine, so there is no request log, trace, or
+				// stack frame anywhere else an operator could use to find the
+				// failing call site. Never returned to a client — this
+				// handler already left with its 202 before this goroutine
+				// started.
+				slog.Error("password-reset send panicked", "panic", panicked, "stack", string(debug.Stack()))
+			}
+		}()
 		rawToken, err := h.svc.CreatePasswordReset(workCtx, email.String())
 		if err != nil {
 			slog.Error("password-reset token mint failed", "err", err)
@@ -95,7 +126,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if rawToken == "" {
 			return
 		}
-		link := h.resetBaseURL + "/reset-password?token=" + rawToken
+		link := passwordLink(h.passwordLinkBaseURL, rawToken)
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
@@ -109,11 +140,16 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 // ResetPassword implements (POST /auth/reset-password): redeem the
 // single-use token, set the new password, and revoke every session of
 // the account.
+// Redemption carries NO delivery-configuration gate, and that is the whole
+// correction (ADR-0061 Amendment 1). Asking for a token by email needs a
+// mailer; redeeming one you already hold needs only the token, whose
+// possession IS the authority. Gating this on the mailer made an
+// admin-issued link unredeemable on exactly the installations it exists for.
+// Gating it on any current configuration would be the same mistake one step
+// removed: a token lives seven days, so an operator who changes the mail or
+// base-URL settings in that window would strand a credential already handed
+// to a human. A token nobody could have been given simply never verifies.
 func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
-		httperr.NotImplemented(w, r, "ResetPassword")
-		return
-	}
 	if !h.resetPerIP.Allow(httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
@@ -177,6 +213,14 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 		}
 		if lookupErr != nil {
 			return lookupErr
+		}
+		// Serialize against every other issuer of this member's set-password
+		// tokens — a concurrent forgot-password, or an admin issuing a link.
+		// Without it, two transactions at READ COMMITTED each miss the other's
+		// uncommitted insert and both leave a live token, so "one outstanding
+		// token" would hold only when nobody raced.
+		if err := lockMemberForTokenIssue(ctx, tx, userID); err != nil {
+			return err
 		}
 		// One outstanding reset per account: a new request supersedes any
 		// earlier unredeemed token.
@@ -247,13 +291,17 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 			`UPDATE auth_token SET used_at = now() WHERE id = $1`, tokenID); err != nil {
 			return err
 		}
-		// A completed reset ends every existing session: whoever held a
-		// stolen cookie is out the moment the owner recovers the account.
-		if _, err := tx.Exec(ctx,
-			`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+		// A completed reset ends every credential that could act as the
+		// account, not just the session cookie that may have been stolen:
+		// OAuth grants (and their refresh chains), unconsumed authorization
+		// codes, sessions, and locally minted passports. Possession of the
+		// token IS the authority here (see the doc comment above), so the
+		// cascade is attributed to the account owner themselves — there is
+		// no admin actor on this call the way DeactivateUser has one.
+		if err := endCredentialAuthority(passwordOwnerCtx(ctx, userID), tx, userID, passwordResetRevokeReason); err != nil {
 			return err
 		}
-		return logAuthEvent(ctx, tx, wsID, userID, "password_reset", "password reset completed; sessions revoked")
+		return logAuthEvent(ctx, tx, wsID, userID, "password_reset", "password reset completed; every borrowed credential revoked")
 	})
 }
 
@@ -271,9 +319,9 @@ func workspaceFrom(ctx context.Context) (ids.WorkspaceID, bool) {
 // §9.1): reset a named user's password directly against the database —
 // for installations without outbound email and for administrator
 // lockout. Runs in the caller's transaction (the operator CLI owns the
-// connection and the workspace GUC); revokes every session and writes
-// the system_log evidence with an operator provenance. Never exposed
-// over HTTP.
+// connection and the workspace GUC); ends every credential that could
+// still act as the account and writes the system_log evidence with an
+// operator provenance. Never exposed over HTTP.
 func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, email, newPassword string) error {
 	if len(newPassword) < 12 {
 		return errors.New("identity: the new password must be at least 12 characters")
@@ -296,13 +344,53 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		 WHERE id = $1`, userID, hash); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+	// Same cascade the HTTP redemption runs: an operator recovering a
+	// locked-out or compromised account must end every credential that
+	// could still act as it, not just the session.
+	if err := endCredentialAuthority(operatorCtx(ctx, wsID, userID), tx, userID, operatorResetRevokeReason); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; sessions revoked', 'user_id', $2::text))`,
+		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $2::text))`,
 		wsID, userID.String())
 	return err
+}
+
+// passwordResetRevokeReason and operatorResetRevokeReason are what the
+// oauth_grant audit rows say when a connection died because the human
+// recovered account control, rather than an admin ending it for them.
+const (
+	passwordResetRevokeReason = "the account was recovered via password reset"
+	operatorResetRevokeReason = "the account was recovered via an operator-issued password reset"
+)
+
+// passwordOwnerCtx binds the account owner as the storekit actor for the
+// credential cascade a self-service reset triggers. There is no session or
+// resolved Identity on this call — the redeemed token IS the authority
+// (ResetPassword's doc comment) — so this carries only what the audit trail
+// and the passport.revoked event need: which human it was.
+func passwordOwnerCtx(ctx context.Context, userID ids.UserID) context.Context {
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID.UUID,
+	})
+}
+
+// operatorCtx binds the operator-driven system actor, the target workspace,
+// and a correlation id for the credential cascade OperatorResetPassword
+// triggers. The workspace binding supplies what storekit.AuditWithEvidence
+// reads off ctx rather than off the GUC the caller's transaction already
+// runs under — the wsID column value and the actor attribution — mirroring
+// the system_log row this function already writes by hand. The correlation
+// id is not optional: if the reset user holds a live OAuth grant, the
+// cascade's passport.revoked events go through storekit.Emit, which refuses
+// to stage an event with none bound, and an operator-driven call carries no
+// operation scope of its own the way an HTTP request or a bus consumer
+// would — one has to be minted here.
+func operatorCtx(ctx context.Context, wsID ids.WorkspaceID, userID ids.UserID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "operator-cli", UserID: userID.UUID,
+	})
 }

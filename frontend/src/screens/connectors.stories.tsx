@@ -97,7 +97,7 @@ function cardStory(connections: CaptureConnection[]) {
 }
 
 const meta: Meta<typeof ConnectorsCard> = {
-  title: "screens/connectors",
+  title: "Screens/connectors",
   component: ConnectorsCard,
 };
 export default meta;

@@ -5,9 +5,12 @@ package overlay
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -241,22 +244,179 @@ func TestExternalIDUUIDBridgeRejectsUnknownActivityClass(t *testing.T) {
 	}
 }
 
-// TestProviderSearchRequiresExactlyOneEntityType proves Search's own
-// branch-1 scope guard: any number of entity types other than exactly
-// one is a clean error, never a silent "search the first one" guess. A
-// zero-value MirrorStore is enough here — the guard runs before Search
-// ever touches p.ms.
-func TestProviderSearchRequiresExactlyOneEntityType(t *testing.T) {
+// TestProviderSearchRefusesATypeTheMirrorCannotHold proves the sweep's own
+// vocabulary guard: the mirror carries five object classes, and a query
+// naming a sixth is refused rather than walked past. Walking past it would
+// answer an empty page about the RECORDS when the truth is about the mode.
+// A zero-value MirrorStore is enough — the guard runs before p.ms is touched.
+func TestProviderSearchRefusesATypeTheMirrorCannotHold(t *testing.T) {
 	p := NewProvider(&MirrorStore{}, nil)
 
-	tests := [][]datasource.EntityType{
-		nil,
-		{datasource.EntityPerson, datasource.EntityDeal},
+	_, err := p.Search(context.Background(), datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityPerson, datasource.EntityProject},
+	})
+	var unsupported *datasource.UnsupportedEntityError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("Search naming an unmirrored type = %v, want an UnsupportedEntityError", err)
 	}
-	for _, types := range tests {
-		_, err := p.Search(context.Background(), datasource.SearchQuery{EntityTypes: types})
-		if err == nil {
-			t.Fatalf("Search with %d entity types: want an error, got nil", len(types))
+	if unsupported.Type != string(datasource.EntityProject) {
+		t.Errorf("the refusal names %q, want the type the mirror cannot hold", unsupported.Type)
+	}
+}
+
+// TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest pins the
+// resume token and the reason it names a TYPE rather than an index: the same
+// token has to mean the same place when the request presenting it is not the
+// one that minted it.
+func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.T) {
+	minted, err := encodeSweepCursor(datasource.EntityOrganization, "mirror-42")
+	if err != nil {
+		t.Fatalf("encoding a sweep position: %v", err)
+	}
+	resumeAt, inner, err := decodeSweepCursor(minted)
+	if err != nil {
+		t.Fatalf("decoding a cursor the sweep minted: %v", err)
+	}
+	if resumeAt != datasource.EntityOrganization || inner != "mirror-42" {
+		t.Errorf("resume position = (%q, %q), want the organization stream at its own mirror cursor", resumeAt, inner)
+	}
+
+	// An empty cursor is the start of the walk, not a malformed one.
+	if resumeAt, inner, err = decodeSweepCursor(""); err != nil || resumeAt != "" || inner != "" {
+		t.Errorf("the empty cursor decoded to (%q, %q, %v), want the beginning", resumeAt, inner, err)
+	}
+
+	// Malformed is reserved for a token this package could not have minted.
+	for _, probe := range []struct{ name, cursor string }{
+		{"not base64 at all", "not a cursor!!"},
+		{"base64 of something that is not a position", base64.RawURLEncoding.EncodeToString([]byte("nonsense"))},
+		{"naming an object class the mirror cannot hold", mustEncodeSweepCursor(t, datasource.EntityProject)},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			_, _, err := decodeSweepCursor(probe.cursor)
+			var malformed *storekit.MalformedCursorError
+			if !errors.As(err, &malformed) {
+				t.Errorf("decoding a cursor %s = %v, want the malformed-cursor answer", probe.name, err)
+			}
+		})
+	}
+}
+
+// mustEncodeSweepCursor mints a position for a probe, failing the test rather
+// than swallowing an encoding error into an empty cursor.
+func mustEncodeSweepCursor(t *testing.T, et datasource.EntityType) string {
+	t.Helper()
+	cursor, err := encodeSweepCursor(et, "mirror-7")
+	if err != nil {
+		t.Fatalf("encoding a sweep position for %s: %v", et, err)
+	}
+	return cursor
+}
+
+// TestAResumedSweepSurvivesTheWalkChangingUnderIt is the half a cursor over a
+// per-request slice could not answer. A caller's readable types change between
+// pages — a narrowed `types`, a revoked grant — and the position they hold is
+// still a token this server minted.
+func TestAResumedSweepSurvivesTheWalkChangingUnderIt(t *testing.T) {
+	all := []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization,
+		datasource.EntityDeal, datasource.EntityLead, datasource.EntityActivity,
+	}
+	for _, probe := range []struct {
+		name     string
+		walk     []datasource.EntityType
+		resumeAt datasource.EntityType
+		want     int
+	}{
+		{"the type is still walked", all, datasource.EntityDeal, 2},
+		{"no cursor starts at the beginning", all, "", 0},
+		{
+			"the type was narrowed away — resume PAST it, never before",
+			[]datasource.EntityType{datasource.EntityPerson, datasource.EntityLead},
+			datasource.EntityDeal, 1,
+		},
+		{
+			"everything past the position was narrowed away — the walk is over",
+			[]datasource.EntityType{datasource.EntityPerson},
+			datasource.EntityLead, 1,
+		},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			if at := resumePosition(probe.walk, probe.resumeAt); at != probe.want {
+				t.Errorf("resumePosition = %d, want %d — resuming before the position re-serves rows the "+
+					"caller already holds, and past the next one hides rows they never saw", at, probe.want)
+			}
+		})
+	}
+}
+
+// A type named twice is walked once. The contract's `types` is a plain array
+// with no uniqueness rule, and a stream walked twice serves every record in it
+// twice — a cursor names the type, not which of its appearances.
+func TestASweepWalksEachTypeOnceInMirrorOrder(t *testing.T) {
+	walk, err := searchableTypes([]datasource.EntityType{
+		datasource.EntityDeal, datasource.EntityPerson, datasource.EntityDeal,
+	})
+	if err != nil {
+		t.Fatalf("resolving the walk: %v", err)
+	}
+	want := []datasource.EntityType{datasource.EntityPerson, datasource.EntityDeal}
+	if !slices.Equal(walk, want) {
+		t.Errorf("walk = %v, want %v — each type once, in the mirror's own order", walk, want)
+	}
+}
+
+// A structured filter the mirror cannot evaluate is refused, not dropped.
+//
+// Dropping it would answer the unnarrowed page — a SUPERSET of what was asked
+// for, wearing the shape of the right answer — which is the silent break
+// AC-OV-2 forbids. The guard runs before the store is touched, so a zero-value
+// MirrorStore is enough to prove it, and the refusal is the declared
+// unsupported-by-SoR sentinel rather than a generic error, because a caller
+// branches on it to say "not available here" instead of "this failed".
+func TestProviderSearchRefusesAFilterTheMirrorCannotAnswer(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	// A caller who MAY read. The refusal sits behind the object gate on
+	// purpose — see below — so an ungranted principal here would be refused for
+	// a reason that has nothing to do with filters.
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:reader",
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+
+	_, err := p.Search(ctx, datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityDeal},
+		Filters:     map[string]string{"stage_id": ids.NewV7().String()},
+	})
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("Search with a filter: got %v, want %v — a dropped filter answers a wider question",
+			err, apperrors.ErrUnsupportedBySoR)
+	}
+}
+
+// And a caller who may NOT read hears the object gate, filter or no filter.
+//
+// The order matters more than it looks: refusing the filter first would let an
+// unauthorized caller learn this workspace's system-of-record mode by attaching
+// one, since the two refusals are different words.
+func TestProviderSearchRefusesAnUngrantedCallerBeforeItsFilters(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:no-grants",
+		Permissions: principal.Permissions{RoleKeys: []string{"rep"}},
+	})
+
+	for _, filters := range []map[string]string{nil, {"stage_id": ids.NewV7().String()}} {
+		_, err := p.Search(ctx, datasource.SearchQuery{
+			EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Filters: filters,
+		})
+		if !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("Search with %d filters and no read grant: got %v, want %v",
+				len(filters), err, apperrors.ErrPermissionDenied)
 		}
 	}
 }

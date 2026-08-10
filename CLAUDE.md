@@ -3,13 +3,19 @@
 This file provides guidance to Claude Code (claude.ai/code) when working in this
 repository. It is the long form: the full operating detail lives here.
 [AGENTS.md](AGENTS.md) is a deliberately shorter digest for other agent
-harnesses that links back here — the two are **not** copies, so do not sync
-them line by line. AGENTS.md is machine-read, though, so keep it accurate:
-`cli/craft` feeds the **whole** nearest AGENTS.md into the gate prompt
-(`gate.Assembler.nearestAgents` walks up from the touched directories; this root
-file is the only one in the tree today), and `make check-craft-doc` separately
-asserts that this file still carries a `## Craftsmanship` heading. When a rule
-below changes, decide whether the digest needs it too.
+harnesses that links back here. Most sections differ on purpose, so do not sync
+them line by line. **Three sections are the exception** — *The write shape*,
+*License headers*, and *Rules learned from the review loop* — which both files
+carry in full because both are read in isolation. They must stay byte-identical,
+and `TestSharedRulebookSectionsAreIdenticalInBothDocs` in
+`backend/agentsdocparity_test.go` fails when they drift: edit one, edit both.
+
+AGENTS.md is machine-read, so keep it accurate: `cli/craft` feeds the **whole**
+nearest AGENTS.md into the gate prompt (`gate.Assembler.nearestAgents` walks up
+from the touched directories; this root file is the only one in the tree today),
+and `make check-craft-doc` separately asserts that **AGENTS.md** still carries a
+`## Craftsmanship` heading. When a rule below changes, decide whether the digest
+needs it too.
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
 **build repo** — the running Go software. The *specification* lives in a separate
@@ -43,10 +49,10 @@ The normative spec is the sibling repo **`margince-foundation`**; its key trees
 - **`specs/adr/`** — `DECISIONS.md` (the locked index) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
   four `cmd/<role>` binaries + the §9 single-tx exception).
-- **`backlog/`** — at the spec repo **root**, not under `specs/` — the V1 ticket
-  breakdown, one directory per ticketed chapter. Not every chapter is ticketed:
-  `backlog/README.md` carries the ticketable / not-yet-ticketable tables and the
-  dispatch status.
+- **`tooling/delivery-board.md`** — at the spec repo **root**, not under `specs/` —
+  how the team tracks delivery. The `backlog/` ticket tree that used to sit beside
+  it was retired on 2026-07-22; a chapter's ACs and the subsystem text are the
+  work definition now, so don't go looking for a ticket per chapter.
 
 Two traps when reading the spec: `specs/spec/` is a dead stub (a stale
 `__pycache__`) — ignore it. And chapters carry `derives-from:` pins to older paths
@@ -59,8 +65,12 @@ The spec is under active cleanup by another session: some docs still show the ol
 `crm-*` layout. Don't edit the spec from here — raise discrepancies for
 upstream reconciliation.
 
-**Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
-point; update it at the end of every working session. Route findings as you work:
+**Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
+Read its *Open work, in one screen* index first and open only the sections that
+bear on your change; the file is not meant to be read end to end. Update it at
+the end of every working session, and put the session narrative straight into
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) rather than letting it pile up in
+STATUS.md. Route findings as you work:
 implementation decisions are recorded in the commit and PR that makes the change
 (git history is the record); spec/ticket defects are reconciled upstream against
 the spec (contract-first, P3), never worked around in this source; anything found
@@ -175,9 +185,15 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
 3. **Local gates BEFORE pushing**: `make check` (the merge gate — build,
    vet, lint, arch-lint, unit tests, contract drift); add
    `make frontend-check` when `frontend/` changed. The pre-push hook
-   (installed once via `make hooks`) runs `craft static --strict` diff-scoped
-   on top — a BLOCKER or MAJOR finding stops the push; fix it, never bypass
-   the hook.
+   (installed once via `make hooks` — the **root** target, which sets
+   `core.hooksPath`) runs `craft static --strict` diff-scoped on top — a
+   BLOCKER or MAJOR finding stops the push; fix it, never bypass the hook.
+   When a push does change hand-written backend Go, the hook then also runs the
+   two sub-second whole-tree greps (`check-rls-store-path`,
+   `check-no-jurisdiction`), so an RLS-bypassing store statement or a
+   jurisdiction string in core fails locally rather than in CI. A push with no
+   qualifying backend Go changes exits before all three — a docs-only push runs
+   none of them.
 4. **Push the branch and open a PR** (`gh pr create`).
 5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
    SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures
@@ -223,46 +239,18 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — eighteen bounded capabilities, flat by default per
+- `internal/modules/` — twenty bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
-  growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
-  imports a sibling: `identity` (workspaces, users, sessions, passports;
-  RBAC policy docs ONLY in `identity/internal/policy`),
-  `people` (person, organization, lead + merge + promote —
-  cross-aggregate single-tx SQL ownership per the §9 single-tx exception), `deals`
-  (deal, pipeline/stage config, workspace seed, won/lost + FX freeze),
-  `activities` (the timeline: idempotent logging + polymorphic links),
-  `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
-  the authority object), `agents` (the governed tool
-  surface: registry, admission gate, stdio/hosted transports, the
-  Surface-B loop — reaches records only through the datasource seam),
-  `automation` (the closed 7×7 trigger/action catalog, ADR-0035: the
-  registry, the per-workspace standing automation store, and the
-  deterministic trigger runtime — event matcher and clock time-scan
-  converging on one path, gated at both author-time and match-time),
-  `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
-  the offline fake, routing + budget + secret-stripping), `search`
-  (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),
-  `capture` (the ONE `connector.Sink`: normalized inbound capture,
-  idempotent on the source natural key), `consent` (per-purpose consent
-  + the default-deny outbound suppression gate + the DSR case queue),
-  `privacy` (the GDPR engines: Art. 17 erasure, Art. 15 SAR assembly,
-  the nightly retention evaluator — the ratified cross-store writer,
-  gated by `backend/tableownership_test.go`), `collections`
-  (lists — static and dynamic segments — and tags, visibility-probed),
-  `signals` (the consent-gated warm-room substrate: company-level
-  signals, the inspectable resolver, warm/cold join), `customfields`
-  (the governed add-field engine: the sole runtime `ALTER TABLE`
-  chokepoint; record stores read the `cf_*` columns via the
-  `fieldcatalog` seam), `quotas` (RD-T06 owner-XOR-team revenue
-  targets, human-set, workspace-shared config posture), `webhooks`
-  (outbound webhook subscriptions + owner-scoped delivery, E10), and `overlay` (the incumbent-CRM mirror: a second
-  `datasource.SystemOfRecordProvider` selected per-workspace by
-  `workspace.x_sor_mode`, serving mirror-backed reads behind the inner
-  `incumbent.Incumbent` seam — fail-closed visibility deny-join,
-  budget-metered force-fresh read-through, continuous sync (backfill +
-  reconcile poller), disconnect teardown; writes +
-  RunReport declared `unsupported_by_sor`).
+  growing subpackages only when a named trigger fires (split for a reason,
+  never symmetry). **A module NEVER imports a sibling** — if capability A
+  needs B, compose injects the edge. A module writes only the tables it
+  owns, declared in its `doc.go` and gated by
+  `backend/tableownership_test.go`.
+  Which module owns what — purpose, spine shape, owned tables, and HTTP
+  surface for all twenty, plus the compose-owned tables and the notable
+  subpackages — is the table in
+  [docs/reference/modules.md](docs/reference/modules.md). Read it to place a
+  change; don't guess from the package name.
 
   Two sanctioned spine shapes, and ONLY two — don't invent a third:
   **Handlers→Store** for CRUD modules (people, deals, activities, …:
@@ -293,12 +281,16 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `frontend/` — the Vite/React web UI: a standalone static build served
   separately from the API binary (which serves `/v1` only — no embedded
   SPA); `make frontend-check` / `make dev` exist at the repo root.
+  Every interactive control comes from `frontend/src/design-system/` —
+  its README is the catalog to read before hand-rolling one, and a native
+  `<select>` fails `frontend/scripts/check-native-controls.sh`.
 - `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships `extensions/de` (the German
-  jurisdiction pack — GoBD calendar-year retention floors), first-party
-  and enabled by default. `make composition` (run by every build lane)
+  enablement. The vanilla tree ships two first-party units, enabled by
+  default: `extensions/de` (the German jurisdiction pack — GoBD
+  calendar-year retention floors) and `extensions/yogi` (one served
+  🟢/read agent tool — the worked example of the governed-tool kind). `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
   the root is the committed vanilla stub so bare go commands resolve.
 
@@ -306,7 +298,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 
 - `internal/contracts/api_gen.go`, `internal/compose/stubs_gen.go` —
   generated (`make gen`); the drift gate fails a hand edit.
-- `migrations/core/*` that have shipped — additive migrations only.
+- `migrations/core/*` that have shipped — additive migrations only. An applied
+  version never re-runs, so editing one changes what FRESH installations get
+  while every deployed database keeps the old behaviour: the two diverge
+  silently. The tenant-scope sweep (see the migration-write rule below) is the
+  one authorized exception in this tree's history, and it only holds because it
+  shipped WITH additive repair migrations (core `0190`,
+  custom `20260806120000`) that reach the already-deployed databases. Editing
+  history without that second half is how an installation ends up permanently
+  missing a backfill nobody can see is missing.
 - RLS policies and the `database.WithWorkspaceTx` GUC contract — every
   tenant query goes through it; there is no raw-pool path for tenant data.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend only
@@ -328,6 +328,62 @@ point is RBAC-gated (`auth.Require` + `auth.EnsureVisible` + the list
 scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
+
+## A migration that writes tenant DATA binds the workspace first
+
+Schema DDL is free, but the moment a migration writes ROWS to a tenant table it
+must bind `app.workspace_id` — every one of them carries FORCE row-level
+security with deny-on-unset semantics (`0014_rls.up.sql`), and FORCE binds the
+table owner, which is exactly the role migrations run as. Unbound, the policy
+expression resolves to NULL, and the three ways a migration can write part
+company:
+
+- `UPDATE` / `DELETE` are filtered by the policy's `USING` clause: **zero rows,
+  reported as success**. The migration records itself as applied and the data
+  change is silently gone.
+- `INSERT … SELECT` reading a tenant table is filtered on the SOURCE before
+  `WITH CHECK` ever runs: **zero rows, reported as success**, the same silence.
+- `INSERT` of literal rows is judged by `WITH CHECK`, which the NULL fails, so
+  it raises `new row violates row-level security policy` and aborts the
+  migration.
+
+Only the loud one announces itself. The rule below is written for the two that
+do not. The shape, in every migration that needs it:
+
+```sql
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+
+    UPDATE <table> SET ...
+    WHERE (<the original condition>)
+      AND <table>.workspace_id = ws;   -- required, see below
+  END LOOP;
+END $$;
+```
+
+Both halves are mandatory, and they do different jobs. The **binding** makes the
+rows visible; it does **not** scope the statement. An executor RLS does not
+filter — a superuser or a `BYPASSRLS` role, which is what every dev machine and
+CI run as — sees every workspace on every iteration, so without the
+**predicate** the write runs once per workspace: survivable for an idempotent
+`UPDATE`, a unique violation for an `INSERT`. Bind
+inside the loop (hoisting it out names one workspace for all of them), and
+qualify the predicate with the statement's own target (an `INSERT … SELECT` names
+it on the source alias instead, which is where its `workspace_id` comes from).
+
+`workspace` itself is outside RLS, which is what lets the loop enumerate it, and
+`set_config`'s third argument keeps the binding transaction-local. **Nothing
+about this is visible in development**: the dev owner is the Postgres
+container's `POSTGRES_USER`, a superuser, and FORCE does not reach a superuser
+or a `BYPASSRLS` role — the policy is simply not applied to them — so an
+unbound write works on every developer's machine and does nothing in
+production. Two gates hold the line, and both must stay honest:
+`TestTenantWritesInMigrationsAreWorkspaceScoped` (unit, reads every migration)
+and the RBAC upgrade replay in the integration lane, which migrates as a
+deliberately NON-SUPERUSER owner (`migrations/migrationrole_integration_test.go`).
 
 ## Craftsmanship
 
@@ -355,19 +411,24 @@ legibility is the product, not polish.
 
 **The gate runs before every push (diff-scoped), and it is STRICT.**
 `.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
-`cli/craft` tool, ADR-0045) — over the backend Go files **this push changes vs
-`origin/main`**. There is no pre-existing backlog to exempt: the whole tree was
+`cli/craft` tool, ADR-0045) — over the Go files **this push changes vs
+`origin/main`** in `backend/`, `extensions/` and `fixtures/` alike (a first-party
+extension unit ships the same product). There is no pre-existing backlog to exempt: the whole tree was
 cleared to zero findings before this bar was armed, so the rule is simply that
 touched code is clean. Write it right the first time — a swallowed error, a sleep
 in a test, a bare `any` in a signature, or an 81-line function you add will block
 your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
-- Full manual sweep of the whole backend: **`make craft-static`** — green, and the
+- Full manual sweep of every hand-written Go tree (`backend/`, `extensions/`,
+  `fixtures/`): **`make craft-static`** — green, and the
   CI `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings
-  are 80 body lines / 500 file lines for product code and 160 / 1000 for `*_test.go`
+  are 80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`
   — a long scenario test that sets up, acts and asserts once is not the
   god-function smell, but a suite still splits when it stops being navigable.
+  A comment-only line is not length: the ceiling asks how much a reader must hold
+  at once and an explanation reduces that, which is also what keeps this check
+  agreeing with golangci's `funlen` (configured here `ignore-comments`).
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 
@@ -386,7 +447,8 @@ Exempt: generated files (`*_gen.go`) and the drift-frozen
 `internal/contracts/` package — do NOT stamp those. The rule is enforced by
 `TestEveryHandWrittenGoFileCarriesTheLicenseHeader` in
 `backend/license_test.go` (part of `make check`), which derives the file
-list from the tree, so a new file that skips the header fails the gate.
+list from the tree — `backend/`, `extensions/` and `fixtures/`, since each
+unit is its own module — so a new file that skips the header fails the gate.
 Keep the copyright line as-is (`2026 Gradion`); it names the release year,
 not the current year. This is the license model's "honest labeling / don't
 strip notices" obligation (spec `business/12-license.md` §5, §8).
@@ -411,3 +473,11 @@ the short form:
    to git, not the source. Same for test names.
 5. **Never rationalize a known gap in a comment** — restructure it away
    or gate it with a test.
+6. **A test that supplies its own version of production proves nothing
+   about production** — hand-inserted rows the real writer never writes,
+   or a hand-copied adapter mirroring what compose wires. Seed through
+   the real writer; if a test needs the wiring, reach for the wiring
+   (integration tests live directly in `package compose` so unexported
+   adapters are in scope). An unexpectedly uncovered new file usually
+   means a test double stands where the real thing should.
+

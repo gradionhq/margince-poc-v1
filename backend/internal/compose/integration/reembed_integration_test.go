@@ -34,7 +34,7 @@ import (
 // the same identity must cost zero additional embed calls — the
 // resumability property Task 6's skip-compare exists to provide.
 func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	staleEmbedder := fakeEmbedderNamed(t, fake, "model-stale")
@@ -45,15 +45,15 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 		t.Fatalf("test setup produced identical identities %q — no swap exercised", staleIdentity)
 	}
 
-	if err := e.store.SeedBinding(ctx, staleIdentity); err != nil {
+	if err := e.Store.SeedBinding(ctx, staleIdentity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	names := []string{"Reembed One", "Reembed Two", "Reembed Three"}
 	personIDs := make([]ids.UUID, len(names))
 	for i, name := range names {
-		id := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
-		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, name, staleEmbedder); err != nil {
+		id := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
+		if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", id, name, staleEmbedder); err != nil {
 			t.Fatalf("seeding the stale-identity baseline for %s: %v", name, err)
 		}
 		personIDs[i] = id
@@ -62,7 +62,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 
 	wsID := ids.From[ids.WorkspaceKind](e.WS)
 	run := ids.NewV7()
-	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
+	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
 		t.Fatalf("ReembedWorkspace: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 		t.Fatalf("first ReembedWorkspace made %d embed calls, want %d (one per live entity)", firstPassCalls, len(names))
 	}
 
-	pending, err := e.store.EntitiesPending(ctx, newIdentity)
+	pending, err := e.Store.EntitiesPending(ctx, newIdentity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	// Resumability: nothing changed since the first pass, so every row is
 	// already current under newIdentity — the skip-compare inside
 	// UpsertEmbedding must short-circuit before ever calling the embedder.
-	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
+	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
 		t.Fatalf("second ReembedWorkspace: %v", err)
 	}
 	secondPassCalls := len(fake.Calls()) - baselineCalls - firstPassCalls
@@ -145,37 +145,37 @@ func failEmbeddingWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 // tenant's transient write fault left every workspace behind it in the fleet
 // order un-re-embedded — silently, with no row anywhere saying so.
 func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-isolation")
 	identity, _ := embedder.EmbedIdentity()
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	healthy := seedExtraWorkspace(t, e.owner, "reembed-healthy", false)
-	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
+	healthy := SeedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
+	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
-	if _, err := e.owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Tenant Person', 'manual', 'human:x')`,
+	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Tenant Person', 'manual', 'human:x')`,
 		healthyPersonID, healthy); err != nil {
 		t.Fatalf("seeding the healthy tenant's person: %v", err)
 	}
-	failEmbeddingWritesFor(t, e.owner, e.WS)
+	failEmbeddingWritesFor(t, e.Owner, e.WS)
 
-	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](e.WS), embedder); err == nil {
+	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](e.WS), embedder); err == nil {
 		t.Fatal("a workspace whose embedding writes could not land reported success — nothing records that its corpus was never rebuilt")
 	}
 
 	// The fault is one tenant's, and the pass now takes the tenant it is given.
-	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](healthy), embedder); err != nil {
+	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](healthy), embedder); err != nil {
 		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
 	}
-	// Read outside e.WS: searchEnv.storedEmbeddingModel is pinned to the
+	// Read outside e.WS: SearchEnv.storedEmbeddingModel is pinned to the
 	// harness's own workspace, and a cross-tenant claim has to read the tenant
 	// it is making the claim about.
 	var model string
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
 		healthy, healthyPersonID).Scan(&model); err != nil {
 		t.Fatalf("reading the healthy tenant's embedding: %v", err)
@@ -193,18 +193,18 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 // job cancels cleanly instead of burning its ladder against an identity
 // nothing serves anymore.
 func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-current")
 
 	const markerIdentity = "stale-marker-identity"
 	const staleRowIdentity = "stale-marker-identity"
-	if err := e.store.SeedBinding(ctx, markerIdentity); err != nil {
+	if err := e.Store.SeedBinding(ctx, markerIdentity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Drift Person', 'manual', 'human:x')`)
-	if _, err := e.owner.Exec(ctx, `
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Drift Person', 'manual', 'human:x')`)
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'stale-hash', $3, '[1,2,3]'::vector)`,
 		e.WS, personID, staleRowIdentity); err != nil {
@@ -213,7 +213,7 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 
 	// The job's own args identity does NOT match what embedder actually
 	// reports — the drift the guard exists to catch.
-	err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: "some-other-target-identity"}, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: "some-other-target-identity"}, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if !errors.Is(err, search.ErrIdentityDrift) {
 		t.Fatalf("ReembedWorkspace with a mismatched argsIdentity = %v, want ErrIdentityDrift", err)
 	}
@@ -224,7 +224,7 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	if got := e.storedEmbeddingModel(t, personID); got != staleRowIdentity {
 		t.Fatalf("drift guard must not touch existing rows, model = %q, want unchanged %q", got, staleRowIdentity)
 	}
-	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -240,28 +240,28 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 // removal is also idempotent, which is what makes a retried job harmless
 // under at-least-once delivery.
 func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const populated = "fake/populated@1024"
 	const target = "fake/target@1024"
-	if err := e.store.SeedBinding(ctx, populated); err != nil {
+	if err := e.Store.SeedBinding(ctx, populated); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	second := seedExtraWorkspace(t, e.owner, "reembed-marker", false)
+	second := SeedExtraWorkspace(t, e.Owner, "reembed-marker", false)
 
 	run := claimOf(target)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, run, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, run, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
 	fleet := []ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS), ids.From[ids.WorkspaceKind](second)}
-	if err := e.store.SeedReembeddingFleet(ctx, run.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, run.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("SeedReembeddingFleet: %v", err)
 	}
 
-	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("finishing the first workspace: %v", err)
 	}
-	got, status, _, err := e.store.PopulatedIdentity(ctx)
+	got, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -271,10 +271,10 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 
 	// Idempotent: the same workspace reporting twice (a retried job) must not
 	// count as the second workspace and release early.
-	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("re-finishing the first workspace: %v", err)
 	}
-	_, status, _, err = e.store.PopulatedIdentity(ctx)
+	_, status, _, err = e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -282,10 +282,10 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 		t.Fatalf("marker = %q after ONE workspace reported twice, want reembedding", status)
 	}
 
-	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[1]); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[1]); err != nil {
 		t.Fatalf("finishing the last workspace: %v", err)
 	}
-	got, status, _, err = e.store.PopulatedIdentity(ctx)
+	got, status, _, err = e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -295,10 +295,10 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 
 	// A straggler from the released run must find nothing to act on rather
 	// than re-releasing a marker a later run may hold by then.
-	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("a straggler of a released run must be a no-op, got: %v", err)
 	}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(target), func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(target), func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("the released marker must be claimable again: %v", err)
 	}
 }

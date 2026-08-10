@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -48,15 +49,15 @@ type automationRunsPage struct {
 // createRouteLeadAutomation creates one valid assign_lead_owner instance
 // over the API and returns its id (it lands paused; runs/preview do not
 // care).
-func createRouteLeadAutomation(t *testing.T, e *env) string {
+func createRouteLeadAutomation(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var created struct {
 		ID  string `json:"id"`
 		Key string `json:"key"`
 	}
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
 		"key": "assign_lead_owner", "name": "Router under observation",
-		"params": anyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
+		"params": apptest.AnyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
 	}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("create automation → %d", status)
 	}
@@ -65,11 +66,11 @@ func createRouteLeadAutomation(t *testing.T, e *env) string {
 
 // workspaceIDBySlug resolves the bootstrapped tenant's id through the
 // owner connection for RLS-free seeding.
-func workspaceIDBySlug(t *testing.T, e *env) string {
+func workspaceIDBySlug(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var wsID string
-	if err := e.owner.QueryRow(context.Background(),
-		`SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	return wsID
@@ -82,14 +83,14 @@ func workspaceIDBySlug(t *testing.T, e *env) string {
 // shape (nil for a clean run) — this suite seeds rows directly at the DB,
 // bypassing the engine, so it must match that shape for the HTTP read
 // side (ListRuns/wireAutomationRun) to render the reason correctly.
-func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, planned, applied *string, detail []byte, at time.Time) {
+func seedWorkflowRun(t *testing.T, e *apptest.AppEnv, wsID, automationID, status string, planned, applied *string, detail []byte, at time.Time) {
 	t.Helper()
 	runID := ids.NewV7().String()
 	plannedJSON := "[]"
 	if planned != nil {
 		plannedJSON = *planned
 	}
-	if _, err := e.owner.Exec(context.Background(), `
+	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, applied, status, detail, created_at)
 		VALUES ($1, $2, 'assign_lead_owner', $3, $4, $5, $6, $7, $8, $9)`,
 		runID, wsID, fmt.Sprintf("assign_lead_owner:%s@%s", runID, automationID),
@@ -123,8 +124,8 @@ func requireStr(t *testing.T, field string, got *string, want string) {
 }
 
 func TestAutomationRunHistoryAndPreviewOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	autoID := createRouteLeadAutomation(t, e)
 
 	assertRunsStartEmptyAndHideAbsentInstances(t, e, autoID)
@@ -135,10 +136,10 @@ func TestAutomationRunHistoryAndPreviewOverHTTP(t *testing.T) {
 // assertRunsStartEmptyAndHideAbsentInstances pins the empty-history page
 // shape, existence-hiding on an unknown id, and the 422 on an outcome
 // outside the wire vocabulary.
-func assertRunsStartEmptyAndHideAbsentInstances(t *testing.T, e *env, autoID string) {
+func assertRunsStartEmptyAndHideAbsentInstances(t *testing.T, e *apptest.AppEnv, autoID string) {
 	t.Helper()
 	var page automationRunsPage
-	if status := e.call(t, "GET", "/v1/automations/"+autoID+"/runs", nil, nil, &page); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations/"+autoID+"/runs", nil, nil, &page); status != http.StatusOK {
 		t.Fatalf("runs on a never-fired automation → %d", status)
 	}
 	if page.Data == nil || len(page.Data) != 0 || page.Page.HasMore {
@@ -146,10 +147,10 @@ func assertRunsStartEmptyAndHideAbsentInstances(t *testing.T, e *env, autoID str
 	}
 
 	unknown := ids.NewV7().String()
-	if status := e.call(t, "GET", "/v1/automations/"+unknown+"/runs", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/automations/"+unknown+"/runs", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("runs on an unknown automation → %d, want 404", status)
 	}
-	if status := e.call(t, "GET", "/v1/automations/"+autoID+"/runs?outcome=exploded", nil, nil, nil); status != 422 {
+	if status := e.Call(t, "GET", "/v1/automations/"+autoID+"/runs?outcome=exploded", nil, nil, nil); status != 422 {
 		t.Fatalf("outcome outside the vocabulary → %d, want 422", status)
 	}
 }
@@ -158,7 +159,7 @@ func assertRunsStartEmptyAndHideAbsentInstances(t *testing.T, e *env, autoID str
 // engine status and checks the wire mapping: reason rides only reasoned
 // outcomes, approval_required marks the parked/blocked ones, and the
 // fired run names its action kinds and first target.
-func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID string) {
+func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *apptest.AppEnv, autoID string) {
 	t.Helper()
 	wsID := workspaceIDBySlug(t, e)
 	targetLead := ids.NewV7().String()
@@ -172,7 +173,7 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 		reason("staged as approval "+ids.NewV7().String()+"; awaiting the human decision"), base.Add(2*time.Minute))
 
 	var page automationRunsPage
-	if status := e.call(t, "GET", "/v1/automations/"+autoID+"/runs", nil, nil, &page); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations/"+autoID+"/runs", nil, nil, &page); status != http.StatusOK {
 		t.Fatalf("runs → %d", status)
 	}
 	if len(page.Data) != 3 {
@@ -212,7 +213,7 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 
 	// The wire outcome filter narrows to exactly the fired run.
 	var onlyFired automationRunsPage
-	if status := e.call(t, "GET", "/v1/automations/"+autoID+"/runs?outcome=fired", nil, nil, &onlyFired); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations/"+autoID+"/runs?outcome=fired", nil, nil, &onlyFired); status != http.StatusOK {
 		t.Fatalf("outcome=fired → %d", status)
 	}
 	if len(onlyFired.Data) != 1 || onlyFired.Data[0].ID != fired.ID {
@@ -224,19 +225,19 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 // assign_lead_owner recipe counts the open unrouted lead pool, the draft
 // override previews another catalog type before saving, the editor's 422
 // vocabulary matches a save's, and the whole thing leaves zero rows.
-func assertPreviewMeasuresWithoutWriting(t *testing.T, e *env, autoID string) {
+func assertPreviewMeasuresWithoutWriting(t *testing.T, e *apptest.AppEnv, autoID string) {
 	t.Helper()
 	var lead struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/leads", anyMap{
+	if status := e.Call(t, "POST", "/v1/leads", apptest.AnyMap{
 		"full_name": "Uma Unrouted", "source": "manual",
 	}, nil, &lead); status != http.StatusCreated {
 		t.Fatalf("create lead → %d", status)
 	}
 
 	var rowsBefore int
-	if err := e.owner.QueryRow(context.Background(), `
+	if err := e.Owner.QueryRow(context.Background(), `
 		SELECT (SELECT count(*) FROM audit_log)
 		     + (SELECT count(*) FROM event_outbox)
 		     + (SELECT count(*) FROM workflow_run)`).Scan(&rowsBefore); err != nil {
@@ -250,7 +251,7 @@ func assertPreviewMeasuresWithoutWriting(t *testing.T, e *env, autoID string) {
 		Sample               *[]string `json:"sample"`
 		ExcludedByPermission *int      `json:"excluded_by_permission"`
 	}
-	if status := e.call(t, "POST", "/v1/automations/"+autoID+"/preview", anyMap{}, nil, &preview); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/automations/"+autoID+"/preview", apptest.AnyMap{}, nil, &preview); status != http.StatusOK {
 		t.Fatalf("preview → %d", status)
 	}
 	if preview.MatchesNow != 1 || preview.WindowDays != 30 {
@@ -272,7 +273,7 @@ func assertPreviewMeasuresWithoutWriting(t *testing.T, e *env, autoID string) {
 		MatchesNow int `json:"matches_now"`
 		WindowDays int `json:"window_days"`
 	}
-	if status := e.call(t, "POST", "/v1/automations/"+autoID+"/preview", anyMap{
+	if status := e.Call(t, "POST", "/v1/automations/"+autoID+"/preview", apptest.AnyMap{
 		"key": "stage_change_create_task", "window_days": 7,
 	}, nil, &draft); status != http.StatusOK {
 		t.Fatalf("draft-override preview → %d", status)
@@ -282,19 +283,19 @@ func assertPreviewMeasuresWithoutWriting(t *testing.T, e *env, autoID string) {
 	}
 
 	// The editor's preview 422s match its save 422s.
-	if status := e.call(t, "POST", "/v1/automations/"+autoID+"/preview", anyMap{"key": "invented_type"}, nil, nil); status != 422 {
+	if status := e.Call(t, "POST", "/v1/automations/"+autoID+"/preview", apptest.AnyMap{"key": "invented_type"}, nil, nil); status != 422 {
 		t.Fatalf("preview with a non-catalog key → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", "/v1/automations/"+autoID+"/preview", anyMap{"window_days": 0}, nil, nil); status != 422 {
+	if status := e.Call(t, "POST", "/v1/automations/"+autoID+"/preview", apptest.AnyMap{"window_days": 0}, nil, nil); status != 422 {
 		t.Fatalf("preview with a zero window → %d, want 422", status)
 	}
 	unknown := ids.NewV7().String()
-	if status := e.call(t, "POST", "/v1/automations/"+unknown+"/preview", anyMap{}, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "POST", "/v1/automations/"+unknown+"/preview", apptest.AnyMap{}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("preview on an unknown automation → %d, want 404 (existence-hiding, like Get)", status)
 	}
 
 	var rowsAfter int
-	if err := e.owner.QueryRow(context.Background(), `
+	if err := e.Owner.QueryRow(context.Background(), `
 		SELECT (SELECT count(*) FROM audit_log)
 		     + (SELECT count(*) FROM event_outbox)
 		     + (SELECT count(*) FROM workflow_run)`).Scan(&rowsAfter); err != nil {

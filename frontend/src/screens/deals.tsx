@@ -33,15 +33,18 @@ import {
   PipelineBoard,
   RecordView,
 } from "../design-system/composed";
+import { type ListChip, ListSurface } from "../design-system/listsurface";
+import type { ListColumn } from "../design-system/listtable";
+import { Select } from "../design-system/select";
 import { AutonomyDot } from "../design-system/trust";
-import { formatDate, formatMoney } from "../format/format";
+import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,
   OverlayUnavailable,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   QueryStates,
   throwProblem,
@@ -58,7 +61,7 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
-import { type ListQuery, ListToolbar } from "./listquery";
+import { type ListQuery, type ListState, ListTable } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
 import { activityTimeline } from "./people";
@@ -85,7 +88,7 @@ function usePipeline() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       const pipeline =
         data.data.find((candidate) => candidate.is_default) ?? data.data[0];
@@ -115,7 +118,7 @@ function usePipelines(enabled: boolean) {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -167,7 +170,7 @@ function useDeals(f: DealFilters) {
         params: { query: dealsQueryParams(f) },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -203,7 +206,7 @@ function OverlayDealsTable({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -233,12 +236,22 @@ function OverlayDealsTable({
   );
 }
 
-function toBoardDeal(deal: Deal): BoardDeal {
+/** id → the company's display name and resolved mark, for the deals whose
+ *  organization is among the ones this screen has read. */
+type OrgMarks = ReadonlyMap<string, { name: string; logoUrl?: string | null }>;
+
+function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
   const since = deal.last_activity_at ?? deal.created_at;
+  const org = deal.organization_id
+    ? orgs?.get(deal.organization_id)
+    : undefined;
   return {
     id: deal.id,
     name: deal.name,
-    org: "",
+    // Empty when the company is not among the organizations read here; the card
+    // then shows the deal alone rather than a blank chip beside it.
+    org: org?.name ?? "",
+    orgLogoUrl: org?.logoUrl,
     valueMinor: deal.amount_minor ?? 0,
     currency: deal.currency ?? "EUR",
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
@@ -360,7 +373,11 @@ export function dealEditFields(
   ];
 }
 
-export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
+export function buildColumns(
+  stages: Stage[],
+  deals: Deal[],
+  orgs?: OrgMarks,
+): BoardColumn[] {
   return [...stages]
     .sort((a, b) => a.position - b.position)
     .map((stage) => {
@@ -382,19 +399,94 @@ export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
         weightedMinor:
           raw === null ? 0 : Math.round((raw * stage.win_probability) / 100),
         currency: currency ?? "EUR",
-        deals: stageDeals.map(toBoardDeal),
+        deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
         sumHidden: raw === null,
-        semantic: stage.semantic,
-      } as BoardColumn & { sumHidden: boolean; semantic: Stage["semantic"] };
+      };
     });
 }
 
-const DEAL_SORT_OPTIONS: { value: string; label: MessageKey }[] = [
-  { value: "name", label: "people.name" },
-  { value: "-created_at", label: "deals.sortNewest" },
-  { value: "expected_close_date", label: "deals.sortClose" },
-  { value: "-amount_minor", label: "deals.sortAmount" },
-];
+// The table-view column set. Module-level (not inlined in DealsScreen,
+// which is already at the cognitive-complexity ceiling) — stage_id → name
+// and amount/close formatting are the only per-row logic, everything else
+// is direct field access. Only amount_minor and expected_close_date are in
+// the deals list's sortable vocabulary (data-model.md DM-VOCAB-3); name,
+// stage and status carry no `sort` because the API has no column for them.
+function dealColumns(
+  t: ReturnType<typeof useT>,
+  locale: Locale,
+  stageName: Map<string, string>,
+): ListColumn<Deal>[] {
+  return [
+    {
+      key: "name",
+      header: t("people.name"),
+      cell: (deal) => deal.name,
+      fixed: true,
+    },
+    {
+      key: "stage",
+      header: t("deals.stage"),
+      // stage_id is null for an overlay-mirror deal (OVA-MAP-6) — no native
+      // stage row to name; a native deal always has one.
+      cell: (deal) =>
+        deal.stage_id ? (stageName.get(deal.stage_id) ?? "") : "",
+    },
+    {
+      key: "amount",
+      header: t("deals.amount"),
+      numeric: true,
+      sort: "amount_minor",
+      cell: (deal) =>
+        deal.amount_minor != null && deal.currency ? (
+          <span className="t-mono">
+            {formatMoney(deal.amount_minor, deal.currency, locale)}
+          </span>
+        ) : null,
+    },
+    {
+      key: "close",
+      header: t("deals.close"),
+      sort: "expected_close_date",
+      cell: (deal) =>
+        deal.expected_close_date
+          ? formatDate(deal.expected_close_date, locale, "Europe/Berlin")
+          : null,
+    },
+    {
+      // How long since anything happened on this deal. It is the figure a
+      // forecast argument rests on — an amount with no recent signal behind it
+      // is a number nobody can defend — and the server already flags the ones
+      // that have gone quiet, so the row says so rather than leaving the reader
+      // to subtract dates.
+      key: "last_signal",
+      header: t("deals.lastSignal"),
+      numeric: true,
+      sort: "last_activity_at",
+      cell: (deal) =>
+        deal.last_activity_at ? (
+          <span className="deal-signal">
+            {formatDuration(
+              Math.max(
+                0,
+                Date.now() - new Date(deal.last_activity_at).getTime(),
+              ),
+              locale,
+            )}
+            {deal.stalled && <Badge tone="warn">{t("deal.stalled")}</Badge>}
+          </span>
+        ) : (
+          <span className="t-caption">{t("deals.lastSignalNone")}</span>
+        ),
+    },
+    {
+      key: "status",
+      header: t("lead.status"),
+      cell: (deal) => (
+        <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+      ),
+    },
+  ];
+}
 
 type PendingAdvance = {
   dealId: string;
@@ -415,10 +507,10 @@ function dealStatusTone(
 }
 
 // Bespoke selects for the filters whose option labels are runtime strings
-// (pipeline/stage/org names) — FilterSpec's option label is a MessageKey, so
-// these three cannot go through ListToolbar (Gotcha 3). Each writes into the
-// same ListQuery.filters bag ListToolbar reads, deleting the key on a blank
-// choice so the two stay in one coherent query state.
+// (pipeline/stage/org names) — a chip's option label is a MessageKey, so
+// these three cannot go through ListTable's chips. Each writes into the
+// same ListQuery.filters bag the table's chips read, deleting the key on a
+// blank choice so the two stay in one coherent query state.
 function setOrClearFilter(
   setQuery: Dispatch<SetStateAction<ListQuery>>,
   key: string,
@@ -435,167 +527,98 @@ function setOrClearFilter(
   });
 }
 
-function DealFilterSelects({
-  pipelines,
-  pipelineId,
-  setPipelineId,
-  stages,
-  orgs,
-  query,
-  setQuery,
-}: Readonly<{
-  pipelines: Pipeline[];
-  pipelineId: string;
-  setPipelineId: (id: string) => void;
-  stages: Stage[];
-  orgs: { id: string; display_name: string }[];
-  query: ListQuery;
-  setQuery: Dispatch<SetStateAction<ListQuery>>;
-}>) {
-  const t = useT();
-  return (
-    <div className="list-toolbar">
-      <select
-        className="input"
-        aria-label={t("deals.pipeline")}
-        value={pipelineId}
-        onChange={(event) => setPipelineId(event.target.value)}
-      >
-        <option value="">{t("deals.pipeline")}</option>
-        {pipelines.map((pipeline) => (
-          <option key={pipeline.id} value={pipeline.id}>
-            {pipeline.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="input"
-        aria-label={t("deals.stage")}
-        value={query.filters.stage_id ?? ""}
-        onChange={(event) =>
-          setOrClearFilter(setQuery, "stage_id", event.target.value)
-        }
-      >
-        <option value="">{t("deals.filterStageAll")}</option>
-        {stages.map((stage) => (
-          <option key={stage.id} value={stage.id}>
-            {stage.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="input"
-        aria-label={t("create.organization")}
-        value={query.filters.organization_id ?? ""}
-        onChange={(event) =>
-          setOrClearFilter(setQuery, "organization_id", event.target.value)
-        }
-      >
-        <option value="">{t("deals.filterOrgAll")}</option>
-        {orgs.map((org) => (
-          <option key={org.id} value={org.id}>
-            {org.display_name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+// The company filter's own value source: a workspace holds more organizations
+// than any fixed list should offer, so the value step searches /organizations
+// by name instead of one this screen happened to fetch for something else.
+async function searchCompanies(
+  query: string,
+): Promise<readonly { value: string; label: string }[]> {
+  const { data, error } = await api.GET("/organizations", {
+    params: { query: { q: query, limit: 20 } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data.data.map((org) => ({ value: org.id, label: org.display_name }));
 }
 
-// The deals header — the board/table toggle and pipeline/stage/owner/org
-// pickers (all board-only, and all dials the overlay mirror refuses), plus the
-// always-present ListToolbar. Split out of DealsScreen so that screen's render
-// stays legible; overlay mode renders only the toolbar (which self-gates).
-function DealsHeader({
-  overlay,
+// The stage and company filters. The stage list is loaded whole already (a
+// pipeline has few stages), so it stays a fixed chip; the company filter
+// searches rather than listing (see searchCompanies above). Both are still
+// filters, so they read as the same chip as every other one instead of as a
+// native select sitting among them.
+function dealFilterChips(
+  stages: Stage[],
+  t: ReturnType<typeof useT>,
+): ListChip[] {
+  return [
+    {
+      key: "stage_id",
+      label: t("deals.stage"),
+      allLabel: t("deals.filterStageAll"),
+      options: stages.map((stage) => ({ value: stage.id, label: stage.name })),
+    },
+    {
+      key: "organization_id",
+      label: t("create.organization"),
+      allLabel: t("deals.filterOrgAll"),
+      options: [],
+      search: searchCompanies,
+    },
+  ];
+}
+
+// How the deals are shown rather than which ones: the board/table switch and
+// the pipeline being looked at. Both sit on the right with the table's own
+// display controls. All board-only dials the overlay mirror refuses, so
+// overlay never calls this.
+function DealViewTools({
   view,
   setView,
   pipelines,
   pipelineId,
   setPipelineId,
-  stages,
-  orgs,
-  query,
   setQuery,
-  meUserId,
 }: Readonly<{
-  overlay: boolean;
   view: "board" | "table";
   setView: (v: "board" | "table") => void;
   pipelines: Pipeline[];
   pipelineId: string;
   setPipelineId: (id: string) => void;
-  stages: Stage[];
-  orgs: { id: string; display_name: string }[];
-  query: ListQuery;
   setQuery: Dispatch<SetStateAction<ListQuery>>;
-  meUserId: string;
 }>) {
   const t = useT();
   return (
     <>
-      {/* The stage-keyed board + its pipeline/stage/owner pickers all rely on
-          dials the overlay mirror refuses, so overlay mode shows neither —
-          just the flat table below. */}
-      {!overlay && (
-        <>
-          <div style={{ marginBottom: "var(--space-3)" }}>
-            <SegmentedControl
-              options={["board", "table"] as const}
-              value={view}
-              onChange={setView}
-              labels={{
-                board: t("deals.viewBoard"),
-                table: t("deals.viewTable"),
-              }}
-            />
-          </div>
-          <DealFilterSelects
-            pipelines={pipelines}
-            pipelineId={pipelineId}
-            setPipelineId={(id) => {
-              // A stage belongs to one pipeline; switching pipeline strands any
-              // stage_id filter (its <select> blanks out but useDeals would
-              // still forward the old id and filter a foreign stage → 0 rows).
-              setPipelineId(id);
-              setOrClearFilter(setQuery, "stage_id", "");
-            }}
-            stages={stages}
-            orgs={orgs}
-            query={query}
-            setQuery={setQuery}
-          />
-        </>
-      )}
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        searchable={false}
-        showArchivedToggle
-        sortOptions={DEAL_SORT_OPTIONS}
-        filters={[
-          {
-            kind: "select",
-            key: "stalled",
-            label: "deals.filterStalled",
-            placeholder: "deals.filterStalledAll",
-            options: [{ value: "true", label: "deals.filterStalled" }],
-          },
-          {
-            kind: "select",
-            key: "owner_id",
-            label: "deals.filterOwnerMe",
-            placeholder: "deals.filterOwnerAll",
-            options: [{ value: meUserId, label: "deals.filterOwnerMe" }],
-          },
-          {
-            kind: "select",
-            key: "partner_sourced",
-            label: "deals.filterPartnerSourced",
-            placeholder: "deals.filterPartnerAll",
-            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
-          },
-        ]}
+      <SegmentedControl
+        options={["board", "table"] as const}
+        value={view}
+        onChange={setView}
+        labels={{
+          board: t("deals.viewBoard"),
+          table: t("deals.viewTable"),
+        }}
+      />
+      {/* Both views read one pipeline: the table binds the same query the
+          board does, and its stage chip offers that pipeline's stages. So the
+          picker stands in both — hidden on the table it locked the reader to a
+          pipeline they could neither see nor change. */}
+      <Select
+        className="input"
+        aria-label={t("deals.pipeline")}
+        placeholder={t("deals.pipeline")}
+        value={pipelineId}
+        onChange={(next) => {
+          // A stage belongs to one pipeline; switching pipeline strands any
+          // stage_id filter (the chip blanks out but useDeals would still
+          // forward the old id and filter a foreign stage → 0 rows).
+          setPipelineId(next);
+          setOrClearFilter(setQuery, "stage_id", "");
+        }}
+        options={pipelines.map((pipeline) => ({
+          value: pipeline.id,
+          label: pipeline.name,
+        }))}
       />
     </>
   );
@@ -606,6 +629,7 @@ export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
   const t = useT();
+  const { locale } = useLocale();
   const cf = useObjectCustomFields("deal");
   const queryClient = useQueryClient();
   const overlay = useSorMode() === "overlay";
@@ -661,7 +685,7 @@ export function DealsScreen({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -673,6 +697,24 @@ export function DealsScreen({
   });
 
   const stages = effectivePipeline?.stages ?? [];
+  const stageName = new Map(stages.map((stage) => [stage.id, stage.name]));
+
+  // dealsQuery is a plain (non-infinite) query — the board reads one honest
+  // screenful, never a keyset walk (see useDeals) — so the table view's
+  // ListState reports no further page: hasMore/loadMore are inert. Only the
+  // table view renders this state; the board keeps reading dealsQuery
+  // directly through QueryGate below.
+  const dealsListState: ListState<Deal> = {
+    rows: dealsQuery.data?.data ?? [],
+    query,
+    setQuery,
+    isPending: dealsQuery.isPending,
+    isError: dealsQuery.isError,
+    error: dealsQuery.error,
+    refetch: () => dealsQuery.refetch(),
+    hasMore: false,
+    loadMore: () => {},
+  };
 
   const orgsQuery = useQuery({
     queryKey: ["organizations"],
@@ -681,7 +723,7 @@ export function DealsScreen({
         params: { query: { limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -690,7 +732,7 @@ export function DealsScreen({
   const createDeal = async (values: Record<string, string>) => {
     const pipeline = effectivePipeline;
     if (!pipeline) {
-      throw new Error(problemMessage(null));
+      throwProblem(null);
     }
     const amount = values.amount?.trim();
     const { data, error } = await api.POST("/deals", {
@@ -708,7 +750,7 @@ export function DealsScreen({
       },
     });
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return data;
   };
@@ -768,114 +810,210 @@ export function DealsScreen({
     },
   });
 
+  // Create writes a native deal — the mirror refuses it (unsupported_by_sor),
+  // so the affordance is hidden in overlay, matching the board mutations.
+  // Shared between the board and the table surface: whichever view is
+  // showing, the action lives in the surface's own header, not a wrap sibling.
+  const createAction = !overlay && openStages.length > 0 && (
+    <CreateAction
+      label={t("create.deal")}
+      invalidate="deals"
+      screen="deals"
+      create={createDeal}
+      startOpen={startCreating}
+      fields={[
+        { key: "name", label: "create.dealName", required: true },
+        { key: "amount", label: "create.amount", type: "number" },
+        {
+          key: "currency",
+          label: "create.currency",
+          type: "select",
+          required: true,
+          options: ["EUR", "USD", "GBP", "CHF"].map((code) => ({
+            value: code,
+            label: code,
+          })),
+        },
+        {
+          key: "stage_id",
+          label: "create.stage",
+          type: "select",
+          required: true,
+          options: openStages.map((stage) => ({
+            value: stage.id,
+            label: stage.name,
+          })),
+        },
+        {
+          key: "organization_id",
+          label: "create.organization",
+          type: "select",
+          options: (orgsQuery.data?.data ?? []).map((org) => ({
+            value: org.id,
+            label: org.display_name,
+          })),
+        },
+        {
+          key: "expected_close_date",
+          label: "create.expectedClose",
+          type: "date",
+        },
+        ...cf.formFields,
+      ]}
+    />
+  );
+
+  // The board/table switch and the pipeline/stage/org pickers, shared between
+  // the two non-overlay surfaces so the reader sees the same dials whichever
+  // view is showing.
+  const dealTools = (
+    <DealViewTools
+      view={view}
+      setView={setView}
+      pipelines={pipelinesQuery.data ?? []}
+      pipelineId={effectivePipeline?.id ?? ""}
+      setPipelineId={setPipelineId}
+      setQuery={setQuery}
+    />
+  );
+  const dealChips = dealFilterChips(stages, t);
+  // The companies this screen already read for the create form's picker carry
+  // their resolved marks, so the board can show them without a second read.
+  // That read is capped, so a deal whose company falls outside it draws its
+  // card without a company row — the company filter is a separate search and
+  // is not what fills this map.
+  const orgMarks: OrgMarks = new Map(
+    (orgsQuery.data?.data ?? []).map((org) => [
+      org.id,
+      { name: org.display_name, logoUrl: org.logo_url },
+    ]),
+  );
+
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.deals")} />
-        {/* Create writes a native deal — the mirror refuses it
-            (unsupported_by_sor), so the affordance is hidden in overlay,
-            matching the board mutations. */}
-        {!overlay && openStages.length > 0 && (
-          <CreateAction
-            label={t("create.deal")}
-            invalidate="deals"
-            screen="deals"
-            create={createDeal}
-            startOpen={startCreating}
-            fields={[
-              { key: "name", label: "create.dealName", required: true },
-              { key: "amount", label: "create.amount", type: "number" },
-              {
-                key: "currency",
-                label: "create.currency",
-                type: "select",
-                required: true,
-                options: ["EUR", "USD", "GBP", "CHF"].map((code) => ({
-                  value: code,
-                  label: code,
-                })),
-              },
-              {
-                key: "stage_id",
-                label: "create.stage",
-                type: "select",
-                required: true,
-                options: openStages.map((stage) => ({
-                  value: stage.id,
-                  label: stage.name,
-                })),
-              },
-              {
-                key: "organization_id",
-                label: "create.organization",
-                type: "select",
-                options: (orgsQuery.data?.data ?? []).map((org) => ({
-                  value: org.id,
-                  label: org.display_name,
-                })),
-              },
-              {
-                key: "expected_close_date",
-                label: "create.expectedClose",
-                type: "date",
-              },
-              ...cf.formFields,
-            ]}
-          />
-        )}
-      </div>
-      <DealsHeader
-        overlay={overlay}
-        view={view}
-        setView={setView}
-        pipelines={pipelinesQuery.data ?? []}
-        pipelineId={effectivePipeline?.id ?? ""}
-        setPipelineId={setPipelineId}
-        stages={stages}
-        orgs={orgsQuery.data?.data ?? []}
-        query={query}
-        setQuery={setQuery}
-        meUserId={meQuery.data?.user.id ?? ""}
-      />
       {overlay ? (
         // Overlay mode: the flat, keyset-paginated mirror table (its own
-        // infinite query) — no pipeline board, no stage columns.
-        <OverlayDealsTable includeArchived={query.includeArchived} />
-      ) : (
-        <QueryGate query={pipelinesQuery}>
-          {() =>
-            effectivePipeline ? (
-              <QueryGate query={dealsQuery}>
-                {(page) => {
-                  const columns = buildColumns(
-                    effectivePipeline.stages ?? [],
-                    page.data,
-                  );
-                  return view === "board" ? (
+        // infinite query) — no pipeline board, no stage columns. The mirror
+        // holds no archived rows, so this toggle is a harmless no-op there —
+        // kept anyway so overlay mode loses no control it had.
+        <>
+          <label className="lt-toggle">
+            <input
+              type="checkbox"
+              checked={query.includeArchived}
+              onChange={(event) =>
+                setQuery((q) => ({
+                  ...q,
+                  includeArchived: event.target.checked,
+                }))
+              }
+            />
+            {t("list.showArchived")}
+          </label>
+          <OverlayDealsTable includeArchived={query.includeArchived} />
+        </>
+      ) : view === "board" ? (
+        <ListSurface
+          action={createAction}
+          count={
+            dealsQuery.data &&
+            t("board.count", { count: dealsQuery.data.data.length })
+          }
+          tools={dealTools}
+          chips={dealChips}
+          chosen={query.filters}
+          onChipChange={(key, value) => setOrClearFilter(setQuery, key, value)}
+          // The board shows archived deals on the same toggle the table uses:
+          // without it, a deal archived by mistake could only be found — and
+          // so only be restored — by leaving the board.
+          archived={{
+            checked: query.includeArchived,
+            onChange: (next) =>
+              setQuery((q) => ({ ...q, includeArchived: next })),
+          }}
+        >
+          <QueryGate query={pipelinesQuery}>
+            {() =>
+              effectivePipeline ? (
+                <QueryGate query={dealsQuery}>
+                  {(page) => (
                     <PipelineBoard
-                      columns={columns}
+                      columns={buildColumns(
+                        effectivePipeline.stages ?? [],
+                        page.data,
+                        orgMarks,
+                      )}
                       onOpen={openDeal}
                       cardDragHandlers={cardDragHandlers}
                       columnDropHandlers={columnDropHandlers}
                     />
-                  ) : (
-                    <DealTable
-                      deals={page.data}
-                      stages={effectivePipeline.stages ?? []}
-                    />
-                  );
-                }}
-              </QueryGate>
-            ) : null
+                  )}
+                </QueryGate>
+              ) : null
+            }
+          </QueryGate>
+        </ListSurface>
+      ) : (
+        <ListTable
+          state={dealsListState}
+          unit="deals.unit"
+          columns={dealColumns(t, locale, stageName)}
+          rowKey={(deal) => deal.id}
+          rowRoute={(deal) => ({ screen: "deals", id: deal.id })}
+          searchable={false}
+          // The board and this table read one shared screenful rather than a
+          // keyset walk, so when the server says it held rows back, the table
+          // says so too — a capped list that looks complete is the one thing
+          // this surface must not do.
+          footer={
+            dealsQuery.data?.page?.has_more ? (
+              <p className="lt-note">{t("deals.capped")}</p>
+            ) : undefined
           }
-        </QueryGate>
+          action={createAction}
+          tools={dealTools}
+          dataChips={dealChips}
+          chips={[
+            {
+              key: "stalled",
+              label: "deals.filterStalled",
+              allLabel: "deals.filterStalledAll",
+              options: [{ value: "true", label: "deals.filterStalled" }],
+            },
+            // Offered only once the viewer's own id is known. An option whose
+            // value is still "" reads as "clear this filter" to the table, so
+            // picking "Only mine" mid-load would quietly narrow nothing.
+            ...(meQuery.data
+              ? [
+                  {
+                    key: "owner_id",
+                    label: "deals.filterOwnerMe" as const,
+                    allLabel: "deals.filterOwnerAll" as const,
+                    options: [
+                      {
+                        value: meQuery.data.user.id,
+                        label: "deals.filterOwnerMe" as const,
+                      },
+                    ],
+                  },
+                ]
+              : []),
+            {
+              key: "partner_sourced",
+              label: "deals.filterPartnerSourced",
+              allLabel: "deals.filterPartnerAll",
+              options: [{ value: "true", label: "deals.filterPartnerSourced" }],
+            },
+          ]}
+          views={[{ label: "deals.sortNewest", sort: "-created_at" }]}
+        />
       )}
       {advance.isError && (
         <p
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 10 }}
         >
-          {advance.error instanceof Error ? advance.error.message : null}
+          {problemMessageOf(advance.error, t)}
         </p>
       )}
       {toast && (
@@ -1115,7 +1253,7 @@ function ReopenAction({
         body: { to_stage_id: toStageId, status: "open" },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -1160,7 +1298,7 @@ function ReopenAction({
         </div>
         {reopen.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {reopen.error instanceof Error ? reopen.error.message : null}
+            {problemMessageOf(reopen.error, t)}
           </p>
         )}
         <div className="actions">
@@ -1526,7 +1664,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1545,7 +1683,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { query: { limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1558,7 +1696,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1577,7 +1715,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { query: { entity_type: "deal", entity_id: id, limit: 20 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1590,7 +1728,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1602,7 +1740,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         body: { currency, source: "manual" },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1623,7 +1761,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id: input.approvalId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () =>

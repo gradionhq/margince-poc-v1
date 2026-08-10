@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -40,6 +41,17 @@ type Service struct {
 	// commits, only on approve; exactly-once is the effect's own duty
 	// (the redeem-then-execute discipline every 🟡 executor follows).
 	effects map[string]ApprovedEffect
+	// quota is the volume meter an approved step-up widens (quotarelease.go).
+	// Nil in a composition that serves no agents, where a step-up can never be
+	// staged in the first place.
+	quota QuotaReleaser
+	// log carries the cause of a follow-on effect that failed AFTER its own
+	// decision committed (bundle.go). The wire names which member did not land
+	// and nothing about why — internals are not a client's — so this logger is
+	// the one place that cause survives. Nil falls back to slog.Default(), which
+	// in a process that never called SetDefault writes it where nobody is
+	// reading, and that is why the composition root injects its own.
+	log *slog.Logger
 }
 
 const (
@@ -59,6 +71,22 @@ func NewService(pool *pgxpool.Pool) *Service {
 func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
 	s.effects[kind] = effect
 	return s
+}
+
+// WithLogger installs the mounting process's logger.
+func (s *Service) WithLogger(log *slog.Logger) *Service {
+	s.log = log
+	return s
+}
+
+// logger is the installed logger, or the process default when a caller that
+// never decides — a nightly proposer, a rematch sweep — built the service
+// without one.
+func (s *Service) logger() *slog.Logger {
+	if s.log == nil {
+		return slog.Default()
+	}
+	return s.log
 }
 
 // EffectKinds lists the staging kinds this service has an executor for. It

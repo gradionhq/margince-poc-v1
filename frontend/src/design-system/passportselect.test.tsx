@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { PassportSelect, ScopeChips } from "./passportselect";
+import { pickOption } from "./select-testing";
 
 // PassportSelect and ScopeChips are the extracted shapes the tool console's
 // passport filter and the OAuth consent screen (Task 7) both render — these
@@ -19,6 +20,7 @@ const OPTIONS = [
 
 describe("PassportSelect", () => {
   it("lists every option and reports the chosen id", async () => {
+    const user = userEvent.setup();
     const chosen: string[] = [];
     render(
       <PassportSelect
@@ -28,15 +30,24 @@ describe("PassportSelect", () => {
         allowEmpty
       />,
     );
-    const select = screen.getByRole("combobox");
-    expect(screen.getByRole("option", { name: /night agent/ })).toBeTruthy();
-    await userEvent.selectOptions(select, "p2");
+
+    await pickOption(user, screen.getByRole("combobox"), "reporter");
+
     expect(chosen).toEqual(["p2"]);
   });
 
-  it("offers no empty choice when allowEmpty is absent", () => {
+  // The options only exist while the popup is open — the control renders no
+  // listbox when closed — so counting them means opening it first.
+  it("offers no empty choice when allowEmpty is absent", async () => {
+    const user = userEvent.setup();
     render(<PassportSelect options={OPTIONS} value="p1" onChange={() => {}} />);
-    expect(screen.getAllByRole("option")).toHaveLength(2);
+
+    await user.click(screen.getByRole("combobox"));
+
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "night agent",
+      "reporter",
+    ]);
   });
 });
 

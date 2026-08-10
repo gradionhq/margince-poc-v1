@@ -41,6 +41,21 @@ func TestToolValidate(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("a well-formed tool must validate: %v", err)
 	}
+	// Title is optional, so the case above proves nothing about a declared
+	// one: a written label must pass on its own.
+	titled := valid
+	titled.Title = "Qualify a lead"
+	if err := titled.Validate(); err != nil {
+		t.Fatalf("a written title must validate: %v", err)
+	}
+	// A description is optional at this layer for the same reason: whether one
+	// is REQUIRED is decided where the tool is served, not in the grammar. What
+	// the grammar owes is that a written one is renderable.
+	described := valid
+	described.Description = "Fill in what a lead's own data already implies, and report what is still missing."
+	if err := described.Validate(); err != nil {
+		t.Fatalf("a written description must validate: %v", err)
+	}
 
 	cases := []struct {
 		name string
@@ -52,6 +67,14 @@ func TestToolValidate(t *testing.T) {
 		{"tier not requestable", Tool{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequestedScope: ScopeRead}},
 		{"scope outside vocabulary", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: "admin"}},
 		{"missing scope", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute}},
+		{"blank title", Tool{Name: "ping", Title: "   ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"framed title", Tool{Name: "ping", Title: " Ping it ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"non-printable title", Tool{Name: "ping", Title: "Ping\tit", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"title that is not valid UTF-8", Tool{Name: "ping", Title: "Ping\xffit", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"blank description", Tool{Name: "ping", Description: "   ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"framed description", Tool{Name: "ping", Description: " Pings it. ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"non-printable description", Tool{Name: "ping", Description: "Pings\tit.", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"description that is not valid UTF-8", Tool{Name: "ping", Description: "Pings\xffit.", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
 		{"non-object input schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`"scalar"`)}},
 		{"input schema not type object", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`{"type":"array"}`)}},
 		{"malformed output schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, OutputSchema: json.RawMessage(`{bad`)}},

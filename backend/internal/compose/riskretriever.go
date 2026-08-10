@@ -41,7 +41,7 @@ type riskAwareRetriever struct {
 
 // Search is untouched — risks are a property of an anchor, and a search result
 // set has none.
-func (r riskAwareRetriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
+func (r riskAwareRetriever) Search(ctx context.Context, q retrieval.Query) (retrieval.Result, error) {
 	return r.inner.Search(ctx, q)
 }
 

@@ -7,16 +7,28 @@ import {
   Badge,
   Button,
   EmptyState,
+  Field,
   Modal,
   SectionHeader,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
-import { formatDate, formatDateTime, formatMoney } from "../format/format";
+import { Select } from "../design-system/select";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatMoneyCompact,
+} from "../format/format";
 
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import {
+  problemCodeOf,
+  problemMessageOf,
+  throwProblem,
+  useFinanceSummary,
+} from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -30,6 +42,7 @@ import {
   reachOf,
   roleLabelKey,
 } from "./coverage";
+import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -45,6 +58,7 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 
 // What each signal kind is, in words. The badge rendered the stored enum, so
 // a German reader met `buying_intent` and an English one met an identifier.
@@ -69,7 +83,10 @@ const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
 // states whatever a producer raised, and a producer added upstream must not
 // make the tile disappear. An unmapped kind renders as its own words rather
 // than as an identifier — the same degradation an unmapped approval kind gets.
-function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
+export function signalKindLabel(
+  kind: string,
+  t: (key: MessageKey) => string,
+): string {
   // Own-property only, as dealRoleLabel does below: a wire value named
   // `toString` would otherwise find something on Object's prototype and pass
   // the truthy check instead of degrading to its own words.
@@ -148,7 +165,7 @@ export function useOrganization360(id: string) {
         if (response.status === 422 && isOverlayRefusal(error)) {
           return { state: "overlay" };
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { state: "ready", view: data };
     },
@@ -183,7 +200,7 @@ export function useAcknowledgeOrganizationView(id: string, visited: boolean) {
         params: { path: { id: organizationId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
   });
@@ -250,13 +267,32 @@ export function omitted(view: Organization360, section: Section): boolean {
  * empty is the only one that may say "there is none", because it is the only
  * one that knows. Rendering the other three as empty states a fact the page
  * does not have — the rep reads "no open deals" and stops looking.
+ *
+ * The §7 matrix adds four more, each of which would otherwise be drawn as one
+ * of the above and lose what makes it different:
+ *
+ *   unsupported — this MODE cannot serve the section (an overlay-only
+ *                 installation and a native composite section). Distinct from
+ *                 unavailable: nothing is broken and retrying changes nothing.
+ *   failed      — the read failed and can be retried. `onRetry` is what makes
+ *                 it a different state from unavailable rather than a
+ *                 differently-worded one.
+ *   stale       — the last known value, with when it was last true. It is
+ *                 shown rather than withheld, because a figure from this
+ *                 morning beats a blank, but never without its `as of`.
+ *   partial     — some of the rows, with the count that is missing and a way
+ *                 to the full list. Never a silent truncation.
  */
 export type SectionState =
   | "ready"
   | "empty"
   | "withheld"
   | "unavailable"
-  | "loading";
+  | "loading"
+  | "unsupported"
+  | "failed"
+  | "stale"
+  | "partial";
 
 /**
  * sectionState classifies one 360 section. `present` is whether the payload
@@ -286,6 +322,23 @@ export function sectionState(
 }
 
 /**
+ * SectionDetail is what the four §7 states need in order to say something a
+ * reader can act on rather than a differently-worded "not here".
+ */
+export type SectionDetail = {
+  // `failed` without a retry is `unavailable` with extra words.
+  onRetry?: () => void;
+  // Already formatted by the caller: this tier holds no locale or zone.
+  staleAsOf?: string;
+  // How many rows the caller is NOT seeing. A truncation nobody states reads
+  // as the whole list.
+  remaining?: number;
+  // Which mode limitation this is, in the caller's words. The generic
+  // sentence is the floor, not the target.
+  unsupportedReason?: string;
+};
+
+/**
  * SectionPart renders ONE section's body in whichever of the four states it
  * is in. A card with two independently-governed sections renders two of
  * these, so neither half's state can speak for the other.
@@ -299,11 +352,16 @@ export function SectionPart({
   label,
   state,
   emptyLabel,
+  detail,
   children,
 }: Readonly<{
   label?: string;
   state: SectionState;
   emptyLabel: string;
+  // What the four §7 states need in order to be honest. Each is read by
+  // exactly one state and ignored by the rest; a state whose detail is absent
+  // still renders, one sentence shorter.
+  detail?: SectionDetail;
   children: ReactNode;
 }>) {
   const t = useT();
@@ -318,6 +376,43 @@ export function SectionPart({
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
       {state === "loading" && <Skeleton width="100%" height={32} />}
+      {state === "unsupported" && (
+        <p className="co-restricted">
+          {detail?.unsupportedReason ?? t("co.section.unsupported")}
+        </p>
+      )}
+      {state === "failed" && (
+        <div className="co-failed">
+          <p className="co-restricted">{t("co.section.failed")}</p>
+          {detail?.onRetry && (
+            <Button small onClick={detail.onRetry}>
+              {t("co.section.retry")}
+            </Button>
+          )}
+        </div>
+      )}
+      {/* The value first, then when it was last true. Reversing them buries
+          the caveat under the figure a reader has already taken as current. */}
+      {state === "stale" && (
+        <>
+          <p className="co-stale">
+            {detail?.staleAsOf
+              ? t("co.section.staleAsOf", { when: detail.staleAsOf })
+              : t("co.section.stale")}
+          </p>
+          {children}
+        </>
+      )}
+      {state === "partial" && (
+        <>
+          {children}
+          <p className="co-empty">
+            {detail?.remaining
+              ? t("co.section.partialCount", { count: detail.remaining })
+              : t("co.section.partial")}
+          </p>
+        </>
+      )}
     </>
   );
   if (!label) {
@@ -329,6 +424,57 @@ export function SectionPart({
       {body}
     </section>
   );
+}
+
+// The coverage line the mockup draws above the contact rows: how many
+// contacts, how many nobody has written to, how many roles are unfilled.
+//
+// ONLY counts this page can total. The mockup also carries "11 connected
+// colleagues", which would mean summing each contact's routes — and those are
+// capped at the top three by strength, so the sum would count the same
+// colleague once per contact they know and report a bigger team than exists.
+// A number nobody can check is worse than a shorter line.
+//
+// Silent when the contact list was truncated: "7 contacts" off a capped page
+// is a count of the page, not of the account.
+function CoverageSummary({
+  contacts,
+  untried,
+  gaps,
+  truncated,
+  routesReadable,
+}: Readonly<{
+  contacts: readonly Contact[];
+  untried: number;
+  gaps: number;
+  truncated: boolean;
+  // Whether the routes this page read carry an answer at all. "Never written
+  // to" is derived from who has exchanged messages with whom, so a reader
+  // without that access must not be handed the aggregate — an activity-derived
+  // count is still activity data.
+  routesReadable: boolean;
+}>) {
+  const t = useT();
+  if (contacts.length === 0) {
+    return null;
+  }
+  // A truncated page still knows how many contacts it is showing, and saying
+  // "at least 25" beats saying nothing: the reader learns both that the
+  // account is large and that this is not the whole of it.
+  const parts = [
+    truncated
+      ? t("co.coverage.contactsAtLeast", { count: contacts.length })
+      : t("co.coverage.contacts", { count: contacts.length }),
+  ];
+  if (routesReadable && untried > 0) {
+    parts.push(t("co.coverage.untried", { count: untried }));
+  }
+  // The gap count is only meaningful over a complete picture: a capped page
+  // hides the contacts who might hold the roles it would report as missing.
+  if (!truncated && gaps > 0) {
+    parts.push(t("co.coverage.gaps", { count: gaps }));
+  }
+  return <p className="co-empty">{parts.join(" · ")}</p>;
 }
 
 /**
@@ -343,6 +489,7 @@ export function SectionCard({
   title,
   state,
   emptyLabel,
+  detail,
   footer,
   actions,
   children,
@@ -350,6 +497,7 @@ export function SectionCard({
   title: string;
   state: SectionState;
   emptyLabel: string;
+  detail?: SectionDetail;
   footer?: ReactNode;
   // Verbs that CHANGE this section, under everything that describes it.
   //
@@ -361,11 +509,18 @@ export function SectionCard({
   actions?: ReactNode;
   children: ReactNode;
 }>) {
-  const present = state === "ready" || state === "empty";
+  // `stale` and `partial` both carry real rows, so the footer figures and the
+  // verbs that change the section belong with them — a truncated deal list is
+  // still a deal list you can add to.
+  const present =
+    state === "ready" ||
+    state === "empty" ||
+    state === "stale" ||
+    state === "partial";
   return (
     <section className="card co-card">
       <SectionHeader title={title} />
-      <SectionPart state={state} emptyLabel={emptyLabel}>
+      <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
         {children}
       </SectionPart>
       {present && footer}
@@ -385,7 +540,7 @@ export function SectionCard({
 // one: it capped its contact ring, or it withheld groups the caller may not
 // read. Either way the routes below it are a subset, and both the empty answer
 // and the found-someone answer have to say so.
-function incompleteGraph(graph: {
+export function incompleteGraph(graph: {
   groups_omitted?: unknown[];
   dropped_count?: number;
 }): boolean {
@@ -442,6 +597,23 @@ export function PeopleCard({
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
+      footer={
+        <CoverageSummary
+          contacts={contacts}
+          untried={untried.length}
+          gaps={missing.length}
+          truncated={truncated}
+          routesReadable={contacts.some((each) => each.routes)}
+        />
+      }
+      // The per-row coverage says who to call. The explorer answers the other
+      // question — where are we thin — for a handful of colleagues the reader
+      // picks, rather than a column per person on a forty-strong team.
+      actions={
+        orgId && contacts.length > 0 ? (
+          <CoverageExplorer orgId={orgId} contacts={contacts} />
+        ) : undefined
+      }
     >
       {/* The per-contact chips read as all-time claims — "Not approached"
           above a timeline showing last year's outbound email is the page
@@ -574,7 +746,7 @@ function SetRoleAction({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -615,36 +787,36 @@ function SetRoleAction({
             page used them as though everyone shares one definition. */}
         <p className="t-caption">{t("co.role.explain")}</p>
         <div className="form-stack">
-          <label className="field">
-            <span className="t-label">{t("co.role.onDeal")}</span>
-            <select
-              className="input"
-              value={dealId}
-              onChange={(event) => setDealId(event.target.value)}
-            >
-              {openDeals.map((deal) => (
-                <option key={deal.id} value={deal.id}>
-                  {deal.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="t-label">{t("co.role.role")}</span>
-            <select
-              className="input"
-              value={picked ?? ""}
-              onChange={(event) => setRole(event.target.value)}
-            >
-              {offered.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {dealRoleLabel(candidate, t)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("co.role.onDeal")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={dealId}
+                onChange={setDealId}
+                options={openDeals.map((deal) => ({
+                  value: deal.id,
+                  label: deal.name,
+                }))}
+              />
+            )}
+          </Field>
+          <Field label={t("co.role.role")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={picked ?? ""}
+                onChange={setRole}
+                options={offered.map((candidate) => ({
+                  value: candidate,
+                  label: dealRoleLabel(candidate, t),
+                }))}
+              />
+            )}
+          </Field>
           {save.isError && (
-            <p className="t-caption form-error">{save.error.message}</p>
+            <p className="t-caption form-error">
+              {problemMessageOf(save.error, t)}
+            </p>
           )}
           <div className="form-actions">
             <Button
@@ -721,6 +893,10 @@ function ContactRow({
             </Badge>
           );
         })}
+        {/* Who here can actually reach them, inline rather than a click away.
+            A forty-person team makes a contact x colleague matrix unreadable,
+            so the row names the few worth naming and counts the rest. */}
+        <ContactRoutes routes={contact.routes} />
         <ConsentChip consent={contact.consent} />
         {/* The page said "nobody here is your champion" and gave no way to
             say who is: the roles are set on the deal screen, which is a
@@ -729,6 +905,46 @@ function ContactRow({
         {orgId && <RouteInAction orgId={orgId} contact={contact} />}
       </span>
     </li>
+  );
+}
+
+// The strongest few colleagues who have actually exchanged messages with this
+// contact, and how many more there are.
+//
+// UNTRIED IS NOT COLD, and the distinction is the whole reason this renders a
+// sentence rather than an empty space: "nobody has tried" tells a rep to pick up
+// the phone, where a cold band tells them somebody already did and got nowhere.
+// A page that shows the same thing for both gives the opposite instruction half
+// the time.
+function ContactRoutes({ routes }: Readonly<{ routes?: Contact["routes"] }>) {
+  const t = useT();
+  // Absent, not empty: the caller has no roster grant, so naming a colleague is
+  // a read they may not make. Silence is the honest answer — an "untried" badge
+  // here would be a claim about the account rather than about the reader.
+  if (!routes) {
+    return null;
+  }
+  if (routes.untried) {
+    return <Badge>{t("co.routes.untried")}</Badge>;
+  }
+  return (
+    <span className="co-routes">
+      {routes.top.map((route) => (
+        <Badge
+          key={route.user_id}
+          tone={route.strength_bucket === "strong" ? "success" : undefined}
+        >
+          {route.display_name}
+        </Badge>
+      ))}
+      {routes.remainder > 0 && (
+        // The count, not a silent truncation: three names with nothing after
+        // them reads as "these are the only three".
+        <span className="t-caption">
+          {t("co.routes.more", { count: routes.remainder })}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1021,7 +1237,7 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -1049,7 +1265,12 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
+              {/* The SEVERITY colours the row. A tone-neutral badge made an
+                  urgent risk look like an informational note, which is the one
+                  distinction a reader scans this card for. */}
+              <Badge tone={signalTone(signal.severity)}>
+                {t(SIGNAL_KIND_LABELS[signal.kind])}
+              </Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>
@@ -1207,18 +1428,62 @@ export function citationChips(
  * clickable element that does nothing teaches the reader that citations do not
  * work, which costs more than the click it saves.
  */
+// The citation kinds that open a RECEIPT rather than a record page. Only these
+// can be stepped through, because only these render in the drawer.
+const RECEIPT_CITATIONS = new Set(["fact", "profile_field"]);
+
+// One steppable citation, in the receipt's own shape.
+export type CitedSibling = {
+  entityType: "fact" | "profile_field";
+  entityId: string;
+};
+
+// The sentence's receipt-bearing citations, once each, in the order it cites
+// them. Mapped here at the one place that knows both shapes: the wire is
+// snake_case and the drawer's CitedRecord is not.
+function dedupeCited(evidence: readonly Cited[]): CitedSibling[] {
+  const seen = new Set<string>();
+  const out: CitedSibling[] = [];
+  for (const each of evidence) {
+    const key = `${each.entity_type}:${each.entity_id}`;
+    if (!RECEIPT_CITATIONS.has(each.entity_type) || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      entityType: each.entity_type as "fact" | "profile_field",
+      entityId: each.entity_id,
+    });
+  }
+  return out;
+}
+
 function Citations({
   evidence,
   onOpenRecord,
 }: Readonly<{
   evidence: readonly Cited[];
-  onOpenRecord?: (entityType: string, entityId: string) => void;
+  onOpenRecord?: (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedSibling[],
+  ) => void;
 }>) {
   const t = useT();
   const chips = citationChips(
     evidence,
     (entityType) => Boolean(onOpenRecord) && ROUTABLE_CITATIONS.has(entityType),
   );
+  // THIS sentence's citations, in the order it cites them, so the receipt's
+  // prev/next walks the sentence the reader is actually looking at. The order
+  // belongs to the sentence, which is why it is passed from here rather than
+  // rebuilt in the drawer.
+  // Mapped to the receipt's own shape here, at the one place that knows both:
+  // the wire is snake_case and the drawer's CitedRecord is not.
+  // Deduplicated, because the stepper finds its position by id: a sentence
+  // citing the same fact twice would leave `findIndex` returning the first
+  // occurrence forever, and Next would never move past it.
+  const siblings = dedupeCited(evidence);
   if (chips.length === 0) {
     return null;
   }
@@ -1230,7 +1495,9 @@ function Citations({
             key={`${chip.entityType}:${chip.entityId}`}
             type="button"
             className="co-brief-cite"
-            onClick={() => onOpenRecord?.(chip.entityType, chip.entityId)}
+            onClick={() =>
+              onOpenRecord?.(chip.entityType, chip.entityId, siblings)
+            }
           >
             {t(`co.brief.cite.${chip.entityType}`)}
           </button>
@@ -1248,10 +1515,15 @@ function Citations({
   );
 }
 
-// The citation kinds that have a screen to open. An activity has no detail
-// route of its own (it lives in a timeline) and the organization citation is
-// the page the reader is already on.
-const ROUTABLE_CITATIONS = new Set(["deal", "person"]);
+// The citation kinds a reader can open something for. `deal` and `person` route
+// to their own screens; `fact` and `profile_field` open their receipt instead —
+// where the value came from, when it was read, and what could not be recorded.
+//
+// An activity has no detail route of its own (it lives in a timeline) and no
+// receipt either, and the organization citation is the page the reader is
+// already on. Both stay flat: a clickable element that does nothing teaches the
+// reader that citations do not work, which costs more than the click it saves.
+const ROUTABLE_CITATIONS = new Set(["deal", "person", "fact", "profile_field"]);
 
 /** OverlayFallback replaces the page when the workspace reads elsewhere. */
 export function OverlayFallback() {
@@ -1270,12 +1542,24 @@ type Suggestion = components["schemas"]["Organization360Suggestion"];
  * written from the same records with the same citations. One component, so a
  * citation can never be clickable in one place and flat in the other.
  */
-function SentenceList({
+export function SentenceList({
   sentences,
   onOpenRecord,
+  citations = "per-sentence",
 }: Readonly<{
   sentences: BriefSentence[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // WHERE the receipts go, which is a reading decision rather than a styling
+  // one.
+  //
+  // "per-sentence" is the brief's: each line is a separate claim a reader
+  // checks on its own, so its chips belong beside it.
+  //
+  // "collected" is the dossier's: it is one continuous description of a
+  // company, and a chip after every clause turned three sentences into a wall
+  // of "fact fact fact". The sources are the same, gathered once underneath —
+  // every claim stays checkable, and the prose stays readable.
+  citations?: "per-sentence" | "collected";
 }>) {
   const t = useT();
   return (
@@ -1296,14 +1580,27 @@ function SentenceList({
             </Badge>
           )}{" "}
           {sentence.text}
-          <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
+          {citations === "per-sentence" && (
+            <Citations
+              evidence={sentence.evidence}
+              onOpenRecord={onOpenRecord}
+            />
+          )}
         </li>
       ))}
+      {citations === "collected" && (
+        <li className="co-brief-sources">
+          <Citations
+            evidence={sentences.flatMap((sentence) => sentence.evidence)}
+            onOpenRecord={onOpenRecord}
+          />
+        </li>
+      )}
     </ul>
   );
 }
 
-type BriefSentence = NonNullable<
+export type BriefSentence = NonNullable<
   Brief["sections"]
 >[number]["sentences"][number];
 type BriefSectionKind = NonNullable<Brief["sections"]>[number]["kind"];
@@ -1360,7 +1657,7 @@ function BriefSections({
  * reader weighing a sentence needs to know whether a model or the
  * deterministic fallback wrote it, and the two are not interchangeable.
  */
-function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
+export function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
   const t = useT();
   return (
     <Badge tone={by === "model" ? "ai" : undefined}>
@@ -1410,7 +1707,7 @@ export function AccountBrief({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1421,7 +1718,7 @@ export function AccountBrief({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1476,7 +1773,9 @@ export function AccountBrief({
         </p>
       )}
       {rewrite.isError && (
-        <p className="t-caption form-error">{rewrite.error.message}</p>
+        <p className="t-caption form-error">
+          {problemMessageOf(rewrite.error, t)}
+        </p>
       )}
       {/* What to do about it, in the same block that said what it is. These
           were two cards — one describing the account, one advising on it —
@@ -1587,7 +1886,7 @@ export function AskSection({
         body: { question },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1621,9 +1920,7 @@ export function AskSection({
           {t("co.ask.failed")}
           {/* The server's own detail says WHICH failure — budget exhausted reads
               differently from a malformed request, and a rep can act on one. */}
-          {ask.error instanceof Error && ask.error.message
-            ? ` ${ask.error.message}`
-            : null}
+          {` ${problemMessageOf(ask.error, t)}`}
         </p>
       )}
       {/* The previous answer is hidden while the next question is in flight.
@@ -1685,11 +1982,138 @@ type Health = NonNullable<Organization360["health"]>;
  * A part the server could not compute is ABSENT, never zero. Zero is a claim
  * about the account; absence is a fact about the reading.
  */
-export function HealthCard({ health }: Readonly<{ health?: Health }>) {
+// The rating vocabulary, worst first. The ORDER is the worst-of rule: a
+// verdict is the lowest-ranked rating among the dimensions that have one
+// (PO-AC-N-11).
+// fitStripColumns sets the grid's column count to the number of slots that
+// actually rendered. A fixed template reserves a cell for a reading the account
+// does not have, and an empty cell in a bordered row reads as a figure that
+// failed to load.
+function fitStripColumns(node: HTMLElement | null) {
+  if (!node) {
+    return;
+  }
+  node.style.setProperty("--co-strip-slots", String(node.childElementCount));
+}
+
+const HEALTH_RANK = ["at_risk", "good", "strong"] as const;
+type HealthRating = (typeof HEALTH_RANK)[number];
+
+const HEALTH_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
+  at_risk: "danger",
+  good: "warn",
+  strong: "success",
+};
+
+const HEALTH_DIMENSION_LABEL: Record<
+  "relationship" | "commercial" | "payment",
+  MessageKey
+> = {
+  relationship: "co.health.dim.relationship",
+  commercial: "co.health.dim.commercial",
+  payment: "co.health.dim.payment",
+};
+
+/**
+ * Payment health, read from the finance summary the page already fetches.
+ *
+ * Rated from the median days after due, which is the reading that says how they
+ * PAY rather than what they owe: one late invoice is an exception, a habit is a
+ * habit. Below the sample floor the server sends no median, and this returns
+ * nothing — "pays on time" concluded from four invoices is a claim about a
+ * habit nobody has observed yet.
+ *
+ * Overdue money outranks the median. An account that pays promptly and has
+ * money outstanding right now is at risk today, whatever its habit.
+ */
+function usePaymentHealth(orgId?: string) {
   const t = useT();
+  const { data } = useFinanceSummary(orgId ?? "");
+  if (!orgId || !data) {
+    return undefined;
+  }
+  const overdue = data.overdue?.amount_minor ?? 0;
+  if (overdue > 0) {
+    return {
+      rating: "at_risk" as const,
+      reason: t("co.health.payment.overdue"),
+    };
+  }
+  const median = data.median_days_after_due;
+  if (median == null) {
+    return undefined;
+  }
+  if (median > paymentLateDays) {
+    return {
+      rating: "good" as const,
+      reason: t("co.health.payment.late", { days: median }),
+    };
+  }
+  return {
+    rating: "strong" as const,
+    reason:
+      median < 0
+        ? t("finance.medianEarly", { days: Math.abs(median) })
+        : t("co.health.payment.onTime"),
+  };
+}
+
+// How many days past due a median has to run before it reads as a habit worth
+// naming. Named rather than inlined so the threshold is one number a reader can
+// find and argue with.
+const paymentLateDays = 5;
+
+const HEALTH_RATING_LABEL: Record<HealthRating, MessageKey> = {
+  at_risk: "co.health.rating.atRisk",
+  good: "co.health.rating.good",
+  strong: "co.health.rating.strong",
+};
+
+/**
+ * The account's health as its named dimensions and one verdict over them.
+ *
+ * `overall` is the WORST rating present, never an average: an average lets a
+ * strong relationship hide a payment problem, and payment problems are the ones
+ * a rep must not miss. It is also a sentence a reader can check — "at risk,
+ * because payment is at risk" — where a composite number is not.
+ *
+ * A dimension with no rating is not in the verdict, and the card says how many
+ * it was computed from. Three-of-three and one-of-three are different claims.
+ */
+export function worstOf(
+  dimensions: ReadonlyArray<{ rating?: string } | undefined>,
+): { overall?: HealthRating; rated: number } {
+  const present = dimensions
+    .map((dimension) => dimension?.rating)
+    .filter((rating): rating is HealthRating =>
+      HEALTH_RANK.includes(rating as HealthRating),
+    );
+  if (present.length === 0) {
+    return { rated: 0 };
+  }
+  const worst = HEALTH_RANK.find((rating) => present.includes(rating));
+  return { overall: worst, rated: present.length };
+}
+
+export function HealthCard({
+  health,
+  orgId,
+}: Readonly<{ health?: Health; orgId?: string }>) {
+  const t = useT();
+  // PAYMENT is composed here rather than served with the other two. The finance
+  // mirror is another module's, and a module never imports a sibling — so the
+  // 360 carries relationship and commercial, and the surface that already reads
+  // the finance summary folds in the third. Same query the KPI strip and the
+  // finance card run, so it costs no request and the three cannot disagree.
+  const payment = usePaymentHealth(orgId);
   if (!health) {
     return null;
   }
+  const { overall, rated } = worstOf([
+    health.relationship,
+    health.commercial,
+    payment,
+  ]);
   const lines: string[] = [];
   if (health.days_since_last_inbound != null) {
     lines.push(
@@ -1713,7 +2137,7 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       t("co.health.openCommitments", { count: health.open_commitments }),
     );
   }
-  if (lines.length === 0) {
+  if (lines.length === 0 && rated === 0) {
     return null;
   }
   return (
@@ -1724,6 +2148,42 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       // because "how it stands: nothing" is not a reading of an account.
       emptyLabel={t("co.health.title")}
     >
+      {/* The dimensions lead, each with its rating. A dimension with no rating
+          is absent rather than shown as unknown — absence is a fact about the
+          reading, and a permanently unknown row teaches a reader to skip the
+          card (ADR-0095/A146). */}
+      <ul className="co-health-rows">
+        {(
+          [
+            ["relationship", health.relationship],
+            ["commercial", health.commercial],
+            ["payment", payment],
+          ] as const
+        ).map(([name, dimension]) =>
+          dimension?.rating ? (
+            <li key={name} className="co-health-row">
+              <span>{t(HEALTH_DIMENSION_LABEL[name])}</span>
+              <Badge tone={HEALTH_TONE[dimension.rating as HealthRating]}>
+                {t(HEALTH_RATING_LABEL[dimension.rating as HealthRating])}
+              </Badge>
+              <span className="co-row-meta">{dimension.reason}</span>
+            </li>
+          ) : null,
+        )}
+        {overall && (
+          <li className="co-health-row co-health-overall">
+            <span>{t("co.health.overall")}</span>
+            <Badge tone={HEALTH_TONE[overall]}>
+              {t(HEALTH_RATING_LABEL[overall])}
+            </Badge>
+            {/* How many dimensions the verdict was read from. Three-of-three
+                and one-of-three are different claims. */}
+            <span className="co-row-meta">
+              {t("co.health.ratedOf", { rated })}
+            </span>
+          </li>
+        )}
+      </ul>
       <ul className="co-list">
         {lines.map((line) => (
           <li key={line} className="co-row">
@@ -1765,19 +2225,28 @@ const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the three readings the overview leads with (AC-company-13):
- * where the account stands, whose move it is, and what commercial work is open.
+ * StateStrip is the KPI row directly under the header: SIX slots, and which
+ * six depends on where the account stands. A customer is asked about money and
+ * health; everyone else about pipeline, timing and engagement. Showing one set
+ * to both makes half of them noise.
  *
- * Each half is drawn only when the server answered it. A null engagement means
+ * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
  * from that would state a business conclusion the page has no basis for — the
  * one a rep would act on.
  */
+//
+// What it must never render is the harder half of the rule, and every omission
+// below is one of its bullets: no €0 when the figure is unavailable, no
+// cross-currency sum without its conversion source, and nothing called
+// "revenue" that is only a count of open deals.
 export function StateStrip({
+  orgId,
   view,
   lifecycleLabel,
   relationshipLabels,
 }: Readonly<{
+  orgId: string;
   view?: Organization360;
   lifecycleLabel: (value: string) => string;
   relationshipLabels: (values: readonly string[]) => string;
@@ -1788,56 +2257,541 @@ export function StateStrip({
   if (!strip) {
     return null;
   }
-  const engagement = strip.engagement;
-  const commercial = strip.commercial;
   const types = strip.account.relationship_types ?? [];
+  // A CURRENT customer only. A former one has invoices in its past, but "do
+  // they pay us, and on time?" is not the question their page is opened with,
+  // and leading with a money reading on an account that has stopped buying
+  // reads as though the relationship were still running.
+  const customer = strip.account.lifecycle === "customer";
+  return (
+    <section
+      className="co-strip"
+      aria-label={t("co.strip.title")}
+      // The grid draws exactly the slots this account has. A customer's row is
+      // six; a non-customer with no open signal is five, and a template that
+      // reserved a sixth would leave a grey cell where a reading never was.
+      // Counted from the DOM rather than predicted: several slots return null
+      // on their own (engagement with no grant, pipeline with no deals), so an
+      // expression here would have to restate every one of their conditions and
+      // would drift the moment one changed.
+      ref={fitStripColumns}
+    >
+      {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
+          and how it is held: what they have ever been worth, what lately,
+          what is outstanding, what is late, how late they usually are, and
+          whether the relationship stays that way.
+
+          Where the account STANDS is not among them. The mockups put
+          lifecycle and owner in the header beside the name, and repeating it
+          here would spend a money slot on a value the reader has already
+          passed. On a non-customer there are no invoices to ask about, so the
+          account's own state leads and the row keeps its shape. */}
+      {customer ? (
+        <>
+          {/* Lifetime beside the trailing year, which is the comparison the
+              mockup draws: what this account has ever been worth, and what it
+              has been worth lately. Each refuses on its own — a widened window
+              can be unconvertible while the narrow one is not. */}
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoicedLifetime"
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoiced"
+            namesSource
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="openInvoices"
+            locale={locale}
+            t={t}
+          />
+          {/* What is late, then how late they usually are: the amount is the
+              exception standing open, the median is the habit behind it. */}
+          <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
+          <PaidAfterDueStat orgId={orgId} t={t} />
+          {/* Health closes the row, as the mockup draws it: the money above is
+              what the account IS worth, and this is whether it stays that way. */}
+          <HealthStat health={view?.health} t={t} />
+        </>
+      ) : (
+        <>
+          {/* No invoices to ask about, so the account's own standing leads and
+              the commercial readings follow it. */}
+          <StatCard
+            label={t("co.strip.account")}
+            value={lifecycleLabel(strip.account.lifecycle)}
+            detail={types.length > 0 ? relationshipLabels(types) : undefined}
+          />
+          <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+          <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
+          <HealthStat health={view?.health} t={t} />
+          <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
+          {/* An open signal ADDS a sixth slot rather than replacing one: the
+              worst thing standing open is the most urgent reading on the row.
+              With none open the row is five, because an "all clear" nobody
+              asked for spends a slot saying a rule did not fire. */}
+          {strip.signal ? (
+            <StatCard
+              label={t("co.strip.signal")}
+              value={signalKindLabel(strip.signal.kind, t)}
+              tone={signalTone(strip.signal.severity)}
+              detail={strip.signal.summary}
+            />
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The two finance slots a customer's KPI row carries, in the honest-unknown
+ * state (mockup State B).
+ *
+ * No finance source is connected to this installation yet — the ingestion
+ * module lands separately — so the value is a dash and the detail line says
+ * what would make it a number. It is NOT €0 and NOT "pays on time": both are
+ * conclusions about the customer drawn from the absence of a connector, which
+ * is the one thing §6 State B forbids outright.
+ *
+ * The slot is rendered rather than omitted on purpose. A customer page that
+ * simply has no money reading tells a reader nothing is missing; this one
+ * tells them what to connect.
+ */
+// Which field of the summary each strip slot reads. A map rather than a chain
+// of ternaries so a new slot is one line and cannot silently fall through to
+// the wrong figure.
+const FINANCE_READINGS = {
+  netInvoicedLifetime: (data?: FinanceSummary) => data?.net_invoiced_lifetime,
+  netInvoiced: (data?: FinanceSummary) => data?.net_invoiced,
+  openInvoices: (data?: FinanceSummary) => data?.open_balance,
+  overdue: (data?: FinanceSummary) => data?.overdue,
+} as const;
+
+function FinanceStat({
+  orgId,
+  reading,
+  namesSource,
+  locale,
+  t,
+}: Readonly<{
+  orgId: string;
+  reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
+  // Whether this slot carries the provider badge. True on exactly one slot per
+  // row; see the note beside `source` below.
+  namesSource?: boolean;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  // The SAME query the finance card runs, so every reading on one page agrees
+  // and all but the first cost no request.
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  // A refusal is not a failure and neither is a setup gap. A reader whose role
+  // cannot see finance told to "connect your accounting" is sent to a settings
+  // page to fix a permission — the one thing they cannot fix from there.
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const amount = FINANCE_READINGS[reading](data);
+  const caveat = staleDetailKey(data?.state);
+  // No figure is not €0, and the six reasons there is none are not one reason.
+  // "Connect your accounting" is wrong advice for a connection that exists and
+  // is syncing, stale, errored or unmatched — it sends the reader to set up
+  // something they already have.
+  if (!amount || amount.amount_minor == null || !amount.currency) {
+    return (
+      <StatCard
+        label={t(`co.strip.${reading}`)}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          financeDetailKey({
+            pending: isPending,
+            withheld,
+            failed: isError && !withheld,
+            state: data?.state,
+          }),
+        )}
+      />
+    );
+  }
+  return (
+    <StatCard
+      label={t(`co.strip.${reading}`)}
+      value={formatMoneyCompact(amount.amount_minor, amount.currency, locale)}
+      source={
+        namesSource && data?.provider ? (
+          <Badge>{data.provider}</Badge>
+        ) : undefined
+      }
+      // The source is named ONCE, on the trailing-year slot — the row's
+      // primary money reading, and the one a connected account always has. Which
+      // accounting system a figure came from is a fact about the CONNECTION,
+      // not about each figure, and five slots reading one query would repeat
+      // it five times across a strip that has to stay one line.
+      //
+      // A figure that is not current is shown WITH its caveat rather than
+      // withheld: the last known number is usually the right one, and hiding
+      // it tells the reader less than showing it qualified would.
+      //
+      // The two cases say DIFFERENT things, which is why they are not one
+      // branch. `stale` is a sync that SUCCEEDED, just long enough ago that
+      // the date matters. `error` is the last good answer after an attempt
+      // that failed. Calling either one the other is a wrong claim about
+      // whether anything is broken.
+      detail={caveat && t(caveat)}
+    />
+  );
+}
+
+/**
+ * How late this customer pays, as the strip's sixth slot (FIN-FORM-3).
+ *
+ * Not a FinanceStat: the value is a count of DAYS rather than money, and the
+ * two directions read as opposite facts. A negative median means they pay
+ * BEFORE the due date, so it is rendered as "typically N days early" — the
+ * literal "-4 days after due" is a puzzle rather than a reading.
+ *
+ * A missing median has one reason the money slots do not share: the server
+ * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
+ * payment habit read off four invoices is an anecdote. That case says so.
+ * Delegating it to the money slots' reason would put "Nothing invoiced yet"
+ * beside a lifetime total of €186,420 — two slots on one row contradicting
+ * each other, and the wrong one stating a fact about the account.
+ */
+function PaidAfterDueStat({
+  orgId,
+  t,
+}: Readonly<{ orgId: string; t: ReturnType<typeof useT> }>) {
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const median = data?.median_days_after_due;
+  if (median == null) {
+    // A read that SUCCEEDED against a live connection and still carries no
+    // median is the sample floor. Every other reason — no source, unmapped,
+    // syncing, denied, failed — means the same for this slot as for the money
+    // beside it, so those keep the shared wording.
+    const settled = data?.state === "connected" || data?.state === "stale";
+    return (
+      <StatCard
+        label={t("co.strip.paidAfterDue")}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          settled && !isPending && !isError
+            ? "co.strip.fin.tooFewSettled"
+            : financeDetailKey({
+                pending: isPending,
+                withheld,
+                failed: isError && !withheld,
+                state: data?.state,
+              }),
+        )}
+      />
+    );
+  }
+  const caveat = staleDetailKey(data?.state);
+  return (
+    <StatCard
+      label={t("co.strip.paidAfterDue")}
+      value={medianDaysLabel(median, t)}
+      detail={caveat && t(caveat)}
+    />
+  );
+}
+
+/**
+ * A median days-after-due as a sentence (FIN-FORM-3).
+ *
+ * Negative days mean they pay BEFORE the due date. "-4 days after due" is a
+ * puzzle; "typically 4 days early" is the reading. Shared by the KPI slot and
+ * the finance card so the two cannot come to describe earliness differently —
+ * spelled twice, only one of the copies would be changed.
+ */
+export function medianDaysLabel(
+  median: number,
+  t: ReturnType<typeof useT>,
+): string {
+  return median < 0
+    ? t("finance.medianEarly", { days: Math.abs(median) })
+    : t("finance.medianAfterDue", { days: median });
+}
+
+// The caveat on a figure that IS shown but is not current. Undefined when the
+// figure is current and needs none.
+function staleDetailKey(
+  state?: components["schemas"]["FinanceSummaryState"],
+): MessageKey | undefined {
+  switch (state) {
+    case "stale":
+      return "co.strip.fin.staleFigure";
+    case "error":
+      return "co.strip.fin.errorFigure";
+    case "syncing":
+      // The first pass has not finished, so what is shown may be partial.
+      return "co.strip.fin.syncing";
+    default:
+      return undefined;
+  }
+}
+
+// Why there is no figure, in the reader's terms. Each state has its own fix,
+// and naming the wrong one costs the reader a trip to a settings page they did
+// not need.
+function financeDetailKey({
+  pending,
+  withheld,
+  failed,
+  state,
+}: Readonly<{
+  pending: boolean;
+  withheld: boolean;
+  failed: boolean;
+  state?: components["schemas"]["FinanceSummaryState"];
+}>): MessageKey {
+  if (pending) {
+    return "co.strip.fin.loading";
+  }
+  // Both before the state switch: with no answer there is no state to read,
+  // and guessing one from its absence is how a denial became setup advice.
+  if (withheld) {
+    return "co.strip.fin.withheld";
+  }
+  if (failed) {
+    return "co.strip.fin.error";
+  }
+  switch (state) {
+    case "unmapped":
+      return "co.strip.fin.unmapped";
+    case "syncing":
+      return "co.strip.fin.syncing";
+    case "stale":
+      return "co.strip.fin.staleFigure";
+    case "error":
+      return "co.strip.fin.error";
+    case "connected":
+      // A live, mapped source that produced no figure. Nothing is broken and
+      // there is nothing to set up — we have simply never billed them, or no
+      // invoice could be converted. Setup advice here sends the reader to fix
+      // a connection that is already working.
+      return "co.strip.fin.nothingBilled";
+    default:
+      // no_connection, and the read that never answered. Both mean there is
+      // no source to read, which is the one case the setup advice fits.
+      return "co.strip.fin.noConnection";
+  }
+}
+
+type StripCommercial = NonNullable<
+  NonNullable<Organization360["state_strip"]>["commercial"]
+>;
+
+// Open pipeline, labelled as exactly what it is: the sum of open deals, never
+// "potential" and never "revenue" (§4.2). Absent when nothing on the account
+// carries a convertible figure — a €0 there would claim a priced pipeline
+// worth nothing, where the truth is the page cannot price it.
+function PipelineCard({
+  commercial,
+  locale,
+  t,
+}: Readonly<{
+  commercial?: StripCommercial | null;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!commercial) {
+    return null;
+  }
+  // No open deals is not an unpriced pipeline. Saying "no convertible amount"
+  // about an account that has nothing open reports a data problem where the
+  // truth is simply that nothing is running.
+  if (commercial.open_count === 0) {
+    return (
+      <StatCard
+        label={t("co.strip.pipeline")}
+        value={t("co.strip.noOpenDeals")}
+      />
+    );
+  }
+  const { open_pipeline_minor_base: value, base_currency: currency } =
+    commercial;
+  const stalled =
+    commercial.stalled_count > 0
+      ? t("co.strip.stalled", { count: commercial.stalled_count })
+      : undefined;
+  if (value == null || !currency) {
+    // Open deals with no priceable figure still say how many there are: the
+    // count is a fact, the money is not. The unpriced note is never dropped
+    // for the stalled one — a reader who is told only "1 stalled" has no way
+    // to know the pipeline was never priced at all.
+    return (
+      <StatCard
+        label={t("co.strip.pipeline")}
+        value={t("co.strip.openDeals", { count: commercial.open_count })}
+        detail={join(t("co.strip.unpriced"), stalled)}
+        tone={stalled ? "warn" : undefined}
+      />
+    );
+  }
+  // Everything qualifying this figure travels WITH it. §4.2 forbids a
+  // cross-currency sum without an explicit conversion source and as-of date,
+  // and forbids a total that silently covers only part of the pipeline — so a
+  // partial total names its share, and a converted one names the oldest rate
+  // date standing behind it.
+  const partial = commercial.priced_count < commercial.open_count;
+  const converted =
+    commercial.converted_count > 0 && commercial.fx_as_of
+      ? t("co.strip.convertedAsOf", {
+          count: commercial.converted_count,
+          date: formatDate(commercial.fx_as_of, locale, RECORD_ZONE),
+        })
+      : undefined;
+  return (
+    <StatCard
+      label={t("co.strip.pipeline")}
+      value={formatMoney(value, currency, locale)}
+      tone={stalled ? "warn" : undefined}
+      detail={join(
+        partial
+          ? t("co.strip.pricedPartly", {
+              priced: commercial.priced_count,
+              total: commercial.open_count,
+            })
+          : t("co.strip.openDeals", { count: commercial.open_count }),
+        converted,
+        stalled,
+      )}
+    />
+  );
+}
+
+// One detail line from the parts that apply. A card has room for one, and
+// dropping a part because another is present is how a qualification goes
+// missing exactly when it matters.
+function join(...parts: (string | undefined)[]): string {
+  return parts.filter(Boolean).join(" · ");
+}
+
+// When the next open deal is expected to close. A prospect's page is asked
+// "when?", and the answer is a date on a record rather than an assessment.
+function CloseDateStat({
+  commercial,
+  locale,
+  t,
+}: Readonly<{
+  commercial?: StripCommercial | null;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!commercial?.next_close_on) {
+    return null;
+  }
+  return (
+    <StatCard
+      label={t("co.strip.expectedClose")}
+      value={formatDate(commercial.next_close_on, locale, RECORD_ZONE)}
+    />
+  );
+}
+
+// Health as a STATUS with its reason, never a 0-100 verdict (§4.2). The card
+// below the fold decomposes it; this says which way it points and why.
+//
+// It reports the BALANCE of the exchange rather than its recency, because the
+// engagement card beside it already answers "whose move is it" — two cards
+// saying "in conversation" in different words is one card's worth of
+// information taking two slots of six. A relationship where they write
+// and we do not answer, and one where we write into silence, are both
+// "in conversation" by recency and are opposite problems.
+function HealthStat({
+  health,
+  t,
+}: Readonly<{ health?: Health; t: ReturnType<typeof useT> }>) {
+  if (!health) {
+    return null;
+  }
+  const days = health.days_since_last_inbound;
+  if (days == null) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.noInboundEver")}
+        tone="warn"
+      />
+    );
+  }
+  if (days > HEALTH_QUIET_DAYS) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthQuiet")}
+        tone="warn"
+        detail={t("co.health.sinceInbound", { days })}
+      />
+    );
+  }
+  // A live relationship: say who is carrying it. Below a third of the
+  // exchange coming from them is us talking to ourselves, whatever the dates
+  // say; above two thirds they are asking more than we are answering.
+  const share = health.reply_balance;
+  if (share == null) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthActive")}
+      />
+    );
+  }
+  const percent = Math.round(share * 100);
+  const oneSided = share < 0.34 || share > 0.66;
+  return (
+    <StatCard
+      label={t("co.strip.health")}
+      value={
+        oneSided ? t("co.strip.healthOneSided") : t("co.strip.healthBalanced")
+      }
+      tone={oneSided ? "warn" : undefined}
+      detail={t("co.strip.replyShare", { percent })}
+    />
+  );
+}
+
+// The threshold that separates a live conversation from a quiet one. It names
+// a number the strip states rather than one the reader must infer from a date,
+// and it is deliberately the same span the dormant engagement state uses.
+const HEALTH_QUIET_DAYS = 30;
+
+function EngagementStat({
+  engagement,
+  locale,
+  t,
+}: Readonly<{
+  engagement?: NonNullable<Organization360["state_strip"]>["engagement"];
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!engagement) {
+    return null;
+  }
   const when = (at?: string | null) =>
     at ? formatDate(at, locale, RECORD_ZONE) : undefined;
   return (
-    <section className="co-strip" aria-label={t("co.strip.title")}>
-      <StatCard
-        label={t("co.strip.account")}
-        value={lifecycleLabel(strip.account.lifecycle)}
-        detail={types.length > 0 ? relationshipLabels(types) : undefined}
-      />
-      {engagement && (
-        <StatCard
-          label={t("co.strip.engagement")}
-          value={t(ENGAGEMENT_LABELS[engagement.state])}
-          tone={ENGAGEMENT_TONE[engagement.state]}
-          detail={
-            engagement.last_inbound_at || engagement.last_outbound_at
-              ? t("co.strip.lastBoth", {
-                  inbound:
-                    when(engagement.last_inbound_at) ?? t("co.strip.never"),
-                  outbound:
-                    when(engagement.last_outbound_at) ?? t("co.strip.never"),
-                })
-              : undefined
-          }
-        />
-      )}
-      {strip.signal && (
-        <StatCard
-          label={t("co.strip.signal")}
-          value={signalKindLabel(strip.signal.kind, t)}
-          tone={signalTone(strip.signal.severity)}
-          detail={strip.signal.summary}
-        />
-      )}
-      {commercial && (
-        <StatCard
-          label={t("co.strip.commercial")}
-          value={t("co.strip.openDeals", { count: commercial.open_count })}
-          tone={commercial.stalled_count > 0 ? "warn" : undefined}
-          detail={
-            commercial.stalled_count > 0
-              ? t("co.strip.stalled", { count: commercial.stalled_count })
-              : undefined
-          }
-        />
-      )}
-    </section>
+    <StatCard
+      label={t("co.strip.engagement")}
+      value={t(ENGAGEMENT_LABELS[engagement.state])}
+      tone={ENGAGEMENT_TONE[engagement.state]}
+      detail={
+        engagement.last_inbound_at || engagement.last_outbound_at
+          ? t("co.strip.lastBoth", {
+              inbound: when(engagement.last_inbound_at) ?? t("co.strip.never"),
+              outbound:
+                when(engagement.last_outbound_at) ?? t("co.strip.never"),
+            })
+          : undefined
+      }
+    />
   );
 }
 
@@ -1882,6 +2836,7 @@ export function SuggestionsSection({
   // the deal and the task form all live above it.
   onPerform?: (action: SuggestionAction) => void;
 }>) {
+  const { locale } = useLocale();
   const t = useT();
   const client = useQueryClient();
   const dismiss = useMutation({
@@ -1891,7 +2846,7 @@ export function SuggestionsSection({
         { params: { path: { id: orgId } }, body: { fingerprint } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     // The 360 is the only thing that knows which suggestions survive, so the
@@ -1923,13 +2878,24 @@ export function SuggestionsSection({
         {suggestions.map((suggestion) => (
           <li key={suggestion.fingerprint} className="co-row">
             <span>
+              {/* The title leads where the rule gave one: it says what to DO,
+                  where the kind says which rule fired. Absent on a rule that
+                  named none, and the kind carries the row alone. */}
               <span className="co-suggest-kind">
-                {t(`co.suggest.kind.${suggestion.kind}`)}
+                {suggestion.title ?? t(`co.suggest.kind.${suggestion.kind}`)}
               </span>
               {/* The reason is the suggestion. Everything else is chrome. */}
               <span className="co-suggest-reason">{suggestion.reason}</span>
             </span>
             <span className="co-row-meta">
+              {/* The date the EVIDENCE carries — when the thread went quiet,
+                  when the deal last moved. Never a deadline the system chose,
+                  which is why a rule firing on an absence shows none. */}
+              {suggestion.due_at && (
+                <span>
+                  {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
+                </span>
+              )}
               <Citations
                 evidence={suggestion.evidence}
                 onOpenRecord={onOpenRecord}
@@ -1972,9 +2938,7 @@ export function SuggestionsSection({
       {dismiss.isError && (
         <p className="co-restricted">
           {t("co.suggest.dismissFailed")}
-          {dismiss.error instanceof Error && dismiss.error.message
-            ? ` ${dismiss.error.message}`
-            : null}
+          {` ${problemMessageOf(dismiss.error, t)}`}
         </p>
       )}
     </section>

@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestAvailabilityAndBooking(t *testing.T) {
@@ -32,7 +34,7 @@ func TestAvailabilityAndBooking(t *testing.T) {
 			End   time.Time `json:"end"`
 		} `json:"slots"`
 	}
-	if status := e.call(t, "GET", "/v1/availability?"+window, nil, nil, &avail); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/availability?"+window, nil, nil, &avail); status != http.StatusOK {
 		t.Fatalf("availability → %d", status)
 	}
 	if len(avail.Slots) == 0 {
@@ -50,9 +52,9 @@ func TestAvailabilityAndBooking(t *testing.T) {
 		ID   string `json:"id"`
 		Kind string `json:"kind"`
 	}
-	if status := e.call(t, "POST", "/v1/bookings", anyMap{
+	if status := e.Call(t, "POST", "/v1/bookings", apptest.AnyMap{
 		"start": first.Start, "end": first.End, "subject": "Discovery call",
-		"links": []anyMap{{"entity_type": "person", "entity_id": e.personID}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": e.personID}},
 	}, nil, &booked); status != http.StatusCreated || booked.Kind != "meeting" {
 		t.Fatalf("book → %d %+v", status, booked)
 	}
@@ -61,14 +63,14 @@ func TestAvailabilityAndBooking(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "POST", "/v1/bookings", anyMap{
+	if status := e.Call(t, "POST", "/v1/bookings", apptest.AnyMap{
 		"start": first.Start, "end": first.End,
-		"links": []anyMap{{"entity_type": "person", "entity_id": e.personID}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": e.personID}},
 	}, nil, &problem); status != http.StatusConflict || problem.Code != "slot_taken" {
 		t.Fatalf("double-book → %d %q, want 409 slot_taken", status, problem.Code)
 	}
 	// …and availability no longer proposes it.
-	if status := e.call(t, "GET", "/v1/availability?"+window, nil, nil, &avail); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/availability?"+window, nil, nil, &avail); status != http.StatusOK {
 		t.Fatalf("availability after booking → %d", status)
 	}
 	for _, s := range avail.Slots {
@@ -78,9 +80,9 @@ func TestAvailabilityAndBooking(t *testing.T) {
 	}
 
 	// A link target outside visibility refuses the booking (H1).
-	if status := e.call(t, "POST", "/v1/bookings", anyMap{
+	if status := e.Call(t, "POST", "/v1/bookings", apptest.AnyMap{
 		"start": first.Start.Add(3 * time.Hour), "end": first.End.Add(3 * time.Hour),
-		"links": []anyMap{{"entity_type": "person", "entity_id": "00000000-0000-7000-8000-00000000dead"}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": "00000000-0000-7000-8000-00000000dead"}},
 	}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("booking with invisible link → %d, want 404", status)
 	}

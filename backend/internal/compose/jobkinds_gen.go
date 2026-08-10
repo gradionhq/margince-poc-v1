@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "3b2e71ba1c9a26a7172d9ae43178ff8e5e560714fe61fbff77c2b89390a98406"
+const jobContractHash = "1955c23b18d2e7317dc2735b2f72bcbbc01b021756d19149f58dc23134ca9c43"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -27,6 +27,8 @@ type declaredJobArgs interface {
 
 	AgentSchedulerArgs |
 		AgentSchedulerWorkspaceArgs |
+		AgentTaskRetentionArgs |
+		AgentTaskRetentionWorkspaceArgs |
 		AiModelRateRefreshArgs |
 		CaptureAutoEnrichSweepArgs |
 		CaptureAutoEnrichWorkspaceArgs |
@@ -47,6 +49,8 @@ type declaredJobArgs interface {
 		EmbedDriftWorkspaceArgs |
 		EmbedReindexArgs |
 		EmbedReindexWorkspaceArgs |
+		FinanceSyncArgs |
+		FinanceSyncSweepArgs |
 		FollowUpReconcileArgs |
 		FollowUpWorkspaceArgs |
 		FxRateRefreshArgs |
@@ -113,6 +117,7 @@ func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.Wo
 // no tenant work of its own.
 var (
 	_ jobs.FleetWide = AgentSchedulerArgs{}
+	_ jobs.FleetWide = AgentTaskRetentionArgs{}
 	_ jobs.FleetWide = CaptureAutoEnrichSweepArgs{}
 	_ jobs.FleetWide = CaptureClassifyArgs{}
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
@@ -121,6 +126,7 @@ var (
 	_ jobs.FleetWide = CloseDateSweepArgs{}
 	_ jobs.FleetWide = EmbedDriftSweepArgs{}
 	_ jobs.FleetWide = EmbedReindexArgs{}
+	_ jobs.FleetWide = FinanceSyncSweepArgs{}
 	_ jobs.FleetWide = FollowUpReconcileArgs{}
 	_ jobs.FleetWide = GmailSyncArgs{}
 	_ jobs.FleetWide = GmailWatchArgs{}
@@ -142,6 +148,7 @@ var (
 // pass and says which in its own args.
 var (
 	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = AgentTaskRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}
@@ -154,6 +161,7 @@ var (
 	_ jobs.WorkspaceScoped = SendEmailArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedReindexWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = FinanceSyncArgs{}
 	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}

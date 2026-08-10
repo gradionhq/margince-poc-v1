@@ -8,6 +8,7 @@ import type { Locale } from "../i18n";
 const INTL_LOCALE: Record<Locale, string> = {
   de: "de-DE",
   en: "en-GB", // A100: unconfigured English is en-GB, not en-US
+  vi: "vi-VN",
 };
 
 // Money arrives as integer minor units + ISO currency (data-semantics §1).
@@ -24,6 +25,42 @@ export function formatMoney(
   });
   const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amountMinor / 10 ** digits);
+}
+
+/**
+ * A money figure for a KPI SLOT: €428k rather than €428,000.00.
+ *
+ * The strip gives six readings roughly 110px of usable width each, and a full
+ * euro amount does not fit — it wraps mid-number or clips, and "€201,099.0" is
+ * a different number rather than a smaller rendering of the right one. Both
+ * mockups abbreviate here for the same reason.
+ *
+ * Only where the exact figure is not the point. The finance card below the
+ * strip renders `formatMoney` in full, and it is one scroll away — this is the
+ * scale of the account, that is the amount.
+ *
+ * Under 10,000 it stays exact: "€8,332" is as short as "€8k" and says more.
+ */
+export function formatMoneyCompact(
+  amountMinor: number,
+  currency: string,
+  locale: Locale,
+): string {
+  const probe = new Intl.NumberFormat(INTL_LOCALE[locale], {
+    style: "currency",
+    currency,
+  });
+  const digits = probe.resolvedOptions().maximumFractionDigits ?? 2;
+  const major = amountMinor / 10 ** digits;
+  return new Intl.NumberFormat(INTL_LOCALE[locale], {
+    style: "currency",
+    currency,
+    // `compact` only kicks in at 1000; below 10_000 the long form is no wider
+    // and carries every digit, so the threshold is where abbreviating buys
+    // something.
+    notation: Math.abs(major) >= 10_000 ? "compact" : "standard",
+    maximumFractionDigits: Math.abs(major) >= 10_000 ? 1 : 0,
+  }).format(major);
 }
 
 export function formatNumber(value: number, locale: Locale): string {

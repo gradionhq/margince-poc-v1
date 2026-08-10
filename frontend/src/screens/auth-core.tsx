@@ -7,11 +7,12 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import type { components } from "../api/schema";
+import { ThemeToggle } from "../app/theme-toggle";
 import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
-import { useTypeStream } from "../design-system/motion";
+import { useDocumentIntro, useTypeStream } from "../design-system/motion";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -111,12 +112,26 @@ export function AuthExperience({
   profile?: AssistantProfile;
   phase: AuthPhase;
 }>) {
+  // The entry choreography belongs to the page load, not to this mount: every
+  // animation below — the staggered rows, the typed statement — is gated on it,
+  // so a remount renders the surface already arrived. See useDocumentIntro.
+  const intro = useDocumentIntro();
   return (
-    <div className="auth-surface" data-auth-phase={phase}>
-      <main className="auth-task">
+    <div
+      className="auth-surface"
+      data-auth-phase={phase}
+      data-auth-intro={intro ? "play" : "done"}
+    >
+      {/* A div, NOT a <main>. The frame that hosts this surface already opens a
+          <main> (App.tsx's RaillessFrame), and a nested main is invalid HTML that
+          puts two "main" entries in a screen reader's landmark rotor — so the
+          user is asked to choose between two things claiming to be the one main
+          region. The task region's own identity comes from being the first thing
+          in the DOM (see the order note above), not from the tag. */}
+      <div className="auth-task">
         <div className="auth-task-in">{children}</div>
         <LegalFooter />
-      </main>
+      </div>
       <IdentityRegion profile={profile} phase={phase} />
     </div>
   );
@@ -151,10 +166,17 @@ function LegalFooter() {
           contradict (VOICE-RULE-7). It must also not read as a control, which is
           why it is not inside the links group. */}
       <p>{t("auth.legalProtected")}</p>
+      {/* The bottom row is the surface's chrome row, and the theme control is
+          chrome: it changes how this page looks and claims nothing about the
+          organization. It sits after the two links, behind a separator, so the
+          legal sentence above still reads as a statement and not as a control.
+          The row already wraps, so the extra item cannot widen the surface. */}
       <span className="auth-legal-links">
         <a href="/legal/terms">{t("auth.legalTerms")}</a>
         <span className="auth-legal-sep" aria-hidden />
         <a href="/legal/privacy">{t("auth.legalPrivacy")}</a>
+        <span className="auth-legal-sep" aria-hidden />
+        <ThemeToggle />
       </span>
     </div>
   );
@@ -208,7 +230,6 @@ export function IdentityRegion({
       <aside className="auth-identity" aria-labelledby={identityId}>
         <div className="auth-identity-copy">
           <p className="auth-kicker" id={identityId}>
-            <span className="auth-kicker-dot" aria-hidden />
             {t("auth.coreDisclosure")}
           </p>
 
@@ -271,10 +292,17 @@ export function IdentityRegion({
  * no caret.
  */
 function TypedStatement({ text }: Readonly<{ text: string }>) {
-  const { shown, done } = useTypeStream(text, {
+  // Typed once per page load, exactly like the fades around it: a statement
+  // that retypes itself under a reader who has already read it says the page
+  // reloaded, and nothing did. A remount lands on the finished sentence.
+  const intro = useDocumentIntro();
+  const stream = useTypeStream(text, {
     speed: typeSpeedFor(text),
     startDelay: TYPE_START_MS,
+    enabled: intro,
   });
+  const shown = intro ? stream.shown : text;
+  const done = intro ? stream.done : true;
   return (
     <p className="auth-statement">
       <span className="sr-only">{text}</span>
@@ -287,33 +315,6 @@ function TypedStatement({ text }: Readonly<{ text: string }>) {
       </span>
     </p>
   );
-}
-
-/**
- * The disclosure that survives the phone layout.
- *
- * Below 561px the surface is the task alone and `aside.auth-identity` is gone,
- * which would otherwise take every word about the AI with it — the Core that
- * remains is `aria-hidden` decoration (WDS-CORE-4), so a phone user, and every
- * screen-reader user on one, would be told nothing at all. Decision 1 does not
- * get to lapse at a breakpoint.
- *
- * The boundary statement is the one line that carries it: it is the limit the
- * system states about itself in the first person, so it discloses the AI and
- * bounds it in the same sentence.
- *
- * It sits in the task column rather than inside `.auth-card` so that ONE
- * insertion covers login, forgot, reset, the outcome notices and the
- * unavailable screen. The wide layout hides it in CSS, which keeps it out of
- * the accessibility tree entirely there — the aside is already saying it, and
- * saying it twice would be worse than not saying it here.
- *
- * Static, with no typewriter: the animated one belongs to the identity region,
- * and two streams of the same sentence would be reading it twice.
- */
-export function PhoneDisclosure() {
-  const t = useT();
-  return <p className="auth-phone-disclosure">{t("auth.coreBoundary")}</p>;
 }
 
 function RuntimePosture({ profile }: Readonly<{ profile: AssistantProfile }>) {

@@ -20,13 +20,15 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // publicCall hits the API with NO cookie jar and NO workspace header —
 // the anonymous booker's actual shape.
 //
 //craft:ignore naked-any generic JSON test helper: body and out are each call's own shape
-func publicCall(t *testing.T, e *env, method, path string, body any, headers map[string]string, out any) int {
+func publicCall(t *testing.T, e *apptest.AppEnv, method, path string, body any, headers map[string]string, out any) int {
 	t.Helper()
 	var reqBody io.Reader
 	if body != nil {
@@ -36,7 +38,7 @@ func publicCall(t *testing.T, e *env, method, path string, body any, headers map
 		}
 		reqBody = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequest(method, e.ts.URL+path, reqBody)
+	req, err := http.NewRequest(method, e.TS.URL+path, reqBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,11 +46,11 @@ func publicCall(t *testing.T, e *env, method, path string, body any, headers map
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := e.ts.Client().Do(req)
+	resp, err := e.TS.Client().Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -63,10 +65,10 @@ func publicCall(t *testing.T, e *env, method, path string, body any, headers map
 
 // bookingSlug reads the bootstrap-seeded page slug through the owner
 // connection (booking_page is the non-RLS resolver).
-func bookingSlug(t *testing.T, e *env) string {
+func bookingSlug(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var slug string
-	if err := e.owner.QueryRow(context.Background(), `SELECT slug FROM booking_page`).Scan(&slug); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT slug FROM booking_page`).Scan(&slug); err != nil {
 		t.Fatalf("reading the seeded booking page: %v", err)
 	}
 	return slug
@@ -84,7 +86,7 @@ func nextMonday() time.Time {
 // seededTransactionalPurposeID reads the bootstrap-seeded consent
 // catalog as the admin session and resolves the transactional purpose
 // the booker will consent to.
-func seededTransactionalPurposeID(t *testing.T, e *env) string {
+func seededTransactionalPurposeID(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var purposes struct {
 		Data []struct {
@@ -92,7 +94,7 @@ func seededTransactionalPurposeID(t *testing.T, e *env) string {
 			Key string `json:"key"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
 		t.Fatalf("purposes → %d", status)
 	}
 	var purposeID string
@@ -109,7 +111,7 @@ func seededTransactionalPurposeID(t *testing.T, e *env) string {
 
 // assertAnonymousAvailability checks the no-session availability read:
 // 200 with free/busy slots only, and an unknown slug reads as absent.
-func assertAnonymousAvailability(t *testing.T, e *env, base, window string) {
+func assertAnonymousAvailability(t *testing.T, e *apptest.AppEnv, base, window string) {
 	t.Helper()
 	// Anonymous availability: 200, free/busy slots only.
 	var avail struct {
@@ -134,27 +136,27 @@ func assertAnonymousAvailability(t *testing.T, e *env, base, window string) {
 // assertBookingRequiresValidConsent checks consent is validated before
 // any write: no consent and a bogus purpose are both 422s that leave
 // zero person rows behind.
-func assertBookingRequiresValidConsent(t *testing.T, e *env, base string, monday time.Time) {
+func assertBookingRequiresValidConsent(t *testing.T, e *apptest.AppEnv, base string, monday time.Time) {
 	t.Helper()
 	// A booking without consent is refused before any write.
-	noConsent := anyMap{
+	noConsent := apptest.AnyMap{
 		"start": monday.Add(1 * time.Hour), "end": monday.Add(90 * time.Minute),
-		"booker": anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"booker": apptest.AnyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
 	}
 	if status := publicCall(t, e, "POST", base, noConsent, nil, nil); status != 422 {
 		t.Fatalf("booking without consent → %d, want 422", status)
 	}
 	// A bogus purpose is refused before any write too.
-	badPurpose := anyMap{
+	badPurpose := apptest.AnyMap{
 		"start": monday.Add(1 * time.Hour), "end": monday.Add(90 * time.Minute),
-		"booker":  anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
-		"consent": anyMap{"purpose_id": "018f0000-0000-7000-8000-000000000000", "policy_version": "pp-2026-01"},
+		"booker":  apptest.AnyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"consent": apptest.AnyMap{"purpose_id": "018f0000-0000-7000-8000-000000000000", "policy_version": "pp-2026-01"},
 	}
 	if status := publicCall(t, e, "POST", base, badPurpose, nil, nil); status != 422 {
 		t.Fatalf("booking with unknown purpose → %d, want 422", status)
 	}
 	var persons int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&persons); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&persons); err != nil {
 		t.Fatal(err)
 	}
 	if persons != 0 {
@@ -166,13 +168,13 @@ func assertBookingRequiresValidConsent(t *testing.T, e *env, base string, monday
 // else disclosed) plus a second slot under a case-folded email,
 // asserting the booker lands as ONE person. Returns the first booking
 // body so the taken slot can be re-posted.
-func bookHappyPathSlot(t *testing.T, e *env, base string, monday time.Time, consent anyMap) anyMap {
+func bookHappyPathSlot(t *testing.T, e *apptest.AppEnv, base string, monday time.Time, consent apptest.AnyMap) apptest.AnyMap {
 	t.Helper()
 	// The happy path: 201 with the slot and NOTHING else.
-	booking := anyMap{
+	booking := apptest.AnyMap{
 		"start": monday.Add(1 * time.Hour), "end": monday.Add(90 * time.Minute),
 		"subject": "Intro call",
-		"booker":  anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"booker":  apptest.AnyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
 		"consent": consent,
 	}
 	var confirmation map[string]any
@@ -184,16 +186,16 @@ func bookHappyPathSlot(t *testing.T, e *env, base string, monday time.Time, cons
 	}
 
 	// The booker exists once; a second booking re-uses the person.
-	second := anyMap{
+	second := apptest.AnyMap{
 		"start": monday.Add(3 * time.Hour), "end": monday.Add(3*time.Hour + 30*time.Minute),
-		"booker":  anyMap{"name": "Anna Anonymous", "email": "ANNA@visitor.example"},
+		"booker":  apptest.AnyMap{"name": "Anna Anonymous", "email": "ANNA@visitor.example"},
 		"consent": consent,
 	}
 	if status := publicCall(t, e, "POST", base, second, nil, nil); status != http.StatusCreated {
 		t.Fatalf("second booking → %d", status)
 	}
 	var persons int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&persons); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&persons); err != nil {
 		t.Fatal(err)
 	}
 	if persons != 1 {
@@ -205,12 +207,12 @@ func bookHappyPathSlot(t *testing.T, e *env, base string, monday time.Time, cons
 // assertBookingProofAndProvenance checks the consent proof carries the
 // passthrough verbatim under the system principal, and the meeting's
 // provenance is the public surface — never "manual".
-func assertBookingProofAndProvenance(t *testing.T, e *env) {
+func assertBookingProofAndProvenance(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	// The consent proof carries the passthrough verbatim, attributed to
 	// the system principal; the audit stream owns the whole capture.
 	var policyVersion, policyText, source, actorType string
-	if err := e.owner.QueryRow(context.Background(), `
+	if err := e.Owner.QueryRow(context.Background(), `
 		SELECT policy_version, policy_text, source,
 		       (SELECT actor_type FROM audit_log WHERE action = 'consent_grant' LIMIT 1)
 		FROM consent_event LIMIT 1`).Scan(&policyVersion, &policyText, &source, &actorType); err != nil {
@@ -224,7 +226,7 @@ func assertBookingProofAndProvenance(t *testing.T, e *env) {
 
 	// The meeting's provenance is the public surface, never "manual".
 	var activitySource string
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT source FROM activity WHERE kind = 'meeting' LIMIT 1`).Scan(&activitySource); err != nil {
 		t.Fatal(err)
 	}
@@ -236,27 +238,27 @@ func assertBookingProofAndProvenance(t *testing.T, e *env) {
 // assertWithdrawalStandsAgainstBooking covers the consent-hijack guard:
 // a withdrawal on record STANDS — an anonymous booking naming the same
 // email may proceed but cannot flip the state back to granted.
-func assertWithdrawalStandsAgainstBooking(t *testing.T, e *env, base string, monday time.Time, purposeID string, consent anyMap) {
+func assertWithdrawalStandsAgainstBooking(t *testing.T, e *apptest.AppEnv, base string, monday time.Time, purposeID string, consent apptest.AnyMap) {
 	t.Helper()
 	var annaID string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM person`).Scan(&annaID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM person`).Scan(&annaID); err != nil {
 		t.Fatal(err)
 	}
-	if status := e.call(t, "POST", "/v1/people/"+annaID+"/consent", anyMap{
+	if status := e.Call(t, "POST", "/v1/people/"+annaID+"/consent", apptest.AnyMap{
 		"purpose_id": purposeID, "new_state": "withdrawn",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("withdraw → %d", status)
 	}
-	fourth := anyMap{
+	fourth := apptest.AnyMap{
 		"start": monday.Add(7 * time.Hour), "end": monday.Add(7*time.Hour + 30*time.Minute),
-		"booker":  anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"booker":  apptest.AnyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
 		"consent": consent,
 	}
 	if status := publicCall(t, e, "POST", base, fourth, nil, nil); status != http.StatusCreated {
 		t.Fatalf("booking after withdrawal → %d (the booking may proceed; the consent flip may not)", status)
 	}
 	var stateAfter string
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`,
 		annaID, purposeID).Scan(&stateAfter); err != nil {
 		t.Fatal(err)
@@ -272,12 +274,12 @@ func assertWithdrawalStandsAgainstBooking(t *testing.T, e *env, base string, mon
 // another (see idempotentOperations' exemption). A keyed retry therefore
 // re-executes and the slot's natural key refuses it — a duplicate meeting
 // never lands, but neither does a stranger's recorded response.
-func assertIdempotencyKeyNotClaimed(t *testing.T, e *env, base string, monday time.Time, consent anyMap) {
+func assertIdempotencyKeyNotClaimed(t *testing.T, e *apptest.AppEnv, base string, monday time.Time, consent apptest.AnyMap) {
 	t.Helper()
 	replayKey := map[string]string{"Idempotency-Key": "public-replay-1"}
-	third := anyMap{
+	third := apptest.AnyMap{
 		"start": monday.Add(5 * time.Hour), "end": monday.Add(5*time.Hour + 30*time.Minute),
-		"booker":  anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"booker":  apptest.AnyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
 		"consent": consent,
 	}
 	if status := publicCall(t, e, "POST", base, third, replayKey, nil); status != http.StatusCreated {
@@ -290,7 +292,7 @@ func assertIdempotencyKeyNotClaimed(t *testing.T, e *env, base string, monday ti
 		t.Fatalf("keyed retry → %d %q, want 409 slot_taken (the header is ignored on the anonymous edge; the slot guard refuses the duplicate)", status, problem.Code)
 	}
 	var meetings int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM activity WHERE kind = 'meeting'`).Scan(&meetings); err != nil {
 		t.Fatal(err)
 	}
@@ -300,8 +302,8 @@ func assertIdempotencyKeyNotClaimed(t *testing.T, e *env, base string, monday ti
 }
 
 func TestPublicBookingEndToEnd(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	slug := bookingSlug(t, e)
 	monday := nextMonday()
 	purposeID := seededTransactionalPurposeID(t, e)
@@ -312,7 +314,7 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	assertAnonymousAvailability(t, e, base, window)
 	assertBookingRequiresValidConsent(t, e, base, monday)
 
-	consent := anyMap{"purpose_id": purposeID, "policy_version": "pp-2026-01", "wording": "You agree we may contact you about this meeting."}
+	consent := apptest.AnyMap{"purpose_id": purposeID, "policy_version": "pp-2026-01", "wording": "You agree we may contact you about this meeting."}
 	booking := bookHappyPathSlot(t, e, base, monday, consent)
 	assertBookingProofAndProvenance(t, e)
 	assertWithdrawalStandsAgainstBooking(t, e, base, monday, purposeID, consent)
@@ -331,13 +333,13 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 // The anonymous surface is throttled per slug: a flood of booking posts
 // meets 429 long before it meets the calendar.
 func TestPublicBookingRateLimited(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	slug := bookingSlug(t, e)
 
 	last := 0
 	for i := 0; i < 21; i++ {
-		last = publicCall(t, e, "POST", "/v1/public/booking/"+slug, anyMap{}, nil, nil)
+		last = publicCall(t, e, "POST", "/v1/public/booking/"+slug, apptest.AnyMap{}, nil, nil)
 	}
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("21st burst booking → %d, want 429", last)

@@ -10,9 +10,9 @@ import { EvidenceChip, toEvidence } from "../design-system/trust";
 import { useT } from "../i18n";
 import {
   OverlayUnavailable,
-  problemMessage,
   QueryGate,
   type QueryLike,
+  throwProblem,
   useSorMode,
 } from "./common";
 import { EntityRef } from "./entityref";
@@ -50,7 +50,7 @@ export function RecordContextPanel({
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

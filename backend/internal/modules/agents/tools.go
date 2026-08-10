@@ -38,14 +38,17 @@ type StageResolver interface {
 }
 
 // RegisterCoreTools wires the §2.1 CRUD set over one provider: the 🟢
-// tools, `advance_deal` (🟢→🟡 dynamic), and the first two 🟡
-// confirm-first tools now that the approval loop can carry them —
-// `archive_record` and `promote_lead`. run_report joins when the compiled
-// report engine lands; merge/disqualify/enrich/send join with their
-// underlying verbs. The two write-shaped §2.2 intents that compose over
-// the SAME provider + stage seams — `qualify_lead` and `progress_deal` —
-// register here too; the read/draft intents have their own seams
-// (RegisterIntentTools, RegisterSlippingTools).
+// tools, `advance_deal` (🟢→🟡 dynamic), and the 🟡 confirm-first tools the
+// approval loop carries — `archive_record`, `promote_lead` and
+// `merge_records`. The two write-shaped §2.2 intents that compose over the
+// SAME provider + stage seams — `qualify_lead` and `progress_deal` —
+// register here too; the read/draft intents and the lifecycle transitions
+// have their own seams (RegisterIntentTools, RegisterSlippingTools,
+// RegisterLifecycleTools).
+//
+// Every verb the contract declares with `x-mcp-tool` is registered by one of
+// those functions. A declared verb with no tool is not a gap to describe here:
+// TestEveryDeclaredToolVerbIsRegistered fails the build for it.
 func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter, ownership FieldOwnership) {
 	r.Register(searchRecords{p: p})
 	r.Register(readRecord{p: p})
@@ -80,15 +83,19 @@ type searchRecords struct {
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "search_records", Title: "Search records", Version: toolVersionV1,
+		Description:   searchRecordsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
+		// The cross-object search operation, not the per-type list ones: those
+		// declare list_records now, and naming them here would leave the two
+		// tools claiming one operation family between them.
+		OpenAPIOp: "search",
 		InputSchema: schema(`{"type":"object","properties":{
-			"q":{"type":"string","description":"Full-text query over names/titles"},
+			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
 			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[SearchRecordsResult](),
 	}
 }
 
@@ -110,7 +117,7 @@ func (t searchRecords) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(searchResult(res))
+	return json.Marshal(searchResult(ctx, res))
 }
 
 type wireRecord struct {
@@ -132,7 +139,14 @@ type wireRecord struct {
 // output — every read/search/read-back rides it, so the external trust
 // taint is stamped uniformly and can never be silently dropped by one
 // call site again.
-func newWireRecord(rec datasource.Record) wireRecord {
+//
+// It takes the context for the same reason it stamps that taint. The result
+// envelope has to say what the answer rests on and how fresh it is, and this is
+// the one point where the record, its ref and its freshness are all in hand — so
+// a tool cannot serve a record without sourcing it, and a tool written next year
+// inherits both properties by calling the function it was going to call anyway.
+func newWireRecord(ctx context.Context, rec datasource.Record) wireRecord {
+	noteRecord(ctx, rec)
 	w := wireRecord{
 		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
 	}
@@ -142,16 +156,12 @@ func newWireRecord(rec datasource.Record) wireRecord {
 	return w
 }
 
-func searchResult(res datasource.SearchResult) map[string]any {
+func searchResult(ctx context.Context, res datasource.SearchResult) SearchRecordsResult {
 	records := make([]wireRecord, 0, len(res.Records))
 	for _, r := range res.Records {
-		records = append(records, newWireRecord(r))
+		records = append(records, newWireRecord(ctx, r))
 	}
-	out := map[string]any{"records": records}
-	if res.NextCursor != "" {
-		out["next_cursor"] = res.NextCursor
-	}
-	return out
+	return SearchRecordsResult{Records: records, NextCursor: res.NextCursor}
 }
 
 // --- read_record (🟢 read) ---
@@ -163,13 +173,14 @@ type readRecord struct {
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "read_record", Title: "Read a record", Version: toolVersionV1,
+		Description:   readRecordCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"id":{"type":"string","format":"uuid"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -185,7 +196,7 @@ func (t readRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(newWireRecord(rec))
+	return json.Marshal(newWireRecord(ctx, rec))
 }
 
 // --- create_record (🟢 write, reversible) ---
@@ -197,13 +208,14 @@ type createRecord struct {
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
+		Description:   createRecordCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
-			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes, createRecordShapes)) + `}},
+			"fields":{"type":"object","description":` + jsonString(recordFieldsDescription) + `}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -238,6 +250,7 @@ type logActivity struct {
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "log_activity", Title: "Log an activity", Version: toolVersionV1,
+		Description:   logActivityCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		// The two vocabularies are SPLICED from the contract, never spelled
@@ -259,7 +272,7 @@ func (t logActivity) Spec() mcp.ToolSpec {
 				"description":"What the activity is about. Omit it and the activity is stored unattached to any record — it will not appear on a person's, company's or deal's timeline."},
 			"source_system":{"type":"string"},"source_id":{"type":"string"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -294,6 +307,7 @@ type advanceDeal struct {
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "advance_deal", Title: "Advance a deal to a stage", Version: toolVersionV1,
+		Description:   advanceDealCopy.render(),
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,
@@ -305,20 +319,8 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
-}
-
-// advanceDealTier is the invocation-time exception (A34/ADR-0026): open→
-// open moves are 🟢, moves onto a won/lost stage are 🟡 — money and
-// irreversibility. The resolver may only ever RAISE: anything that is not
-// provably an open-semantic target resolves 🟡, so an unknown or
-// malformed semantic fails toward the approval gate, never away from it.
-func advanceDealTier(in mcp.TierResolverInput) mcp.RiskTier {
-	if in.TargetStageSemantic == "open" {
-		return mcp.TierAutoExecute
-	}
-	return mcp.TierConfirmationRequired
 }
 
 // ResolverInput reads the target stage's semantic from pipeline config —
@@ -329,11 +331,7 @@ func (t advanceDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mcp
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{Args: in, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, so an
@@ -357,7 +355,7 @@ func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	}
 	return StageInfo{
 		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Close deal %s as %s", recordLabel(rec), semantic),
+		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
 	}, nil
 }
 
@@ -366,12 +364,16 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	pin, err := pinForWrite(ctx, args.IfVersion)
+	if err != nil {
+		return nil, err
+	}
 	ref, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  args.IfVersion,
+		IfVersion:  pin,
 	})
 	if err != nil {
 		return nil, err
@@ -383,9 +385,16 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 // needs the post-write state (server-derived fields, bumped version)
 // without a second round-trip.
 func readBack(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (json.RawMessage, error) {
+	return marshalResult(readBackRecord(ctx, p, ref))
+}
+
+// readBackRecord is the same read, answered as the record rather than as its
+// bytes — for the callers that carry it INSIDE a larger result and would
+// otherwise have to splice one encoded document into another.
+func readBackRecord(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (wireRecord, error) {
 	rec, err := p.Read(ctx, ref)
 	if err != nil {
-		return nil, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
+		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return json.Marshal(newWireRecord(rec))
+	return newWireRecord(ctx, rec), nil
 }

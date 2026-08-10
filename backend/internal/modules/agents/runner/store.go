@@ -122,6 +122,54 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) e
 	})
 }
 
+// FailStuckRuns closes the runs that were claimed and then abandoned — a row
+// left in 'running' with nothing alive to finish it — and returns the ids it
+// closed so the caller can name them.
+//
+// Such a run is not recoverable, only accountable, which is why this is a sweep
+// and not a retry. ClaimSuspendedByApproval is deliberately one-way, so a resume
+// that dies — a process killed mid-loop, or a terminal write that failed after
+// the claim — leaves the row 'running' and nothing redelivers it: a second
+// delivery finds no awaiting_approval row and correctly declines to start a
+// second loop of a mutation a human approved once.
+//
+// grace is measured against the DATABASE clock, and deliberately not against the
+// caller's. Every writer of updated_at stamps now() inside the transaction, so a
+// cutoff computed on a worker host whose time had run ahead would compare two
+// unrelated clocks and fail runs that were still executing. Only 'running' is
+// swept: 'awaiting_approval' waits on a human and may wait indefinitely.
+func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason string) ([]ids.UUID, error) {
+	// A grace of zero means "fail every running run", which is one character away
+	// from a plausible edit to the caller's constant. The check is on the
+	// MICROSECONDS the statement will actually use, not on the duration: an
+	// interval is the finest thing Postgres can compare, so a sub-microsecond
+	// grace truncates to zero and lands on that same everything-is-abandoned
+	// cutoff while reading as a positive duration in Go.
+	graceMicros := grace.Microseconds()
+	if graceMicros <= 0 {
+		return nil, fmt.Errorf("runner: stuck-run grace must be at least a microsecond, got %s", grace)
+	}
+	var swept []ids.UUID
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			UPDATE agent_run
+			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
+			 WHERE status = 'running'
+			   AND updated_at < now() - ($1 * interval '1 microsecond')
+			RETURNING id`, graceMicros, reason)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		swept, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runner: fail stuck runs: %w", err)
+	}
+	return swept, nil
+}
+
 // SuspendedRun is a parked run keyed by its approval — what the
 // approval.decided consumer needs to resume it.
 type SuspendedRun struct {

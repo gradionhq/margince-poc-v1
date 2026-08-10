@@ -30,24 +30,24 @@ import (
 // one: one model call, pending drops to 0, and the binding marker is not
 // touched (the sweep is not a reindex and must never stamp the marker).
 func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-current")
 	identity, _ := embedder.EmbedIdentity()
 
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	embeddedID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Embedded Person', 'manual', 'human:x')`)
-	if _, err := e.store.UpsertEmbedding(e.Admin(), "person", embeddedID, "Embedded Person", embedder); err != nil {
+	embeddedID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Embedded Person', 'manual', 'human:x')`)
+	if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", embeddedID, "Embedded Person", embedder); err != nil {
 		t.Fatalf("seeding the already-embedded baseline: %v", err)
 	}
-	lostID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lost Event Person', 'manual', 'human:x')`)
+	lostID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lost Event Person', 'manual', 'human:x')`)
 	baselineCalls := len(fake.Calls())
 
-	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	healed, err := e.Store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
 		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 		t.Fatalf("lost entity's embedding model = %q, want %q", got, identity)
 	}
 
-	pending, err := e.store.EntitiesPending(ctx, identity)
+	pending, err := e.Store.EntitiesPending(ctx, identity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 		t.Fatalf("EntitiesPending = %d, want 0 after the sweep", pending)
 	}
 
-	populated, status, _, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 
 	// A second pass over a healed store is a no-op — the sweep is safe to
 	// tick forever.
-	healed, err = e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	healed, err = e.Store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
 		t.Fatalf("second SweepWorkspaceEmbeddingDrift: %v", err)
 	}
@@ -94,20 +94,20 @@ func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 // that state is the operator's preview→confirm rebuild to trigger, never
 // the sweep's (ADR-0069 §3a keeps the consent gate exactly there).
 func TestSweepWorkspaceEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-new")
 
-	if err := e.store.SeedBinding(ctx, "provider/model-old@1024"); err != nil {
+	if err := e.Store.SeedBinding(ctx, "provider/model-old@1024"); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unswept Person', 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unswept Person', 'manual', 'human:x')`)
 
 	// The refusal only proves anything if there was real pending work to
 	// refuse — healed==0 over an empty pending set is vacuous.
 	identity, _ := embedder.EmbedIdentity()
-	pending, err := e.store.EntitiesPending(ctx, identity)
+	pending, err := e.Store.EntitiesPending(ctx, identity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSweepWorkspaceEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
 	}
 
-	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	healed, err := e.Store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
 		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}
@@ -132,23 +132,23 @@ func TestSweepWorkspaceEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 // the store for that window, and the sweep re-running underneath it would
 // double-walk the same pending set for nothing.
 func TestSweepWorkspaceEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-current")
 	identity, _ := embedder.EmbedIdentity()
 
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity}, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
-	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Mid Reindex Person', 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Mid Reindex Person', 'manual', 'human:x')`)
 
 	// The wait-out only proves anything if the sweep had real pending work
 	// it chose not to touch — healed==0 over an empty set is vacuous.
-	pending, err := e.store.EntitiesPending(ctx, identity)
+	pending, err := e.Store.EntitiesPending(ctx, identity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestSweepWorkspaceEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
 		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
 	}
 
-	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	healed, err := e.Store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
 		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}

@@ -10,11 +10,25 @@ import (
 )
 
 // linkTarget is one arm of activity_link's polymorphic reference: the
-// record type as activity_link.entity_type spells it, and the column that
-// holds the id for that arm.
+// record type as activity_link.entity_type spells it, the column that
+// holds the id for that arm, and the column that holds the record's
+// display name.
+//
+// The name half is carried HERE rather than beside the one read that
+// projects it, so a record type joining the vocabulary cannot be added
+// without answering what a human calls it. A struct literal missing a
+// field is a compile error; a lookup table somewhere else is a thing to
+// forget.
+//
+// The TABLE is not carried beside it: each of these record types lives in a
+// table named for it, so a second spelling would be nothing but a chance to
+// disagree with the first.
 type linkTarget struct {
 	kind   datasource.RecordType
 	column string
+	// nameColumn is where the display name lives. All five spell it
+	// differently, which is exactly why it is written down.
+	nameColumn string
 }
 
 // linkTargets is the module's whole vocabulary for the timeline link, in
@@ -24,11 +38,11 @@ type linkTarget struct {
 // schema and forgotten here fails that gate rather than surfacing as a 422
 // on the one code path nobody exercised.
 var linkTargets = []linkTarget{
-	{datasource.RecordPerson, "person_id"},
-	{datasource.RecordOrganization, "organization_id"},
-	{datasource.RecordDeal, "deal_id"},
-	{datasource.RecordLead, "lead_id"},
-	{datasource.RecordProject, "project_id"},
+	{datasource.RecordPerson, "person_id", "full_name"},
+	{datasource.RecordOrganization, "organization_id", "display_name"},
+	{datasource.RecordDeal, "deal_id", "name"},
+	{datasource.RecordLead, "lead_id", "full_name"},
+	{datasource.RecordProject, "project_id", "name"},
 }
 
 // linkColumn resolves a wire entity_type to its id column. The empty
@@ -63,6 +77,31 @@ func buildLinkIDCoalesce(alias string) string {
 		cols = append(cols, t.column)
 	}
 	return "coalesce(" + strings.Join(cols, ", ") + ")"
+}
+
+// linkNameCoalesce projects the display name of whichever record a link row
+// points at, built from the same ordered vocabulary as the id expression
+// above so the two cannot come to disagree about which arms exist.
+//
+// Correlated subqueries rather than five LEFT JOINs: coalesce stops at the
+// first non-null, and exactly one arm of a link row is ever set, so this
+// reads one row from one table however wide the vocabulary grows. A join per
+// arm would read five.
+//
+// IT PROJECTS A NAME THE CALLER IS ALREADY ENTITLED TO. Every caller pairs
+// this with auth.LinkTargetVisibleClause, which drops a link row whose target
+// is out of the caller's row scope — so a name reached from a surviving row
+// belongs to a record that caller may read. Used without that clause it would
+// be a disclosure, which is why no caller here spells one without the other.
+//
+// alias names the activity_link table in the caller's query.
+func linkNameCoalesce(alias string) string {
+	arms := make([]string, 0, len(linkTargets))
+	for _, t := range linkTargets {
+		arms = append(arms, sprintf("(SELECT t.%s FROM %s t WHERE t.id = %s.%s)",
+			t.nameColumn, t.kind, alias, t.column))
+	}
+	return "coalesce(" + strings.Join(arms, ", ") + ")"
 }
 
 // linkVocabulary renders the accepted types for an error a human has to act

@@ -5,6 +5,17 @@
 @import "./design-system/brand.css";
 @import "./design-system/base.css";
 
+/* The document is not a scroller here. `.app` is exactly one viewport tall and
+   every screen scrolls inside its own pane, so a gesture that runs past the end
+   of a pane has nowhere to chain to — and a root that still answers it bounces
+   the entire app upward and shows a band of bare ground beneath it. Declared on
+   the root rather than on each pane because it is a fact about the SHELL: no
+   surface in this product scrolls the document, so none of them should be able
+   to make it move. Panes that must not chain say `contain` for themselves. */
+html {
+  overscroll-behavior: none;
+}
+
 body {
   font-family: var(--f-body);
   font-size: 14px;
@@ -13,4 +24,81 @@ body {
   background: var(--bgPage);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/*
+ * The interaction colours the BROWSER owns — the text cursor, the tick in a
+ * checkbox, the scrollbar thumb, the selection highlight. Left alone they are the
+ * platform's blue, which is the one place a themed product still shows someone
+ * else's brand, and on a dark surface the platform's own scrollbar chrome fights
+ * the palette rather than joining it.
+ *
+ * Declared at the root because these properties INHERIT — with one exception,
+ * `scrollbar-width`, which does not and is therefore declared on every element
+ * below. A component that wants different can still say so locally
+ * (`.mw-artifact` and the conversation thread already hide their scrollbars this
+ * way, and a class selector outranks both rules here).
+ */
+:root {
+  caret-color: var(--accent);
+  /* A block caret rather than a bar. Two things to know before changing it: it
+     OCCLUDES the glyph at the insertion point, because the block is opaque accent
+     and is drawn over the character — verified on screen, not assumed — and it is
+     Chromium-only for now, so other engines keep the bar. Both are why it is one
+     line in one place. */
+  caret-shape: block;
+  /* Native controls that have an accent of their own: checkbox and radio ticks,
+     range thumbs, progress fills. This replaces the same declaration repeated in
+     three screens — see quotas.css and onboarding-facts.css, now redundant. */
+  accent-color: var(--accent);
+  /* Thumb, then track. The track is TRANSPARENT rather than --bgPage on purpose:
+     a scroller is not always on the page surface — the rail is a dark green field
+     in both themes, and a code block has its own fill — so naming a colour here
+     would mismatch every scroller that is not on the page background. Transparent
+     shows whatever is actually behind it and cannot be wrong. */
+  scrollbar-color: var(--accent) transparent;
+}
+
+/*
+ * The thin scrollbar, on EVERY scroller.
+ *
+ * `scrollbar-width` is the one property in the block above that does not
+ * inherit, so declaring it on `:root` alone styled the document scroller and
+ * nothing else: every in-app scroller — the content area, the rail, a capped
+ * card — kept the platform's default-width bar next to a thumb that was already
+ * painted in the accent. The universal selector carries zero specificity, so a
+ * scroller that deliberately hides its bar (`scrollbar-width: none` on
+ * `.mw-artifact`, the conversation thread) still wins.
+ */
+*,
+::backdrop {
+  scrollbar-width: thin;
+}
+
+/* Selected text reads as the accent holding it, in both themes: --bgPage on
+   --accent measures 5.21:1 in light and 5.37:1 in dark, so the selection is legible
+   rather than merely visible. Spelled for form controls too — a selection inside an
+   input is the same selection, and some engines will not inherit the pseudo. */
+::selection {
+  color: var(--bgPage);
+  background: var(--accent);
+}
+input::selection,
+textarea::selection {
+  color: var(--bgPage);
+  background: var(--accent);
+}
+
+/* Keeps a control's text colour under its own control. WebKit/Blink paint text
+   through -webkit-text-fill-color when it is set, and it overrides `color`
+   silently — most visibly on an autofilled field, where the UA sets its own. */
+input,
+textarea,
+select {
+  -webkit-text-fill-color: currentColor;
+}
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--textPrimary);
 }

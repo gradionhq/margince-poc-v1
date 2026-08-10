@@ -3,11 +3,16 @@ import { Building2, CheckCircle2, History, Mail, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button } from "../design-system/atoms";
+import { Button, Radio } from "../design-system/atoms";
 import { formatDuration } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ProblemError, problemCode, throwProblem } from "./common";
+import {
+  ProblemError,
+  problemCode,
+  problemMessageOf,
+  throwProblem,
+} from "./common";
 
 // The bounded connect-time backfill (ADR-0063): pick a window, see the scope
 // BEFORE anything spends (ADR-0020 preview-before-spend — the estimate card
@@ -222,9 +227,13 @@ export function BackfillPanel({
         narrowing={narrowing}
         previewPending={preview.isPending}
         previewData={preview.data}
-        previewErrorMessage={preview.isError ? preview.error.message : null}
+        previewErrorMessage={
+          preview.isError ? problemMessageOf(preview.error, t) : null
+        }
         startPending={start.isPending}
-        startErrorMessage={start.isError ? start.error.message : null}
+        startErrorMessage={
+          start.isError ? problemMessageOf(start.error, t) : null
+        }
         onStart={() => start.mutate(window)}
         onSkip={() => setSkipped(true)}
       />
@@ -235,7 +244,7 @@ export function BackfillPanel({
     <RunView
       run={run}
       cancelling={cancel.isPending}
-      cancelError={cancel.isError ? cancel.error.message : null}
+      cancelError={cancel.isError ? problemMessageOf(cancel.error, t) : null}
       onCancel={() => cancel.mutate()}
     />
   );
@@ -301,15 +310,13 @@ function BackfillSetup({
         aria-label={t("backfill.windowLabel")}
       >
         {WINDOWS.map((w) => (
-          <label key={w.value} className="backfill-window">
-            <input
-              type="radio"
-              name="backfill-window"
-              checked={window === w.value}
-              onChange={() => onWindowChange(w.value)}
-            />
-            {t(w.label)}
-          </label>
+          <Radio
+            key={w.value}
+            name="backfill-window"
+            checked={window === w.value}
+            onChange={() => onWindowChange(w.value)}
+            label={t(w.label)}
+          />
         ))}
       </div>
       {previewPending && !previewData && (

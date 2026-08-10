@@ -13,7 +13,12 @@ import {
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import "./network.css";
-import { OverlayUnavailable, problemMessage, useSorMode } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessageOf,
+  throwProblem,
+  useSorMode,
+} from "./common";
 
 // The two relationship-graph cards (ADR-0078).
 //
@@ -65,7 +70,7 @@ async function fetchPersonNetwork(
     params: { path: { id } },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -75,7 +80,7 @@ async function fetchDealCoverage(id: string): Promise<DealCoverage> {
     params: { path: { id } },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -101,11 +106,7 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="80%" />}
       {!overlay && query.isError && (
-        <EmptyState>
-          {query.error instanceof Error
-            ? query.error.message
-            : t("common.error")}
-        </EmptyState>
+        <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
       )}
       {!overlay && query.isSuccess && colleagues.length === 0 && (
         <EmptyState>{t("network.empty")}</EmptyState>
@@ -158,11 +159,7 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="60%" />}
       {!overlay && query.isError && (
-        <EmptyState>
-          {query.error instanceof Error
-            ? query.error.message
-            : t("common.error")}
-        </EmptyState>
+        <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
       )}
       {/* No findings is a RESULT, not an empty state. A deal that passes every
           coverage rule has earned a sentence saying so — a blank card reads as

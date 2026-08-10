@@ -26,6 +26,73 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// lockOrder is the ONE order in which any statement that row-locks more than
+// one `approval` may take those locks.
+//
+// Two transactions that lock a shared set of rows in the same total order
+// cannot deadlock; two that lock it in different orders eventually will, and
+// PostgreSQL resolves that by aborting one of them with 40P01 — a 500 for
+// whichever caller lost, on a decision or a re-proposal that was otherwise
+// perfectly valid. That is not hypothetical here: a bundle decision locks every
+// member of one bundle, and a re-proposal of the same act locks the rows it
+// joins, so the two meet on the same rows routinely.
+//
+// (created_at, id) rather than created_at alone, because created_at is a
+// timestamp two rows staged in one transaction share exactly. An order with
+// ties is not a total order, and the ties are precisely the rows a single
+// staging pass creates together — the ones most likely to be locked as a set.
+//
+// TestEveryMultiRowApprovalLockTakesTheCanonicalOrder holds every locking
+// statement in this package to it.
+const lockOrder = `ORDER BY created_at, id`
+
+// LockPendingGroupInTx takes, in the canonical order, every row lock an act
+// that stages a GROUP of proposals against one target is going to need.
+//
+// A batch stager locks one row per member as it goes, in whatever order its
+// payload happens to be in — the order a website lists its team page, say. The
+// per-statement order is right for each statement and wrong for the
+// transaction: nothing makes the sequence agree with the order a concurrent
+// bundle decision walks the same rows in. Taking the whole set up front, here,
+// is what makes those two agree, and every later statement in the act then
+// finds rows this transaction already holds rather than acquiring a new lock in
+// payload order.
+//
+// EVERY KIND THE ACT STAGES, in ONE statement, which is why kinds is variadic
+// and not a second call. A site read stages the company's facts and the people
+// its team page published, and re-proposing REBUNDLES what it joins — so a
+// bundle holds members of both kinds with different ages, and a decision walks
+// them in one interleaved (created_at, id) sequence. Locking one kind and then
+// the other is two ordered runs, which is not one order: the decision can hold
+// a lead this act wants while waiting for a facts row this act holds.
+//
+// The predicate is deliberately WIDER than any one member's — kinds and target
+// alone — so it is a superset of what the joins, the rebundle and the
+// supersession touch FOR THE KINDS IT NAMES. It says nothing about a kind the
+// caller did not name, which is the whole reason the deepread act names both of
+// its own. `now()` is transaction time, so the set locked here is the set those
+// later statements resolve — with the one exception READ COMMITTED always
+// leaves: a row another transaction commits afterwards is visible to them and
+// not held by this. Serializing the stagers of one group is what would close
+// that, at the cost of running them one at a time, and it is not closed here.
+func (s *Service) LockPendingGroupInTx(ctx context.Context, tx pgx.Tx, targetID ids.UUID, kinds ...string) error {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("crmapprovals: no workspace bound to context")
+	}
+	if len(kinds) == 0 {
+		return errors.New("crmapprovals: a group pre-lock that names no kind locks nothing")
+	}
+	if _, err := tx.Exec(ctx, `SELECT id FROM approval
+		 WHERE workspace_id = $1 AND kind = ANY($2) AND target_entity_id IS NOT DISTINCT FROM $3
+		   AND status = 'pending' AND expires_at > now()
+		 `+lockOrder+`
+		 FOR UPDATE`, wsID, kinds, nullUUID(targetID)); err != nil {
+		return fmt.Errorf("lock the pending proposals this act will re-propose: %w", err)
+	}
+	return nil
+}
+
 // stageOrJoinPendingInTx serializes one proposal identity and returns its live
 // pending approval when another worker already staged it. The transaction
 // lock covers the empty-set case that a row lock cannot protect, so replicas
@@ -148,9 +215,9 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 // decision the human actually made: this record, this proposed value.
 func declinedProbeSQL(byIdentity bool) string {
 	const prefix = `SELECT status FROM approval
-		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND `
+		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND `
 	const suffix = `
-		 ORDER BY created_at
+		 ` + lockOrder + `
 		 FOR UPDATE`
 	if byIdentity {
 		return prefix + `proposed_change @> $4` + suffix
@@ -195,7 +262,7 @@ func (s *Service) RejectedChangesForTx(ctx context.Context, tx pgx.Tx, kind stri
 	rows, err := tx.Query(ctx, `
 		SELECT status, proposed_change FROM approval
 		 WHERE kind = $1 AND target_entity_id = $2
-		 ORDER BY created_at
+		 `+lockOrder+`
 		 FOR UPDATE`, kind, targetID)
 	if err != nil {
 		return nil, fmt.Errorf("lock the offers for this proposal: %w", err)
@@ -279,7 +346,7 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 		if byIdentity {
 			discriminator = in.Identity
 		}
-		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, in.TargetID, discriminator)
+		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, nullUUID(in.TargetID), discriminator)
 		if err != nil {
 			return fmt.Errorf("lock the prior offers for this proposal: %w", err)
 		}

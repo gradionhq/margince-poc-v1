@@ -3,17 +3,15 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import {
   Avatar,
   Badge,
   Button,
-  DataTable,
   Disclosure,
   EmptyState,
   Modal,
-  OverflowMenu,
   SectionHeader,
   SegmentedControl,
   Skeleton,
@@ -36,72 +34,74 @@ import {
 import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { taskWriteKeys } from "./activitykeys";
-import { ArchiveAction } from "./archive";
-import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   LoadMoreButton,
-  problemMessage,
+  problemMessageOf,
   provenanceOf,
   QueryGate,
   QueryStates,
+  siteReadKindLabel,
   throwProblem,
   useSorMode,
   useViewerId,
 } from "./common";
 import {
-  AccountBrief,
   DealsCard,
-  HealthCard,
-  NextSteps,
   type Org360Result,
   OverlayFallback,
   PeopleCard,
   RECORD_ZONE,
-  SignalsCard,
   StateStrip,
-  type SuggestionAction,
   TagsCard,
   useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
-import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
+import { CompanyApprovalsPanel } from "./companyapprovals";
+import { CompanyCommercialCard } from "./companycommercial";
+import { CompanyDocumentsCard } from "./companydocuments";
+import { DossierPanel } from "./companydossier";
+import { type CitedRecord, EvidenceModal } from "./companyevidence";
+import { CompanyFinanceCard } from "./companyfinance";
+import { GrowthFitPanel } from "./companygrowthfit";
+import {
+  CompanyActionBadges,
+  CompanyChips,
+  CompanyDescription,
+  CompanyPrimaryActions,
+  CompanyPulse,
+  CompanyStanding,
+} from "./companyheader";
+import { CompanyRail } from "./companyrail";
+import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
 import {
   CreateAction,
   type CreateField,
   type FormRows,
-  joinMultiselectValue,
   splitMultiselectValue,
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
-import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import {
+  EvidenceVerdict,
+  factClaim,
+  profileFieldClaim,
+} from "./evidenceverdict";
 import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
 import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
 import { mergeChronology } from "./history.logic";
 import { confidenceLevel } from "./inbox";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
-import { LogActivityAction } from "./logactivity";
-import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
-import { ShareAction } from "./share";
-import {
-  TaskDetailModal,
-  TaskQuickActions,
-  useTaskUpdate,
-} from "./taskactions";
 import { groupChronology } from "./timelinegroups";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -119,7 +119,7 @@ type Organization = components["schemas"]["Organization"];
 type Lifecycle = NonNullable<Organization["lifecycle"]>;
 type RelationshipType = NonNullable<Organization["relationship_types"]>[number];
 
-const LIFECYCLE_LABELS: Record<Lifecycle, MessageKey> = {
+export const LIFECYCLE_LABELS: Record<Lifecycle, MessageKey> = {
   unknown: "org.lifecycle.unknown",
   target: "org.lifecycle.target",
   prospect: "org.lifecycle.prospect",
@@ -129,7 +129,7 @@ const LIFECYCLE_LABELS: Record<Lifecycle, MessageKey> = {
   disqualified: "org.lifecycle.disqualified",
 };
 
-const RELATIONSHIP_TYPE_LABELS: Record<RelationshipType, MessageKey> = {
+export const RELATIONSHIP_TYPE_LABELS: Record<RelationshipType, MessageKey> = {
   customer: "org.relType.customer",
   partner: "org.relType.partner",
   supplier: "org.relType.supplier",
@@ -173,7 +173,7 @@ async function fetchOrganizationsPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -190,7 +190,7 @@ function stringField(value: unknown): string {
 
 // Merge-target search (P-2): mirrors searchPeopleTargets (people.tsx) — the
 // caller filters out the source row.
-async function searchOrgTargets(
+export async function searchOrgTargets(
   q: string,
 ): Promise<{ id: string; name: string }[]> {
   const { data, error } = await api.GET("/organizations", {
@@ -307,7 +307,73 @@ export function mapOrgUpdate(
       stringField(values.relationship_types),
     ) as NonNullable<UpdateOrganizationRequest["relationship_types"]>;
   }
+  // Nullable rather than trim-to-undefined, and for the same reason the
+  // relationship set is: clearing a LinkedIn URL is an edit. `|| undefined`
+  // would read a deletion as "the caller did not mention it" and put the old
+  // value straight back.
+  if (values.linkedin_url !== undefined) {
+    body.linkedin_url = stringField(values.linkedin_url).trim() || null;
+  }
+  const address = addressPatch(values);
+  if (address) {
+    body.address = address;
+  }
   return body;
+}
+
+// The six columns behind Address, flattened into form fields. The wire shape is
+// one nested object; the form channel is flat string values, so the two are
+// mapped at the boundary (addressFrom / addressPatch) rather than teaching the
+// form about nesting for one record type.
+const ADDRESS_FIELDS: CreateField[] = [
+  { key: "address_line1", label: "create.addressLine1" },
+  { key: "address_line2", label: "create.addressLine2" },
+  { key: "address_postal_code", label: "create.postalCode" },
+  { key: "address_city", label: "create.city" },
+  { key: "address_region", label: "create.region" },
+  { key: "address_country", label: "create.country" },
+];
+
+// addressFrom prefills the six flat fields from the record's nested address.
+export function addressFrom(
+  address: Organization["address"],
+): Record<string, string> {
+  return {
+    address_line1: address?.line1 ?? "",
+    address_line2: address?.line2 ?? "",
+    address_postal_code: address?.postal_code ?? "",
+    address_city: address?.city ?? "",
+    address_region: address?.region ?? "",
+    address_country: address?.country ?? "",
+  };
+}
+
+// addressPatch folds the six flat fields back into the wire's nested object.
+//
+// A cleared field is sent as null rather than omitted: the caller had the value
+// on screen and erased it, which is an edit. Omitting it would silently keep
+// what the record held — the failure mode where a user deletes a line, saves,
+// and finds it back on reload.
+//
+// The whole object is omitted only when the form never rendered the fields at
+// all, so a surface that does not offer the address cannot blank one.
+function addressPatch(
+  values: Record<string, unknown>,
+): UpdateOrganizationRequest["address"] | undefined {
+  if (values.address_line1 === undefined) {
+    return undefined;
+  }
+  const field = (key: string) => stringField(values[key]).trim() || null;
+  return {
+    line1: field("address_line1"),
+    line2: field("address_line2"),
+    postal_code: field("address_postal_code"),
+    city: field("address_city"),
+    region: field("address_region"),
+    // ISO-3166 alpha-2, and the server compares on the canonical spelling, so
+    // "de" typed in lower case is the same country as "DE".
+    country: stringField(values.address_country).trim().toUpperCase() || null,
+  };
 }
 
 const companyCreateFields: CreateField[] = [
@@ -418,6 +484,16 @@ export function companyEditFields(
         label: t(RELATIONSHIP_TYPE_LABELS[value]),
       })),
     },
+    // The company's own LinkedIn page. A canonical column since ADR-0085/A130,
+    // not a custom field, because it carries identity semantics — matching,
+    // dedupe, enrichment — and the person side already treats it that way. The
+    // server normalizes what is pasted, so a URL copied from any tab of the
+    // company page resolves to the one spelling.
+    { key: "linkedin_url", label: "create.linkedinUrl" },
+    // Where the company actually is. It has been in the API since the record
+    // existed and reachable from no form on this page, so a rep who knew the
+    // address had nowhere to put it.
+    ...ADDRESS_FIELDS,
     {
       key: "domains",
       label: "org.domains",
@@ -453,90 +529,83 @@ export function CompaniesScreen() {
     initialSort: "-created_at",
     fetchPage: fetchOrganizationsPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.companies")} />
-        <div className="list-head-actions">
-          <Button small onClick={() => navigate({ screen: "partners" })}>
-            {t("nav.partners")}
-          </Button>
-          <CreateAction
-            label={t("create.company")}
-            invalidate="organizations"
-            screen="companies"
-            create={(values, rows) =>
-              createCompany(values, rows, cf.toBody(values), t)
-            }
-            resolveExisting={(_code, id) => ({ screen: "companies", id })}
-            fields={[...companyCreateFields, ...cf.formFields]}
-          />
-        </div>
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[
-          { value: "display_name", label: "org.name" },
-          { value: "-created_at", label: "list.sortNewest" },
+      <ListTable
+        state={state}
+        unit="unit.companies"
+        action={
+          <>
+            <Button small onClick={() => navigate({ screen: "partners" })}>
+              {t("nav.partners")}
+            </Button>
+            <CreateAction
+              label={t("create.company")}
+              invalidate="organizations"
+              screen="companies"
+              create={(values, rows) =>
+                createCompany(values, rows, cf.toBody(values), t)
+              }
+              resolveExisting={(_code, id) => ({ screen: "companies", id })}
+              fields={[...companyCreateFields, ...cf.formFields]}
+            />
+          </>
+        }
+        columns={[
+          {
+            key: "name",
+            header: t("org.name"),
+            cell: (org: Organization) => (
+              <span className="avatar-row">
+                <Avatar name={org.display_name} src={org.logo_url} tinted />
+                <strong>{org.display_name}</strong>
+                {org.archived_at && (
+                  <Badge tone="warn">{t("record.archived")}</Badge>
+                )}
+              </span>
+            ),
+            sort: "display_name",
+            fixed: true,
+          },
+          {
+            key: "industry",
+            header: t("org.industry"),
+            cell: (org: Organization) => org.industry ?? "",
+          },
+          {
+            key: "size",
+            header: t("org.size"),
+            cell: (org: Organization) => org.size_band ?? "",
+          },
+          {
+            key: "class",
+            header: t("org.lifecycle"),
+            // classification is retired and no longer written by anything,
+            // so a column reading it would show whatever it happened to
+            // hold when the split shipped, forever.
+            cell: (org: Organization) =>
+              org.lifecycle && org.lifecycle !== "unknown" ? (
+                <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
+              ) : null,
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (org: Organization) => (
+              <ProvenanceTag
+                provenance={provenanceOf(org.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(org) => org.id}
+        rowRoute={(org) => ({ screen: "companies", id: org.id })}
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewAZ", sort: "display_name" },
         ]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("org.name"),
-                render: (org: Organization) => (
-                  <span className="avatar-row">
-                    <Avatar name={org.display_name} src={org.logo_url} tinted />
-                    <strong>{org.display_name}</strong>
-                    {org.archived_at && (
-                      <Badge tone="warn">{t("record.archived")}</Badge>
-                    )}
-                  </span>
-                ),
-              },
-              {
-                key: "industry",
-                header: t("org.industry"),
-                render: (org: Organization) => org.industry ?? "",
-              },
-              {
-                key: "size",
-                header: t("org.size"),
-                render: (org: Organization) => org.size_band ?? "",
-              },
-              {
-                key: "class",
-                header: t("org.lifecycle"),
-                // classification is retired and no longer written by anything,
-                // so a column reading it would show whatever it happened to
-                // hold when the split shipped, forever.
-                render: (org: Organization) =>
-                  org.lifecycle && org.lifecycle !== "unknown" ? (
-                    <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
-                  ) : null,
-              },
-              {
-                key: "provenance",
-                header: t("people.capturedBy"),
-                render: (org: Organization) => (
-                  <ProvenanceTag
-                    provenance={provenanceOf(org.captured_by, viewerId)}
-                  />
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(org) => org.id}
-            onRowClick={(org) => navigate({ screen: "companies", id: org.id })}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }
@@ -554,7 +623,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -574,7 +643,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
       </div>
       {enrich.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {enrich.error instanceof Error ? enrich.error.message : null}
+          {problemMessageOf(enrich.error, t)}
         </p>
       )}
       {enrich.data && (
@@ -665,20 +734,6 @@ const SITE_READ_SKIP_LABELS: Record<
   unreadable: "deepread.skipUnreadable",
 };
 
-const SITE_READ_KIND_LABELS: Record<
-  components["schemas"]["SiteReadPage"]["kind"],
-  MessageKey
-> = {
-  home: "deepread.kindHome",
-  impressum: "deepread.kindImpressum",
-  about: "deepread.kindAbout",
-  team: "deepread.kindTeam",
-  services: "deepread.kindServices",
-  products: "deepread.kindProducts",
-  contact: "deepread.kindContact",
-  other: "deepread.kindOther",
-};
-
 // Trims the scheme and clamps long paths so the pages/skips lists stay
 // scannable; the full URL survives on the title attribute.
 function shortUrl(url: string): string {
@@ -729,7 +784,7 @@ function SiteReadPanel({
         { params: { path: { id: orgId, readId } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -748,7 +803,7 @@ function SiteReadPanel({
   if (reportQuery.isError) {
     return (
       <p className="t-caption" style={{ color: "var(--danger)" }}>
-        {reportQuery.error.message}
+        {problemMessageOf(reportQuery.error, t)}
       </p>
     );
   }
@@ -839,7 +894,7 @@ function SiteReadPanel({
           >
             {report.pages.map((page) => (
               <li key={page.url}>
-                <Badge>{t(SITE_READ_KIND_LABELS[page.kind])}</Badge>{" "}
+                <Badge>{siteReadKindLabel(page.kind, t)}</Badge>{" "}
                 <span className="t-mono" title={page.url}>
                   {shortUrl(page.url)}
                 </span>
@@ -894,10 +949,13 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
         { params: { path: { id: orgId } } },
       );
       if (error) {
-        throw new Error(
+        // 501 means the crawl seam is unwired, which the server states in its
+        // own terms and the card states in the reader's. Either way this stays
+        // a problem, so the render below can tell it from a bug in here.
+        throwProblem(
           response.status === 501
-            ? t("deepread.unavailable")
-            : problemMessage(error),
+            ? { title: t("deepread.unavailable") }
+            : error,
         );
       }
       return data;
@@ -915,7 +973,7 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
       </div>
       {start.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {start.error instanceof Error ? start.error.message : null}
+          {problemMessageOf(start.error, t)}
         </p>
       )}
       {readId && <SiteReadPanel orgId={orgId} readId={readId} />}
@@ -945,7 +1003,7 @@ async function fetchHierarchyRollup(
     if (error.code === "fx_rate_unavailable") {
       throw new FxUnavailableError();
     }
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -976,7 +1034,7 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
     if (rollupQuery.error instanceof FxUnavailableError) {
       return <EmptyState>{t("rollup.fxUnavailable")}</EmptyState>;
     }
-    return <EmptyState>{rollupQuery.error.message}</EmptyState>;
+    return <EmptyState>{problemMessageOf(rollupQuery.error, t)}</EmptyState>;
   }
 
   const rollup = rollupQuery.data;
@@ -1090,11 +1148,17 @@ function profileFieldLabel(field: string, t: ReturnType<typeof useT>): string {
 }
 
 function ProfileFieldRow({
+  orgId,
   field,
   onOpenHistory,
-}: Readonly<{ field: CompanyProfileField; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  field: CompanyProfileField;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const canEdit = useCan("organization", "update");
   return (
     <div className="co-field">
       <span className="t-label">{profileFieldLabel(field.field, t)}</span>
@@ -1103,6 +1167,15 @@ function ProfileFieldRow({
           value={field.value}
           source={derivedSource(field, locale)}
           onOpenHistory={onOpenHistory}
+        />
+        {/* The verdict beside the value, not inside the mark: the mark says
+            where the value came from, and this says what the reader makes of
+            it. Folding the second into the first would hide the only action on
+            the page that stops a wrong extraction being rewritten tomorrow. */}
+        <EvidenceVerdict
+          orgId={orgId}
+          claim={profileFieldClaim(orgId, field)}
+          canEdit={canEdit}
         />
       </div>
     </div>
@@ -1127,7 +1200,7 @@ function ProfileFieldsCard({
         { params: { path: { id: orgId } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data ?? [];
     },
@@ -1143,6 +1216,7 @@ function ProfileFieldsCard({
           (fieldsQuery.data ?? []).map((field) => (
             <ProfileFieldRow
               key={field.field}
+              orgId={orgId}
               field={field}
               onOpenHistory={onOpenHistory}
             />
@@ -1190,11 +1264,17 @@ const FACT_SUSPECT_LABELS: Record<FactSuspectReason, MessageKey> = {
 };
 
 function FactRow({
+  orgId,
   fact,
   onOpenHistory,
-}: Readonly<{ fact: OrganizationFact; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  fact: OrganizationFact;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const canEdit = useCan("organization", "update");
   return (
     <div className="co-field">
       <span className="t-label">{t(factFieldLabelKey(fact.field))}</span>
@@ -1215,6 +1295,14 @@ function FactRow({
             </Badge>
           </span>
         )}
+        {/* A flagged fact is exactly the one a reader should be able to fix
+            without leaving the page — the flag says the machine doubts itself,
+            and only a person can settle it. */}
+        <EvidenceVerdict
+          orgId={orgId}
+          claim={factClaim(orgId, fact)}
+          canEdit={canEdit}
+        />
       </div>
     </div>
   );
@@ -1224,9 +1312,14 @@ function FactRow({
 // asks for the rest, and the count of what is hidden is on the button — a
 // truncated list with no number reads as "that is everything".
 function FactCategory({
+  orgId,
   group,
   onOpenHistory,
-}: Readonly<{ group: FactGroup; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  group: FactGroup;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const hidden = group.facts.length - FACT_PREVIEW;
@@ -1239,6 +1332,7 @@ function FactCategory({
       {shown.map((fact) => (
         <FactRow
           key={`${fact.field}:${fact.value_key}`}
+          orgId={orgId}
           fact={fact}
           onOpenHistory={onOpenHistory}
         />
@@ -1266,7 +1360,7 @@ function FactsCard({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data ?? [];
     },
@@ -1297,6 +1391,7 @@ function FactsCard({
       {groupFacts(facts).map((group) => (
         <FactCategory
           key={group.category}
+          orgId={orgId}
           group={group}
           onOpenHistory={onOpenHistory}
         />
@@ -1305,17 +1400,23 @@ function FactsCard({
   );
 }
 
-// Two tabs, not three. The company view is ONE scrolling page: the
-// relationship edges and the hierarchy roll-up moved into its rails, where a
-// rep reads them alongside everything else instead of hunting for them.
+// Overview · People · History · Documents, as both mockups draw the strip.
+// `timeline` IS the mockup's History — it presents as "Verlauf"/"History" and
+// carries the account's chronology; the id stays as it is because it is in
+// every saved URL. The audit spine is still not a tab: it is an inspection of
+// the record rather than part of its story, and it opens from the header's
+// overflow menu.
 //
-// History is no longer one of them. Field changes belong in the account's own
-// chronology (the timeline's Changes filter), and the audit spine is an
-// inspection of the record rather than part of its story — it opens from the
-// header's overflow menu. A tab of equal weight beside the account's story
-// said the two were the same kind of question. Partner stays a tab: it is a
-// form, not a reading of this account.
-const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
+// Documents is a tab rather than only a card because the mockup gives files
+// their own place in the strip, and the card cannot hold the table it draws.
+// Partner stays a tab: it is a form, not a reading of this account.
+const COMPANY_TABS = [
+  "overview",
+  "people",
+  "timeline",
+  "documents",
+  "partner",
+] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // Partner is not a permanent tab. It renders the partner programme —
@@ -1339,7 +1440,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview", "people", "timeline"] as const);
+    : (["overview", "people", "timeline", "documents"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1358,213 +1459,6 @@ type ChangesQuery = ReturnType<typeof useFieldHistory>;
 // The company's edit form. Its own component because it owns three reads the
 // rest of the action bar has no use for — the custom-field catalogue, the user
 // roster behind the owner picker, and the record slice they prefill.
-function CompanyEditAction({
-  org,
-  overlay,
-}: Readonly<{ org: Organization; overlay: boolean }>) {
-  const t = useT();
-  const cf = useObjectCustomFields("organization");
-  const roster = useRoster("user", true);
-  // The roster hook serves users and teams alike, so narrow to the entries
-  // that actually carry a person's name rather than asserting the shape.
-  const owners = (roster.data ?? []).flatMap((entry) =>
-    "display_name" in entry
-      ? [{ id: entry.id, display_name: entry.display_name }]
-      : [],
-  );
-  // The roster is one page of 200. An owner outside it — a big workspace, a
-  // deactivated user — would leave the prefilled select showing a blank it
-  // cannot resolve, and since the select is required once an owner is set,
-  // saving anything else would then force a reassignment nobody asked for.
-  if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
-    owners.push({ id: org.owner_id, display_name: t("co.owner.notInRoster") });
-  }
-  return (
-    <EditAction
-      label={t("record.edit")}
-      notice={overlay ? t("overlay.partialWriteBack") : undefined}
-      fields={[
-        ...companyEditFields(owners, Boolean(org.owner_id), t),
-        ...cf.formFields,
-      ]}
-      record={{
-        id: org.id,
-        version: org.version,
-        display_name: org.display_name,
-        owner_id: org.owner_id ?? "",
-        legal_name: org.legal_name ?? "",
-        industry: org.industry ?? "",
-        size_band: org.size_band ?? "",
-        // Both stage fields prefill from the live record. relationship_types
-        // is a REPLACE-SET: an unseeded multiselect collects as the empty
-        // string, which mapOrgUpdate reads as the honest empty set, so saving
-        // an unrelated field would clear every type the account has.
-        lifecycle: org.lifecycle ?? "",
-        relationship_types: joinMultiselectValue(org.relationship_types ?? []),
-        // The repeatable domains field prefills from the org's live set;
-        // its rows are string-keyed, so the primary flag stringifies to
-        // match the "true"/"" the primary radio writes.
-        domains: (org.domains ?? []).map((domain) => ({
-          domain: domain.domain,
-          is_primary: String(domain.is_primary),
-        })),
-        ...cf.recordSlice(org),
-      }}
-      update={async (values, rows) => {
-        const { data, error } = await api.PATCH("/organizations/{id}", {
-          params: {
-            path: { id: org.id },
-            ...ifMatch(org.version),
-          },
-          body: {
-            ...mapOrgUpdate(values, rows ?? {}, org.domains),
-            ...cf.toBody(values),
-          },
-        });
-        if (error) {
-          throwProblem(error);
-        }
-        return data;
-      }}
-      invalidate="organizations"
-      recordKey="organization"
-      resolveExisting={(_code, existingId) => ({
-        screen: "companies",
-        id: existingId,
-      })}
-    />
-  );
-}
-
-function CompanyActionBadges({
-  org,
-  onOpenHistory,
-  onSetUpPartner,
-}: Readonly<{
-  org: Organization;
-  onOpenHistory: () => void;
-  onSetUpPartner: () => void;
-}>) {
-  const t = useT();
-  const overlay = useSorMode() === "overlay";
-  // An archived record is read-only: the backend rejects edit/merge/archive
-  // on a non-live row (there is no unarchive path), so those items would only
-  // 404. Its history stays readable — what happened to a record is exactly
-  // what a reader wants after it has been put away.
-  const writable = !org.archived_at;
-  return (
-    <>
-      {/* Where the account stands, then what it is to us. Two badges, because
-          they answer two questions — the retired classification held one value
-          and so could answer only one, which is how an account whose contract
-          had ended still read as "Prospect". `unknown` is not drawn: a badge
-          saying nobody has assessed this yet is noise on every new record. */}
-      {org.lifecycle && org.lifecycle !== "unknown" && (
-        <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
-      )}
-      {(org.relationship_types ?? []).map((relType) => (
-        <Badge key={relType} tone="accent">
-          {t(RELATIONSHIP_TYPE_LABELS[relType])}
-        </Badge>
-      ))}
-      {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
-      {/* An archived record read from a mirror offers nothing at all: every
-          write is refused and the history is a native read the mirror has no
-          row for. Rendering the trigger anyway would open an empty popover. */}
-      {(writable || !overlay) && (
-        <OverflowMenu label={t("record.moreActions")}>
-          {writable && <CompanyEditAction org={org} overlay={overlay} />}
-          {/* Merge has no incumbent-first projection — the seam refuses it
-            outright (overlay/provider_writes.go Merge) — unlike
-            edit/archive above, which it serves, so it stays hidden here. */}
-          {writable && !overlay && (
-            <MergeAction
-              label={t("merge.org")}
-              sourceId={org.id}
-              sourceName={org.display_name}
-              searchTargets={searchOrgTargets}
-              merge={async (targetId) => {
-                const { data, error } = await api.POST(
-                  "/organizations/{id}/merge",
-                  {
-                    params: {
-                      path: { id: org.id },
-                      ...ifMatch(org.version),
-                    },
-                    body: { target_id: targetId },
-                  },
-                );
-                if (error) {
-                  throwProblem(error, t);
-                }
-                return data;
-              }}
-              invalidate="organizations"
-              recordKey="organization"
-              survivorRoute={(targetId) => ({
-                screen: "companies",
-                id: targetId,
-              })}
-            />
-          )}
-          {writable && (
-            <ArchiveAction
-              label={t("record.archive")}
-              confirmText={t("record.archiveConfirm")}
-              archive={async () => {
-                const { data, error } = await api.DELETE(
-                  "/organizations/{id}",
-                  {
-                    params: { path: { id: org.id } },
-                  },
-                );
-                if (error) {
-                  throwProblem(error);
-                }
-                return data;
-              }}
-              invalidate="organizations"
-              recordKey="organization"
-              onArchived={() => navigate({ screen: "companies" })}
-            />
-          )}
-          {/* A record grant probes the native row via auth.EnsureLinkTarget,
-            which a mirrored record has no row for — sharing stays hidden
-            in overlay regardless of record type (see deals.tsx's
-            DealBadges). */}
-          {writable && !overlay && (
-            <ShareAction recordType="organization" recordId={org.id} />
-          )}
-          {/* The way in to the partner programme for an account that has none.
-            The tab only shows once there IS one, so without this the first
-            partner row would be unreachable — this is the same form, asked
-            for rather than offered. */}
-          {writable &&
-            !overlay &&
-            !(org.relationship_types ?? []).includes("partner") && (
-              <Button small onClick={onSetUpPartner}>
-                {t("org.partnerSetUp")}
-              </Button>
-            )}
-          {/* The audit spine: who changed this record and when. It reads as an
-            inspection of the record rather than part of its story, so it sits
-            with the other rare verbs instead of beside the account's own
-            timeline. */}
-          {!overlay && (
-            <Button
-              small
-              data-testid="company-full-history"
-              onClick={onOpenHistory}
-            >
-              {t("record.fullHistory")}
-            </Button>
-          )}
-        </OverflowMenu>
-      )}
-    </>
-  );
-}
-
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
@@ -1582,7 +1476,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1638,6 +1532,7 @@ function CompanyRecord({
             overview: t("tab.overview"),
             people: t("tab.people"),
             timeline: t("tab.timeline"),
+            documents: t("tab.documents"),
             partner: t("tab.partner"),
           }}
         />
@@ -1663,144 +1558,6 @@ function CompanyRecord({
   );
 }
 
-// companySubtitle is the meta line under the name: what this company is,
-// in the words the record already holds. Absent facts are absent, never
-// guessed — the same evidence-or-omit rule the firmographics card follows.
-function companySubtitle(org: Organization): string | undefined {
-  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
-  const parts = [
-    org.industry,
-    primary?.domain,
-    org.size_band,
-    org.legal_name,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(" · ") : undefined;
-}
-
-// CompanyPulse is the one-line state of the relationship: how warm it is and
-// who carries it, when it was last touched, and who owns it. Each part is
-// omitted when the 360 could not answer it, so the line never implies a
-// number the reader was not allowed to see.
-function CompanyPulse({
-  org,
-  view,
-  onOpenDecisions,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-  // The overview owns the decisions panel, so only it can offer the way in.
-  // The other tabs render the same pulse line without the chip rather than a
-  // button that has nothing to open.
-  onOpenDecisions?: () => void;
-}>) {
-  const t = useT();
-  const { locale } = useLocale();
-  const viewerId = useViewerId();
-  const strength = view?.strength;
-  // Withheld or absent, the line says nothing at all: "never contacted" read
-  // off missing data is a business conclusion the page has no basis for, and
-  // it is the one a rep would act on.
-  const touchKnown = Boolean(
-    view && !view.sections_omitted?.includes("last_touch"),
-  );
-  const inbound = view?.last_inbound_at;
-  const outbound = view?.last_outbound_at;
-  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
-  return (
-    <>
-      {strength && <StrengthPulse strength={strength} />}
-      {/* Both directions, side by side. Folding them into one "last touch"
-          hides the only distinction a reader acts on: an account we mailed a
-          fortnight ago with no reply and one that wrote to us this morning
-          have the same last-touch date and opposite meanings. */}
-      {touchKnown && !inbound && !outbound && (
-        <span>{t("co.pulse.neverTouched")}</span>
-      )}
-      {touchKnown && (inbound || outbound) && (
-        <>
-          <span>
-            {inbound
-              ? t("co.pulse.lastInbound", { when: when(inbound) })
-              : t("co.pulse.noInbound")}
-          </span>
-          <span>
-            {outbound
-              ? t("co.pulse.lastOutbound", { when: when(outbound) })
-              : t("co.pulse.noOutbound")}
-          </span>
-        </>
-      )}
-      {/* The owner, named as the owner. Unlabelled it read as one more
-          person in a row of people, and the reader had no way to tell the
-          one accountable for this account from whoever last touched it. */}
-      <span>
-        {t("co.pulse.owner")}:{" "}
-        {org.owner_id ? (
-          <EntityRef kind="user" id={org.owner_id} />
-        ) : (
-          t("co.pulse.unowned")
-        )}
-      </span>
-      {/* Where the RECORD came from — a different question from who owns it,
-          and the reason both now carry a word saying which is which. */}
-      <ProvenanceTag
-        provenance={provenanceOf(org.captured_by, viewerId)}
-        renderUser={(userId) => <EntityRef kind="user" id={userId} />}
-      />
-      {/* What is waiting on a human decision here, and the way to make it.
-          The count was a badge that led nowhere: a reader told that 27
-          decisions are owed and given no way to pay them learns only that the
-          page keeps score. */}
-      {onOpenDecisions && (
-        <DecisionsChip view={view} onOpen={onOpenDecisions} />
-      )}
-    </>
-  );
-}
-
-// StrengthPulse names the contact who carries the relationship — the way in —
-// and no longer renders a 0-100 score (AC-company-2, ADR-0079 arc).
-//
-// The number was PO-F-3's MAX over the account's contacts, and PO-F-3 is a
-// decayed count of recent two-way messages. So one talkative contact spoke for
-// the whole account, a long low-volume relationship scored near zero, and the
-// header showed "Relationship 2/100" as though it were a verdict. The factors
-// are still computed and still shown in the relationship detail, where each is
-// traceable to the messages behind it; only the single number is withheld.
-//
-// The contributor's NAME is a live lookup, so the sentence is assembled from
-// two translated halves around it rather than interpolating an empty
-// placeholder and appending the name after the full stop — which broke word
-// order in English and worse in German.
-function StrengthPulse({
-  strength,
-}: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
-  const t = useT();
-  if (!strength.contributor_person_id) {
-    // A dormant account: no contact has ever interacted, so there is no
-    // relationship to attribute and no number worth leading with.
-    return <span>{t("co.pulse.noStrength")}</span>;
-  }
-  return (
-    <span>
-      {t("co.pulse.strongestLead")}{" "}
-      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
-      {t(
-        strength.contact_count === 1
-          ? "co.pulse.strengthTail.one"
-          : "co.pulse.strengthTail.other",
-        { count: strength.contact_count },
-      )}
-    </span>
-  );
-}
-
-// useAccountChronology assembles the middle column's history: what happened
-// with this account, what changed about the record, or both in one order.
-//
-// The two feeds page independently, so "both" is not a concatenation — the
-// merge is cut where it stops being provably complete (mergeChronology), and
-// the cut is stated rather than left to look like the end of the history.
 function useAccountChronology({
   orgId,
   filter,
@@ -2074,6 +1831,87 @@ function useChronologySlots({
 // overview, so they stay mounted whichever tab is open and the reader keeps
 // the firmographics and the business context while reading the partner form
 // or the change history.
+// The receipt drawer's state: which claim is open, and the ordered list it
+// steps through.
+//
+// The ORDER belongs to the card that offered the chip, not to the drawer. A
+// reader who clicked the third citation in a sentence expects "next" to mean
+// the fourth citation in THAT sentence — a drawer that built its own order
+// would step somewhere they cannot predict. A card with no ordering to give
+// passes none, and the drawer draws no arrows rather than guessing one.
+function useCitedReceipt() {
+  const [cited, setCited] = useState<CitedRecord | null>(null);
+  const [list, setList] = useState<readonly CitedRecord[]>([]);
+  const open = (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedRecord[],
+  ) => {
+    if (citationOpensRecord(entityType)) {
+      openCitation(entityType, entityId);
+      return;
+    }
+    if (citationHasReceipt(entityType)) {
+      setCited({ entityType, entityId });
+      setList(siblings ?? []);
+    }
+  };
+  // Wrapping at each end: a reader walking a sentence's citations should not
+  // hit a dead stop and have to close the drawer to reach the first one again.
+  const step = (direction: -1 | 1) => {
+    if (!cited) {
+      return;
+    }
+    const at = list.findIndex(
+      (each) =>
+        each.entityType === cited.entityType &&
+        each.entityId === cited.entityId,
+    );
+    if (at < 0) {
+      return;
+    }
+    setCited(list[(at + direction + list.length) % list.length]);
+  };
+  return {
+    cited,
+    open,
+    close: () => setCited(null),
+    step: list.length > 1 ? step : undefined,
+  };
+}
+
+// What the composer is anchored on. A reply answers the message it names; an
+// account-started message names the person it is TO, because it has no thread
+// to inherit a recipient from.
+type ComposeAnchor =
+  | { kind: "reply"; id: string }
+  | { kind: "account"; id: string };
+
+// The composer, opened on whichever anchor the page holds. Extracted so the
+// page does not carry a branch per anchor kind in its own JSX.
+function AccountComposer({
+  anchor,
+  orgId,
+  onClose,
+}: Readonly<{
+  anchor: ComposeAnchor;
+  orgId: string;
+  onClose: () => void;
+}>) {
+  const reply = anchor.kind === "reply";
+  return (
+    <ComposeModal
+      activityId={reply ? anchor.id : undefined}
+      personId={reply ? undefined : anchor.id}
+      entityType="organization"
+      entityId={orgId}
+      kind="email"
+      open
+      onClose={onClose}
+    />
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -2100,19 +1938,39 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  // The two surfaces a suggestion's action opens. Held here because both are
-  // page-level: the composer anchors on a timeline message, and the task form
-  // is the account's own log-activity surface.
-  const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
-    null,
-  );
-  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const { locale } = useLocale();
+  // ONE composer, opened two ways. Anchored on a timeline message it answers
+  // that message; anchored on a person it starts a new one and grounds on the
+  // account instead of a thread (ADR-0087 §1). Two pieces of state would let
+  // both open at once, which is two composers over each other.
+  const [composing, setComposing] = useState<ComposeAnchor | null>(null);
+  // The header's own Write-email drawer. Separate state from `composing`,
+  // which anchors on a message or a person — but the same consequence for the
+  // layout, because both open into the rail's column.
+  const [writingEmail, setWritingEmail] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
-  // A task written or completed from this page changes the account's timeline,
-  // its next steps (both read from the 360) and the standing work queue.
-  const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
+  const receipt = useCitedReceipt();
+  // The rail, or nothing while a composer holds its column. Both drawers open
+  // into this space, so a rail beside them would be two things in one place —
+  // and absent rather than narrowed, because a rail squeezed to a third of its
+  // width is a column of broken cards.
+  const rail = (
+    <CompanyRail
+      orgId={org.id}
+      view={view}
+      locale={locale}
+      writable={!org.archived_at}
+      onOpenRecord={receipt.open}
+      // The People tab IS the roster in full, so the rail's summary of it
+      // stands down rather than repeating it beside itself.
+      withPeople={tab !== "people"}
+      // Either composer holds this column, and the rail does not care which.
+      // Passed rather than branched on here so the page keeps one decision
+      // about the rail instead of two.
+      composerOpen={Boolean(composing) || writingEmail}
+    />
+  );
   const { slots, showChanges: filterToChanges } = useChronologySlots({
     org,
     view,
@@ -2121,8 +1979,6 @@ function CompanyPage({
     failed,
     active: tab === "timeline",
   });
-  // An evidence mark asks where a value came from, and the answer is the
-  // record's change history — which now lives on its own tab.
   const showChanges = () => {
     onTab("timeline");
     filterToChanges();
@@ -2131,7 +1987,15 @@ function CompanyPage({
     <RecordView
       name={org.display_name}
       avatarSrc={org.logo_url}
-      subtitle={companySubtitle(org)}
+      // The description a person wrote, then the row of attribute chips
+      // (mockup State D). It replaces a dot-joined string of the same five
+      // values, in which the two that were links did not read as links.
+      subtitle={
+        <>
+          <CompanyDescription org={org} />
+          <CompanyChips org={org} />
+        </>
+      }
       zone={RECORD_ZONE}
       badges={
         <CompanyActionBadges
@@ -2155,66 +2019,43 @@ function CompanyPage({
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={
-        <LogActivityAction entityType="organization" entityId={org.id} />
+        <CompanyPrimaryActions
+          org={org}
+          composerOpen={writingEmail}
+          onComposerOpen={setWritingEmail}
+        />
       }
-      rail={
-        overlay ? undefined : (
-          <>
-            {/* The company's own statements, folded away. The BRIEF says what
-                this company is, in two sentences, at the top of the page —
-                these sixteen fields are where those sentences come from and
-                where a reader goes when two are not enough. Standing open
-                they were a wall of paragraphs, every value underlined, that
-                nobody read before a call. */}
-            <Disclosure summary={t("co.profile.title")}>
-              <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
-            <Disclosure summary={t("co.evidence.title")}>
-              <FactsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
-            <Disclosure summary={t("co.relationships.title")}>
-              <RelationshipsTab scope={{ organization_id: org.id }} />
-            </Disclosure>
-            {/* One-off tools and configuration, folded away. Standing open
-                they carried the same weight as the facts a rep opens the page
-                for, and they are used a fraction as often. */}
-            <Disclosure summary={t("co.tools.title")}>
-              <CustomFieldsCard object="organization" record={org} />
-              <HierarchyRollupCard orgId={org.id} />
-              <EnrichCard orgId={org.id} />
-              <DeepReadCard orgId={org.id} />
-            </Disclosure>
-          </>
-        )
-      }
-      aside={businessRail({
-        org,
-        view,
-        overlay,
-        failed,
-        readOnly: Boolean(org.archived_at),
-        t,
-      })}
+      // Lifecycle and owner, at the top right beside the verbs. Passing this
+      // also moves the action row up into the header, which is the company
+      // page's shape and no other record's.
+      controls={<CompanyStanding org={org} />}
+      // The account's context, beside the work rather than under it (mockup
+      // State A). It carries the cards that describe the RELATIONSHIP —
+      // health, who is on it, what is worth knowing, what happened lately —
+      // and the grid below keeps the cards about the BUSINESS.
+      //
+      // It yields to the composer. The drawer opens into this column, so a
+      // rail standing beside it would be two things in one space, which no
+      // mockup draws. Absent rather than narrowed: a rail squeezed to a third
+      // of its width is a column of broken cards.
+      asideLabel={t("record.accountContext")}
+      aside={rail}
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
     >
-      {tabs}
-      {/* Overlay refuses the whole company page, not one tab of it: the
-          partner extension and the field history are native records the
-          mirror does not hold, so switching tabs must not walk around the
-          refusal into reads that can only fail. */}
-      {overlay && <OverlayFallback />}
-      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
-      {tab === "overview" && failed && (
-        <EmptyState>{t("co.partial")}</EmptyState>
-      )}
-      {/* The strip leads, before any prose: where the account stands, whose
-          move it is, and what work is open. Three readings a rep can act on
-          without reading a sentence — and the one that replaced a number
-          nobody could scale. */}
-      {tab === "overview" && view && (
+      {/* The strip leads, ABOVE the tab strip: where the account stands, what
+          it is worth and whether it pays — the readings a rep opens the page
+          for, before being asked which part of it to read.
+          It belongs to the RECORD rather than to the overview for the same
+          reason the business grid does: it describes the account, not one
+          view of it, and a strip that vanished on the People tab would move
+          the tabs and re-flow the page under the reader.
+          Guarded on overlay like every other body below, so the page's one
+          refusal stays the whole page's. */}
+      {!overlay && view && (
         <StateStrip
+          orgId={org.id}
           view={view}
           lifecycleLabel={(value) =>
             t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
@@ -2232,78 +2073,68 @@ function CompanyPage({
           }
         />
       )}
-      {/* Then the brief: what this account looks like right now, before the
-          cards that report it field by field. It absorbed the standalone
-          "since your last visit" block, because two cards each claiming to
-          say what the state is made the reader arbitrate between them. */}
-      {tab === "overview" && view && (
-        <AccountBrief
-          orgId={org.id}
+      {tabs}
+      {/* Overlay refuses the whole company page, not one tab of it: the
+          partner extension and the field history are native records the
+          mirror does not hold, so switching tabs must not walk around the
+          refusal into reads that can only fail. */}
+      {overlay && <OverlayFallback />}
+      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {tab === "overview" && failed && (
+        <EmptyState>{t("co.partial")}</EmptyState>
+      )}
+      {/* What needs a person, before anything that merely reports state. It is
+          assembled from sections the page already read — open tasks, the
+          calendar, what changed since the last visit, the suggestions — put in
+          the order a rep works them, with facts, assessments and
+          recommendations labelled apart. */}
+      {tab === "overview" && (
+        <CompanyOverviewStack
+          org={org}
           view={view}
-          enabled={!overlay}
-          onOpenRecord={openCitation}
-          onPerform={(action) =>
-            performSuggestion(action, {
-              compose: setReplyToActivityId,
-              logTask: () => setTaskFormOpen(true),
-            })
-          }
+          overlay={overlay}
+          loading={loading}
+          failed={failed}
+          onCompose={(id) => setComposing({ kind: "reply", id })}
+          onDraftTo={(id) => setComposing({ kind: "account", id })}
+          onOpenRecord={receipt.open}
         />
       )}
-      {tab === "overview" && view && (
-        <NextSteps
+      {/* The business grid belongs to the RECORD, not to the overview: a
+          reader who switches to Partner and back must not pay for every query
+          behind these cards a second time, and the page must not re-flow under
+          them on the way. It renders on every tab for that reason, below
+          whatever the tab itself put up. */}
+      {!overlay && (
+        <CompanyBusinessGrid
+          org={org}
           view={view}
-          onOpenTask={(step) => setOpenTaskId(step.activity_id)}
-          renderAction={(step) => (
-            <TaskQuickActions
-              activityId={step.activity_id}
-              dueAt={step.due_at}
-              update={taskUpdate}
-            />
-          )}
+          failed={failed}
+          readOnly={Boolean(org.archived_at)}
         />
       )}
       {/* The composer, anchored on the message a draft_reply suggestion named.
           It is the same modal the timeline's own Reply opens — the advice
           shortcuts to it rather than inventing a second way to answer. */}
-      {replyToActivityId && (
-        <ComposeModal
-          activityId={replyToActivityId}
-          entityType="organization"
-          entityId={org.id}
-          kind="email"
-          open
-          onClose={() => setReplyToActivityId(null)}
+      {composing && (
+        <AccountComposer
+          anchor={composing}
+          orgId={org.id}
+          onClose={() => setComposing(null)}
         />
       )}
-      {taskFormOpen && (
-        <LogActivityAction
-          entityType="organization"
-          entityId={org.id}
-          initialKind="task"
-          openOnMount
-          onClose={() => setTaskFormOpen(false)}
-        />
-      )}
-      {/* The People tab gives the account team the whole middle column. The
-          rail's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
-      {/* Asking sits UNDER the account's own story: it is the tool for when the
-          page did not already answer the question. It belongs to the account
-          rather than to its history, so it stays on the overview instead of
-          following the chronology onto its own tab. */}
-      {tab === "overview" && (
-        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
-      )}
+      {/* The People tab gives the account team the whole middle column, with
+          room for the title and the last exchange beside each name. The rail's
+          copy stands down while it is open — the same roster twice, side by
+          side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
-      {openTaskId && (
-        <TaskDetailModal
-          activityId={openTaskId}
-          onClose={() => setOpenTaskId(null)}
-          update={taskUpdate}
-        />
+      {/* Files get the whole column on their own tab, which is what the mockup
+          gives them. The grid keeps its compact card for the reader who only
+          wants to know whether there IS paperwork. */}
+      {!overlay && tab === "documents" && (
+        <CompanyDocumentsCard orgId={org.id} />
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
           Partner put a panel from one tab on top of another, and a reader who
@@ -2314,6 +2145,25 @@ function CompanyPage({
           view={view}
           onClose={() => setDecisionsOpen(false)}
         />
+      )}
+      {receipt.cited && (
+        <EvidenceModal
+          orgId={org.id}
+          cited={receipt.cited}
+          onClose={receipt.close}
+          onStep={receipt.step}
+        />
+      )}
+      {/* The reference material a reader opens when the cards above are not
+          enough: the profile, how the account is filed, its facts, its
+          relationships and the one-off tools.
+          It belongs to the RECORD rather than to a tab, and it renders in
+          every state of the 360, because none of it comes from the 360 — each
+          card runs its own read, and a failed composite must not take the
+          company's profile and files with it. Overlay is the one exception:
+          the page has already refused once there. */}
+      {!overlay && (
+        <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
       )}
       {/* The audit spine, opened from the header's overflow menu. It belongs
           to the RECORD, not to a tab, so it opens over whichever tab is up. */}
@@ -2338,37 +2188,173 @@ function CompanyPage({
   );
 }
 
-// performSuggestion carries out the advice the server named.
+// The overview's own stack: what needs a person today, then what the account
+// looks like. Extracted from CompanyPage because each section was its own
+// `tab === "overview" && view &&` branch there, and the page had become a list
+// of conditions rather than a layout.
+function CompanyOverviewStack({
+  org,
+  view,
+  overlay,
+  loading,
+  failed,
+  onCompose,
+  onDraftTo,
+  onOpenRecord,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  loading: boolean;
+  failed: boolean;
+  onCompose: (activityId: string) => void;
+  onDraftTo: (personId: string) => void;
+  // Where a cited chip leads. Owned by the page, because the grid below this
+  // stack cites the same records and two owners would mean two receipts open
+  // over each other.
+  onOpenRecord: (entityType: string, entityId: string) => void;
+}>) {
+  return (
+    <>
+      {/* Full width, and first: what needs a person today, before anything
+          that merely reports state (mockup State D). */}
+      <TodayOnThisAccount
+        view={view}
+        loading={loading}
+        failed={failed}
+        onPrepareMeeting={onCompose}
+        onDraftTo={onDraftTo}
+      />
+      {/* Then what the account looks like, in its own words and ours. The two
+          read the same evidence and cite it the same way, so they lead the
+          overview together — the grid of business cards below them belongs to
+          the record and renders on every tab. */}
+      <DossierPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={onOpenRecord}
+      />
+      <GrowthFitPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={onOpenRecord}
+      />
+    </>
+  );
+}
+
+// The loading grid's cell heights, so the skeletons occupy roughly what the
+// cards will and the page does not jump when the read lands.
+const GRID_SKELETON_HEIGHTS = [96, 96, 64, 96, 64, 32];
+
+// The business cards, as the grid that replaced the right column.
 //
-// It routes rather than acts: each kind opens the governed surface a rep would
-// have reached for anyway, prefilled from the evidence the rule fired on.
-// Nothing here writes, and nothing is staged — the card advises, the surface
-// it opens is where the human decides.
-//
-// draft_reply and add_task both land on the account's own timeline surfaces,
-// which is why the page owns this handler rather than the card: the composer
-// and the log-activity form live here.
-function performSuggestion(
-  action: SuggestionAction,
-  open: { compose: (activityId: string) => void; logTask: () => void },
-) {
-  if (action.kind === "open_deal" && action.deal_id) {
-    openCitation("deal", action.deal_id);
-    return;
+// It belongs to the RECORD rather than to the overview: a reader who switches
+// to Partner and back must not pay for every query behind these cards a second
+// time, and the page must not re-flow under them on the way back.
+function CompanyBusinessGrid({
+  org,
+  view,
+  failed,
+  readOnly,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  // The composite read failed, as distinct from still being in flight. With no
+  // view the cards cannot tell the two apart on their own, and they say
+  // opposite things: one is "we could not load this", the other is "not yet".
+  failed: boolean;
+  // An archived company takes no new deals, tags or list rows, so it shows no
+  // verb that would only be refused.
+  readOnly: boolean;
+}>) {
+  const t = useT();
+  // Still in flight. The cards are handed no view either way, and a card with
+  // no view reports "could not be loaded" — which, before the answer has
+  // arrived, is a claim about a read that has not finished. Skeletons hold the
+  // cells until it does.
+  if (!view && !failed) {
+    return (
+      <aside className="co-grid" aria-label={t("record.business")}>
+        {GRID_SKELETON_HEIGHTS.map((height, index) => (
+          <section
+            // The placeholders are positional and interchangeable; there is no
+            // record behind one to key it by.
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholder cells have no identity of their own
+            key={index}
+            className="card co-card"
+          >
+            <Skeleton width="100%" height={height} />
+          </section>
+        ))}
+      </aside>
+    );
   }
-  if (action.kind === "draft_reply" && action.activity_id) {
-    open.compose(action.activity_id);
-    return;
-  }
-  if (action.kind === "add_task") {
-    open.logTask();
-  }
+  return (
+    // An <aside>, still: these are the same business cards the right column
+    // held, and moving them into the flow changed where they sit, not what
+    // they are. Keeping the landmark means a reader who navigated the old page
+    // by landmark can navigate this one the same way.
+    <aside className="co-grid" aria-label={t("record.business")}>
+      {/* The commercial picture. */}
+      <DealsCard
+        view={view}
+        actions={
+          readOnly ? undefined : (
+            <NewDealAction orgId={org.id} orgName={org.display_name} />
+          )
+        }
+      />
+      {/* What is running with them, and what we last put in front of them.
+          Beside the deals card because the two answer the same question at
+          different depths. */}
+      <CompanyCommercialCard view={view} />
+      {/* The money, next to the pipeline it belongs beside. Absent entirely on
+          an account we have never billed — an empty finance card on a target
+          is a question nobody asked. */}
+      <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
+      {/* The paperwork behind the account. Health, the roster and the signals
+          are the RAIL's — they describe the relationship rather than the
+          business, and a card in both columns is a fact a reader has to
+          reconcile. */}
+      <CompanyDocumentsCard orgId={org.id} />
+      {/* How the account is FILED. It stays folded — this is our own
+          bookkeeping rather than anything about the company — but it stays in
+          the business grid, because tags and lists are governed sections of
+          the 360 like the cards above them, and a withheld half has to say so
+          where the reader is looking for it. */}
+      <Disclosure summary={t("co.tags.title")}>
+        <TagsCard
+          view={view}
+          tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+          listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+        />
+      </Disclosure>
+    </aside>
+  );
 }
 
 // openCitation routes a cited record to its own screen. The brief, the
 // prepared answers and the suggestions all cite the same records, so they
 // share one route — a second copy would drift and send one card's reader to
 // the wrong screen.
+// A citation goes to one of two places. A deal or a person has a screen of its
+// own; a fact or a profile field has no screen, but it does have a receipt —
+// where the value came from and what could not be recorded about it — which is
+// what the reader wanted when they clicked the chip.
+function citationOpensRecord(entityType: string): boolean {
+  return entityType === "deal" || entityType === "person";
+}
+
+// The kinds a receipt can be written for. Narrowing HERE rather than asserting
+// at the fetch is what keeps the modal's contract honest: a kind that grows a
+// receipt upstream fails to compile until this decision learns about it.
+function citationHasReceipt(
+  entityType: string,
+): entityType is CitedRecord["entityType"] {
+  return entityType === "fact" || entityType === "profile_field";
+}
+
 function openCitation(entityType: string, entityId: string) {
   if (entityType === "deal") {
     navigate({ screen: "deals", id: entityId });
@@ -2378,104 +2364,43 @@ function openCitation(entityType: string, entityId: string) {
   }
 }
 
-// businessRail is the right column. A failed composite read must not simply
-// remove it: an account page with no people, no deals and no signals reads
-// as an account with none of those, which is the one thing the page does not
-// know. The rail stays and each card says it could not be loaded — except in
-// overlay mode, where the single page-level refusal already covers it.
-function businessRail({
+// The reference material a reader opens when the summary above is not enough.
+//
+// It renders whatever state the 360 is in, because none of it comes from the
+// 360: each card runs its own read. That is the rule to keep as the layout
+// moves — a failed composite read hides what the 360 answered, not the
+// company's profile, its facts or its relationships.
+function ReferenceDisclosures({
   org,
-  view,
-  overlay,
-  failed,
-  readOnly,
+  onOpenHistory,
   t,
 }: Readonly<{
   org: Organization;
-  view?: Organization360View;
-  overlay: boolean;
-  failed: boolean;
-  // An archived company takes no new deals, tags or list rows, so it shows no
-  // verb that would only be refused.
-  readOnly: boolean;
-  // Passed rather than read: this assembles a tree, it is not a component,
-  // so it has no hook context of its own.
+  onOpenHistory: () => void;
   t: ReturnType<typeof useT>;
 }>): ReactNode {
-  if (overlay) {
-    return undefined;
-  }
-  if (view) {
-    return (
-      <>
-        {/* Who and what, in the order a rep about to reach out asks for them.
-            The connections graph and the filing metadata fold away: the graph
-            re-lists the people directly above it, and lists and tags are how
-            the account is filed rather than anything about the account. */}
-        {/* Roles are a write, so the card offers them on the same terms as
-            every other verb on this page: never on an archived record. */}
-        <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
-        <DealsCard
-          view={view}
-          // The verb sits under the list it changes: a rep who has just read
-          // "no open deal on this account" is one click from opening one,
-          // rather than leaving for the board to re-find this company there.
-          actions={
-            readOnly ? undefined : (
-              <NewDealAction orgId={org.id} orgName={org.display_name} />
-            )
-          }
-        />
-        {/* How the relationship stands, in parts — the decomposition that
-            replaced the header's 0-100 score. */}
-        <HealthCard health={view?.health} />
-        <SignalsCard orgId={org.id} />
-        {/* Connections is deliberately not here. It listed the account owner
-            and the same employees the People card already names, against two
-            different strength scales and a bare "2" nobody could read — the
-            page's own answer to a question no reader had asked. The graph read
-            stays (connections.tsx, GET /organizations/{id}/graph): it returns
-            as a per-contact "find a route in", which is the question that IS
-            worth asking, and only where a route actually exists. */}
-        <Disclosure summary={t("co.tags.title")}>
-          <TagsCard
-            view={view}
-            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
-            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
-          />
-        </Disclosure>
-      </>
-    );
-  }
-  if (!failed) {
-    // Still loading. The rail must occupy its column NOW: RecordView picks its
-    // grid template from which zones are present, so a rail that arrives with
-    // the read re-columns the page under the reader — the whole middle column
-    // and everything above it shift the moment the 360 lands.
-    return (
-      <>
-        <section className="card co-card">
-          <Skeleton width="100%" height={96} />
-        </section>
-        <section className="card co-card">
-          <Skeleton width="100%" height={96} />
-        </section>
-        <section className="card co-card">
-          <Skeleton width="100%" height={64} />
-        </section>
-      </>
-    );
-  }
-  // The read failed, so the cards get NO payload and say so themselves.
-  // Handing them a fabricated empty one would mean inventing an as_of the
-  // page does not have, and would be indistinguishable from a real answer
-  // one refactor later.
   return (
     <>
-      <PeopleCard />
-      <DealsCard />
-      <SignalsCard orgId={org.id} />
-      <TagsCard />
+      <Disclosure summary={t("co.profile.title")}>
+        <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      </Disclosure>
+      {/* Documents are deliberately NOT here: they are a card of their own in
+          the grid now, and a reader given the same list in two places has two
+          lists to reconcile. */}
+      <Disclosure summary={t("co.evidence.title")}>
+        <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      </Disclosure>
+      <Disclosure summary={t("co.relationships.title")}>
+        <RelationshipsTab scope={{ organization_id: org.id }} />
+      </Disclosure>
+      {/* One-off tools and configuration, last: used a fraction as often as
+          anything above them. */}
+      <Disclosure summary={t("co.tools.title")}>
+        <CustomFieldsCard object="organization" record={org} />
+        <HierarchyRollupCard orgId={org.id} />
+        <EnrichCard orgId={org.id} />
+        <DeepReadCard orgId={org.id} />
+      </Disclosure>
     </>
   );
 }

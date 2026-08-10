@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,32 +27,10 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/migrations"
 )
-
-// testRedisDB is the Redis logical database this lane isolates its streams in.
-// setup FlushDB's the whole db between tests, so it must never be db 0 — that
-// one is reserved for a running `make dev`, whose relay/subscriber use the
-// client default. The parallel runner hands each package a distinct db in
-// 1..15 via MARGINCE_TEST_REDIS_DB so concurrent packages never share a stream;
-// absent the env (a bare `go test`), db 15 is the isolated default. An
-// out-of-range or non-numeric value fails loudly rather than silently eating
-// the wrong db.
-func testRedisDB(t *testing.T) int {
-	t.Helper()
-	raw := os.Getenv("MARGINCE_TEST_REDIS_DB")
-	if raw == "" {
-		return 15
-	}
-	db, err := strconv.Atoi(raw)
-	if err != nil || db < 1 || db > 15 {
-		t.Fatalf("MARGINCE_TEST_REDIS_DB=%q is not a Redis db index in 1..15", raw)
-	}
-	return db
-}
 
 type busEnv struct {
 	pool *pgxpool.Pool
@@ -80,19 +57,15 @@ func setup(t *testing.T) *busEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
-		t.Fatalf("resetting schema: %v", err)
+	// Migrated once per test process; every later test resets the data only — the
+	// discipline backend/integrationmigrateonce_test.go enforces module-wide.
+	// EnsureSchema performs the GRANT USAGE ON SCHEMA public TO margince_app that
+	// the app pool below depends on.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatalf("migrating the test schema: %v", err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatalf("loading migrations: %v", err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatalf("loading custom migrations: %v", err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-		t.Fatalf("migrating: %v", err)
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatalf("resetting test data: %v", err)
 	}
 
 	// The relay needs a workspace row only because fixtures reference one
@@ -109,7 +82,7 @@ func setup(t *testing.T) *busEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr, DB: testRedisDB(t)})
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr, DB: testdb.RedisDB(t)})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Fatalf("redis at %s unreachable — run `make db-up`: %v", redisAddr, err)
 	}

@@ -32,7 +32,7 @@ RBAC**:
 |---|---|---|
 | A **human** | web app / HTTP | the `crm_session` cookie (from `POST /v1/auth/login`) |
 | An **agent** | REST | `Authorization: Bearer mgp_…` (a passport) |
-| An **agent** | MCP (stdio or hosted HTTP) | a passport (`MARGINCE_PASSPORT_TOKEN`, or an OAuth-minted bearer) |
+| An **agent** | MCP (`/mcp`, Streamable HTTP) | `Authorization: Bearer mgp_…` — a passport minted directly, or one the OAuth handshake issued when a human lent theirs |
 
 (No request names a tenant: one installation serves one organization, and the
 admission middleware binds that singleton workspace itself before any handler runs.)
@@ -86,6 +86,14 @@ An action's autonomy tier is **declared once in the contract** (`x-mcp-tool: { t
   [contract-first.md](contract-first.md)).
 
 Approving is always human-only, and an agent never exceeds the granting human's live authority.
+
+Alongside the tier, the same annotation declares the **passport scope** the operation consumes
+(`x-mcp-tool: { scope: read|draft|write|send|enrich }`). The two are independent gates and neither
+substitutes for the other: the tier decides whether a human confirms the act, the scope decides
+whether the act was delegable at all. Scopes are a flat set — `ScopeSet.Has` is exact membership, so
+holding `write` does not imply holding `send` or `enrich`. A passport whose granting human withheld
+`enrich` is refused an enrichment call with `ErrScopeExceeded` before the tier is ever consulted,
+whether it arrives over MCP or REST.
 
 ## The structural backstop — Postgres row-level security
 

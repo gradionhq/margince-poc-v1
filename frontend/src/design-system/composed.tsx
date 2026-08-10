@@ -78,6 +78,9 @@ export type BoardDeal = {
   id: string;
   name: string;
   org: string;
+  /** The company's resolved mark. Absent leaves the monogram, which is the
+   *  floor rather than a fallback. */
+  orgLogoUrl?: string | null;
   valueMinor: number;
   currency: string;
   ageMs: number;
@@ -95,6 +98,13 @@ export type BoardColumn = {
   weightedMinor: number;
   currency: string;
   deals: BoardDeal[];
+  /**
+   * The stage holds deals in more than one currency, so it has no total to
+   * state — native minor units are never summed across currencies. The column
+   * then reports how many deals it holds and no figure at all, rather than a
+   * zero that reads as an empty stage.
+   */
+  sumHidden?: boolean;
 };
 
 export function DealCard({
@@ -128,7 +138,15 @@ export function DealCard({
       {...dragHandlers}
     >
       <span className="deal-name">{deal.name}</span>
-      <span className="deal-org">{deal.org}</span>
+      {deal.org && (
+        <span className="deal-org">
+          <Avatar name={deal.org} src={deal.orgLogoUrl} tinted />
+          {/* The name needs a box of its own to be truncated in: a bare text
+              node has nothing for the ellipsis to apply to, and wraps under
+              its own mark instead. */}
+          <span className="deal-org-name">{deal.org}</span>
+        </span>
+      )}
       <span className="deal-meta">
         <span className="deal-value">
           {formatMoney(deal.valueMinor, deal.currency, locale)}
@@ -184,18 +202,29 @@ export function PipelineBoard({
             <span className="stage">{column.label}</span>
             <span className="prob">{column.probabilityPct}%</span>
           </div>
+          {/* The stage's total is the figure being scanned down the board, so it
+              leads with the deal count beside it; the weighted figure is derived
+              from it and reads underneath rather than competing on the line. */}
           <div className="board-col-sub">
-            <span>{t("board.count", { count: column.deals.length })}</span>
-            <span>{formatMoney(column.rawMinor, column.currency, locale)}</span>
-            <span>
-              {t("board.weighted", {
-                value: formatMoney(
-                  column.weightedMinor,
-                  column.currency,
-                  locale,
-                ),
-              })}
+            <span className="board-col-total">
+              {!column.sumHidden && (
+                <span className="board-col-money">
+                  {formatMoney(column.rawMinor, column.currency, locale)}
+                </span>
+              )}
+              <span>{t("board.count", { count: column.deals.length })}</span>
             </span>
+            {!column.sumHidden && (
+              <span className="board-col-weighted">
+                {t("board.weighted", {
+                  value: formatMoney(
+                    column.weightedMinor,
+                    column.currency,
+                    locale,
+                  ),
+                })}
+              </span>
+            )}
           </div>
           {column.deals.map((deal) => (
             <DealCard
@@ -325,8 +354,10 @@ export function RecordView({
   badges,
   pulse,
   actions,
+  controls,
   rail,
   aside,
+  asideLabel,
   timeline,
   timelineGroups,
   onOpenThread,
@@ -341,7 +372,10 @@ export function RecordView({
   // Null or absent renders the deterministic monogram, which is the floor for
   // every record type that has no image at all.
   avatarSrc?: string | null;
-  subtitle?: string;
+  // A string for the records whose subtitle IS one line of joined facts, or a
+  // node for a record that needs structure under its name — the company page's
+  // editable description plus its row of attribute chips.
+  subtitle?: ReactNode;
   badges?: ReactNode;
   // A one-line "state of this record" strip under the name — warmth, last
   // touch, owner. Absent on records that have no such summary.
@@ -349,12 +383,22 @@ export function RecordView({
   // The record's verbs, kept beside the identity rather than scattered
   // through the body.
   actions?: ReactNode;
+  // The record's standing — the values a reader changes in place rather than
+  // acts on: lifecycle, owner. Passing it moves the action row up beside them,
+  // which is the company page's layout; a record that passes none keeps the
+  // action row under the header.
+  controls?: ReactNode;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
+  // What the aside column IS, for a reader navigating by landmark. Defaults to
+  // the record's context; a page whose aside holds something else names it,
+  // because two regions with one name is a dead end for anyone moving between
+  // them.
+  asideLabel?: string;
   // The entries, or undefined when this view has NO timeline at all. The
   // distinction is the same one every card on a record page keeps: absent is
   // not empty. `[]` renders the section with its honest "nothing logged yet";
@@ -385,16 +429,32 @@ export function RecordView({
   const zones = zoneClass(Boolean(rail), Boolean(aside));
   return (
     <div>
-      <header className="record-head">
+      <header
+        className={controls ? "record-head record-head-wide" : "record-head"}
+      >
         <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
           <h1>{name}</h1>
-          {subtitle && <p className="record-sub">{subtitle}</p>}
+          {/* A div, not a p: a caller passing structure — the company page's
+              description line plus its chip row — would otherwise nest block
+              elements inside a paragraph, which the browser silently
+              un-nests, leaving the chips outside the header they belong to. */}
+          {subtitle && <div className="record-sub">{subtitle}</div>}
           {pulse && <div className="record-pulse">{pulse}</div>}
         </div>
         {badges && <div className="record-badges">{badges}</div>}
+        {/* The record's standing and its verbs, stacked at the top right. Only
+            a caller that passes `controls` gets this column: every other
+            record keeps the action row under the header, which is where its
+            own layout puts it. */}
+        {controls && (
+          <div className="record-controls">
+            {controls}
+            {actions && <div className="record-actions">{actions}</div>}
+          </div>
+        )}
       </header>
-      {actions && <div className="record-actions">{actions}</div>}
+      {actions && !controls && <div className="record-actions">{actions}</div>}
       <div className={zones}>
         {rail && (
           <aside className="record-rail" aria-label={t("record.profile")}>
@@ -422,7 +482,10 @@ export function RecordView({
           )}
         </div>
         {aside && (
-          <aside className="record-aside" aria-label={t("record.business")}>
+          <aside
+            className="record-aside"
+            aria-label={asideLabel ?? t("record.context")}
+          >
             {aside}
           </aside>
         )}

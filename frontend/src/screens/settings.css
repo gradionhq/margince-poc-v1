@@ -203,7 +203,6 @@
 }
 
 .company-context-field .textarea {
-  width: 100%;
   min-height: 78px;
 }
 
@@ -323,9 +322,6 @@
 }
 
 .company-context-resolutions label {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
   color: var(--textSecondary);
   font-size: 12px;
 }
@@ -370,6 +366,45 @@
    than the off-scale value the inline <select> style used to carry. */
 .tool-scope-filter {
   margin-bottom: var(--space-3);
+}
+
+/* Tool console rows (AgentToolsCard): the verb and its governance badges on
+   one line, the selection prose under them. Layout lives here rather than in
+   inline styles so it reads on the spacing scale; only the dimming of a tool
+   the selected passport cannot reach stays inline, because it is per-row state
+   rather than layout. */
+.tool-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+.tool-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* The verb, the written title and the badges are one line only while there
+     is room for one. A long verb next to a long title and two badges is wider
+     than a narrow viewport, and an unwrapped flex line does not shrink — it
+     pushes the card's own scroll width out and the whole settings column
+     scrolls sideways. Wrapping costs a line and keeps the page still. */
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+/* The verb is a machine identifier with no spaces to break at, so wrapping the
+   line around it is not enough on its own: it has to be allowed to break
+   inside itself rather than set the row's minimum width. */
+.tool-row-head .t-mono {
+  overflow-wrap: anywhere;
+}
+
+/* The tool console's selection prose (AgentToolsCard). It hangs under the
+   verb, indented past the autonomy dot so a scan down the column still reads
+   as one tool per line, and its measure is capped: this text is written to be
+   read by a model and a person needs a line length they can follow. */
+.tool-description {
+  margin: 0 0 var(--space-1) calc(var(--space-3) + var(--space-2));
+  max-width: 76ch;
 }
 
 /* Connected inboxes (Integrations tab): one row per live capture connection. */
@@ -438,4 +473,12 @@
   gap: var(--space-2);
   flex-wrap: wrap;
   justify-content: center;
+}
+
+/* The consumer-mail add row reads as one line: domain, kind, submit. A control
+   surface fills its column by default, which is right under a field label and
+   wrong in a row — the kind picker takes the width of its own options so it
+   stays beside the domain it qualifies. */
+.consumer-mail-kind {
+  width: auto;
 }

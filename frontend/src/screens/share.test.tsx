@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ShareScreen } from "./share";
 
@@ -170,6 +171,84 @@ describe("ShareScreen", () => {
       reason: "Deal-desk review",
     });
     expect((posted as Record<string, unknown>).expires_at).toBeDefined();
+  });
+
+  // The expiry control converts between a DAY COUNT (the screen's state) and the
+  // strings a listbox speaks, and the wire carries neither: it carries a timestamp,
+  // or nothing at all for a grant that lasts until it is revoked. Both directions
+  // of that conversion are asserted, because the two failures look identical on
+  // screen — a grant that silently never expires, and one that expires today.
+  it("turns the chosen expiry into a timestamp, and no expiry into none", async () => {
+    // Collected in an ARRAY rather than into a `let`: a variable only ever
+    // assigned inside a `.then()` still reads as its initial `null` to the
+    // compiler, so every field access off it narrows to `never`. An array keeps
+    // its element type, and the two grants are two entries.
+    const posts: Record<string, unknown>[] = [];
+    const grant = (body: Record<string, unknown>) =>
+      jsonResponse(
+        {
+          id: "g-3",
+          record_type: "deal",
+          record_id: "d-1",
+          subject_type: "user",
+          subject_id: "u-1",
+          access: "read",
+          granted_by: "u-1",
+          reason: body.reason ?? null,
+          expires_at: body.expires_at ?? null,
+          created_at: "2026-07-14T00:00:00Z",
+          version: 1,
+        },
+        201,
+      );
+    installBaseFetch({
+      "/record-grants": (request) => {
+        if (request.method === "POST") {
+          return request.json().then((body) => {
+            posts.push(body);
+            return grant(body);
+          });
+        }
+        return jsonResponse({
+          data: [existingGrant],
+          page: { next_cursor: null, has_more: false },
+        });
+      },
+    });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Priya Shah/ }));
+    await pickOption(
+      user,
+      screen.getByLabelText("Expiry"),
+      "Expires in 7 days",
+    );
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    // A real instant, seven days out — asserted as a distance rather than as a
+    // literal, because the clock is the one thing a test cannot pin.
+    const days =
+      (Date.parse(String(posts[0].expires_at)) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(6.9);
+    expect(days).toBeLessThan(7.1);
+
+    // A granted subject is picked again for the second half: a successful grant
+    // clears the form, which is what the reader sees, so the case has to walk the
+    // same path they would rather than reusing a form that is no longer filled in.
+    await user.click(await screen.findByRole("button", { name: /Priya Shah/ }));
+    await pickOption(
+      user,
+      screen.getByLabelText("Expiry"),
+      "No expiry (until revoked)",
+    );
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    await waitFor(() => expect(posts).toHaveLength(2));
+    // Absent, not an empty string and not epoch zero: a grant with no expiry is
+    // one the wire says nothing about.
+    expect(posts[1].expires_at).toBeUndefined();
   });
 
   it("excludes agent seats from the subject picker (spec §2.1)", async () => {

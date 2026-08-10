@@ -143,6 +143,13 @@ func (e *BriefEngine) SnapshotRun(ctx context.Context, now time.Time) (BriefRun,
 // snooze flips back to actionable inside the read's own transaction,
 // and a still-running one keeps its item hidden — so the returned run
 // is always what the rep should see NOW, without a refresh.
+//
+// The queue may therefore be shorter than the run it re-reads, and the
+// answer says nothing about that on purpose: a count of what the row
+// scope removed is the side channel existence-hiding closes. The agent
+// door already states the query-level fact for both of them —
+// agents.noteRowScope raises BYO-RES-2's warning on every tool call by
+// a bounded actor, which is exactly when an item can drop here.
 func (e *BriefEngine) LatestRun(ctx context.Context, now time.Time) (BriefRun, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return BriefRun{}, err
@@ -172,30 +179,59 @@ func (e *BriefEngine) LatestRun(ctx context.Context, now time.Time) (BriefRun, e
 			return err
 		}
 
-		// Unexpired snoozes stay hidden; everything else (incl. the rows
-		// just re-surfaced) reads back in rank order.
-		rows, err := tx.Query(ctx, `
-			SELECT id, deal_id, rank, composite, feature_vector, evidence_ids, state, state_at, snoozed_until
-			FROM brief_item
-			WHERE brief_run_id = $1 AND state <> 'snoozed'
-			ORDER BY rank`, run.ID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			item, err := scanBriefItem(rows)
-			if err != nil {
-				return err
-			}
-			run.Items = append(run.Items, item)
-		}
-		return rows.Err()
+		run.Items, err = readRunItems(ctx, tx, run.ID)
+		return err
 	})
 	if err != nil {
 		return BriefRun{}, err
 	}
 	return run, nil
+}
+
+// readRunItems reads back one run's visible queue in rank order.
+//
+// The join is the point: a brief item is a REFERENCE to a deal, persisted
+// when the ranking queued it and served for as long as the run lives, so
+// the deal's row scope is re-applied HERE rather than inherited from the
+// snapshot that wrote it. A deal reassigned since then leaves the queue,
+// which is the same answer the deal's own read gives on that id
+// (deals.Store.GetDeal: the object gate, then auth.EnsureVisible).
+//
+// Unexpired snoozes stay hidden; everything else, including the rows the
+// caller just re-surfaced, reads back.
+func readRunItems(ctx context.Context, tx pgx.Tx, runID ids.UUID) ([]BriefRunItem, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	runPos := arg(runID)
+
+	scope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
+	if err != nil {
+		return nil, err
+	}
+	q := fmt.Sprintf(`
+		SELECT bi.id, bi.deal_id, bi.rank, bi.composite, bi.feature_vector, bi.evidence_ids, bi.state, bi.state_at, bi.snoozed_until
+		FROM brief_item bi
+		JOIN deal d ON d.id = bi.deal_id
+		WHERE bi.brief_run_id = $%d AND bi.state <> 'snoozed'`, runPos)
+	if scope != "" {
+		q += " AND " + scope
+	}
+	q += " ORDER BY bi.rank"
+
+	rows, err := tx.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BriefRunItem
+	for rows.Next() {
+		item, err := scanBriefItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 // resurfaceExpiredSnoozes flips a run's expired snoozes back to
@@ -284,6 +320,14 @@ func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state strin
 		if owner != userID {
 			// Another rep's brief: existence-hiding, like every row-scope miss.
 			return apperrors.ErrNotFound
+		}
+		// The mark's twin of the join in readRunItems: the item names a deal
+		// that may have moved since the run was assembled, and a mark is a
+		// read-back as much as a write. Checked BEFORE actionability, so a
+		// deal the rep can no longer see answers not-found rather than
+		// disclosing the item's state through a conflict.
+		if err := auth.EnsureVisible(ctx, tx, "deal", item.DealID); err != nil {
+			return err
 		}
 		if !briefItemActionable(item, now) {
 			return apperrors.ErrConflict

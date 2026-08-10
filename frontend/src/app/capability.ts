@@ -61,6 +61,32 @@ export function useCanMutate(): boolean {
 }
 
 /**
+ * Whether the principal holds ANY write verb on `object` — create, update or
+ * delete.
+ *
+ * For a surface that exists to AUTHOR an object rather than to issue one
+ * specific request: a nav entry into a configuration page, a section heading
+ * over a set of editors. Which write verb a role holds varies by object — a
+ * rep creates and updates a product but never deletes one — so a single-verb
+ * question would hide an authoring surface from a principal who plainly uses
+ * it, and the union is the honest one.
+ *
+ * Like `useCan`, and unlike `useCanWrite`, it leaves the seat ceiling out. A
+ * read seat still READS the page behind such an entry, so folding the seat in
+ * would strand a reader on a fallback screen while protecting nothing the
+ * server does not already enforce on the write itself.
+ */
+export function useHoldsWriteGrant(object: RbacObject): boolean {
+  // Three unconditional calls, then the composition. Writing the `||` around
+  // the calls would make the number of hooks a render runs depend on the
+  // answer, which React forbids.
+  const create = useCan(object, "create");
+  const update = useCan(object, "update");
+  const remove = useCan(object, "delete");
+  return create || update || remove;
+}
+
+/**
  * Both axes, for a control that issues a MUTATING request — the common case.
  *
  * Use `useCan` alone only where the control issues a GET whose RBAC action
@@ -72,4 +98,25 @@ export function useCanWrite(object: RbacObject, action: RbacAction): boolean {
   const granted = useCan(object, action);
   const mutable = useCanMutate();
   return granted && mutable;
+}
+
+/**
+ * Both axes, for a control whose request is an UPSERT — one endpoint that
+ * inserts or replaces, so which grant it needs is not knowable until the server
+ * has read the row.
+ *
+ * The rate sheets are the case: setting a rate asks for `create` on a new
+ * (currency, day) and `update` when it replaces one. The server admits the call
+ * on either and then demands the specific one inside the transaction, so a
+ * control that asked for `create` alone would hide the editor from a principal
+ * holding only `update` — who the server would have admitted. Mirror the
+ * server's admission, and let it refuse the specific write.
+ */
+export function useCanUpsert(object: RbacObject): boolean {
+  // Both calls run unconditionally: the number of hooks a render performs must
+  // not depend on the first answer.
+  const create = useCan(object, "create");
+  const update = useCan(object, "update");
+  const mutable = useCanMutate();
+  return (create || update) && mutable;
 }

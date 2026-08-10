@@ -17,7 +17,16 @@ ALTER TABLE ai_call
   ADD COLUMN cache_off boolean NOT NULL DEFAULT false,
   ADD COLUMN config_hash text,
   ADD COLUMN estimated_cost_microusd bigint;
-UPDATE ai_call SET logical_call_id = id;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE ai_call SET logical_call_id = id
+    WHERE ai_call.workspace_id = ws;
+  END LOOP;
+END $$;
+
 ALTER TABLE ai_call ALTER COLUMN logical_call_id SET NOT NULL;
 CREATE INDEX ai_call_logical_idx ON ai_call (workspace_id, logical_call_id);
 ALTER TABLE ai_call ADD CONSTRAINT ai_call_kind_check CHECK (kind IN ('completion','embedding'));

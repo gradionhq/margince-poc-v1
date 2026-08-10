@@ -212,14 +212,14 @@ func appendIf(
 // left to infer it from the evidence order — an ordering nobody promised.
 func setDraftReply(out *crmcontracts.Organization360Suggestion, activityID ids.UUID) {
 	id := openapi_types.UUID(activityID)
-	out.Action = newSuggestionAction(crmcontracts.DraftReply)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindDraftReply)
 	out.Action.ActivityId = &id
 }
 
 // setOpenDeal points at the deal that stalled.
 func setOpenDeal(out *crmcontracts.Organization360Suggestion, dealID ids.UUID) {
 	id := openapi_types.UUID(dealID)
-	out.Action = newSuggestionAction(crmcontracts.OpenDeal)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindOpenDeal)
 	out.Action.DealId = &id
 }
 
@@ -273,6 +273,10 @@ func staleThread(
 		Fingerprint: fingerprint(string(suggestNoReply), orgID.String(), evidence),
 		Evidence:    evidence,
 	}
+	// The rule's own words, and the date the EVIDENCE carries — when the thread
+	// went quiet. Neither reaches the fingerprint above (PO-AC-N-14).
+	out.Title = ptrString(fmt.Sprintf("Follow up: no reply in %d days", int(waited.Hours()/24)))
+	out.DueAt = ptrTime(newest.At)
 	setDraftReply(out, newest.ID)
 	return out
 }
@@ -300,7 +304,11 @@ func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization36
 			SubjectType: &subjectType,
 			SubjectId:   &subjectID,
 			Evidence:    evidence,
+			Title:       ptrString(fmt.Sprintf("Move %q — stalled", deal.Name)),
 		})
+		if !deal.IdleSince.IsZero() {
+			out[len(out)-1].DueAt = ptrTime(deal.IdleSince)
+		}
 		setOpenDeal(&out[len(out)-1], deal.ID)
 	}
 	return out
@@ -333,10 +341,13 @@ func noNextStepSuggestion(
 		Reason:      fmt.Sprintf("%d open deal(s) here and no task saying what happens next.", open.OpenCount),
 		Fingerprint: fingerprint(string(suggestNoNextStep), open.OpenDigest, evidence),
 		Evidence:    evidence,
+		Title:       ptrString("Set the next step"),
 	}
+	// No date: this rule fires on the ABSENCE of a task, and an absence has no
+	// date of its own. Inventing one would make a reading into a deadline.
 	// No deal named: the account has several open, and picking one for the
 	// reader would be a guess dressed as advice.
-	out.Action = newSuggestionAction(crmcontracts.AddTask)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindAddTask)
 	return out
 }
 
@@ -371,6 +382,9 @@ func lifecycleConflict(
 		// that has since been fixed.
 		Fingerprint: fingerprint(string(suggestConflict), in.lifecycle, evidence),
 		Evidence:    evidence,
+		// The conflict is named, not resolved — which of the two is wrong is the
+		// reader's judgment, so the title asks rather than instructs.
+		Title: ptrString("Check the stage against what they wrote"),
 	}
 }
 
@@ -378,6 +392,13 @@ func lifecycleConflict(
 // that already reads as over — former_customer, disqualified — is not in
 // conflict with the mail that says so; it is the mail's conclusion.
 var liveLifecycles = map[string]bool{"prospect": true, "opportunity": true, "customer": true}
+
+// A title and a date are OPTIONAL on the wire, so both are pointers. Spelled
+// once here rather than inline, because a suggestion that carried a zero time
+// would render as "due 1 January year one" — a date is either the evidence's or
+// it is absent.
+func ptrString(v string) *string     { return &v }
+func ptrTime(v time.Time) *time.Time { return &v }
 
 // fingerprint identifies a suggestion by what it fired ON, not by what kind
 // it is.

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -39,7 +40,7 @@ func NewProvider(pool *pgxpool.Pool) *Provider {
 		// The fieldcatalog seam mirrors the HTTP wiring (server.go): the
 		// MCP surface's record verbs carry cf_* values too.
 		people:     people.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		deals:      deals.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
+		deals:      deals.NewProvider(pool, identity.BaseCurrencyOf).WithFieldCatalog(customfields.NewService(pool, nil)),
 		activities: activities.NewProvider(pool),
 		reports:    newReportEngine(pool),
 	}
@@ -63,6 +64,25 @@ func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasour
 		return p.activities.Read(ctx, ref)
 	default:
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(ref.Type)}
+	}
+}
+
+// ListFilters answers which filters an enumeration of one record type can be
+// narrowed by, by asking the module that owns the type.
+//
+// It is the STORE half of list_records' vocabulary — the contract's half is
+// derived from crm.yaml — and it is here for the same reason every other
+// cross-module edge is: only this layer sees both modules. An entity type no
+// module lists answers nothing, and the tool then publishes no filters for it
+// rather than a name it would refuse.
+func (p *Provider) ListFilters(t datasource.EntityType) []string {
+	switch t {
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+		return p.people.ListFilters(t)
+	case datasource.EntityDeal, datasource.EntityProject:
+		return p.deals.ListFilters(t)
+	default:
+		return nil
 	}
 }
 
@@ -100,9 +120,9 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 		)
 		switch t {
 		case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
-			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor)
+			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
 		case datasource.EntityDeal, datasource.EntityProject:
-			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor)
+			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
 		default:
 			return datasource.SearchResult{}, &datasource.UnsupportedEntityError{Type: string(t)}
 		}

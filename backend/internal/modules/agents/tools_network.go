@@ -19,8 +19,10 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -40,11 +42,35 @@ type KnownColleague struct {
 // WhoKnowsLister answers "which colleagues know this contact", warmest first.
 // Compose implements it over the interaction projection through the same
 // row-scoped read the HTTP surface uses.
-type WhoKnowsLister func(ctx context.Context, personID ids.UUID) ([]KnownColleague, error)
+// The bool is truncation, spelled the way IntroPathLister spells it: the walk is
+// capped, and a capped list a model is handed with nothing marking it is one it
+// will report as the whole network.
+type WhoKnowsLister func(ctx context.Context, personID ids.UUID) (colleagues []KnownColleague, truncated bool, err error)
 
 // CoverageReader answers "how is this deal covered, and what is wrong with
 // it". Compose implements it over compose/network.
 type CoverageReader func(ctx context.Context, dealID ids.UUID) (DealCoverageAnswer, error)
+
+// WhoKnowsAnswer is what who_knows answers: the colleagues who know one
+// contact, warmest first. An empty list is a real answer — it says the contact
+// is cold — so it is never an error and never null.
+type WhoKnowsAnswer struct {
+	PersonID   ids.UUID         `json:"person_id"`
+	Colleagues []KnownColleague `json:"colleagues"`
+}
+
+// IntroPathAnswer is what intro_path_to answers: the warm routes into an
+// account, and whether the candidate set the warmth was computed over was
+// itself cut short.
+type IntroPathAnswer struct {
+	OrganizationID ids.UUID     `json:"organization_id"`
+	Routes         []IntroRoute `json:"routes"`
+	// CandidatesTruncated says the ranking was computed over a bounded slice of
+	// the account's contacts, so a warmer route may exist outside it. A ranked
+	// list presented as complete is how a model tells a rep that nobody warmer
+	// exists.
+	CandidatesTruncated bool `json:"candidates_truncated"`
+}
 
 // DealCoverageAnswer is the coverage picture in the shape a model consumes:
 // the seats, who carries them, and the findings with their evidence.
@@ -145,14 +171,33 @@ type whoKnowsTool struct{ list WhoKnowsLister }
 func (t whoKnowsTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "who_knows", Title: "Who knows this contact", Version: toolVersionV1,
+		Description:   whoKnowsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPersonNetwork",
 		InputSchema: schema(`{"type":"object","properties":{
 			"person_id":{"type":"string","format":"uuid","description":"The contact to ask about"}},
 			"required":["person_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[WhoKnowsAnswer](),
+		// The view renders this tool's own answer as a ranked list. What it buys
+		// over the text is the band and the interaction count side by side —
+		// including the case the seam is careful about, where a colleague has an
+		// absent strength rather than a zero one.
+		UI: &mcp.ToolUI{ResourceURI: apps.RelationshipMapURI},
 	}
 }
+
+// whoKnowsTruncatedMessage is the third spelling of one rule: a ranked list that
+// stopped at its cap is not the whole network, and a model told nothing reports
+// it as one.
+//
+// It has to be true of BOTH bounds the seam reports through one flag, and they
+// differ in what they cost: the result cap trims a full ranking, so the ten
+// returned really are the warmest, while the scan bound stops the reading before
+// the ranking, so past it they are the warmest of a sample. A message asserting
+// either would be false half the time — so it states what holds in both cases,
+// which is that colleagues exist beyond this list and it is not the network.
+const whoKnowsTruncatedMessage = "More colleagues know this contact than are listed here. " +
+	"Report these as the ones found, not as everyone who knows them."
 
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
@@ -161,7 +206,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	colleagues, err := t.list(ctx, args.PersonID)
+	colleagues, truncated, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +219,12 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
-	return json.Marshal(map[string]any{
-		"person_id": args.PersonID, "colleagues": colleagues,
-	})
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityPerson, args.PersonID)
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, whoKnowsTruncatedMessage)
+	}
+	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
 
 // --- account_coverage (🟢 read) ---
@@ -186,12 +234,13 @@ type accountCoverageTool struct{ read CoverageReader }
 func (t accountCoverageTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "account_coverage", Title: "Relationship coverage on a deal", Version: toolVersionV1,
+		Description:   accountCoverageCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getDealCoverage",
 		InputSchema: schema(`{"type":"object","properties":{
 			"deal_id":{"type":"string","format":"uuid","description":"The deal to assess"}},
 			"required":["deal_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[DealCoverageAnswer](),
 	}
 }
 
@@ -220,6 +269,11 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if answer.Risks == nil {
 		answer.Risks = []CoverageRisk{}
 	}
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityDeal, args.DealID)
+	for _, seat := range answer.Stakeholders {
+		noteEvidence(ctx, datasource.EntityPerson, seat.PersonID)
+	}
 	return json.Marshal(answer)
 }
 
@@ -230,14 +284,22 @@ type introPathTool struct{ list IntroPathLister }
 func (t introPathTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "intro_path_to", Title: "Find a warm introduction path", Version: toolVersionV1,
+		Description:   introPathToCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getOrganizationGraph",
 		InputSchema: schema(`{"type":"object","properties":{
 			"organization_id":{"type":"string","format":"uuid","description":"The account to find a warm route into"}},
 			"required":["organization_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[IntroPathAnswer](),
 	}
 }
+
+// introPathTruncatedMessage says a ranked list is not an exhaustive one. Warmth
+// is computed after the fetch bound, so the genuinely warmest route can sit
+// outside the slice that was read — and a model told nothing reports "nobody
+// warmer exists" from a list that never looked.
+const introPathTruncatedMessage = "More contacts exist at this organization than were examined, " +
+	"so a warmer route may exist outside this list. Do not report these as the only ways in."
 
 func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
@@ -256,14 +318,22 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		// null reads it as "unknown" and hedges.
 		routes = []IntroRoute{}
 	}
-	return json.Marshal(map[string]any{
-		"organization_id": args.OrganizationID, "routes": routes,
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityOrganization, args.OrganizationID)
+	for _, route := range routes {
+		noteEvidence(ctx, datasource.EntityPerson, route.PersonID)
+	}
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, introPathTruncatedMessage)
+	}
+	return json.Marshal(IntroPathAnswer{
+		OrganizationID: args.OrganizationID, Routes: routes,
 		// Warmth is computed AFTER the read, so an account with more contacts
 		// than the fetch bound contributes only the first slice of them and the
 		// genuinely warmest route can fall outside it. Saying so is the "no
 		// silent caps" rule: a ranked list presented as complete is how a model
 		// tells a rep that nobody warmer exists.
-		"candidates_truncated": truncated,
+		CandidatesTruncated: truncated,
 	})
 }
 
@@ -274,15 +344,21 @@ type atRiskTool struct{ list AtRiskLister }
 func (t atRiskTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "at_risk_relationships", Title: "Relationships going cold", Version: toolVersionV1,
+		Description:   atRiskRelationshipsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + getDealCoverage",
 		// No arguments. The question is about the caller's own book, and the
 		// row scope already decides what that is — an owner or team filter here
 		// would be a second, weaker spelling of the same rule.
 		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[AtRiskReport](),
 	}
 }
+
+// atRiskTruncatedMessage is the same claim over the at-risk scan, which stops at
+// its own cap rather than at the end of the pipeline.
+const atRiskTruncatedMessage = "The scan stopped at its cap, so deals beyond it were not examined. " +
+	"Report these as what was found, not as every relationship at risk."
 
 func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct{}
@@ -295,6 +371,29 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	}
 	if report.Deals == nil {
 		report.Deals = []AtRiskDeal{}
+	}
+	// The NESTED list too, and at the same boundary for the same reason: a deal
+	// reported as at risk with a null findings list tells a model nothing about
+	// why, where an empty one would say the deal carries no finding at all. The
+	// declared schema requires it, so a null would also cost the whole answer
+	// its structured half.
+	noteDerivedContent(ctx)
+	for i := range report.Deals {
+		if report.Deals[i].Risks == nil {
+			report.Deals[i].Risks = []CoverageRisk{}
+		}
+		noteEvidence(ctx, datasource.EntityDeal, report.Deals[i].DealID)
+		// The people a finding names, not only the deal it hangs on: a risk
+		// reading "the only contact has gone quiet" is checkable only against
+		// the contact, and evidence a caller cannot follow grounds nothing.
+		for _, risk := range report.Deals[i].Risks {
+			for _, person := range risk.PersonIDs {
+				noteEvidence(ctx, datasource.EntityPerson, person)
+			}
+		}
+	}
+	if report.Truncated {
+		noteWarning(ctx, warningSweepTruncated, atRiskTruncatedMessage)
 	}
 	return json.Marshal(report)
 }

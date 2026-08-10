@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -63,6 +65,11 @@ type graphSection struct {
 	items []graphItem
 }
 
+// sectionProfile names the section every walk opens with: what the anchor IS,
+// before anything around it. Named because the activity anchor both emits one
+// and drops the one its subject's walk emits (graphactivity.go).
+const sectionProfile = "profile"
+
 type graphItem struct {
 	entityType string
 	id         ids.UUID
@@ -90,12 +97,33 @@ var anchorLinkColumn = map[string]string{
 // (hop 2). Depth is fixed by construction — two joins, not a traversal
 // that can wander. Activities ride the activity link-walk scope; hop-2
 // records are visibility-probed individually.
+//
+// An ACTIVITY anchor takes the other road (graphactivity.go): it names no
+// neighborhood of its own, so it is dereferenced to the records it is about
+// and the walk below runs around one of those.
 func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
-	// A graph anchor is any searchable record type except activity itself
-	// (an activity is a link, not a thing links hang off): the non-walk
-	// branches are exactly the contract's {person, organization, deal,
-	// lead} anchor set, so the valid-anchor rule stays derived from the
-	// module's one entity table rather than a parallel list.
+	var sections []graphSection
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		if anchorType == string(datasource.EntityActivity) {
+			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems)
+			return err
+		}
+		sections, err = s.assembleRecordWithin(ctx, tx, anchorType, anchorID, maxItems)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return sections, nil
+}
+
+// assembleRecordWithin is the record half of the walk, on a transaction the
+// caller owns — so an activity anchor can dereference to a record and walk it
+// without opening a second transaction against the same read.
+func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
+	// A record graph anchor is any searchable record type except activity
+	// itself (an activity is a link, not a thing links hang off).
 	var branch *searchBranch
 	for i := range searchBranches {
 		if searchBranches[i].entity == anchorType && !searchBranches[i].activityWalk {
@@ -103,71 +131,73 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		}
 	}
 	if branch == nil {
-		// The handler pre-validates anchorType against isContextAnchor, so
-		// this is unreachable in practice — but an unmapped raw error would
-		// still surface as an opaque 500 if some caller ever slipped past
-		// that gate, so the store layer answers with the same sentinel
-		// every other invalid-record-reference case in this module uses.
+		// The handler pre-validates anchorType against the module's entity
+		// table, so this is unreachable in practice — but an unmapped raw
+		// error would still surface as an opaque 500 if some caller ever
+		// slipped past that gate, so the store layer answers with the same
+		// sentinel every other invalid-record-reference case in this module
+		// uses.
 		return nil, fmt.Errorf("search: %s is not a graph anchor: %w", anchorType, apperrors.ErrNotFound)
 	}
-	// A lead carries no activity_link neighborhood — the link shape admits
-	// only person/organization/deal (0008_activity.up.sql) — so a lead
-	// anchor's context is its profile alone: an honestly-empty
-	// neighborhood, not a walk silently skipped.
+	// Object RBAC before row scope, the order every read in this module takes
+	// (Search's branch admission spells it the same way). The row-scope probe
+	// below answers a different question — WHICH rows of a type — and a caller
+	// with no grant on the type at all must not reach it.
+	if err := auth.Require(ctx, anchorType, principal.ActionRead); err != nil {
+		return nil, err
+	}
+	// anchorLinkColumn is what this walk can READ, not what activity_link can
+	// hold: the link shape has admitted a lead arm since core 0038, and this
+	// walk does not follow it, so a lead anchor's context is its profile alone.
+	// That is an honestly-empty neighborhood rather than a walk silently
+	// skipped — and it is a gap, tracked rather than restated as a property.
 	linkCol, walkable := anchorLinkColumn[anchorType]
 	now := time.Now().UTC()
-	var sections []graphSection
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		title, err := anchorProfile(ctx, tx, branch, anchorType, anchorID)
-		if err != nil {
-			return err
-		}
-		sections = append(sections, graphSection{name: "profile", items: []graphItem{{
-			entityType: anchorType, id: anchorID, summary: title,
-		}}})
 
-		// Who on our team knows this contact (ADR-0078). Without this the
-		// projection is invisible to the assistant: a rep can see the answer
-		// on the person page while the model answering "who should introduce
-		// me" has no access to it at all, and confidently says nobody.
-		//
-		// Person anchors only. An organization's or a deal's colleagues are a
-		// join across its contacts, which is a compose read — and a module
-		// never imports a sibling to make one.
-		if anchorType == string(datasource.EntityPerson) {
-			knows, err := whoKnowsSection(ctx, tx, anchorID, maxItems, now)
-			if err != nil {
-				return err
-			}
-			sections = append(sections, knows)
-		}
-
-		if !walkable {
-			return nil
-		}
-
-		touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
-		if err != nil {
-			return err
-		}
-		sections = append(sections,
-			graphSection{name: "recent_touches", items: touches},
-			graphSection{name: "open_tasks", items: openTasks})
-
-		// Hop 2: the other ends of those activities' links — the people
-		// and organizations in the same conversations. Each is
-		// visibility-probed: the walk widens context, never authority.
-		related, err := s.relatedViaLinks(ctx, tx, anchorType, anchorID, activityIDs, maxItems)
-		if err != nil {
-			return err
-		}
-		sections = append(sections, related...)
-		return nil
-	})
+	title, err := anchorProfile(ctx, tx, branch, anchorType, anchorID)
 	if err != nil {
 		return nil, err
 	}
-	return sections, nil
+	sections := []graphSection{{name: sectionProfile, items: []graphItem{{
+		entityType: anchorType, id: anchorID, summary: title,
+	}}}}
+
+	// Who on our team knows this contact (ADR-0078). Without this the
+	// projection is invisible to the assistant: a rep can see the answer
+	// on the person page while the model answering "who should introduce
+	// me" has no access to it at all, and confidently says nobody.
+	//
+	// Person anchors only. An organization's or a deal's colleagues are a
+	// join across its contacts, which is a compose read — and a module
+	// never imports a sibling to make one.
+	if anchorType == string(datasource.EntityPerson) {
+		knows, err := whoKnowsSection(ctx, tx, anchorID, maxItems, now)
+		if err != nil {
+			return nil, err
+		}
+		sections = append(sections, knows)
+	}
+
+	if !walkable {
+		return sections, nil
+	}
+
+	touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
+	if err != nil {
+		return nil, err
+	}
+	sections = append(sections,
+		graphSection{name: "recent_touches", items: touches},
+		graphSection{name: "open_tasks", items: openTasks})
+
+	// Hop 2: the other ends of those activities' links — the people
+	// and organizations in the same conversations. Each is
+	// visibility-probed: the walk widens context, never authority.
+	related, err := s.relatedViaLinks(ctx, tx, anchorType, anchorID, activityIDs, maxItems)
+	if err != nil {
+		return nil, err
+	}
+	return append(sections, related...), nil
 }
 
 // anchorProfile reads the anchor's title, and is the existence and visibility
@@ -322,21 +352,16 @@ func MemberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[i
 	return out, rows.Err()
 }
 
-// graphHop names one hop-2 target type: the entity, the activity_link
-// column that reaches it, and its human-facing title column.
-type graphHop struct {
-	entity string
-	column string
-	title  string
-}
-
-// relatedHops is the fixed set of hop-2 neighbor types, in the order the
-// related_* sections are emitted.
-var relatedHops = []graphHop{
-	{entity: string(datasource.EntityPerson), column: "person_id", title: "full_name"},
-	{entity: string(datasource.EntityOrganization), column: "organization_id", title: "display_name"},
-	{entity: string(datasource.EntityDeal), column: "deal_id", title: "name"},
-	{entity: string(datasource.EntityProject), column: "project_id", title: "name"},
+// relatedSectionOrder is the hop-2 neighbor types the walk renders a related_*
+// section for, in the order they are emitted.
+//
+// It is a SUBSET of activity_link's arms (activityLinkArms) and the walk skips
+// the rest: a project or a lead reached at hop 2 has nowhere to be reported, so
+// reading them would be a query whose result is discarded.
+var relatedSectionOrder = []string{
+	string(datasource.EntityPerson),
+	string(datasource.EntityOrganization),
+	string(datasource.EntityDeal),
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {
@@ -344,9 +369,16 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		return nil, nil
 	}
 	sectionsByType := map[string][]graphItem{}
-	for _, hop := range relatedHops {
-		if hop.entity == anchorType {
-			continue // the anchor is not its own neighbor
+	for _, hop := range activityLinkArms {
+		if hop.entity == anchorType || !slices.Contains(relatedSectionOrder, hop.entity) {
+			continue // the anchor is not its own neighbor, and neither is a type with no section
+		}
+		// Object RBAC hides a denied type SILENTLY here, unlike at the anchor:
+		// a neighbor is context the caller did not ask for by name, so a type
+		// they hold no grant on is absent rather than a 403 on a read they did
+		// not make. Search's branch admission takes the same posture.
+		if auth.Require(ctx, hop.entity, principal.ActionRead) != nil {
+			continue
 		}
 		items, err := hopNeighbors(ctx, tx, hop, anchorID, activityIDs)
 		if err != nil {
@@ -355,7 +387,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		sectionsByType[hop.entity] = items
 	}
 	var out []graphSection
-	for _, entity := range []string{string(datasource.EntityPerson), string(datasource.EntityOrganization), string(datasource.EntityDeal)} {
+	for _, entity := range relatedSectionOrder {
 		items := sectionsByType[entity]
 		if len(items) == 0 {
 			continue
@@ -372,7 +404,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 // hopNeighbors reads one hop's bounded, deterministic candidate window and
 // returns the visible ones as graph items. Each candidate is
 // visibility-probed individually: the walk widens context, never authority.
-func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUID, activityIDs []ids.ActivityID) ([]graphItem, error) {
+func hopNeighbors(ctx context.Context, tx pgx.Tx, hop activityLinkArm, anchorID ids.UUID, activityIDs []ids.ActivityID) ([]graphItem, error) {
 	// Bounded like the activity leg: the id order makes the window
 	// deterministic before the per-row visibility probe thins it.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
@@ -380,7 +412,7 @@ func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUI
 		FROM activity_link l JOIN %s t ON t.id = l.%s
 		WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2
 		ORDER BY t.id LIMIT %d`,
-		hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
+		hop.title(), hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
 	if err != nil {
 		return nil, err
 	}

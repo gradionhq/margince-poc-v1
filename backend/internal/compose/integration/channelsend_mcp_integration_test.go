@@ -38,6 +38,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -53,15 +54,15 @@ import (
 // to a Handle in this package").
 func (c *channelSendEnv) sendMessageInvoker(t *testing.T, agentToken string) func(args string) (string, error) {
 	t.Helper()
-	ensureRiverSchema(t)
-	inserter, err := jobs.NewInserter(c.pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ApplyRiverSchema(t)
+	inserter, err := jobs.NewInserter(c.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("jobs.NewInserter: %v", err)
 	}
-	registry := compose.NewRegistry(c.pool, compose.SendPath{
-		Delivery: compose.NewDeliveryStager(c.pool, inserter),
+	registry := compose.NewRegistry(c.Pool, compose.SendPath{
+		Delivery: compose.NewDeliveryStager(c.Pool, inserter),
 	})
-	authSvc := identity.NewService(c.pool)
+	authSvc := identity.NewService(c.Pool)
 	return func(args string) (string, error) {
 		wsID, err := authSvc.InstallationWorkspace(context.Background())
 		if err != nil {
@@ -101,7 +102,7 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 	}
 	c.assertNoOutboundEffect(t, "a staged-but-not-yet-approved send_message call")
 
-	if status := c.call(t, "POST", "/v1/approvals/"+staged.ApprovalID.String()+"/approve", anyMap{}, nil, nil); status != http.StatusOK {
+	if status := c.Call(t, "POST", "/v1/approvals/"+staged.ApprovalID.String()+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
 		t.Fatalf("human approve → %d", status)
 	}
 
@@ -116,7 +117,7 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 		ActivityID string `json:"activity_id"`
 		Status     string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(out), &sent); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, json.RawMessage(out)), &sent); err != nil {
 		t.Fatalf("send_message result does not decode: %v (%s)", err, out)
 	}
 	if sent.Status != "accepted" {
@@ -128,7 +129,7 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 	// delivery anchors on — otherwise the response could name any activity while
 	// the delivery transmits a different one.
 	var deliveryActivity string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT activity_id::text FROM comms_outbound WHERE channel_user_id IS NOT NULL`).Scan(&deliveryActivity)
 	}); err != nil {

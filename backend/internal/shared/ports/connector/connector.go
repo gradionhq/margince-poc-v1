@@ -154,81 +154,45 @@ type NormalizedRecord struct {
 	// same CAP-FORMULA-1 reply join and activity.thread_key. Empty only for a
 	// mail record with none of its three sources; a channel record always has one.
 	ThreadKey string
+
+	// Participants are the FURTHER parties to this message beyond the mailbox
+	// owner and Counterparty — the CCs on a thread, the attendees and organizer
+	// of a meeting. A connector that reports none behaves exactly as before,
+	// which is why this is additive rather than a replacement for Counterparty:
+	// the two ends of the exchange are what direction is defined against, and
+	// everyone else is present without being either end.
+	//
+	// They are addresses, not records. Resolving one to a colleague or a known
+	// contact is capture's job at stamping time, and an address that resolves to
+	// neither is still kept — an attendee nobody has a record for is a fact
+	// about the meeting.
+	Participants []MessageParticipant
+
+	// Addresses is EVERY address this record names — for mail the union of
+	// From, To, Cc and whatever Bcc survived; for calendar the organizer and
+	// attendees — including the connected owner's own. It is what the
+	// internal-vs-external decision is taken over (ADR-0082/A127, formulas
+	// §20), which is why it overlaps Counterparty and Participants rather than
+	// complementing them: those two are the derived ENDS of the exchange, and
+	// a message is internal only when every party to it is.
+	//
+	// A connector that reports none is saying "I cannot enumerate the parties",
+	// not "there are none" — and an unenumerable message is never treated as
+	// internal, so it is captured.
+	Addresses []string
+
+	// Parts are the files this record carried, already bounded, renamed safely
+	// and typed by their bytes. A connector never enforces those rules itself:
+	// they belong to the one parser every mail adapter shares, so a new adapter
+	// cannot arrive without them.
+	Parts []Part
+
+	// PartDrops names the files the bounds refused. It is carried rather than
+	// discarded so a message whose attachments were too many or too large is
+	// distinguishable from a message that had none — silence would report the
+	// two identically, and only one of them means something is missing.
+	PartDrops []PartDrop
 }
-
-// Counterparty names the non-owner participant of one captured message. A
-// mail record identifies them by Email (authoritative); a channel record
-// carries no address and identifies them by ChannelIdentity instead — the
-// two are mutually exclusive, never both populated. DisplayName is the
-// header's human name (may be empty or hostile — untrusted text); Domain is
-// the lowercased mail domain (empty for a channel record); Direction is
-// relative to the mailbox/bot owner (DirectionInbound | DirectionOutbound).
-type Counterparty struct {
-	Email       string
-	DisplayName string
-	Domain      string
-	Direction   string
-	// ChannelIdentity is the channel-record twin of Email: a messaging
-	// connector (Telegram) populates this instead, having no address to
-	// carry. Zero for every mail record. The four mail-domain gates (T0
-	// internal-domain, freemail, transactional/ESP, quarantine) all key off
-	// Email, so an empty Email already makes them no-ops for a channel
-	// record with no separate switch needed.
-	ChannelIdentity ChannelIdentity
-	// ListUnsubscribe reports whether the message carried an RFC 2369
-	// List-Unsubscribe header — the bulk-mail corroboration the transactional
-	// suppression gate (CAP-PARAM-6, ADR-0072) requires before a subdomain
-	// prefix rule may suppress record creation. Mail connectors populate it;
-	// zero for records that carry no such signal.
-	ListUnsubscribe bool
-	// sentByOwner is the T1 correspondence-positive gate's only evidence
-	// (ADR-0072 §1), and it is deliberately UNEXPORTED. The field is the one
-	// thing on this struct a connector must not be able to state for itself:
-	// whoever sets it can whitelist an arbitrary address past transactional
-	// suppression. Unexported, the compiler refuses every route a convention
-	// could not — a positional literal, a JSON unmarshal, reflection, a
-	// conversion from a look-alike struct, a pointer handed to a decoder.
-	// WithOwnerAttestation is the sole way in, and SentByOwner the sole way out.
-	sentByOwner bool
-}
-
-// Message direction relative to the mailbox owner, as Counterparty.Direction
-// reports it.
-const (
-	DirectionInbound  = "inbound"
-	DirectionOutbound = "outbound"
-)
-
-// WithOwnerAttestation returns a copy recording that the authenticated mailbox
-// owner sent this message. providerFiled is the PROVIDER's own filing — Gmail's
-// SENT label, an IMAP \Sent special-use mailbox, Microsoft's SentItems folder —
-// and it is honored only where Direction independently names the owner as the
-// message's author.
-//
-// The conjunction lives here, in the port that owns the field, because neither
-// half is sufficient and no caller may choose to apply only one. Direction
-// compares the forgeable From header against the owner's address, so a spoofed
-// From:owner delivered to the inbox would otherwise pass as the owner's own
-// correspondence. And placement is not authorship: a server-side rule can file
-// a third party's message into the sent container, where the counterparty is
-// that stranger's own address.
-//
-// Build the Counterparty first: this reads Direction as it stands at the call,
-// so attesting before Direction is populated — or reassigning it afterwards —
-// yields an answer that no longer matches the record. Both mistakes fail toward
-// false, and the unexported field carries the same cost at any serialization
-// boundary: a Counterparty that ever crosses one arrives un-attested rather
-// than wrongly attested.
-//
-// A caller that attests nothing leaves the answer false, which suppresses
-// rather than trusts.
-func (c Counterparty) WithOwnerAttestation(providerFiled bool) Counterparty {
-	c.sentByOwner = providerFiled && c.Direction == DirectionOutbound
-	return c
-}
-
-// SentByOwner reports whether both halves of the attestation agreed.
-func (c Counterparty) SentByOwner() bool { return c.sentByOwner }
 
 // NaturalKey is the (source_system, source_id) idempotency key the DB
 // unique indexes enforce (data-model §7/§8).
@@ -348,6 +312,44 @@ type EmailSender interface {
 	SendEmail(ctx context.Context, auth Auth, msg EmailMessage) (SendReceipt, error)
 }
 
+// AttachmentCarrier is how a sending connector declares whether it can transmit
+// files (ADR-0086/A131).
+//
+// THERE IS NO DEFAULT, and that is the whole design. The obvious way to add
+// attachments — put a files field on the message, teach the mail adapter
+// multipart, let the others ignore it — compiles everywhere and silently
+// transmits the covering text without the file. The sender sees a timeline entry
+// with an attachment chip, because the timeline records what was STAGED; the
+// recipient sees a message referring to a file that is not there; nobody is
+// told. That failure is silent, invisible at the call site, and permanent,
+// because the record of what was sent is now wrong.
+//
+// So a sender that does not implement this seam is treated as carrying nothing,
+// and a staged message with files PARKS rather than going out stripped. An
+// adapter that gains the ability declares it here; one that never had it needs
+// no change and cannot be mistaken for capable.
+type AttachmentCarrier interface {
+	// CarriesAttachments reports whether this connector's provider transmits
+	// files alongside the message body.
+	CarriesAttachments() bool
+}
+
+// OutboundFile is one file to transmit, in provider-neutral form. The connector
+// owns the wire encoding, exactly as it does for the body.
+//
+// The identifying fields travel WITH the bytes rather than being looked up at
+// send time, because the outbound record snapshots them: archiving or
+// superseding a document later must not rewrite the history of what was attached
+// to a message that already went out.
+type OutboundFile struct {
+	AttachmentID string
+	Filename     string
+	ContentType  string
+	ByteSize     int64
+	Checksum     string
+	Body         []byte
+}
+
 // EmailMessage is one message to transmit, in provider-NEUTRAL form. The
 // connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
 // JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
@@ -381,6 +383,17 @@ type EmailMessage struct {
 	// Attempt is 0 on the first transmission and increments on every retry. It is
 	// how a connector knows to run the prior-send lookup the contract requires.
 	Attempt int
+
+	// Files are the attachments this message carries. A connector handed a
+	// non-empty set has already been asked whether it carries attachments — the
+	// dispatcher parks otherwise — so reaching here with files means transmitting
+	// them.
+	//
+	// THE INVARIANT, stated where an implementer reads it: no adapter may
+	// transmit a message whose attachment set differs from the one it was
+	// handed. Not a subset, not converted to links, not silently dropped. If it
+	// cannot send all of them it returns an error and the delivery parks.
+	Files []OutboundFile
 }
 
 // ErrInvalidMessageID marks an outbound message carrying no usable RFC822

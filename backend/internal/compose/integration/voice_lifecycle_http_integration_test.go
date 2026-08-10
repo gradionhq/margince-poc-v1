@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -65,25 +66,25 @@ const voiceLifecycleEvaluation = `{
   "passed": true
 }`
 
-func seedVoiceLifecycleHistory(t *testing.T, e *env, profileID string) (ids.UUID, ids.UUID) {
+func seedVoiceLifecycleHistory(t *testing.T, e *apptest.AppEnv, profileID string) (ids.UUID, ids.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	var workspaceID, ownerID ids.UUID
-	if err := e.owner.QueryRow(
+	if err := e.Owner.QueryRow(
 		ctx,
 		`SELECT workspace_id, owner_id FROM voice_profile WHERE id = $1`, profileID,
 	).Scan(&workspaceID, &ownerID); err != nil {
 		t.Fatal(err)
 	}
 	capturedBy := "human:" + ownerID.String()
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		UPDATE voice_profile
 		SET status = 'ready', voice_profile_md = 'active version 1', profile_version = 1,
 		    active_source_hash = 'active-hash', last_built_at = now(), updated_at = now()
 		WHERE id = $1`, profileID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_version
 		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason,
@@ -102,7 +103,7 @@ func seedVoiceLifecycleHistory(t *testing.T, e *env, profileID string) (ids.UUID
 
 func seedVoiceLifecycleCandidate(
 	t *testing.T,
-	e *env,
+	e *apptest.AppEnv,
 	workspaceID ids.UUID,
 	profileID string,
 	profileVersion int,
@@ -112,7 +113,7 @@ func seedVoiceLifecycleCandidate(
 	t.Helper()
 	ctx := context.Background()
 	artifact := "candidate version " + strconv.Itoa(profileVersion)
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_version
 		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
@@ -127,7 +128,7 @@ func seedVoiceLifecycleCandidate(
 		voiceLifecycleEvaluation, capturedBy); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_delta
 		  (workspace_id, voice_profile_id, from_version, to_version, classification,
 		   activation_outcome, delta_json)
@@ -138,10 +139,10 @@ func seedVoiceLifecycleCandidate(
 	}
 }
 
-func seedVoiceDraftSignal(t *testing.T, e *env, workspaceID ids.UUID, profileID string, ownerID ids.UUID, draftRef string) {
+func seedVoiceDraftSignal(t *testing.T, e *apptest.AppEnv, workspaceID ids.UUID, profileID string, ownerID ids.UUID, draftRef string) {
 	t.Helper()
 	hash := sha256.Sum256([]byte(draftRef))
-	if _, err := e.owner.Exec(context.Background(), `
+	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO voice_learning_signal
 		  (workspace_id, voice_profile_id, profile_version, draft_ref_hash, outcome,
 		   generated_original, transformations, retention_until, source, captured_by)
@@ -153,16 +154,16 @@ func seedVoiceDraftSignal(t *testing.T, e *env, workspaceID ids.UUID, profileID 
 }
 
 func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	created := createVoiceProfile(t, e)
 	base := "/v1/voice-profiles/" + created.ID
-	removable := ingest(t, e, base, anyMap{
+	removable := ingest(t, e, base, apptest.AnyMap{
 		"kind": "email", "source_label": "Removable sample", "source_ref": "remove-me",
 		"content": "This source proves permanent removal through the governed HTTP lifecycle.",
 	})
 	var removed voiceSourceWire
-	if status := e.call(t, "DELETE", base+"/sources/"+removable.Source.ID, nil,
+	if status := e.Call(t, "DELETE", base+"/sources/"+removable.Source.ID, nil,
 		map[string]string{"If-Match": strconv.Itoa(removable.Source.Version)}, &removed); status != http.StatusOK {
 		t.Fatalf("delete corpus source → %d", status)
 	}
@@ -171,46 +172,46 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 	workspaceID, ownerID := seedVoiceLifecycleHistory(t, e, created.ID)
 
-	if status := e.call(t, "GET", base+"/versions?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "GET", base+"/versions?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid version cursor → %d, want 422", status)
 	}
-	if status := e.call(t, "GET", base+"/deltas?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "GET", base+"/deltas?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid delta cursor → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", base+"/versions/2/apply", nil,
+	if status := e.Call(t, "POST", base+"/versions/2/apply", nil,
 		map[string]string{"If-Match": "not-a-version"}, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid apply If-Match → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", base+"/versions/2/reject", nil,
+	if status := e.Call(t, "POST", base+"/versions/2/reject", nil,
 		map[string]string{"If-Match": "0"}, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid reject If-Match → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", base+"/corpus/clear", nil,
+	if status := e.Call(t, "POST", base+"/corpus/clear", nil,
 		map[string]string{"If-Match": "invalid"}, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid clear If-Match → %d, want 422", status)
 	}
-	if status := e.call(t, "GET", base+"/builds/"+ids.NewV7().String(), nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", base+"/builds/"+ids.NewV7().String(), nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("unknown build → %d, want 404", status)
 	}
-	if status := e.call(t, "POST", base+"/versions/99/rollback", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "POST", base+"/versions/99/rollback", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("unknown rollback version → %d, want 404", status)
 	}
-	if status := e.call(t, "GET", "/v1/voice-profiles/"+ids.NewV7().String()+"/learning", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/voice-profiles/"+ids.NewV7().String()+"/learning", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("unknown learning profile → %d, want 404", status)
 	}
-	if status := e.call(t, "POST", base+"/draft-rejections", anyMap{"draft_ref": ""}, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "POST", base+"/draft-rejections", apptest.AnyMap{"draft_ref": ""}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("empty draft reference → %d, want 422", status)
 	}
 
 	var firstPage voiceVersionPageWire
-	if status := e.call(t, "GET", base+"/versions?limit=1", nil, nil, &firstPage); status != http.StatusOK {
+	if status := e.Call(t, "GET", base+"/versions?limit=1", nil, nil, &firstPage); status != http.StatusOK {
 		t.Fatalf("list versions → %d", status)
 	}
 	if len(firstPage.Data) != 1 || !firstPage.Page.HasMore || firstPage.Page.NextCursor == nil {
 		t.Fatalf("first version page = %+v, want one row and a cursor", firstPage)
 	}
 	var secondPage voiceVersionPageWire
-	if status := e.call(t, "GET", base+"/versions?limit=1&cursor="+*firstPage.Page.NextCursor, nil, nil, &secondPage); status != http.StatusOK {
+	if status := e.Call(t, "GET", base+"/versions?limit=1&cursor="+*firstPage.Page.NextCursor, nil, nil, &secondPage); status != http.StatusOK {
 		t.Fatalf("second version page → %d", status)
 	}
 	if len(secondPage.Data) != 1 || secondPage.Page.HasMore {
@@ -218,7 +219,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 
 	var applied voiceVersionWire
-	if status := e.call(t, "POST", base+"/versions/2/apply", nil,
+	if status := e.Call(t, "POST", base+"/versions/2/apply", nil,
 		map[string]string{"If-Match": "1"}, &applied); status != http.StatusOK {
 		t.Fatalf("apply candidate → %d", status)
 	}
@@ -228,7 +229,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 
 	seedVoiceLifecycleCandidate(t, e, workspaceID, created.ID, 3, 2, "human:"+ownerID.String())
 	var rejected voiceVersionWire
-	if status := e.call(t, "POST", base+"/versions/3/reject", nil,
+	if status := e.Call(t, "POST", base+"/versions/3/reject", nil,
 		map[string]string{"If-Match": "1"}, &rejected); status != http.StatusOK {
 		t.Fatalf("reject candidate → %d", status)
 	}
@@ -237,14 +238,14 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 
 	var deltas voiceDeltaPageWire
-	if status := e.call(t, "GET", base+"/deltas?limit=1", nil, nil, &deltas); status != http.StatusOK {
+	if status := e.Call(t, "GET", base+"/deltas?limit=1", nil, nil, &deltas); status != http.StatusOK {
 		t.Fatalf("list deltas → %d", status)
 	}
 	if len(deltas.Data) != 1 || !deltas.Page.HasMore || deltas.Page.NextCursor == nil {
 		t.Fatalf("delta page = %+v, want one row and a cursor", deltas)
 	}
 	var remainingDeltas voiceDeltaPageWire
-	if status := e.call(t, "GET", base+"/deltas?limit=10&cursor="+*deltas.Page.NextCursor, nil, nil, &remainingDeltas); status != http.StatusOK {
+	if status := e.Call(t, "GET", base+"/deltas?limit=10&cursor="+*deltas.Page.NextCursor, nil, nil, &remainingDeltas); status != http.StatusOK {
 		t.Fatalf("remaining deltas → %d", status)
 	}
 	if len(remainingDeltas.Data) != 1 {
@@ -254,14 +255,14 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	draftRef := "draft:lifecycle-http"
 	seedVoiceDraftSignal(t, e, workspaceID, created.ID, ownerID, draftRef)
 	var beforeReject voiceLearningSummaryWire
-	if status := e.call(t, "GET", base+"/learning", nil, nil, &beforeReject); status != http.StatusOK {
+	if status := e.Call(t, "GET", base+"/learning", nil, nil, &beforeReject); status != http.StatusOK {
 		t.Fatalf("learning summary → %d", status)
 	}
 	if beforeReject.Drafted != 1 || beforeReject.Rejected != 0 {
 		t.Fatalf("learning summary before rejection = %+v", beforeReject)
 	}
 	var afterReject voiceLearningSummaryWire
-	if status := e.call(t, "POST", base+"/draft-rejections", anyMap{"draft_ref": draftRef}, nil, &afterReject); status != http.StatusOK {
+	if status := e.Call(t, "POST", base+"/draft-rejections", apptest.AnyMap{"draft_ref": draftRef}, nil, &afterReject); status != http.StatusOK {
 		t.Fatalf("reject draft → %d", status)
 	}
 	if afterReject.Drafted != 0 || afterReject.Rejected != 1 {
@@ -269,7 +270,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 
 	var rolledBack voiceVersionWire
-	if status := e.call(t, "POST", base+"/versions/1/rollback", nil, nil, &rolledBack); status != http.StatusCreated {
+	if status := e.Call(t, "POST", base+"/versions/1/rollback", nil, nil, &rolledBack); status != http.StatusCreated {
 		t.Fatalf("rollback → %d", status)
 	}
 	if rolledBack.ProfileVersion != 4 || rolledBack.Status != "active" || rolledBack.VoiceProfileMD != "active version 1" {
@@ -277,11 +278,11 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 
 	var profile voiceProfileWire
-	if status := e.call(t, "GET", base, nil, nil, &profile); status != http.StatusOK {
+	if status := e.Call(t, "GET", base, nil, nil, &profile); status != http.StatusOK {
 		t.Fatalf("profile after rollback → %d", status)
 	}
 	var cleared voiceProfileWire
-	if status := e.call(t, "POST", base+"/corpus/clear", nil,
+	if status := e.Call(t, "POST", base+"/corpus/clear", nil,
 		map[string]string{"If-Match": strconv.Itoa(profile.Version)}, &cleared); status != http.StatusOK {
 		t.Fatalf("clear corpus → %d", status)
 	}

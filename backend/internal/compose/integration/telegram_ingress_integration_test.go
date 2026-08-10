@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -50,7 +51,7 @@ const captureLatencyBudget = 60 * time.Second
 // marker, not a captured conversation.
 func (c *telegramEnv) capturedMessage(t *testing.T, u telegramUpdate) (activityID, personID string) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT a.id::text, l.person_id::text
 			  FROM activity a
@@ -106,7 +107,7 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 	var owned struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/people", anyMap{
+	if status := c.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Owned By The Admin", "owner_id": c.admin,
 	}, nil, &owned); status != 201 {
 		t.Fatalf("seeding the owned control person → %d", status)
@@ -118,7 +119,7 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 
 	var ownerID *string
 	var fullName string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT owner_id::text, full_name FROM person WHERE id = $1`, personID).
 			Scan(&ownerID, &fullName)
@@ -141,7 +142,7 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 		t.Errorf("%d email rows beside the channel identity, want 0", n)
 	}
 	var boundUsername, identitySource, identityCapturedBy string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT username, source, captured_by FROM person_channel_identity
 			 WHERE provider = 'telegram' AND channel_user_id = $1`, u.account()).
@@ -171,7 +172,7 @@ func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPerson
 	reader := c.strangerRepCtx(t, map[string]principal.ObjectGrant{
 		"person": {Read: true}, "activity": {Read: true},
 	})
-	store := people.NewStore(c.pool)
+	store := people.NewStore(c.Pool)
 
 	shared, err := ids.ParseAs[ids.PersonKind](personID)
 	if err != nil {
@@ -240,7 +241,7 @@ func TestAC_TG_4_RedeliveryYieldsExactlyOneActivity(t *testing.T) {
 	// The job-level replay: River's ladder can hand the same job to a worker
 	// twice, and the domain natural key is the only thing standing between that
 	// and a duplicated conversation.
-	if _, err := c.owner.Exec(context.Background(), `
+	if _, err := c.Owner.Exec(context.Background(), `
 		UPDATE river_job SET state = 'available', finalized_at = NULL, attempt = 0
 		 WHERE kind = $1 AND args->>'connection_id' = $2`,
 		compose.TelegramIngestArgs{}.Kind(), c.conn.ID.String()); err != nil {
@@ -279,7 +280,7 @@ func TestAC_TG_5_MailGatesAreNoOpsForAChannelRecord(t *testing.T) {
 	c := setupTelegramConnected(t)
 	// The workspace's own mail domain, so the colleagues gate has something to
 	// find if anything asks it about a record with no domain.
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`INSERT INTO workspace_email_domain (workspace_id, domain) VALUES ($1, 'own-house.test')`, c.ws)
 		return err
@@ -352,7 +353,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit(t *testing.T) {
 	}
 
 	injectedReceipt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE raw_capture SET received_at = $2
 			  WHERE source_system = 'telegram' AND payload->>'update_id' = $1`,
@@ -363,7 +364,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit(t *testing.T) {
 	}
 
 	var receivedAt, createdAt, occurredAt time.Time
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
 			`SELECT received_at FROM raw_capture
@@ -426,7 +427,7 @@ func TestOneInboundMessageLeavesOneRawEvidenceRowAndIsExportedOnce(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.pool, ids.From[ids.PersonKind](person))
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.Pool, ids.From[ids.PersonKind](person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

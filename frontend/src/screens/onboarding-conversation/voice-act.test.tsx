@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -98,6 +99,41 @@ const candidateVersion = {
   stats_json: { word_count: 1240 },
 };
 
+// A version carrying every optional field parseVoiceInsights reads — the
+// result scene's own structure (the sample card, the measured dimensions,
+// the reading) is pinned against this, independent of the parser's own
+// tests.
+const richVersion = {
+  profile_version: 5,
+  status: "active",
+  model_name: "test-model",
+  profile_json: {
+    inference: {
+      identity_summary: "Direct and warm.",
+      thinking_pattern: "Leads with the ask, then the context.",
+      signature_moves: [
+        { move: "Opens with 'Hey'", quote: "Hey Jordan," },
+        { move: "Closes with Cheers", quote: "Cheers, Alex" },
+      ],
+      avoid: ["Corporate jargon", "Em dashes"],
+    },
+    sample_drafts: [
+      {
+        subject: "Following up on Tuesday",
+        body: "Hey Jordan, just circling back on this.",
+        voice_score: 0.9,
+      },
+      {
+        subject: "Quick nudge",
+        body: "Hey Jordan, any update on your end?",
+        voice_score: 0.8,
+      },
+    ],
+    guidance: { next_best: "Add two more sent emails." },
+  },
+  stats_json: { word_count: 4200, mean_sentence_words: 9.5, sample_count: 4 },
+};
+
 type IngestFixture = {
   stats: IngestStats;
   summary: CorpusSummary;
@@ -115,6 +151,12 @@ type StubOptions = {
   builds?: Readonly<Record<string, BuildRow[]>>;
   /** Error status for the build poll GET (resilience tests). */
   buildPollStatus?: number;
+  /** RFC 7807 body + status the build POST is refused with, for the cases
+   * about what a refused start is allowed to say on the collect scene. */
+  buildStartRefusal?: Readonly<{ body: unknown; status: number }>;
+  /** The built version the versions GET returns; defaults to the thin
+   * candidateVersion fixture most tests never look past. */
+  version?: unknown;
 };
 
 function delay(ms: number): Promise<void> {
@@ -190,6 +232,10 @@ function stubApi(options: StubOptions = {}) {
         );
       }
       if (path.endsWith("/builds") && request.method === "POST") {
+        const refusal = options.buildStartRefusal;
+        if (refusal !== undefined) {
+          return jsonResponse(refusal.body, refusal.status);
+        }
         const id = BUILD_IDS[buildIndex];
         buildIndex += 1;
         return jsonResponse({ id, status: "queued", stage: null }, 202);
@@ -211,7 +257,7 @@ function stubApi(options: StubOptions = {}) {
       }
       if (path.endsWith("/versions") && request.method === "GET") {
         return jsonResponse({
-          data: [candidateVersion],
+          data: [options.version ?? candidateVersion],
           page: { next_cursor: null },
         });
       }
@@ -280,15 +326,18 @@ describe("the conversational voice act", () => {
 
     await uploadFile("call.vtt", "WEBVTT transcript content");
 
-    // The attachment turn lands, then the server-derived speaker options.
-    expect(await screen.findByText("Added call.vtt.")).toBeTruthy();
+    // The decision is the whole work surface, not a rail card: the question
+    // and its server-derived speaker options render there.
     expect(
       await screen.findByText(/Which one is you\? Only your own words count/),
     ).toBeTruthy();
     expect(screen.getByText("words: 1240 · turns: 12")).toBeTruthy();
     expect(screen.getByText("words: 4160 · turns: 14")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: /Speaker 1/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /Speaker 1/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Use this speaker" }),
+    );
 
     await waitFor(() => {
       expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
@@ -300,10 +349,8 @@ describe("the conversational voice act", () => {
     expect(body.speaker_label).toBe("Speaker 1");
     expect(body.register).toBe("spoken");
 
-    // The reaction speaks the server's kept-of-total stats, nothing else.
-    expect(
-      await screen.findByText(/Words kept: 1240 of 5400\. Only your turns/),
-    ).toBeTruthy();
+    // The server's kept-of-total stats land on the collect scene's own
+    // sources list, once — never a second copy of the same fact in the rail.
     expect(await screen.findByText(/Kept 1240 of 5400 words/)).toBeTruthy();
   });
 
@@ -316,7 +363,9 @@ describe("the conversational voice act", () => {
 
     await uploadFile("notes.md", "Plain prose I wrote myself.");
 
-    expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
+    // The server's word count lands on the collect scene's own sources
+    // list, not as a second bubble in the rail.
+    expect(await screen.findByText("900 words")).toBeTruthy();
     const body = (await requestsTo(calls, "/sources", "POST")[0]
       .clone()
       .json()) as Record<string, unknown>;
@@ -350,7 +399,7 @@ describe("the conversational voice act", () => {
     window.dispatchEvent(drop);
 
     expect(drop.defaultPrevented).toBe(true);
-    expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
+    expect(await screen.findByText("900 words")).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
 
     // A text-selection drag is NOT claimed: the composer's native
@@ -370,7 +419,7 @@ describe("the conversational voice act", () => {
         initial={{
           ...initialConversationState,
           act: "voice",
-          phase: "vo.invite",
+          phase: "vo.skipped",
         }}
       />,
     );
@@ -392,13 +441,18 @@ describe("the conversational voice act", () => {
     await uploadFile("raw.vtt", "unlabelled transcript text");
 
     expect(
-      await screen.findByText(/I counted nothing, because I only count words/),
+      await screen.findByText(
+        /I cannot tell which words are yours, so I counted none/,
+      ),
     ).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(0);
-    expect(screen.queryByText(/Own words:/)).toBeNull();
+    expect(screen.queryByText(/words kept/)).toBeNull();
   });
 
-  it("offers the build only at the server floor of 800 words", async () => {
+  // The scene shows the build action from the start and states its
+  // precondition beside it: an affordance that appears out of nowhere at 800
+  // words is one nobody could plan for. Enabled is what the floor gates.
+  it("enables the build only at the server floor of 800 words", async () => {
     stubApi({
       preview: documentPreview,
       ingests: [
@@ -412,14 +466,21 @@ describe("the conversational voice act", () => {
     expect(
       await screen.findByText(/Own words so far: 500\. I need at least 800/),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /Build my voice profile/ }),
-    ).toBeNull();
+    const build = screen.getByRole("button", {
+      name: /Build my voice profile/,
+    }) as HTMLButtonElement;
+    expect(build.disabled).toBe(true);
 
     await uploadFile("two.md", "Second document.");
-    expect(
-      await screen.findByRole("button", { name: /Build my voice profile/ }),
-    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("button", {
+            name: /Build my voice profile/,
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    });
     expect(screen.queryByText(/I need at least 800/)).toBeNull();
   });
 
@@ -516,16 +577,24 @@ describe("the conversational voice act", () => {
     await uploadFile("one.md", "First document.");
     await uploadFile("two.md", "Second document.");
 
-    // Both per-source reactions land regardless of settlement order.
+    // Both sources land in the scene's own list regardless of settlement
+    // order — the rail carries neither reaction.
     await waitFor(() => {
-      expect(screen.getAllByText(/Words counted: 900\./).length).toBe(2);
+      expect(screen.getAllByText("900 words").length).toBe(2);
     });
-    expect(await screen.findByText("Own words: 820 of 30000")).toBeTruthy();
+    // The one-time floor-reached announcement echoes this same sentence into
+    // a second, visually-hidden node, so the visible line is queried by its
+    // own class rather than by text (which would now match both).
+    await waitFor(() => {
+      expect(document.querySelector(".ob-voice-meter-line")?.textContent).toBe(
+        "820 words — enough to build. More still sharpens it.",
+      );
+    });
     expect(
       await screen.findByRole("button", { name: /Build my voice profile/ }),
     ).toBeTruthy();
     expect(screen.queryByText(/I need at least 800/)).toBeNull();
-    expect(screen.queryByText("Own words: 500 of 30000")).toBeNull();
+    expect(screen.queryByText("500 of 800 words")).toBeNull();
   });
 
   it("concludes as failed with the retry chip when the build poll keeps erroring", async () => {
@@ -552,6 +621,54 @@ describe("the conversational voice act", () => {
     ).toBeTruthy();
   });
 
+  // What a refused build start may say on the collect scene. The two halves
+  // of the same rule: the server's own sentence is the best thing a reader
+  // can be given, and a failure the server put no words to is answered in
+  // the reader's language rather than in whatever the exception happened to
+  // carry.
+  it("shows the server's own refusal on the collect scene when the build cannot start", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      buildStartRefusal: {
+        status: 429,
+        body: {
+          code: "budget_exhausted",
+          detail: "This month's model budget is spent. It resets on the 1st.",
+        },
+      },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    expect(
+      await screen.findByText(
+        "This month's model budget is spent. It resets on the 1st.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("answers a refusal carrying no words for a reader with the shared line", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      buildStartRefusal: { status: 502, body: { status: 502 } },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("The request failed. No cause reported.");
+  });
+
   it("keeps late events from a superseded build inert after the retry", () => {
     // Machine-level correlation, reusing the shared fold helper: once build
     // two is the active run, build one's late terminal changes nothing.
@@ -571,5 +688,170 @@ describe("the conversational voice act", () => {
       status: "succeeded",
     });
     expect(afterStale).toBe(retried);
+  });
+});
+
+// The rule this act follows: the work happens on the surface, the rail only
+// narrates. These pin the three places that rule used to break.
+describe("the voice act's surface/rail split", () => {
+  it("keeps the speaker decision and its radio options off the rail", async () => {
+    stubApi({
+      preview: conversationalPreview,
+      ingests: [{ stats: transcriptStats, summary: summaryOf(1240) }],
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("call.vtt", "WEBVTT transcript content");
+    await screen.findByText(/Which one is you\? Only your own words count/);
+
+    const rail = document.querySelector(".ob-conv-thread");
+    expect(rail).not.toBeNull();
+    expect(within(rail as HTMLElement).queryAllByRole("radio").length).toBe(0);
+    // The file's own upload turn and per-source reaction never land in the
+    // rail either — a fact already live on the surface stays there.
+    expect(
+      within(rail as HTMLElement).queryByText(/Added call.vtt/),
+    ).toBeNull();
+  });
+
+  it("renders a skipped voice act's Continue action on the surface, never the rail", () => {
+    stubApi({});
+    render(
+      <VoiceHarness
+        initial={{
+          ...initialConversationState,
+          act: "voice",
+          phase: "vo.skipped",
+        }}
+      />,
+    );
+
+    const rail = document.querySelector(".ob-conv-thread") as HTMLElement;
+    expect(within(rail).queryByRole("button", { name: "Continue" })).toBeNull();
+    const bar = document.querySelector(".ob-triage-continue");
+    expect(bar).not.toBeNull();
+    expect(
+      within(bar as HTMLElement).getByRole("button", { name: "Continue" }),
+    ).toBeTruthy();
+  });
+
+  it("renders the succeeded result as structured sections, each from the same parsed data", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      builds: {
+        [BUILD_IDS[0]]: [
+          { id: BUILD_IDS[0], status: "succeeded", stage: null },
+        ],
+      },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    // Every section is its own bordered card, and the confirm action sits
+    // in the surface's own pinned bar beside them, not the rail.
+    const identity = await screen.findByText(/Direct, concrete/);
+    expect(identity.closest(".ob-voice-result-card")).not.toBeNull();
+    const rail = document.querySelector(".ob-conv-thread") as HTMLElement;
+    expect(
+      within(rail).queryByRole("button", { name: "That is my voice" }),
+    ).toBeNull();
+    const bar = document.querySelector(".ob-triage-continue");
+    expect(bar).not.toBeNull();
+    expect(
+      within(bar as HTMLElement).getByRole("button", {
+        name: "That is my voice",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("shows the sample as a real draft and cycles to another one already in hand", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      builds: {
+        [BUILD_IDS[0]]: [
+          { id: BUILD_IDS[0], status: "succeeded", stage: null },
+        ],
+      },
+      version: richVersion,
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    expect(await screen.findByText("Following up on Tuesday")).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Another scenario" }),
+    );
+    expect(screen.getByText("Quick nudge")).toBeTruthy();
+    expect(screen.queryByText("Following up on Tuesday")).toBeNull();
+  });
+
+  it("measures only the dimension it actually scored, as a readout rather than a control", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      builds: {
+        [BUILD_IDS[0]]: [
+          { id: BUILD_IDS[0], status: "succeeded", stage: null },
+        ],
+      },
+      version: richVersion,
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    expect(await screen.findByText("Sentence length")).toBeTruthy();
+    expect(screen.getByText("Measured: 1")).toBeTruthy();
+    expect(screen.getByText("9.5 words per sentence on average.")).toBeTruthy();
+    // A readout, not a control: nothing here is focusable or draggable.
+    expect(document.querySelector(".ob-voice-dim-track input")).toBeNull();
+    expect(document.querySelector('[role="slider"]')).toBeNull();
+    // The reference's other four axes (formality, warmth, directness,
+    // vocabulary) have no server-measured equivalent, so none render.
+    expect(screen.queryByText("Formality")).toBeNull();
+  });
+
+  it("keeps the how-you-think, moves, avoid, and improvement sections beside the sample", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      builds: {
+        [BUILD_IDS[0]]: [
+          { id: BUILD_IDS[0], status: "succeeded", stage: null },
+        ],
+      },
+      version: richVersion,
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    expect(
+      await screen.findByText("Leads with the ask, then the context."),
+    ).toBeTruthy();
+    expect(screen.getByText("Hey Jordan,")).toBeTruthy();
+    expect(screen.getByText("Corporate jargon")).toBeTruthy();
+    expect(screen.getByText(/Add two more sent emails\./)).toBeTruthy();
+    // The sample card's own "why" line draws on the same move names, at a
+    // glance rather than in full.
+    expect(
+      screen.getByText(/Opens with 'Hey', Closes with Cheers/),
+    ).toBeTruthy();
   });
 });

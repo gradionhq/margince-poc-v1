@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { useEffect, useReducer, useRef } from "react";
 import { api } from "../../api/client";
@@ -6,7 +7,7 @@ import type { components } from "../../api/schema";
 import { navigate, useRoute } from "../../app/router";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import { EMPTY_DRAFT, pickBuiltVersion, useCompany } from "../onboarding";
 import { CompanyAct } from "./company-act";
 import { ConnectAct } from "./connect-act";
@@ -17,12 +18,12 @@ import {
   conversationReducer,
   initialConversationState,
 } from "./conversation-machine";
-import { LinkedInAct } from "./linkedin-act";
 import { restorePlan, type VoiceRestoreProbe } from "./restore";
 import { ResultsAct } from "./results-act";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { useWizardStatePersist } from "./use-wizard-state";
 import { VoiceAct } from "./voice-act";
+import { WorkbenchEntranceScope } from "./workbench";
 
 // The conversational onboarding shell — THE onboarding experience: one pure
 // machine owns where the conversation is, and each act renders inside the
@@ -42,13 +43,13 @@ const voiceProbeSteps = new Set<OnboardingState["step"]>([
   "connect",
 ]);
 
-async function loadWizardState(): Promise<OnboardingState | null> {
+export async function loadWizardState(): Promise<OnboardingState | null> {
   const { data, error, response } = await api.GET("/onboarding/state");
   if (error) {
     if (response.status === 404) {
       return null;
     }
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -58,7 +59,7 @@ async function loadWizardState(): Promise<OnboardingState | null> {
 async function probeVoice(): Promise<VoiceRestoreProbe> {
   const list = await api.GET("/voice-profiles");
   if (list.error) {
-    throw new Error(problemMessage(list.error));
+    throwProblem(list.error);
   }
   const profileId = list.data.data[0]?.id;
   if (profileId === undefined) {
@@ -73,10 +74,10 @@ async function probeVoice(): Promise<VoiceRestoreProbe> {
     }),
   ]);
   if (versions.error) {
-    throw new Error(problemMessage(versions.error));
+    throwProblem(versions.error);
   }
   if (sources.error) {
-    throw new Error(problemMessage(sources.error));
+    throwProblem(sources.error);
   }
   return {
     built: pickBuiltVersion(versions.data.data) !== null,
@@ -92,13 +93,13 @@ function actCheckpoint(
   next: ConversationPhase,
   buildSucceeded: boolean,
 ): Omit<WizardPersistInput, "values"> | null {
-  if (prev === "vo.invite" && next === "vo.collecting") {
+  if (
+    (prev === "co.review" || prev === "co.manual") &&
+    next === "vo.collecting"
+  ) {
     return { nextStep: 1, voiceSkipped: false };
   }
-  if (
-    (prev === "vo.invite" || prev === "vo.collecting") &&
-    next === "vo.skipped"
-  ) {
+  if (prev === "vo.collecting" && next === "vo.skipped") {
     return { nextStep: 2, voiceSkipped: true };
   }
   if (prev === "vo.building" && next === "vo.result" && buildSucceeded) {
@@ -107,11 +108,14 @@ function actCheckpoint(
   if ((prev === "vo.result" || prev === "vo.skipped") && next === "re.recap") {
     return { nextStep: 2 };
   }
-  // The server's step vocabulary has no LinkedIn step, so the checkpoint
-  // fires when the act is ANSWERED rather than when it opens. Recording step 3
-  // on the way in would restore a reload straight to the inbox and the network
-  // would never be asked for at all.
-  if (prev === "ln.why" && next === "cn.consent") {
+  // Entering the connect screen (from the recap, or straight off company
+  // confirmation on the member path) shows both mail and LinkedIn at once,
+  // so there is nothing left behind a reload could strand — the checkpoint
+  // fires on arrival, unlike voice and results which fire on departure.
+  if (
+    (prev === "re.recap" || prev === "co.review" || prev === "co.manual") &&
+    next === "cn.consent"
+  ) {
     return { nextStep: 3 };
   }
   return null;
@@ -195,7 +199,7 @@ function useRestore(
         if (response.status === 404) {
           return null;
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -258,6 +262,7 @@ function useRestore(
 
 export function OnboardingConversationScreen() {
   const route = useRoute();
+  const queryClient = useQueryClient();
   const [state, dispatch] = useReducer(
     conversationReducer,
     initialConversationState,
@@ -268,6 +273,23 @@ export function OnboardingConversationScreen() {
     dispatch,
     route.id === "connect",
   );
+
+  // The voice act's own word count lives in useVoiceCorpus's local state and
+  // dies with that component when the act changes; `voice` above is the
+  // restore probe that ran once at mount, before this session ingested
+  // anything. Refetching it the moment the voice act ends is what lets the
+  // results recap (and a returning creator who adds sources) read the
+  // server's current total instead of that stale mount-time snapshot.
+  const prevAct = useRef<ConversationState["act"] | null>(null);
+  useEffect(() => {
+    const prev = prevAct.current;
+    prevAct.current = state.act;
+    if (prev === "voice" && state.act !== "voice") {
+      void queryClient.invalidateQueries({
+        queryKey: ["onboarding-conv-voice"],
+      });
+    }
+  }, [state.act, queryClient]);
 
   // Act-transition checkpoints: the server remembers where the journey is,
   // so a mid-onboarding reload restores to the right act with recap. Only
@@ -296,12 +318,52 @@ export function OnboardingConversationScreen() {
     return <RestoreGate lookups={lookups} />;
   }
 
-  const voiceBuilt =
-    state.lastBuildStatus === "succeeded" || voice.data?.built === true;
-
   return (
     <div className="ob-page ob-conv-page">
-      {state.act === "company" && (
+      {/* Above the act switch on purpose: this is the one level that survives an
+          act change, so it is the only place that can know whether the workbench
+          frame has already introduced itself. */}
+      <WorkbenchEntranceScope>
+        <CurrentAct
+          state={state}
+          dispatch={dispatch}
+          route={route}
+          persist={persist}
+          existing={existing}
+          voice={voice}
+          persistedRead={persistedRead}
+        />
+      </WorkbenchEntranceScope>
+    </div>
+  );
+}
+
+// Which act is on screen, and nothing else. Extracted from the screen because
+// the screen's job is the machine, the restore and the checkpoints — every act
+// added here would otherwise make that function harder to read for a reason
+// that has nothing to do with it.
+function CurrentAct({
+  state,
+  dispatch,
+  route,
+  persist,
+  existing,
+  voice,
+  persistedRead,
+}: Readonly<{
+  state: ConversationState;
+  dispatch: Dispatch<ConversationEvent>;
+  route: ReturnType<typeof useRoute>;
+  persist: (input: WizardPersistInput) => Promise<boolean>;
+  existing: ReturnType<typeof useCompany>;
+  voice: UseQueryResult<VoiceRestoreProbe>;
+  persistedRead: UseQueryResult<CompanySiteRead | null>;
+}>) {
+  const voiceBuilt =
+    state.lastBuildStatus === "succeeded" || voice.data?.built === true;
+  switch (state.act) {
+    case "company":
+      return (
         <CompanyAct
           state={state}
           dispatch={dispatch}
@@ -314,26 +376,28 @@ export function OnboardingConversationScreen() {
               : null
           }
         />
-      )}
-      {state.act === "voice" && (
+      );
+    case "voice":
+      return (
         <VoiceAct
           state={state}
           dispatch={dispatch}
           initialSummary={voice.data?.summary ?? null}
         />
-      )}
-      {state.act === "results" && (
+      );
+    case "results":
+      return (
         <ResultsAct
           state={state}
           dispatch={dispatch}
           profile={existing.data ?? null}
           voiceBuilt={voiceBuilt}
+          corpusWords={voice.data?.summary?.total_words ?? null}
         />
-      )}
-      {state.act === "linkedin" && (
-        <LinkedInAct state={state} dispatch={dispatch} />
-      )}
-      {(state.act === "connect" || state.act === "done") && (
+      );
+    case "connect":
+    case "done":
+      return (
         <ConnectAct
           state={state}
           dispatch={dispatch}
@@ -341,7 +405,10 @@ export function OnboardingConversationScreen() {
           outcome={route.id === "connect" ? route.id2 : undefined}
           returningProvider={route.id === "connect" ? route.id3 : undefined}
         />
-      )}
-    </div>
-  );
+      );
+    // The welcome act never reaches here: the screen renders the restore gate
+    // for it and returns before this switch.
+    case "welcome":
+      return null;
+  }
 }

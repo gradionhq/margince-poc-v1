@@ -190,9 +190,10 @@ describe("InboxScreen (B-EP09.12a)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     // By its LABEL, not its wire path: "proposed_lifecycle" is where the value
-    // lives in the payload, and a reader deciding a proposal is asked about the
-    // account's stage.
-    const stage = screen.getByRole("combobox", { name: "Stage" });
+    // lives in the payload, and a reader deciding a proposal is asked where the
+    // account stands. "Stage" was that label until it collided with a deal's
+    // stage, which is a different question about a different record.
+    const stage = screen.getByRole("combobox", { name: "Account lifecycle" });
     expect(
       screen.queryByRole("textbox", { name: "organization_id" }),
     ).toBeNull();
@@ -200,10 +201,22 @@ describe("InboxScreen (B-EP09.12a)", () => {
     expect(screen.queryByRole("textbox", { name: "because" })).toBeNull();
 
     // The option's VALUE is the wire enum and its text is what the reader sees;
-    // both matter, and only the value is submitted.
-    expect(screen.getByRole("option", { name: "Disqualified" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "disqualified" })).toBeNull();
-    await userEvent.selectOptions(stage, "disqualified");
+    // both matter, and only the value is submitted. The list is inspected with
+    // the popup OPEN — it is portalled and exists only while the control is
+    // open — which is also why this drives the two steps by hand instead of
+    // through pickOption: the pick has to land on the list already under
+    // assertion.
+    await userEvent.click(stage);
+    const listbox = screen.getByRole("listbox");
+    expect(
+      within(listbox).getByRole("option", { name: "Disqualified" }),
+    ).toBeTruthy();
+    expect(
+      within(listbox).queryByRole("option", { name: "disqualified" }),
+    ).toBeNull();
+    await userEvent.click(
+      within(listbox).getByRole("option", { name: "Disqualified" }),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Approve edited" }),
     );
@@ -228,6 +241,9 @@ describe("InboxScreen (B-EP09.12a)", () => {
       inboxBackend(calls, [
         {
           name: "send_email",
+          title: "Send an email",
+          description:
+            'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: runs immediately; requires passport scope "write".)',
           required_scope: "write",
           tier: "auto_execute",
           egress: true,
@@ -250,6 +266,9 @@ describe("InboxScreen (B-EP09.12a)", () => {
       inboxBackend(calls, [
         {
           name: "send_email",
+          title: "Send an email",
+          description:
+            'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
           required_scope: "write",
           tier: "confirmation_required",
           egress: true,

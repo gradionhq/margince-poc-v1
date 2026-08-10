@@ -17,18 +17,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // listPeopleNames GETs /v1/people with the given query string and
 // returns the page's full_name column in order.
-func listPeopleNames(t *testing.T, e *env, query string) []string {
+func listPeopleNames(t *testing.T, e *apptest.AppEnv, query string) []string {
 	t.Helper()
 	var list struct {
-		Data []anyMap `json:"data"`
+		Data []apptest.AnyMap `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/people"+query, nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people"+query, nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET /v1/people%s status = %d", query, status)
 	}
 	names := make([]string, len(list.Data))
@@ -48,7 +49,7 @@ func listPeopleNames(t *testing.T, e *env, query string) []string {
 // twin of TestCustomFieldVocab_SortPaginatesStably, proving the cursor
 // keeps paging correctly (no repeat, no skip) when it travels as an
 // opaque query-string token instead of a direct store call.
-func walkCFSortedPagesOverWire(t *testing.T, e *env, col string) []string {
+func walkCFSortedPagesOverWire(t *testing.T, e *apptest.AppEnv, col string) []string {
 	t.Helper()
 	var walked []string
 	query := "?sort=" + col + "&limit=1"
@@ -57,13 +58,13 @@ func walkCFSortedPagesOverWire(t *testing.T, e *env, col string) []string {
 			t.Fatalf("pagination did not terminate after %d pages (walked %v)", page, walked)
 		}
 		var list struct {
-			Data []anyMap `json:"data"`
+			Data []apptest.AnyMap `json:"data"`
 			Page struct {
 				HasMore    bool    `json:"has_more"`
 				NextCursor *string `json:"next_cursor"`
 			} `json:"page"`
 		}
-		if status := e.call(t, "GET", "/v1/people"+query, nil, nil, &list); status != http.StatusOK {
+		if status := e.Call(t, "GET", "/v1/people"+query, nil, nil, &list); status != http.StatusOK {
 			t.Fatalf("GET /v1/people%s status = %d", query, status)
 		}
 		for _, row := range list.Data {
@@ -85,10 +86,10 @@ func walkCFSortedPagesOverWire(t *testing.T, e *env, col string) []string {
 
 // assert422Code GETs the path and asserts the validation problem's one
 // field error carries the expected machine code.
-func assert422Code(t *testing.T, e *env, path, wantCode string) {
+func assert422Code(t *testing.T, e *apptest.AppEnv, path, wantCode string) {
 	t.Helper()
 	var problem customFieldProblem
-	status := e.call(t, "GET", path, nil, nil, &problem)
+	status := e.Call(t, "GET", path, nil, nil, &problem)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("GET %s status = %d, want 422 (%+v)", path, status, problem)
 	}
@@ -101,9 +102,9 @@ func assert422Code(t *testing.T, e *env, path, wantCode string) {
 // hostile-cursor refusals over the wire: a crafted token whose sort key
 // does not parse as the column's type, and a well-formed token minted
 // under one sort reused under another.
-func assertCursorSortRefusals(t *testing.T, e *env) {
+func assertCursorSortRefusals(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, score, problem := createCustomField(t, e, anyMap{
+	status, score, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "person", "label": "Score", "type": "number", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -129,7 +130,7 @@ func assertCursorSortRefusals(t *testing.T, e *env) {
 			} `json:"page"`
 		}
 		path := "/v1/people?sort=" + score.ColumnName + "&limit=1"
-		if status := e.call(t, "GET", path, nil, nil, &list); status != http.StatusOK {
+		if status := e.Call(t, "GET", path, nil, nil, &list); status != http.StatusOK {
 			t.Fatalf("GET %s status = %d", path, status)
 		}
 		if !list.Page.HasMore || list.Page.NextCursor == "" {
@@ -142,7 +143,7 @@ func assertCursorSortRefusals(t *testing.T, e *env) {
 func TestCustomFieldVocabHTTP(t *testing.T) {
 	e := schemaWiredEnv(t)
 
-	status, tier, problem := createCustomField(t, e, anyMap{
+	status, tier, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "person", "label": "Tier", "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -150,9 +151,9 @@ func TestCustomFieldVocabHTTP(t *testing.T) {
 	}
 	col := tier.ColumnName
 
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person B", "source": "ui", col: "beta"})
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person A", "source": "ui", col: "alpha"})
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person N", "source": "ui"})
+	createWithCF(t, e, "/v1/people", apptest.AnyMap{"full_name": "Person B", "source": "ui", col: "beta"})
+	createWithCF(t, e, "/v1/people", apptest.AnyMap{"full_name": "Person A", "source": "ui", col: "alpha"})
+	createWithCF(t, e, "/v1/people", apptest.AnyMap{"full_name": "Person N", "source": "ui"})
 
 	t.Run("cf_ sort orders the page, NULL last", func(t *testing.T) {
 		got := listPeopleNames(t, e, "?sort="+col)

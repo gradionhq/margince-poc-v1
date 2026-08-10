@@ -83,6 +83,57 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
 }
 
+// TestRelinkActivityBumpsVersion pins the invariant: a relink that actually
+// changes who the activity reaches must move activity.version, the same as
+// UpdateActivity and ArchiveActivity already do. A staged approval pins this
+// version (versionTables includes objectActivity in the approvals module),
+// and that pin is the only defense between an approved "send this body on
+// this conversation" and the conversation being silently repointed to
+// someone else before the approval is redeemed.
+func TestRelinkActivityBumpsVersion(t *testing.T) {
+	e := Setup(t)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)
+	first := e.SeedPerson(t, "First Contact", &e.Rep1)
+	second := e.SeedPerson(t, "Second Contact", &e.Rep1)
+
+	logged, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
+		Kind: "note", Subject: strPtr("Conversation"), Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: first}},
+	})
+	if err != nil {
+		t.Fatalf("seeding the activity: %v", err)
+	}
+	if logged.Version == nil {
+		t.Fatal("a freshly logged activity carries no version — the versionTables pin this test defends would never bind")
+	}
+	before := *logged.Version
+	id := ids.From[ids.ActivityKind](ids.UUID(logged.Id))
+
+	relinked, err := e.Activities.RelinkActivity(rep, id, activities.RelinkActivityInput{
+		EntityType: "person", EntityID: second, ReplaceExistingOfType: true,
+	})
+	if err != nil {
+		t.Fatalf("relink: %v", err)
+	}
+	if relinked.Version == nil || *relinked.Version <= before {
+		t.Fatalf("version after relink = %v, want strictly greater than the pre-relink version %d — "+
+			"a relink that changes the conversation's counterparty must invalidate any approval pinned to the old version",
+			relinked.Version, before)
+	}
+
+	// A no-op relink (same entity, no replace) touches nothing and must not
+	// burn a version for a caller who changed nothing.
+	noop, err := e.Activities.RelinkActivity(rep, id, activities.RelinkActivityInput{
+		EntityType: "person", EntityID: second,
+	})
+	if err != nil {
+		t.Fatalf("no-op relink: %v", err)
+	}
+	if noop.Version == nil || *noop.Version != *relinked.Version {
+		t.Fatalf("version after a no-op relink = %v, want unchanged from %d", noop.Version, *relinked.Version)
+	}
+}
+
 // assertOwnTeamActivityStillMutable is the positive control: the same
 // three mutators keep working on an activity the caller's row scope does
 // reach.

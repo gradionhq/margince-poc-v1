@@ -110,13 +110,21 @@ const (
 var replayableOperations = map[string]replayTarget{
 	// Row-scoped records: both gates apply, and the object and the table are
 	// the same word by construction (policy.coreObjects mirrors the table).
-	"POST /v1/people":                     {object: tablePerson, table: tablePerson, idPath: "id"},
-	"PATCH /v1/people/{id}":               {object: tablePerson, table: tablePerson, idPath: "id"},
-	"POST /v1/people/{id}/merge":          {object: tablePerson, table: tablePerson, idPath: "id"},
-	"POST /v1/leads/{id}/promote":         {object: tablePerson, table: tablePerson, idPath: "person.id"},
-	"POST /v1/organizations":              {object: tableOrganization, table: tableOrganization, idPath: "id"},
-	"PATCH /v1/organizations/{id}":        {object: tableOrganization, table: tableOrganization, idPath: "id"},
-	"POST /v1/organizations/{id}/merge":   {object: tableOrganization, table: tableOrganization, idPath: "id"},
+	"POST /v1/people":                   {object: tablePerson, table: tablePerson, idPath: "id"},
+	"PATCH /v1/people/{id}":             {object: tablePerson, table: tablePerson, idPath: "id"},
+	"POST /v1/people/{id}/merge":        {object: tablePerson, table: tablePerson, idPath: "id"},
+	"POST /v1/leads/{id}/promote":       {object: tablePerson, table: tablePerson, idPath: "person.id"},
+	"POST /v1/organizations":            {object: tableOrganization, table: tableOrganization, idPath: "id"},
+	"PATCH /v1/organizations/{id}":      {object: tableOrganization, table: tableOrganization, idPath: "id"},
+	"POST /v1/organizations/{id}/merge": {object: tableOrganization, table: tableOrganization, idPath: "id"},
+	// A profile-field or fact write is an assertion ABOUT the organization and
+	// is governed by its grant, so the replay gate resolves against the
+	// organization row — the sidecar carries no independent authority. The
+	// replayed body is the sidecar row, which has no id of its own on the wire.
+	"PATCH /v1/organizations/{id}/profile-fields/{field}":        {object: tableOrganization, table: tableOrganization, pathParam: "id"},
+	"POST /v1/organizations/{id}/profile-fields/{field}/confirm": {object: tableOrganization, table: tableOrganization, pathParam: "id"},
+	"PATCH /v1/organizations/{id}/facts/{factKey}":               {object: tableOrganization, table: tableOrganization, pathParam: "id"},
+	"POST /v1/organizations/{id}/facts/{factKey}/confirm":        {object: tableOrganization, table: tableOrganization, pathParam: "id"},
 	"POST /v1/deals":                      {object: tableDeal, table: tableDeal, idPath: "id"},
 	"PATCH /v1/deals/{id}":                {object: tableDeal, table: tableDeal, idPath: "id"},
 	"POST /v1/deals/{id}/advance":         {object: tableDeal, table: tableDeal, idPath: "id"},
@@ -129,6 +137,12 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/activities/{id}":           {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/relink":     {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/send-email": {object: tableActivity, table: tableActivity, idPath: "id"},
+	// The account-started send answers with the outbound activity it wrote,
+	// so its replay is gated on that activity exactly as the reply's is. The
+	// route carries no id of its own — the origin is in the body — which is
+	// why the target is resolved from the RESPONSE's id rather than a path
+	// parameter.
+	"POST /v1/emails": {object: tableActivity, table: tableActivity, idPath: "id"},
 	// The channel reply answers with the outbound activity it wrote, so its
 	// replay is gated on that activity exactly as the mail send's is. It matters
 	// more here, not less: a channel send is irreversible with no provider-side

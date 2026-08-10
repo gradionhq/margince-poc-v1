@@ -197,55 +197,6 @@ func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasour
 	return recordFromRow(ref.Type, row)
 }
 
-// Search pages one entity type's mirror rows (visibility-joined via
-// MirrorStore.List) and applies q.Text as a naive case-insensitive
-// substring filter over the row's string-valued fields — a branch-1
-// scope limit, not the FTS/RRF hybrid search's own retrieval path.
-func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (datasource.SearchResult, error) {
-	if p.ms == nil {
-		return datasource.SearchResult{}, errNoMirrorStore()
-	}
-	if len(q.EntityTypes) != 1 {
-		return datasource.SearchResult{}, fmt.Errorf("overlay: search requires exactly one entity type in this branch, got %d", len(q.EntityTypes))
-	}
-	et := q.EntityTypes[0]
-	// Object RBAC before any mirror read — the MCP search_records path
-	// reaches the provider directly, so the gate the REST search shadow
-	// applies must also live here (see Read's rationale).
-	if err := auth.Require(ctx, string(et), principal.ActionRead); err != nil {
-		return datasource.SearchResult{}, err
-	}
-	rows, next, err := p.ms.List(ctx, string(et), q.Cursor, q.Limit)
-	if err != nil {
-		return datasource.SearchResult{}, err
-	}
-
-	text := strings.ToLower(strings.TrimSpace(q.Text))
-	records := make([]datasource.Record, 0, len(rows))
-	for _, row := range rows {
-		if text != "" && !mirrorRowMatchesText(row, text) {
-			continue
-		}
-		rec, err := recordFromRow(et, row)
-		if err != nil {
-			return datasource.SearchResult{}, err
-		}
-		records = append(records, rec)
-	}
-	return datasource.SearchResult{Records: records, NextCursor: next, HasMore: next != ""}, nil
-}
-
-// mirrorRowMatchesText reports whether any string-valued field of row
-// contains lowerText.
-func mirrorRowMatchesText(row Row, lowerText string) bool {
-	for _, v := range row.Fields {
-		if s, ok := v.(string); ok && strings.Contains(strings.ToLower(s), lowerText) {
-			return true
-		}
-	}
-	return false
-}
-
 // knownEntityTypes is the set of entity types the overlay mirror can hold — a
 // SUBSET of the seam's vocabulary, not a copy of it. `project` and
 // `relationship` are full members of datasource.EntityTypes() and have no

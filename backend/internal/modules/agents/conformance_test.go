@@ -41,9 +41,21 @@ func (e echoTool) Handle(context.Context, json.RawMessage) (json.RawMessage, err
 	return e.out, nil
 }
 
+// describedForRegistration is the stand-in description a fake tool carries so
+// registration admits it at all. Register refuses a description-less tool, and
+// every fake in this package is registered to exercise something else.
+const describedForRegistration = "A stand-in tool, offered so the registry has something to admit."
+
+// testToolVersion is the stand-in result-contract version a fake tool carries,
+// for the same reason describedForRegistration exists: Register refuses a
+// version-less tool, because every result it seals reports one as
+// `schema_version`.
+const testToolVersion = "1.0.0-test"
+
 func objectSpec(name string, scope principal.Scope) mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: name, Title: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
+		Name: name, Title: name, Version: testToolVersion, Description: name + " does the thing the test needs it to do.",
+		RequiredScope: scope, Tier: mcp.TierAutoExecute,
 		InputSchema:  json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
 	}
@@ -71,9 +83,31 @@ func scopedAgentCtx(scopes ...principal.Scope) context.Context {
 	})
 }
 
+// callMap runs one tools/call and reads its result as the map every tool
+// answers with.
+//
+// The dispatcher's own return is `any` because a client that declared the Tasks
+// extension can be handed a task handle instead of a result. No test in this
+// suite declares it — they all run in the handshake framing, which cannot — so
+// every answer here is a plain result, and the assertion says so rather than
+// assuming it.
+func callMap(ctx context.Context, t *testing.T, s *Dispatcher, params string) map[string]any {
+	t.Helper()
+	// The raw answer is kept BEFORE the assertion: a two-value type assertion
+	// leaves the zero value of the asserted type when it fails, so %T on it
+	// would report map[string]interface{} for every failure and lose the one
+	// fact the message exists to carry.
+	answer := s.call(ctx, json.RawMessage(params), legacyFraming)
+	out, ok := answer.(map[string]any)
+	if !ok {
+		t.Fatalf("tools/call answered %T, not a tool result", answer)
+	}
+	return out
+}
+
 func callResult(t *testing.T, s *Dispatcher, name string) map[string]any {
 	t.Helper()
-	out := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"`+name+`","arguments":{}}`))
+	out := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"`+name+`","arguments":{}}`)
 	if out["isError"] == true {
 		t.Fatalf("%s returned an in-band error: %v", name, out)
 	}
@@ -100,8 +134,8 @@ func textBlock(t *testing.T, res map[string]any) string {
 // silently shrink the very set these walks claim to cover.
 type inertRetriever struct{}
 
-func (inertRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (inertRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (inertRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
@@ -128,13 +162,51 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
+	RegisterCommitmentTool(r, func(context.Context, CommitmentQuery) (CommitmentSweep, error) {
+		return CommitmentSweep{}, nil
+	})
+	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
+		return HandoffFacts{}, nil
+	})
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, nil },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })
 	RegisterCommsTools(r, &recordingComms{}, &multiLinkProvider{})
+	RegisterLifecycleTools(r, nil, inertLifecycle{}, inertLifecycle{}, inertLifecycle{})
+	RegisterEnrichTool(r, nil, inertLifecycle{})
+	RegisterQueryTool(r, nil, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
+	})
+	RegisterContextSearchTool(r, nil, inertRetriever{})
+	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, nil
+	})
+	RegisterListTool(r, nil, probeVocabulary{})
+	RegisterBriefTool(r, briefOf(0))
 	return r
+}
+
+// inertLifecycle satisfies the three lifecycle seams and the enrich seam for the
+// walks that only need a tool's SPEC and argument shape: they never reach a
+// handler, so a seam that answers nothing is the honest stand-in.
+type inertLifecycle struct{}
+
+func (inertLifecycle) RelinkActivity(context.Context, ids.UUID, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) DisqualifyLead(context.Context, ids.UUID) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string, *string, *int64) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+	return nil, nil
 }
 
 // The MUST: a declared outputSchema obliges structured results. The text block
@@ -159,22 +231,26 @@ func TestToolsCallReturnsStructuredContentBesideTheTextBlock(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent is %T, want the handler's own json.RawMessage", structured)
 	}
-	if string(raw) != out {
-		t.Errorf("structuredContent = %s, want the handler's bytes unchanged %s", raw, out)
+	// The handler's bytes ride inside the envelope every result now carries, and
+	// they ride there UNCHANGED — that is what makes structuredContent and the
+	// text block comparable, and it is why this reads the payload rather than
+	// re-encoding a decoded copy of it.
+	if got := string(payloadOf(t, raw)); got != out {
+		t.Errorf("structuredContent payload = %s, want the handler's bytes unchanged %s", got, out)
 	}
-	if got := textBlock(t, res); got != out {
-		t.Errorf("text block = %s, want the same serialized JSON %s", got, out)
+	if got := textBlock(t, res); got != string(raw) {
+		t.Errorf("text block = %s, want the same serialized result %s", got, raw)
 	}
 }
 
-// A tool that declares an object schema and then answers with something else
-// is this server's defect. The caller still gets the answer it can read, the
-// operator is told, and the member that would violate the advertised schema is
-// left off rather than sent.
+// A tool that declares an object shape and then answers with something else is
+// this server's defect. The caller still gets the answer it can read, the
+// operator is told which member parted company with the schema, and the member
+// that would violate the advertised schema is left off rather than sent.
 func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing.T) {
 	for _, tc := range []struct{ name, out, wantLogged string }{
-		{"answers_null", `null`, "returned JSON null"},
-		{"answers_array", `[{"id":1}]`, "did not return a JSON object"},
+		{"answers_null", `null`, "is null, which is not a value of the declared type"},
+		{"answers_array", `[{"id":1}]`, "result.data: declared an object"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var log strings.Builder
@@ -185,8 +261,11 @@ func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing
 			if _, present := res["structuredContent"]; present {
 				t.Errorf("structuredContent present for output %s — it cannot conform to the advertised object schema", tc.out)
 			}
-			if got := textBlock(t, res); got != tc.out {
-				t.Errorf("text block = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
+			// The caller still gets what it can read: the envelope is well formed
+			// whatever the handler put inside it, so the defect is confined to
+			// the payload rather than costing the answer its whole rendering.
+			if got := string(payloadOf(t, json.RawMessage(textBlock(t, res)))); got != tc.out {
+				t.Errorf("text block payload = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
 			}
 			if !strings.Contains(log.String(), tc.wantLogged) {
 				t.Errorf("operator log = %q, want it to name the defect (%q)", log.String(), tc.wantLogged)
@@ -203,7 +282,7 @@ func TestInitializeDoesNotClaimAListChangedItCannotSend(t *testing.T) {
 
 	resp := s.handle(context.Background(), rpcRequest{
 		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodInitialize,
-	})
+	}, legacyFraming)
 
 	result, ok := resp.Result.(map[string]any)
 	if !ok {
@@ -240,7 +319,7 @@ func TestToolListCarriesTitleAndDerivedAnnotations(t *testing.T) {
 	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeSend)
 
 	listed := map[string]map[string]any{}
-	for _, tool := range s.toolList(ctx) {
+	for _, tool := range s.toolList(ctx, legacyFraming) {
 		name, _ := tool[fieldName].(string)
 		listed[name] = tool
 	}
@@ -309,14 +388,79 @@ func TestReadOnlyIsDerivedFromTheEnforcedScope(t *testing.T) {
 	}
 }
 
+// A 🟡 tool is completed by re-presenting the same call with the approval a
+// human released, so `approval_id` is not an optional nicety on those tools: it
+// is the only way to finish one. A schema that omits it while forbidding
+// additional properties tells a validating client the argument does not exist —
+// and this surface is documentation for exactly such clients, and for models
+// reading it as one. Derived from the registered set, so a new confirm-first
+// tool is enrolled the day it is written.
+func TestEveryConfirmFirstToolAdvertisesItsApprovalArgument(t *testing.T) {
+	checked := 0
+	for _, spec := range fullRegistry(t).Specs() {
+		if spec.Tier != mcp.TierConfirmationRequired {
+			continue
+		}
+		checked++
+		// Read as a raw object: JSON Schema's keys are the protocol's
+		// (`additionalProperties`), not this codebase's snake_case.
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(spec.InputSchema, &doc); err != nil {
+			t.Errorf("%s: input schema is not readable: %v", spec.Name, err)
+			continue
+		}
+		var properties map[string]json.RawMessage
+		if err := json.Unmarshal(doc["properties"], &properties); err != nil {
+			t.Errorf("%s: input schema declares no readable properties: %v", spec.Name, err)
+			continue
+		}
+		if _, declared := properties["approval_id"]; declared {
+			continue
+		}
+		// An open schema still lets a client send the argument; a closed one
+		// does not, so only the closed case is a broken redemption path.
+		if closed := string(doc["additionalProperties"]) == "false"; closed {
+			t.Errorf("%s is confirm-first and forbids additional properties, but advertises no "+
+				"approval_id — a client validating against this surface cannot redeem an approval "+
+				"a human already granted", spec.Name)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no confirm-first tool resolved — this gate asserted nothing")
+	}
+}
+
 // Registration is where a spec defect has to stop: past it, the defect is a
 // served response. A title-less tool would render its identifier as its
-// display name, and a non-object output schema is a promise tools/call cannot
-// keep, because structuredContent is typed as an object.
+// display name, a description-less one leaves a client with nothing to choose
+// it on but that identifier, and a non-object output schema is a promise
+// tools/call cannot keep, because structuredContent is typed as an object.
 func TestRegisterRefusesWireDefects(t *testing.T) {
 	mustPanic(t, "a title-less tool has no display name but the one it was trying to improve on", func() {
 		NewRegistry(nil, nil).Register(echoTool{spec: mcp.ToolSpec{Name: "untitled", Tier: mcp.TierAutoExecute}})
 	})
+	mustPanic(t, "a description-less tool can only be selected by the shape of its name", func() {
+		spec := objectSpec("undescribed", principal.ScopeRead)
+		spec.Description = "  "
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
+	})
+	mustPanic(t, "a runaway description is spent out of every run's prompt, which never elides it", func() {
+		spec := objectSpec("verbose", principal.ScopeRead)
+		spec.Description = strings.Repeat("a", maxDescriptionRunes+1)
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
+	})
+	// The bound has to admit what the surface actually ships, or it is a rule
+	// against writing the descriptions this change exists to write.
+	longest := 0
+	for _, spec := range fullRegistry(t).Specs() {
+		if n := len([]rune(spec.Description)); n > longest {
+			longest = n
+		}
+	}
+	if longest >= maxDescriptionRunes {
+		t.Errorf("the longest shipped description is %d runes against a %d ceiling — the bound is "+
+			"refusing prose this surface already writes", longest, maxDescriptionRunes)
+	}
 	mustPanic(t, "an array output schema can never be answered with structuredContent", func() {
 		spec := objectSpec("lists_things", principal.ScopeRead)
 		spec.OutputSchema = json.RawMessage(`{"type":"array"}`)
@@ -404,7 +548,7 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(&strings.Builder{}, nil)))
 
-	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"no_such_tool","arguments":{}}`))
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"no_such_tool","arguments":{}}`)
 
 	if res["isError"] != true {
 		t.Fatalf("unknown tool did not produce an in-band error: %v", res)
@@ -424,11 +568,34 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 // was green, which is how it was actually found.
 func TestTheWholeToolListEncodes(t *testing.T) {
 	s := NewDispatcher(fullRegistry(t), bindAuthenticated, "margince-crm", "test")
+	// Holding every view the surface declares, because `_meta.ui` is now emitted
+	// only for a document this server IS serving — a dispatcher holding nothing
+	// would list no _meta at all and this walk would stop covering the member it
+	// says it covers.
+	s.viewHeld = func(string) bool { return true }
 
+	// The WIDEST response: the modern framing with the App extension declared,
+	// so a view's `_meta.ui` is inside the bytes this walk marshals. A listing
+	// rendered without it would leave the one member added most recently as the
+	// only part of the entry no encode check has ever seen.
 	listed := s.toolList(scopedAgentCtx(
-		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend))
+		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend),
+		framing{modern: true, apps: true})
 	if len(listed) == 0 {
 		t.Fatal("no tools listed — this walk would pass vacuously")
+	}
+	// And a view's `_meta` really is among the bytes below, rather than the
+	// comment above merely hoping so: if no listed tool carried one, the newest
+	// member of an entry would be the only part no encode check had ever seen.
+	metaSeen := false
+	for _, tool := range listed {
+		if _, carried := tool[fieldMeta]; carried {
+			metaSeen = true
+			break
+		}
+	}
+	if !metaSeen {
+		t.Fatal("no listed tool carries _meta, so this walk does not cover the view metadata it claims to")
 	}
 
 	// Per tool first: a single failing Marshal of the whole slice names no
@@ -479,3 +646,40 @@ var probeReportCatalog = []ReportCatalogEntry{{
 	Aggregates: []string{"amount_minor"},
 	Defaults:   "count as deals grouped by stage_id",
 }}
+
+// A result that misses its own declared schema is OUR defect, and the client
+// must not be handed structuredContent that violates what this server just
+// advertised. It still gets the whole answer in the text block — the omission
+// is a statement about the structured member, not a refusal to answer.
+func TestAResultThatMissesItsSchemaIsReportedAndLeftOutOfStructuredContent(t *testing.T) {
+	spec := objectSpec("misdeclared", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":"seven"}`)}, &log)
+
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"misdeclared","arguments":{}}`)
+	if _, structured := res["structuredContent"]; structured {
+		t.Error("a result violating its declared schema was served as structuredContent")
+	}
+	content, ok := res["content"].([]map[string]any)
+	if !ok || len(content) == 0 || !strings.Contains(content[0][fieldText].(string), "seven") {
+		t.Errorf("the caller lost the answer entirely: %#v", res)
+	}
+	if !strings.Contains(log.String(), "does not satisfy the schema") {
+		t.Errorf("the operator was not told which promise was broken: %s", log.String())
+	}
+}
+
+// And the other direction, so the check cannot pass by refusing everything: a
+// result that KEEPS its schema is served as structuredContent.
+func TestAConformingResultIsServedAsStructuredContent(t *testing.T) {
+	spec := objectSpec("conforming", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":7}`)}, &log)
+
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"conforming","arguments":{}}`)
+	if _, structured := res["structuredContent"]; !structured {
+		t.Errorf("a conforming result was withheld from structuredContent: %#v", res)
+	}
+}

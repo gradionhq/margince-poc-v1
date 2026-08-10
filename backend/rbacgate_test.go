@@ -14,12 +14,25 @@ package backendarch
 // direction); this gate pins the half that is statically checkable.
 //
 // Gatedness is resolved transitively over same-package calls, matched
-// by name: a name shared by several functions counts as gated when ANY
-// of them references auth — optimistic on purpose, so the gate never
-// cries wolf on dispatch it cannot resolve.
+// by name within the RECEIVER the entry point is declared on, plus the
+// package-level functions every receiver may call. Bucketing by receiver
+// is what stops an unrelated same-named method from vouching for a store:
+// *Store and Handlers in one module routinely spell the same names
+// (GetActivity, ListActivities, SendEmail), and a flat by-name index let
+// the handler's gate answer for the store's.
+//
+// Optimism is kept where dispatch is genuinely unresolvable rather than
+// merely unbucketed: a name held by BOTH the receiver and the package
+// level merges, because a bare `foo(...)` and a `s.foo(...)` are the same
+// token in the index this gate builds, so it cannot tell which was meant.
 //
 // Exceptions are explicit, keyed by "package-dir:FuncName", each with
-// the rationale that ratified it; a reasonless or stale waiver fails.
+// the rationale that ratified it; a reasonless or stale waiver fails. The
+// key stays coarser than the resolution above — it names the FUNCTION, not
+// the receiver — so if two receivers in one package ever hold the same
+// ungated name, one waiver ratifies both. No pair does today, and the
+// stale-waiver check would not notice if one appeared, so a receiver-keyed
+// waiver is the change to make when one does.
 //
 // The tree the gate reads is itself proven rather than assumed:
 // storeEntryPointScope sweeps the whole module for the same entry-point
@@ -54,6 +67,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/capture:CorrectResolution":             "sweep correction of a verdict it wrote itself, inside the caller's transaction",
 	"internal/modules/capture:Defer":                         "sweep bookkeeping for a claimed row — reschedule with backoff; reached only from the same system-principal loop as ClaimDue",
 	"internal/modules/capture:ExpireExhausted":               "auto-enrich sweep expiring exhausted budget slots",
+	"internal/modules/capture:Get":                           "SettingsStore.Get reads one capture setting through platform/settings.Get, which delegates to Store.Raw — and Raw takes the object grant PER SETTING against the object the entry declares (auth.Require(def.Object(), ActionRead)). internal/platform/settings is one of THIS gate's roots, so that gate is judged here directly rather than assumed; re-gating in the wrapper would re-check the same read against a coarser object, the same shape as identity:GetInstallation",
 	"internal/modules/capture:LinkProposal":                  "sweep bookkeeping: binds the staged proposal to the pending row it was raised from",
 	"internal/modules/capture:ListDueOrgs":                   "auto-enrich sweep (compose/captureautoenrich.go) under the system principal",
 	"internal/modules/capture:MarkQueued":                    "auto-enrich sweep bookkeeping for an org it just queued",
@@ -70,9 +84,14 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/capture:Retire":                        "sweep bookkeeping: retires a pending row the loop has finished with, same system-principal path as ClaimDue",
 	"internal/modules/capture:RetireExhausted":               "sweep retiring rows that exhausted their attempts",
 	"internal/modules/capture:StaleReviews":                  "sweep read: reviews past their window, for the age-out loop",
+	"internal/modules/identity:GetInstallation":              "reads the three installation settings through platform/settings.Store.Raw, which takes the object grant PER SETTING against the object each entry declares — and which THIS gate judges directly, since internal/platform/settings is one of its roots. Gating again here would re-check the same thing against a coarser object; the lock-state probe beside it reads no setting value, only whether a deal has converted",
+	"internal/modules/identity:SeatNames":                    "names colleagues by app_user id and returns nothing else. There is no object to grant on: a SEAT is not a record (it is outside datasource.RecordTypes, so nothing points at one and no grant names it), which is the same reason ai:RateFor is here. What bounds it is the transaction — app_user carries FORCE RLS (core 0014), so the answer cannot leave the caller's own workspace however the argument was built — and what it discloses is a colleague's display name, which who_knows and account_coverage already answer to any reader in that workspace",
 	"internal/modules/identity:Get":                          "onboarding wizard state, SELF-scoped: onboardingActor resolves the authenticated human and the query is keyed on user_id, so no object grant applies to your own checkpoint",
 	"internal/modules/identity:Put":                          "the write half of the same self-scoped wizard state; onboardingActor is the gate and the row is keyed on the acting user",
 	"internal/modules/overlay:BlockAutoMap":                  "same: only usermapservice.go calls it, behind requireUserMapAdmin",
+	"internal/modules/finance:RecordSyncFailure":             "the sweep's own bookkeeping for the pass it just failed, on the same system-principal path as SyncConnection; it writes no tenant data, only the connection's attempt stamp and error code",
+	"internal/modules/finance:SyncConnection":                "the finance sweep's mirror write, under the worker's system principal; the accounting source is the authority for what it says, there is no request and no human actor on this path, and the module exposes no other write at all",
+	"internal/modules/overlay:Get":                           "MirrorStore.Get is List's single-row twin and row-scoped the same way: resolveActingMirrorUserID + visibilityJoin put the mirror_visibility deny-join in the query itself, so an unmapped principal is answered ErrNotFound before the row is read rather than refused by auth.Require, and the datasource provider above it takes the object grant",
 	"internal/modules/overlay:Ingest":                        "the sync sweep's mirror write (backfill + refetch jobs) under the worker's system principal; the incumbent connection is the authority, and no human actor exists on this path",
 	"internal/modules/overlay:List":                          "row-scoped by the mirror_visibility deny-join rather than auth.Require: resolveActingMirrorUserID + visibilityJoin answer ErrNotFound for an unmapped principal BEFORE the page query runs, and the datasource provider above it takes the object grant",
 	"internal/modules/overlay:ListUserMap":                   "reached only through usermapservice.go, whose every entry point takes requireUserMapAdmin (overlay_connection:update + RequireHuman) — the sanctioned Handlers->Service shape, where the service owns the gate and the store beneath it is module-internal",
@@ -82,6 +101,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/overlay:RecomputeForOwner":             "recomputes mirror_visibility for one incumbent owner after a mapping change; driven by the mapping writes above, which are themselves gated",
 	"internal/modules/overlay:RecordSweepFailure":            "the failure half of the same backoff bookkeeping",
 	"internal/modules/overlay:RecordSweepSuccess":            "sweep health bookkeeping (backoff state) written by the sweep about itself",
+	"internal/modules/overlay:RequestSweep":                  "MirrorStore.RequestSweep is the store half of the sanctioned Service-owns-the-gate shape (same as ListUserMap): the ONLY caller is Service.RequestSweep, which takes auth.Require(overlay_connection, ActionUpdate) and fences the store against a racing disconnect before delegating. The store method itself writes overlay_sync_state — a due-at and a failure ladder, not a record — and until this gate became receiver-aware the service's grant was silently answering for it",
 	"internal/modules/overlay:RevalidateEmailMappings":       "sweep revalidation of owner email mappings; no request path reaches it",
 	"internal/modules/overlay:SaveBackfillCursor":            "sweep checkpoint write — the backfill's own resume cursor, not a record",
 	"internal/modules/overlay:SaveReconcileWatermark":        "reconcile-poller checkpoint write; sweep state, not a record",
@@ -117,6 +137,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/identity:ChangeUserRole":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
 	"internal/modules/identity:InviteUser":            "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
 	"internal/modules/identity:ReactivateUser":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
+	"internal/modules/identity:IssuePasswordLink":     "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write, and the handler re-checks it ahead of the rate limiter so a non-admin cannot spend the target's issuance budget",
 	"internal/modules/identity:GetUser":               "roster read (A52): same rationale as ListUsers — a single member read is intentionally visible to every authenticated seat (workspace RLS + authenticated membership is the boundary); \"user\" is deliberately absent from policy.coreObjects",
 	"internal/modules/identity:ListUsers":             "roster read (A52): the member roster is intentionally visible to every authenticated seat, by design, not by oversight — a share-subject picker that only some roles could see would be a broken feature, not a narrower one. Workspace RLS + authenticated membership IS the boundary; \"user\" is deliberately absent from policy.coreObjects (the closed RBAC object set), because gating it would mean granting read on it to all five default roles (no role may reasonably be refused the roster) and backfilling every already-seeded workspace's role.permissions — object-level RBAC exists to narrow WHO sees a record among peers, and there is no such narrowing here to express",
 	"internal/modules/identity:ListTeams":             "roster read (A52): same rationale as ListUsers — the team list is intentionally visible to every authenticated seat (workspace RLS + authenticated membership is the boundary), and \"team\" is deliberately absent from policy.coreObjects for the same reason: gating it would grant read to every role, not restrict it, while requiring a backfill of every seeded workspace's role.permissions",
@@ -128,11 +149,15 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	// names its own, rather than this header claiming one for all of them.
 	"internal/modules/activities:ResolveBookingPage":  "public booking page (A16): resolved by slug for the anonymous visitor; writes nothing",
 	"internal/modules/consent:ResolvePreferenceToken": "public preference-center resolve: possession of the emailed capability token IS the authority (no session exists). It is NOT signed and NOT single-use — the preference centre is revisitable by design, and one message's link must keep working after the next goes out — so the bounds that stand in for those properties are named here: 256-bit crypto/rand, expiry plus an age ceiling the send path rotates at (0144), and deletion by Art. 17 erasure",
+	"internal/modules/approvals:LockPendingGroupInTx": "takes row locks on the CALLER's transaction and answers nothing but an error — no record, no count, not even whether the group it locked is empty — so there is nothing an ungated caller could learn from it. The batch stagers that call it hold their grant before the transaction opens, and each proposal they go on to stage is gated on its own way in; a gate here would re-ask that question against a coarser object",
 	"internal/modules/approvals:MintApprovalToken":    "signs the approval JWS for a decision already admitted by Decide; crypto, not admission",
 	"internal/modules/approvals:VerifyApprovalToken":  "verifies the approval JWS presented back; the token is the authority being checked",
 	"internal/modules/approvals:Redeem":               "redeems a verified approval token: the token (minted for an admitted decision) is the authority",
 	"internal/modules/approvals:RedeemInTx":           "transactional form of Redeem: the already-admitted approval token is the authority; the caller supplies only the commit boundary",
 	"internal/modules/approvals:RedeemAndApply":       "atomic approval-effect boundary: Redeem performs the authority checks and the callback runs only inside that same transaction",
+	"internal/modules/approvals:TaskState":            "gated by the STAGING PASSPORT rather than by object RBAC, and that is the right gate: an MCP task polls the agent's own proposal, of which it has exactly one, so ownProposal answers ErrNotFound for any approval this passport did not stage. It returns a status and a window, never a record",
+	"internal/modules/approvals:ProposedChange":       "same passport binding as TaskState, over the payload the agent itself staged — read live because a human edit rewrites it, and answered only to the passport that proposed it",
+	"internal/modules/approvals:Withdraw":             "same passport binding, over the agent's own live proposal: it retracts what this passport staged and nothing else, and a human's decision is never the caller's to take back (WithdrawInTx refuses a decided row)",
 
 	// Engine/system seams that never carry a human principal: the
 	// worker loop and cross-module effects run as the system actor, and
@@ -144,11 +169,14 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/agents/runner:EnqueueJob":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:ClaimDueJobs":             "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:FinishJob":                "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
+	"internal/modules/agents/runner:FailStuckRuns":            "worker sweep under the system principal: closes runs whose resume died mid-loop, which no human requested and none can reach by then. It only moves 'running' to 'failed', so there is no object an actor could be granted or denied",
 	"internal/modules/people:BeginSiteRead":                   "worker-loop status transition (queued→running) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
 	"internal/modules/people:DeferSiteRead":                   "worker-loop scheduling transition (running→deferred) under the job's workspace context; the admitted durable job supplies the retry boundary and RLS scopes the guarded CAS write",
 	"internal/modules/people:FinishSiteRead":                  "worker-loop status transition (running→terminal) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
 	"internal/modules/people:UpdateSiteReadProgress":          "worker-loop progress hint on a still-running dossier, same seam as Begin/FinishSiteRead: no human principal, StartSiteRead held the gate, RLS scopes the guarded write",
 	"internal/modules/people:UpdateSiteReadDraft":             "worker-loop grounded-draft update on a still-running dossier, same seam as progress: admission happened at start and RLS scopes the versioned operational write",
+	"internal/modules/people:RecordSiteReadLogo":              "worker-loop object reference parked on an UNBOUND dossier, same seam as UpdateSiteReadDraft: no human principal, StartOnboardingSiteRead held the gate, RLS scopes the guarded write — and it touches no record, because the record it is for does not exist until a confirmation binds it under the organization gate",
+	"internal/modules/people:DiscardSiteReadLogo":             "worker-loop clearing of RecordSiteReadLogo's own parked reference on a dossier that ended without a company; same seam and same admission as the write it undoes, it touches no record, and it names the orphaned object only while no organization does",
 	"internal/modules/approvals:Stage":                        "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
 	"internal/modules/approvals:StageInTx":                    "transactional form of Stage used by an admitted compose orchestration; it records the same actor and differs only in commit ownership",
 	"internal/modules/approvals:StageOrJoinPendingInTx":       "StageInTx's joining twin, admitted the same way and by the same callers; it adds only the join-or-supersede decision over proposals of one kind against one target, never record data",
@@ -191,6 +219,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/people:SetOrganizationLifecycleTx":      "the same CAS on the caller's transaction, called by the lifecycle_change accept executor AFTER the approvals service admitted the deciding human against the organization:update grant and the target's row scope",
 	"internal/modules/people:PromoteOrgNameTx":                "the same CAS on the caller's transaction, called by the org_name_promotion accept executor AFTER the approvals service admitted the deciding human against the organization:update grant and the target's row scope",
 	"internal/modules/people:ApplySignatureFields":            "evidence-gated fill-only-empty write driven by the worker sweep under the workspace GUC (§2.9): NULL-predicate CAS on title, first-phone-only insert, PO-DDL-12 evidence rows — a human's answer is structurally untouchable (GATE-AI-4)",
+	"internal/modules/privacy:EvaluateWorkspace":              "the retention pass: its one production caller is the privacy-retention River worker (compose/jobs_privacyretention.go), which builds a PrincipalSystem actor onto the context before the call, so no human principal exists here to admit. Gating it on one would be wrong rather than merely redundant — a retention obligation outlives any seat, and a workspace whose reviewer lost access must still age out the data it promised to",
 
 	// comms: delivery machinery, not the message. StageTx runs inside the
 	// caller's own transaction, alongside the activity write that already
@@ -219,14 +248,32 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/comms:ClearInFlight":   "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
 })
 
-// storeEntryPointScope proves the gate's single root: every file in the module
-// that declares an entry point of this shape lives under internal/modules, or is
-// ratified below.
+// storeEntryPointScope proves the gate's roots: every file that declares an
+// entry point of this shape lives under one of them, or is ratified below.
+//
+// internal/platform/settings is here rather than in the exempt set because the
+// gate CAN judge it and does: the settings store is a real governed write path
+// (ADR-0090/A135), and the `setting` table carries no RLS beneath it — so the
+// object gate is the only control there, which is exactly what this gate
+// exists to check. Ratifying it as "outside the gate's business" would have
+// hidden the one store whose gate has no backstop.
+//
+// Both entry points are METHODS on *Store (Raw, SetRaw) for this reason. The
+// typed Get/Set helpers beside them are generic, and Go forbids generic
+// methods — a package-level generic function does not match the shape this
+// gate collects, so writing the store that way would have left the write path
+// invisible here while this comment claimed otherwise.
 var storeEntryPointScope = gatekit.Scope{
-	Roots:   []string{modulesDir},
+	Roots:   []string{modulesDir, settingsStoreDir},
 	Subject: declaresStoreEntryPoint,
 	Exempt:  entryPointsOutsideModules,
 }
+
+// settingsStoreDir is the platform tier this gate reaches into. It is one
+// package, named explicitly rather than by widening to all of
+// internal/platform: the rest of that tier owns no domain rows, and sweeping
+// it in would mean waiving files this gate has not judged.
+const settingsStoreDir = "internal/platform/settings"
 
 // entryPointsOutsideModules ratifies the files that hold this entry-point shape
 // outside internal/modules. Each says what the methods are; none says they are
@@ -235,14 +282,19 @@ var storeEntryPointScope = gatekit.Scope{
 // not that decision. The entries are the ratchet: a file that stops holding the
 // shape is reported stale here, so the question cannot be forgotten.
 var entryPointsOutsideModules = gatekit.Waive(map[string]string{
-	"internal/compose/org360/assemble.go":     "org360.Service.Assemble — a compose read service assembling the record-360 view across domain tables; this package does reference the platform auth gate (auth.Require, EnsureVisible, the scope clauses), but whether the gate's transitive resolution proves that for each entry point is a judgement this change has not made",
-	"internal/compose/org360/graph.go":        "org360.Service.Graph — the same read service's relationship graph, in a package that reaches auth through its section helpers; enrolling compose in this gate is a separate decision from proving where the entry points are",
-	"internal/compose/org360/dismissal.go":    "org360.Service.DismissSuggestion — the suggestion-dismissal write; it opens with auth.RequireHuman and auth.Require, so it is not a suspected gap, but this gate has not been the thing that checked it",
-	"internal/compose/org360/viewbaseline.go": "org360.Service.Acknowledge — the record-view acknowledgement write, likewise opening with auth.RequireHuman and auth.Require; ratified here only as a subject the roots do not cover",
-	"internal/compose/orgbrief/service.go":    "orgbrief.Service.Get and .Ask — the organization brief read and its question surface, both opening with auth.RequireHuman; whether RequireHuman alone is the right admission for them is a question for the tier's own review, not for this sweep",
-	"internal/compose/runnerservice.go":       "RunnerService.TickWorkspace and .HandleEvent — the agent runner's worker-loop and event-bus seams, which carry no human principal at all; that posture is what the module-side waivers spell out for their sweep entry points, and applying the same reasoning to compose needs the tier brought under the gate first",
-	"internal/platform/blobstore/memory.go":   "memoryStore's Put/Get/Delete/Health — a blobstore.Store driver, matched only because the receiver type name ends in \"Store\". It moves opaque bytes under a caller-supplied key and holds no record and no workspace column, so there is no RBAC object for this gate's rule to name",
-	"internal/platform/blobstore/s3.go":       "s3Store's Put/Get/Delete/Health — the same driver interface over S3, matched by the same receiver-name suffix; the admission that matters for a blob is taken by the module surface that mints its key, not by an object-storage client",
+	"internal/compose/org360/assemble.go":             "org360.Service.Assemble — a compose read service assembling the record-360 view across domain tables; this package does reference the platform auth gate (auth.Require, EnsureVisible, the scope clauses), but whether the gate's transitive resolution proves that for each entry point is a judgement this change has not made",
+	"internal/compose/org360/graph.go":                "org360.Service.Graph — the same read service's relationship graph, in a package that reaches auth through its section helpers; enrolling compose in this gate is a separate decision from proving where the entry points are",
+	"internal/compose/org360/dismissal.go":            "org360.Service.DismissSuggestion — the suggestion-dismissal write; it opens with auth.RequireHuman and auth.Require, so it is not a suspected gap, but this gate has not been the thing that checked it",
+	"internal/compose/org360/viewbaseline.go":         "org360.Service.Acknowledge — the record-view acknowledgement write, likewise opening with auth.RequireHuman and auth.Require; ratified here only as a subject the roots do not cover",
+	"internal/compose/person360/assemble.go":          "person360.Service.Assemble — the person record-360 read, the company view's sibling and ratified on the same terms as org360/assemble.go: its mandatory root read opens with the people store's own auth.Require + EnsureVisible and every section carries its object grant, but whether this gate's transitive resolution proves that per entry point is the judgement enrolling compose would have to make",
+	"internal/compose/person360/handlers.go":          "person360.Handlers.AcknowledgePersonView — the person view's visit acknowledgement, the twin of org360/viewbaseline.go and likewise opening with auth.RequireHuman; ratified here only as a subject the roots do not cover",
+	"internal/compose/orgdossier/service.go":          "orgdossier.Service.Get — the company dossier read, opening with auth.RequireHuman and assembling only from reads the caller makes themselves, so the row-scope gates run in the people store this calls rather than here",
+	"internal/compose/orgdossier/growthfitservice.go": "orgdossier.GrowthFitService.Get — the growth-fit read, ratified on the same terms as its dossier sibling: it opens with auth.RequireHuman and every record it counts arrives through a read the caller makes themselves, so the row-scope gates run in the people store rather than here",
+	"internal/compose/orgbrief/service.go":            "orgbrief.Service.Get and .Ask — the organization brief read and its question surface, both opening with auth.RequireHuman; whether RequireHuman alone is the right admission for them is a question for the tier's own review, not for this sweep",
+	"internal/compose/accountdraft/service.go":        "accountdraft.Service.Draft — the account-started email draft, ratified on the same terms as its orgbrief sibling: it opens with auth.RequireHuman and every record it grounds in arrives through the caller's own gated 360, so the row-scope gates run in that read rather than here. It also writes nothing, so there is no mutation for this gate to be the last line in front of",
+	"internal/compose/runnerservice.go":               "RunnerService.TickWorkspace and .HandleEvent — the agent runner's worker-loop and event-bus seams, which carry no human principal at all; that posture is what the module-side waivers spell out for their sweep entry points, and applying the same reasoning to compose needs the tier brought under the gate first",
+	"internal/platform/blobstore/memory.go":           "memoryStore's Put/Get/Delete/Health — a blobstore.Store driver, matched only because the receiver type name ends in \"Store\". It moves opaque bytes under a caller-supplied key and holds no record and no workspace column, so there is no RBAC object for this gate's rule to name",
+	"internal/platform/blobstore/s3.go":               "s3Store's Put/Get/Delete/Health — the same driver interface over S3, matched by the same receiver-name suffix; the admission that matters for a blob is taken by the module surface that mints its key, not by an object-storage client",
 })
 
 // declaresStoreEntryPoint reports whether the file holds an entry point of the
@@ -283,14 +335,53 @@ type gateFnInfo struct {
 	calls map[string]bool
 }
 
-// gateEntry is one exported *Store/*Service method — a store entry point
-// the gate must prove reaches auth.
-type gateEntry struct{ dir, name string }
+// gatePkg is one package's function index, bucketed by the receiver each
+// function is declared on. The "" bucket holds package-level functions,
+// which every receiver in the package may call.
+type gatePkg map[string]map[string]*gateFnInfo
 
-// collectStoreEntryPoints returns, per package dir, the function index (a
-// name shared across receivers merges optimistically — see the package
-// comment) plus the list of exported *Store/*Service methods to check.
-func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, []gateEntry) {
+// visibleTo returns the functions an entry point on recv can reach by name:
+// its own receiver's methods, plus the package-level ones. A name held by
+// both buckets is merged rather than shadowed — see the package comment on
+// where this gate stays optimistic and why.
+func (p gatePkg) visibleTo(recv string) map[string]*gateFnInfo {
+	fns := make(map[string]*gateFnInfo, len(p[""])+len(p[recv]))
+	for name, info := range p[""] {
+		fns[name] = info
+	}
+	for name, info := range p[recv] {
+		if pkgLevel, both := fns[name]; both {
+			fns[name] = mergeGateFnInfo(pkgLevel, info)
+			continue
+		}
+		fns[name] = info
+	}
+	return fns
+}
+
+// mergeGateFnInfo unions two same-named functions the index cannot tell
+// apart at a call site. It builds a THIRD value rather than mutating
+// either: the buckets are shared across every entry point on the package,
+// so folding one into the other would leak this receiver's edges into the
+// next receiver's view.
+func mergeGateFnInfo(a, b *gateFnInfo) *gateFnInfo {
+	merged := &gateFnInfo{auth: a.auth || b.auth, calls: make(map[string]bool, len(a.calls)+len(b.calls))}
+	for _, src := range []*gateFnInfo{a, b} {
+		for name := range src.calls {
+			merged.calls[name] = true
+		}
+	}
+	return merged
+}
+
+// gateEntry is one exported *Store/*Service method — a store entry point
+// the gate must prove reaches auth. recv carries the receiver type name so
+// resolution is scoped to it.
+type gateEntry struct{ dir, recv, name string }
+
+// collectStoreEntryPoints returns, per package dir, the receiver-bucketed
+// function index plus the list of exported *Store/*Service methods to check.
+func collectStoreEntryPoints(t *testing.T) (map[string]gatePkg, []gateEntry) {
 	t.Helper()
 	var entries []gateEntry
 	for _, src := range storeEntryPointScope.Files(t) {
@@ -300,20 +391,42 @@ func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, [
 			if !ok || !isStoreEntryPoint(fn) {
 				continue
 			}
-			entries = append(entries, gateEntry{dir, fn.Name.Name})
+			entries = append(entries, gateEntry{dir, receiverName(fn), fn.Name.Name})
 		}
 	}
 	return packageFunctionIndex(t), entries
 }
 
+// receiverName is the receiver's type name with any pointer stripped, or ""
+// for a package-level function. Both spellings are collected because the
+// index holds whole packages: a value-receiver type (Handlers) is a bucket
+// this gate must keep separate just as much as a pointer one.
+func receiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	switch typ := fn.Recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if ident, ok := typ.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	case *ast.Ident:
+		return typ.Name
+	}
+	return ""
+}
+
 // packageFunctionIndex indexes every function in every package under the
-// scope's roots. It reads WHOLE packages, not only the files that hold an
-// entry point, because the auth call that gates a method routinely sits in
-// a same-package helper in another file — indexing only the entry-point
-// files would report those methods ungated.
-func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
+// scope's roots, bucketed by receiver. It reads WHOLE packages, not only the
+// files that hold an entry point, because the auth call that gates a method
+// routinely sits in a same-package helper in another file — indexing only the
+// entry-point files would report those methods ungated.
+//
+// Two functions can still land in one bucket under the same name when build
+// tags mean only one of them ever compiles, so the merge below stays.
+func packageFunctionIndex(t *testing.T) map[string]gatePkg {
 	t.Helper()
-	pkgs := map[string]map[string]*gateFnInfo{}
+	pkgs := map[string]gatePkg{}
 	fset := token.NewFileSet()
 	for _, root := range storeEntryPointScope.Roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -328,17 +441,21 @@ func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
 				return parseErr
 			}
 			if pkgs[dir] == nil {
-				pkgs[dir] = map[string]*gateFnInfo{}
+				pkgs[dir] = gatePkg{}
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
 				if !ok || fn.Body == nil {
 					continue
 				}
-				info := pkgs[dir][fn.Name.Name]
+				recv := receiverName(fn)
+				if pkgs[dir][recv] == nil {
+					pkgs[dir][recv] = map[string]*gateFnInfo{}
+				}
+				info := pkgs[dir][recv][fn.Name.Name]
 				if info == nil {
 					info = &gateFnInfo{calls: map[string]bool{}}
-					pkgs[dir][fn.Name.Name] = info
+					pkgs[dir][recv][fn.Name.Name] = info
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
 					if sel, ok := n.(*ast.SelectorExpr); ok {
@@ -362,8 +479,9 @@ func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
 	return pkgs
 }
 
-// reachesAuthGate resolves gatedness transitively over same-package
-// calls, matched by name; seen breaks recursion cycles.
+// reachesAuthGate resolves gatedness transitively over the calls a name can
+// reach, matched by name within the view visibleTo built for one receiver;
+// seen breaks recursion cycles.
 func reachesAuthGate(fns map[string]*gateFnInfo, name string, seen map[string]bool) bool {
 	if seen[name] {
 		return false
@@ -391,7 +509,7 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 	pkgs, entries := collectStoreEntryPoints(t)
 
 	for _, e := range entries {
-		if reachesAuthGate(pkgs[e.dir], e.name, map[string]bool{}) {
+		if reachesAuthGate(pkgs[e.dir].visibleTo(e.recv), e.name, map[string]bool{}) {
 			continue
 		}
 		key := e.dir + ":" + e.name

@@ -108,7 +108,12 @@ func coldStartOptions(modelPath *compose.ModelPath, routingVersion string) []com
 		compose.WithScrape(fetch, modelPath.ColdStart),
 		compose.WithBrief(modelPath.BriefRanking),
 		compose.WithAccountBrief(modelPath.Summarize, routingVersion),
+		compose.WithCompanyDossier(modelPath.Summarize, routingVersion),
+		compose.WithGrowthFit(modelPath.GrowthFit, routingVersion),
 		compose.WithReplyDraft(modelPath.DraftReply),
+		// The account-started draft rides the same draft_reply lane as the
+		// reply-side one: it is the same task with a different input shape.
+		compose.WithAccountDraft(modelPath.DraftReply),
 	}
 }
 

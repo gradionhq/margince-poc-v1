@@ -13,200 +13,11 @@ package integration
 // e2e_agent_integration_test.go.
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/cookiejar"
-	"net/http/httptest"
-	"os"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/platform/testdb"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
-
-type env struct {
-	ts     *httptest.Server
-	client *http.Client
-	slug   string
-	owner  *pgx.Conn
-	pool   *pgxpool.Pool
-}
-
-// setup boots the default harness server — no schema pool, so the
-// customfields runtime-DDL operations answer their generated 501
-// (the unwired-by-default posture). Suites that need the
-// schema pool wired (customfields_http_integration_test.go) call
-// setupWithOptions directly with compose.WithSchemaPool(SchemaPool(t)).
-func setup(t *testing.T) *env {
-	t.Helper()
-	return setupWithOptions(t)
-}
-
-// setupWithOptions is setup's body, parameterized over extra compose
-// options so a suite that needs a boot-optional seam (e.g. the
-// customfields schema pool) can wire it without duplicating the
-// migrate-and-boot ceremony every other suite in this package shares.
-func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
-	t.Helper()
-	return setupWithOriginOptions(t, func(string) []compose.Option { return opts })
-}
-
-// setupWithOriginOptions is setupWithOptions for a suite whose wiring must
-// name the harness's OWN origin — the RFC 8414/9728 discovery documents carry
-// absolute URLs, and a suite asserting what a real client dereferences cannot
-// hardcode a port the OS assigns. The listener is opened before the handler is
-// composed, so the origin is known without booting twice.
-func setupWithOriginOptions(t *testing.T, opts func(origin string) []compose.Option) *env {
-	t.Helper()
-	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if ownerDSN == "" || appDSN == "" {
-		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	ctx := context.Background()
-
-	owner, err := pgx.Connect(ctx, ownerDSN)
-	if err != nil {
-		t.Fatalf("connecting as owner: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := owner.Close(context.Background()); err != nil {
-			t.Errorf("closing owner connection: %v", err)
-		}
-	})
-
-	if err := testdb.EnsureSchema(ctx, owner); err != nil {
-		t.Fatalf("migrating schema: %v", err)
-	}
-	if err := testdb.Reset(ctx, owner); err != nil {
-		t.Fatalf("resetting database: %v", err)
-	}
-
-	pool, err := database.NewPool(ctx, appDSN)
-	if err != nil {
-		t.Fatalf("opening app pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	// The delivery machinery every send transport is composed with in the api
-	// role. Without it a send refuses rather than log an activity claiming a
-	// message went out, so a harness missing it would test the refusal in
-	// every suite that sends — including the consent and preference-center
-	// suites, whose subject is what happens AFTER a send is accepted.
-	ensureRiverSchema(t)
-	sendInserter, err := jobs.NewInserter(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("jobs.NewInserter: %v", err)
-	}
-	// Unstarted, so the listener's port is known before the handler is
-	// composed: StartTLS below serves the same handler NewTLSServer would.
-	ts := httptest.NewUnstartedServer(nil)
-	origin := "https://" + ts.Listener.Addr().String()
-	allOpts := append([]compose.Option{
-		compose.WithPublicBaseURL("https://mail.example.test"),
-		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
-	}, opts(origin)...)
-	ts.Config.Handler = compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...)
-	ts.StartTLS()
-	t.Cleanup(ts.Close)
-
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatalf("cookie jar: %v", err)
-	}
-	client := ts.Client()
-	client.Jar = jar
-
-	return &env{ts: ts, client: client, slug: "fable-e2e", owner: owner, pool: pool}
-}
-
-// bootstrapWorkspace provisions the organization + admin (the A107 boot
-// path) and leaves the admin session cookie in the client jar — the
-// first step of every e2e scenario.
-func (e *env) bootstrapWorkspace(t *testing.T) {
-	t.Helper()
-	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
-	e.slug = "fable-e2e" // slugify("Fable E2E")
-}
-
-// setWorkspaceSeat flips a workspace's users to a seat type through the
-// owner connection, inside a workspace-bound transaction so RLS (FORCE)
-// admits the UPDATE. Used to drive the read-seat ceiling from a test.
-func (e *env) setWorkspaceSeat(t *testing.T, slug, seat string) {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = tx.Rollback(ctx) }()
-	var wsID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&wsID); err != nil {
-		t.Fatalf("workspace lookup: %v", err)
-	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
-		t.Fatalf("set guc: %v", err)
-	}
-	if _, err := tx.Exec(ctx, `UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1`, wsID, seat); err != nil {
-		t.Fatalf("seat update: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-}
-
-// call issues one API request with the dev workspace header and decodes
-// the JSON response into out (when non-nil), returning the status code.
-//
-//craft:ignore naked-any the test transport seam: body/out are whichever request/response shapes the scenario exercises
-func (e *env) call(t *testing.T, method, path string, body any, headers map[string]string, out any) int {
-	t.Helper()
-	var reqBody io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			t.Fatalf("marshaling request: %v", err)
-		}
-		reqBody = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequest(method, e.ts.URL+path, reqBody)
-	if err != nil {
-		t.Fatalf("building request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := e.client.Do(req)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, path, err)
-	}
-	defer closeBody(t, resp)
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading response: %v", err)
-	}
-	if out != nil && len(raw) > 0 {
-		if err := json.Unmarshal(raw, out); err != nil {
-			t.Fatalf("%s %s: decoding %q: %v", method, path, raw, err)
-		}
-	}
-	return resp.StatusCode
-}
-
-type anyMap = map[string]any
 
 // seededStages is the seeded default pipeline's stage vocabulary a
 // scenario advances deals through.
@@ -219,7 +30,7 @@ type seededStages struct {
 
 // discoverSeededPipeline asserts the bootstrap seeded exactly one default
 // pipeline with its six stages and resolves the semantic stage ids.
-func discoverSeededPipeline(t *testing.T, e *env) seededStages {
+func discoverSeededPipeline(t *testing.T, e *apptest.AppEnv) seededStages {
 	t.Helper()
 	var pipelines struct {
 		Data []struct {
@@ -231,7 +42,7 @@ func discoverSeededPipeline(t *testing.T, e *env) seededStages {
 			} `json:"stages"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
 		t.Fatalf("pipelines status = %d", status)
 	}
 	if len(pipelines.Data) != 1 || !pipelines.Data[0].IsDefault || len(pipelines.Data[0].Stages) != 6 {
@@ -256,13 +67,13 @@ func discoverSeededPipeline(t *testing.T, e *env) seededStages {
 // exercisePersonWriteInvariants runs the person write shape: create with
 // server-stamped provenance, duplicate-email 409 with the existing id,
 // If-Match version skew, then the versioned update. Returns the person id.
-func exercisePersonWriteInvariants(t *testing.T, e *env, adminUserID string) string {
+func exercisePersonWriteInvariants(t *testing.T, e *apptest.AppEnv, adminUserID string) string {
 	t.Helper()
-	var person anyMap
-	status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Grace Hopper",
 		"source":    "ui",
-		"emails":    []anyMap{{"email": "grace@navy.mil", "is_primary": true}},
+		"emails":    []apptest.AnyMap{{"email": "grace@navy.mil", "is_primary": true}},
 	}, nil, &person)
 	if status != http.StatusCreated {
 		t.Fatalf("create person = %d %v", status, person)
@@ -272,28 +83,28 @@ func exercisePersonWriteInvariants(t *testing.T, e *env, adminUserID string) str
 		t.Errorf("captured_by = %v; the server must stamp the acting principal", person["captured_by"])
 	}
 
-	var dup anyMap
-	status = e.call(t, "POST", "/v1/people", anyMap{
+	var dup apptest.AnyMap
+	status = e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Grace Clone",
 		"source":    "ui",
-		"emails":    []anyMap{{"email": "grace@navy.mil"}},
+		"emails":    []apptest.AnyMap{{"email": "grace@navy.mil"}},
 	}, nil, &dup)
 	if status != http.StatusConflict {
 		t.Fatalf("duplicate email = %d, want 409", status)
 	}
-	if dup["details"].(anyMap)["existing_id"] != personID {
+	if dup["details"].(apptest.AnyMap)["existing_id"] != personID {
 		t.Errorf("409 existing_id = %v, want %s", dup["details"], personID)
 	}
 
-	var conflict anyMap
-	status = e.call(t, "PATCH", "/v1/people/"+personID, anyMap{"title": "Rear Admiral"},
+	var conflict apptest.AnyMap
+	status = e.Call(t, "PATCH", "/v1/people/"+personID, apptest.AnyMap{"title": "Rear Admiral"},
 		map[string]string{"If-Match": "42"}, &conflict)
 	if status != http.StatusConflict || conflict["code"] != "version_skew" {
 		t.Fatalf("stale If-Match = %d %v, want 409 version_skew", status, conflict)
 	}
 
-	var person2 anyMap
-	status = e.call(t, "PATCH", "/v1/people/"+personID, anyMap{"title": "Rear Admiral"},
+	var person2 apptest.AnyMap
+	status = e.Call(t, "PATCH", "/v1/people/"+personID, apptest.AnyMap{"title": "Rear Admiral"},
 		map[string]string{"If-Match": "1"}, &person2)
 	if status != http.StatusOK || person2["version"].(float64) != 2 {
 		t.Fatalf("If-Match update = %d version %v, want 200 v2", status, person2["version"])
@@ -304,20 +115,20 @@ func exercisePersonWriteInvariants(t *testing.T, e *env, adminUserID string) str
 // exerciseDealToWon creates the organization + deal, asserts losing
 // without a reason is refused, and closes the deal as won. Returns the
 // deal id.
-func exerciseDealToWon(t *testing.T, e *env, stages seededStages) string {
+func exerciseDealToWon(t *testing.T, e *apptest.AppEnv, stages seededStages) string {
 	t.Helper()
-	var org anyMap
-	status := e.call(t, "POST", "/v1/organizations", anyMap{
+	var org apptest.AnyMap
+	status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{
 		"display_name": "Acme GmbH",
 		"source":       "ui",
-		"domains":      []anyMap{{"domain": "acme.example", "is_primary": true}},
+		"domains":      []apptest.AnyMap{{"domain": "acme.example", "is_primary": true}},
 	}, nil, &org)
 	if status != http.StatusCreated {
 		t.Fatalf("create org = %d %v", status, org)
 	}
 
-	var deal anyMap
-	status = e.call(t, "POST", "/v1/deals", anyMap{
+	var deal apptest.AnyMap
+	status = e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name":            "Acme rollout",
 		"amount_minor":    250_000_00,
 		"currency":        "EUR",
@@ -332,13 +143,13 @@ func exerciseDealToWon(t *testing.T, e *env, stages seededStages) string {
 	dealID := deal["id"].(string)
 
 	// Losing without a reason is refused (deal_lost_reason).
-	var lostErr anyMap
-	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": stages.lost}, nil, &lostErr)
+	var lostErr apptest.AnyMap
+	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.lost}, nil, &lostErr)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("lost without reason = %d %v, want 422", status, lostErr)
 	}
 
-	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": stages.won}, nil, &deal)
+	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.won}, nil, &deal)
 	if status != http.StatusOK || deal["status"] != "won" || deal["closed_at"] == nil {
 		t.Fatalf("advance to won = %d %v", status, deal)
 	}
@@ -348,23 +159,23 @@ func exerciseDealToWon(t *testing.T, e *env, stages seededStages) string {
 // exerciseActivityIdempotentCapture logs an email activity against the
 // deal and replays the identical capture, asserting the replay is a
 // silent 200 onto the same activity.
-func exerciseActivityIdempotentCapture(t *testing.T, e *env, dealID string) {
+func exerciseActivityIdempotentCapture(t *testing.T, e *apptest.AppEnv, dealID string) {
 	t.Helper()
 	// --- activity: log against the deal, idempotent capture replay ---
-	var activity anyMap
-	logReq := anyMap{
+	var activity apptest.AnyMap
+	logReq := apptest.AnyMap{
 		"kind":          "email",
 		"subject":       "Signed!",
 		"source":        "email:msg-1",
 		"source_system": "gmail",
 		"source_id":     "msg-1",
-		"links":         []anyMap{{"entity_type": "deal", "entity_id": dealID}},
+		"links":         []apptest.AnyMap{{"entity_type": "deal", "entity_id": dealID}},
 	}
-	if status := e.call(t, "POST", "/v1/activities", logReq, nil, &activity); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/activities", logReq, nil, &activity); status != http.StatusCreated {
 		t.Fatalf("log activity = %d %v", status, activity)
 	}
-	var replay anyMap
-	if status := e.call(t, "POST", "/v1/activities", logReq, nil, &replay); status != http.StatusOK {
+	var replay apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/activities", logReq, nil, &replay); status != http.StatusOK {
 		t.Fatalf("capture replay = %d, want 200 (idempotent)", status)
 	}
 	if replay["id"] != activity["id"] {
@@ -373,27 +184,27 @@ func exerciseActivityIdempotentCapture(t *testing.T, e *env, dealID string) {
 }
 
 func TestEndToEnd_coreSalesFlow(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// The cookie authenticates /me.
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me status = %d", status)
 	}
-	if got := me["user"].(anyMap)["email"]; got != "ada@example.com" {
+	if got := me["user"].(apptest.AnyMap)["email"]; got != "ada@example.com" {
 		t.Fatalf("/me email = %v", got)
 	}
 
 	stages := discoverSeededPipeline(t, e)
-	personID := exercisePersonWriteInvariants(t, e, me["user"].(anyMap)["id"].(string))
+	personID := exercisePersonWriteInvariants(t, e, me["user"].(apptest.AnyMap)["id"].(string))
 	dealID := exerciseDealToWon(t, e, stages)
 
 	exerciseActivityIdempotentCapture(t, e, dealID)
 
 	// --- lead: segregated, dedupes on email ---
-	var lead anyMap
-	status := e.call(t, "POST", "/v1/leads", anyMap{
+	var lead apptest.AnyMap
+	status := e.Call(t, "POST", "/v1/leads", apptest.AnyMap{
 		"full_name":    "Cold Prospect",
 		"email":        "cold@example.org",
 		"company_name": "Unknown AG",
@@ -402,7 +213,7 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create lead = %d %v", status, lead)
 	}
-	status = e.call(t, "POST", "/v1/leads", anyMap{
+	status = e.Call(t, "POST", "/v1/leads", apptest.AnyMap{
 		"email":  "cold@example.org",
 		"source": "import:batch-2",
 	}, nil, nil)
@@ -411,17 +222,17 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 	}
 
 	// --- archive cascades and stays fetchable by id ---
-	var person anyMap
-	if status := e.call(t, "DELETE", "/v1/people/"+personID, nil, nil, &person); status != http.StatusOK {
+	var person apptest.AnyMap
+	if status := e.Call(t, "DELETE", "/v1/people/"+personID, nil, nil, &person); status != http.StatusOK {
 		t.Fatalf("archive person = %d", status)
 	}
 	if person["archived_at"] == nil {
 		t.Error("archived person carries no archived_at")
 	}
 	var people struct {
-		Data []anyMap `json:"data"`
+		Data []apptest.AnyMap `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/people", nil, nil, &people); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people", nil, nil, &people); status != http.StatusOK {
 		t.Fatalf("list people = %d", status)
 	}
 	for _, p := range people.Data {
@@ -432,10 +243,10 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 
 	// --- the governance audit view reflects the session's own trail ---
 	var audit struct {
-		Data []anyMap `json:"data"`
-		Page anyMap   `json:"page"`
+		Data []apptest.AnyMap `json:"data"`
+		Page apptest.AnyMap   `json:"page"`
 	}
-	if status := e.call(t, "GET", "/v1/audit-log?entity_type=person&action=archive", nil, nil, &audit); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/audit-log?entity_type=person&action=archive", nil, nil, &audit); status != http.StatusOK {
 		t.Fatalf("audit log = %d", status)
 	}
 	found := false
@@ -450,38 +261,38 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 }
 
 func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// An unimplemented contract operation answers an explicit 501.
-	var problem anyMap
-	if status := e.call(t, "POST", "/v1/coldstart", anyMap{"url": "https://example.com"}, nil, &problem); status != http.StatusNotImplemented {
+	var problem apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/coldstart", apptest.AnyMap{"url": "https://example.com"}, nil, &problem); status != http.StatusNotImplemented {
 		t.Fatalf("unimplemented op = %d %v, want 501", status, problem)
 	}
 
 	// Logout revokes; the session no longer authenticates.
-	if status := e.call(t, "POST", "/v1/auth/logout", nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "POST", "/v1/auth/logout", nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("logout = %d", status)
 	}
-	if status := e.call(t, "GET", "/v1/me", nil, nil, nil); status != http.StatusUnauthorized {
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("/me after logout = %d, want 401", status)
 	}
 
 	// Login re-authenticates with fresh credentials.
-	var me anyMap
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	var me apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email":    "ada@example.com",
 		"password": "correct-horse-battery",
 	}, nil, &me); status != http.StatusOK {
 		t.Fatalf("login = %d", status)
 	}
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me after login = %d", status)
 	}
 
 	// Wrong password is a 401 that does not say which half was wrong.
-	var authErr anyMap
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	var authErr apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email":    "ada@example.com",
 		"password": "wrong",
 	}, nil, &authErr); status != http.StatusUnauthorized {

@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -292,7 +293,7 @@ function render(
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -300,7 +301,7 @@ async function submitWebsite() {
 async function chooseManual() {
   await userEvent.click(
     await screen.findByRole("button", {
-      name: /I would rather tell you directly/,
+      name: /Enter the details yourself/,
     }),
   );
   await screen.findByRole("textbox", {
@@ -383,11 +384,9 @@ describe("the conversational company act", () => {
     stubApi();
     render(<OnboardingScreen />);
 
+    expect(await screen.findByLabelText(/Your website address/)).toBeTruthy();
     expect(
-      await screen.findByText(/Where should I start reading\?/),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/Company name/)).toBeNull();
   });
@@ -405,11 +404,17 @@ describe("the conversational company act", () => {
     render(<OnboardingScreen />);
 
     await submitWebsite();
-    await userEvent.click(
-      (
-        await screen.findAllByRole("button", { name: /Edit fields directly/ })
-      )[0],
-    );
+    // Every field is inline-editable on the review board — there is no
+    // separate edit mode to switch into first, only the collapsed row's own
+    // summary to open, exactly as a human would.
+    await screen.findByRole("heading", {
+      name: /Here is everything I found/,
+    });
+    const icpRow = document.getElementById("ob-triage-row-icp");
+    if (icpRow === null) {
+      throw new Error("expected the icp row to exist");
+    }
+    await userEvent.click(within(icpRow).getByRole("button"));
     const icp = (await screen.findByLabelText(
       /Ideal customer/,
     )) as HTMLTextAreaElement;
@@ -440,7 +445,7 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     await waitFor(() => {
       expect(accept.disabled).toBe(false);
@@ -464,8 +469,10 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
+    // The server's own detail reaches the reader, now inside the gate's
+    // sentence rather than as a bare line of its own.
     expect(
-      await screen.findByText("site blocked automated access"),
+      await screen.findByText(/site blocked automated access/),
     ).toBeTruthy();
     await chooseManual();
   });
@@ -488,15 +495,20 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
+    // A deferral is scheduled work, not a failure: it arrives as a status and
+    // carries the server's own explanation of when it resumes.
+    const paused = await screen.findByRole("status");
+    expect(paused.textContent).toContain("That read is paused.");
+    expect(paused.textContent).toContain(
+      "This website read will resume automatically.",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(
-      await screen.findByText(/The read is paused for now\./),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
   });
 
-  it("shows exact run transparency and applies conversational suggestions only after approval", async () => {
+  it("shows exact run transparency for the finished read", async () => {
     const runtimeRead = {
       ...readyRead,
       ai_runtime: {
@@ -528,54 +540,24 @@ describe("the conversational company act", () => {
         ],
       },
     } as const satisfies CompanySiteRead;
-    stubApi({
-      startRead: runtimeRead,
-      read: runtimeRead,
-      messageReply: {
-        kind: "recommendation",
-        act: "company",
-        message:
-          "I found evidence that industrial software is the clearest industry description.",
-        proposed_changes: [
-          {
-            field: "industry",
-            value: "Industrial software",
-            reason: "This matches the company's stated market.",
-          },
-        ],
-        citations: [{ label: "industry", url: "https://gradion.com/about" }],
-        remaining_required_fields: [],
-        ai_runtime: zeroRuntime,
-      },
-    });
+    stubApi({ startRead: runtimeRead, read: runtimeRead });
     render(<OnboardingScreen />);
 
     await submitWebsite();
-    await screen.findByText(/Finished reading\./);
-    expect(screen.getByText("gemini-3.1-flash-lite-2026-07")).toBeTruthy();
-    expect(screen.getByText("$0.079529")).toBeTruthy();
-
-    const composer = screen.getByRole("textbox", {
-      name: /Type your website address/,
-    });
-    await userEvent.type(composer, "Which industry should we use?");
-    await userEvent.click(
-      screen.getByRole("button", { name: /Send to Margince/ }),
-    );
-
     expect(
-      await screen.findByText(/industrial software is the clearest/),
+      await screen.findByText("gemini-3.1-flash-lite-2026-07"),
     ).toBeTruthy();
-    expect(screen.getByText("Industrial software")).toBeTruthy();
-    await userEvent.click(
-      screen.getByRole("button", { name: /Apply to my draft/ }),
-    );
-    await userEvent.click(
-      screen.getAllByRole("button", { name: /Edit fields directly/ })[0],
-    );
-    expect(
-      ((await screen.findByLabelText(/Industry/)) as HTMLInputElement).value,
-    ).toBe("Industrial software");
+    // The run's spend appears twice on purpose: unlabelled on the always-visible
+    // chip, and again as a labelled row inside the disclosure. Assert the
+    // labelled one, so this stays a test of "the cost is disclosed" rather than
+    // of how many places repeat it.
+    const costRow = screen
+      .getByText("Estimated provider cost")
+      .closest(".mw-aistat-r");
+    expect(costRow?.querySelector("dd")?.textContent).toContain("$0.079529");
+    // The rail takes no free text — this transparency lives beside a chip
+    // and jump-link surface, never a composer that could ask it a question.
+    expect(document.querySelector(".mw-composer")).toBeNull();
   });
 });
 
@@ -583,7 +565,7 @@ describe("the mandatory company minimum", () => {
   it("saves a manually entered company without requiring a website", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
     await completeManualInterview();
 
@@ -611,7 +593,7 @@ describe("the mandatory company minimum", () => {
   it("starts with legal identity and does not advance without the required company name", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
 
     expect(screen.getByText("Your legal organization")).toBeTruthy();
@@ -631,7 +613,7 @@ describe("the mandatory company minimum", () => {
   it("treats whitespace as missing and keeps a failed save editable", async () => {
     stubApi({ saveError: { detail: "database unavailable", status: 503 } });
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
     await completeManualInterview();
 

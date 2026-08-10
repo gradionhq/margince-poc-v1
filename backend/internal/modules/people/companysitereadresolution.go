@@ -19,31 +19,74 @@ type resolvedHumanFact struct {
 	value    string
 }
 
+// siteReadResolutionTarget is a comparison a keyed resolution may address, and
+// the terms it may be addressed on.
+type siteReadResolutionTarget struct {
+	comparison SiteReadComparison
+	conflict   bool
+}
+
+// siteReadResolutionTargets is what a confirmation is allowed to decide.
+//
+// Every human-held collision is here and must be answered — that is the refresh
+// rule. Every PROPOSED FACT is here too, on use_value alone, because the
+// selection list can only take a fact or drop it: a reader who sees the read got
+// a fact wrong has no other way to say what is true, and dropping it loses the
+// fact entirely. A profile field needs no such entry — the submitted profile IS
+// its correction channel, and splitConfirmedProfile already separates an edited
+// value from an accepted one.
+func siteReadResolutionTargets(read SiteRead, company *Company) map[string]siteReadResolutionTarget {
+	targets := map[string]siteReadResolutionTarget{}
+	for _, comparison := range compareCompanySiteRead(read, company) {
+		conflict := comparison.Classification == siteReadComparisonHumanConflict
+		if !conflict && comparison.ValueKind != siteReadValueFact {
+			continue
+		}
+		targets[comparison.Key] = siteReadResolutionTarget{comparison: comparison, conflict: conflict}
+	}
+	return targets
+}
+
+func collectSiteReadResolutions(
+	targets map[string]siteReadResolutionTarget,
+	submitted []SiteReadResolution,
+) (map[string]SiteReadResolution, error) {
+	resolutions := make(map[string]SiteReadResolution, len(submitted))
+	for _, resolution := range submitted {
+		if _, duplicate := resolutions[resolution.Key]; duplicate {
+			return nil, invalidResolution("resolution key " + resolution.Key + " appears more than once")
+		}
+		target, addressable := targets[resolution.Key]
+		if !addressable {
+			return nil, invalidResolution("resolution key " + resolution.Key +
+				" is neither a current human conflict nor a fact this draft proposes")
+		}
+		if !target.conflict && resolution.Action != siteReadResolutionUse {
+			return nil, invalidResolution("resolution key " + resolution.Key +
+				" holds no human value to keep or overwrite; list it in selected_fact_keys to accept it, or send use_value to correct it")
+		}
+		if err := validateResolutionValue(resolution); err != nil {
+			return nil, err
+		}
+		resolutions[resolution.Key] = resolution
+	}
+	for key, target := range targets {
+		if _, answered := resolutions[key]; !answered && target.conflict {
+			return nil, invalidResolution("human conflict " + key + " needs an explicit resolution")
+		}
+	}
+	return resolutions, nil
+}
+
 func resolveSiteReadConflicts(
 	read SiteRead,
 	company *Company,
 	in ConfirmCompanySiteReadInput,
 ) (ConfirmCompanySiteReadInput, error) {
-	conflicts := map[string]SiteReadComparison{}
-	for _, comparison := range compareCompanySiteRead(read, company) {
-		if comparison.Classification == siteReadComparisonHumanConflict {
-			conflicts[comparison.Key] = comparison
-		}
-	}
-	resolutions := make(map[string]SiteReadResolution, len(in.Resolutions))
-	for _, resolution := range in.Resolutions {
-		if _, duplicate := resolutions[resolution.Key]; duplicate {
-			return in, invalidResolution("resolution key " + resolution.Key + " appears more than once")
-		}
-		if _, expected := conflicts[resolution.Key]; !expected {
-			return in, invalidResolution("resolution key " + resolution.Key + " is not a current human conflict")
-		}
-		resolutions[resolution.Key] = resolution
-	}
-	for key := range conflicts {
-		if _, found := resolutions[key]; !found {
-			return in, invalidResolution("human conflict " + key + " needs an explicit resolution")
-		}
+	targets := siteReadResolutionTargets(read, company)
+	resolutions, err := collectSiteReadResolutions(targets, in.Resolutions)
+	if err != nil {
+		return in, err
 	}
 
 	in.skipProfileFields = map[string]bool{}
@@ -57,10 +100,7 @@ func resolveSiteReadConflicts(
 	sort.Strings(orderedKeys)
 	for _, key := range orderedKeys {
 		resolution := resolutions[key]
-		comparison := conflicts[key]
-		if err := validateResolutionValue(resolution); err != nil {
-			return in, err
-		}
+		comparison := targets[key].comparison
 		if comparison.ValueKind == siteReadValueProfile {
 			applyProfileResolution(&in, comparison, resolution)
 			continue
@@ -122,14 +162,27 @@ func applyFactResolution(in *ConfirmCompanySiteReadInput, proposal DeepReadFact,
 	in.SelectedFactKeys = removeFactKey(in.SelectedFactKeys, key)
 	switch resolution.Action {
 	case siteReadResolutionAccept:
-		in.SelectedFactKeys = append(in.SelectedFactKeys, key)
-		in.overwriteFactKeys[key] = true
+		acceptSiteReadFact(in, key)
 	case siteReadResolutionUse:
-		in.humanFactEdits = append(in.humanFactEdits, resolvedHumanFact{
-			proposal: proposal,
-			value:    strings.TrimSpace(*resolution.Value),
-		})
+		value := strings.TrimSpace(*resolution.Value)
+		// A submitted value the page already states is an acceptance, not an
+		// authored claim, so it keeps that page's evidence instead of being
+		// rewritten as an evidence-less human assertion (ADR-0065). It is the
+		// same rule splitConfirmedProfile applies to a profile field.
+		if samePrintedValue(value, proposal.Value) {
+			acceptSiteReadFact(in, key)
+			return
+		}
+		in.humanFactEdits = append(in.humanFactEdits, resolvedHumanFact{proposal: proposal, value: value})
 	}
+}
+
+func acceptSiteReadFact(in *ConfirmCompanySiteReadInput, key string) {
+	in.SelectedFactKeys = append(in.SelectedFactKeys, key)
+	// The accepted value has to land even when a human row holds the slot:
+	// upsertOrganizationFacts never writes over one, so taking the website's
+	// value means clearing what the human previously asserted there.
+	in.overwriteFactKeys[key] = true
 }
 
 func siteReadFactsByKey(facts []DeepReadFact) map[string]DeepReadFact {

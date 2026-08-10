@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-//go:build integration
-
 package integration
 
 // The AC-OV-1 half of the AC-OV acceptance suite (overlay_acceptance_test.go
 // carries the suite's own scope doc): the seam is proven by the SHAPE of the
 // tree's import graph rather than by any runtime call, so it needs no database
 // and shares no fixture with the behavioural criteria.
+//
+// Untagged for that reason. It is the one file in this package that asserts
+// nothing a database could answer, and a criterion provable in milliseconds
+// should not wait on `make db-up` to be checked — a gate that runs only in the
+// slow lane runs less often than the thing it guards changes.
 
 import (
 	"go/build"

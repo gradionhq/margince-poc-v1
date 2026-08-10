@@ -4,18 +4,19 @@ import "./provider-mark.css";
 /*
  * SANCTIONED LITERALS — third-party brand marks.
  *
- * Google's and Microsoft's own colours, identifying their sign-in providers.
- * These are not design-system colours and must not be tokenised: a provider
- * mark rendered in Ledger Green is a wrong mark, and re-tinting another
- * company's logo is not ours to do. This file is the ONE named exclusion in
- * both colour gates — `scripts/check-ds-purity.sh` and the
+ * Google's, Microsoft's and LinkedIn's own colours, identifying their sign-in
+ * (or connect) providers. These are not design-system colours and must not be
+ * tokenised: a provider mark rendered in Ledger Green is a wrong mark, and
+ * re-tinting another company's logo is not ours to do. This file is the ONE
+ * named exclusion in both colour gates — `scripts/check-ds-purity.sh` and the
  * `keeps literal colours in tokens.css only` case in
  * `design-system/conformance.test.ts` — each carrying that reason.
  *
- * Lucide ships no brand logos, so the two marks are inline SVG. They live in the
+ * Lucide ships no brand logos, so the marks are inline SVG. They live in the
  * design system rather than in the auth screen because the mailbox-connect step
- * needs the same two: a second copy of Google's palette is a second place for
- * the rule above to quietly stop holding.
+ * needs the same two (Google, Microsoft) and the network-connect step needs
+ * LinkedIn: a second copy of any of these palettes is a second place for the
+ * rule above to quietly stop holding.
  *
  * The mark is chosen from the provider's `key`, which is the ONLY part of a
  * provider this frontend decides. The button's label is the installation's own
@@ -99,6 +100,25 @@ export function ProviderMark({
         <path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z" />
         <path fill="#00A4EF" d="M2 12.5h9.5V22H2z" />
         <path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z" />
+      </svg>
+    );
+  }
+  if (providerKey === "linkedin") {
+    return (
+      <svg
+        className="provider-mark"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {/* LinkedIn's own blue, not the design system's — the badge shape
+            carries the fill, so it reads the same against either theme's
+            page background rather than depending on currentColor. */}
+        <rect width="24" height="24" rx="4" fill="#0A66C2" />
+        <path
+          fill="#fff"
+          d="M7.12 9.4H4.4V19.4h2.72zm-1.36-4.36a1.58 1.58 0 1 0 0 3.16 1.58 1.58 0 0 0 0-3.16M19.6 19.4v-5.5c0-2.95-1.57-4.32-3.67-4.32a3.17 3.17 0 0 0-2.87 1.58V9.4H10.35c.03.72 0 10 0 10h2.71v-5.58c0-.3.02-.6.11-.81a1.79 1.79 0 0 1 1.63-1.2c1.15 0 1.6.87 1.6 2.16v5.43z"
+        />
       </svg>
     );
   }

@@ -59,7 +59,7 @@ var actionShapedUpdateOps = map[string]bool{
 // exactly the staged sub-patch, whose hash the staging was bound to.
 func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	if redeemIfPresented(w, r, next, staging, pol, body) {
+	if handled, _ := redeemIfPresented(w, r, next, staging, pol, body); handled {
 		return
 	}
 	raw := chi.URLParam(r, "id")
@@ -111,7 +111,10 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 	r.Body = io.NopCloser(bytes.NewReader(split.AutoExecute))
 	r.ContentLength = int64(len(split.AutoExecute))
 	buffered := newBufferedResponse()
-	next.ServeHTTP(buffered, r)
+	// Metered onto the BUFFER: the replay below writes raw bytes rather than
+	// going back through WriteJSON, so the record this half serves is counted
+	// where the handler produces it or it is never counted at all.
+	next.ServeHTTP(remeter(w, buffered), r)
 	if buffered.status < 200 || buffered.status > 299 {
 		// The auto-execute half was refused (validation, version skew, …): that
 		// refusal is the whole answer, and nothing is staged — the agent

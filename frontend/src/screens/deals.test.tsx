@@ -5,11 +5,13 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { pickOption } from "../design-system/select-testing";
 import { formatMoney } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
@@ -187,9 +189,7 @@ describe("buildColumns", () => {
     ]);
     expect(columns[0].rawMinor).toBe(300_000);
     expect(columns[0].weightedMinor).toBe(60_000);
-    expect((columns[1] as unknown as { sumHidden: boolean }).sumHidden).toBe(
-      true,
-    );
+    expect(columns[1].sumHidden).toBe(true);
   });
 });
 
@@ -367,6 +367,9 @@ describe("DealsScreen", () => {
         agentTools: [
           {
             name: "progress_deal",
+            title: "Progress a deal with a note",
+            description:
+              'Move a deal to a new stage and leave a note on its timeline saying why. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)',
             required_scope: "write",
             tier: "auto_execute",
             egress: false,
@@ -525,6 +528,7 @@ describe("DealsScreen", () => {
 
 describe("DealsScreen filters", () => {
   it("switching pipeline scopes the deals fetch to that pipeline_id", async () => {
+    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -552,10 +556,64 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await pickOption(user, screen.getByLabelText("Pipeline"), "Renewals");
     await waitFor(() =>
       expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
     );
+  });
+
+  // The board always shows one pipeline, so an unset choice would fall straight
+  // back to the default one — the pipeline list therefore offers pipelines
+  // only. The stage filter's "all" entry clears a query filter, which the board
+  // can actually show, so that one stays.
+  it("offers pipelines only, while the stage filter keeps its all-stages entry", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        pipelines: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+          {
+            id: "pl2",
+            workspace_id: "w",
+            name: "Renewals",
+            is_default: false,
+            position: 1,
+            stages,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+
+    await user.click(screen.getByLabelText("Pipeline"));
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Sales", "Renewals"]);
+    await user.keyboard("{Escape}");
+
+    // Stage is a filter chip now rather than a picker of its own, so its
+    // all-stages entry sits one step inside the Filter menu — and it still has
+    // to be there, because that entry is how a chosen stage is cleared.
+    // "Stage" also names a column header, so the attribute is picked from
+    // inside the menu that is open rather than by a plain name match.
+    await user.click(screen.getByRole("button", { name: "Table" }));
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    const menu = screen.getByRole("group", { name: "Filter" });
+    await user.click(within(menu).getByRole("button", { name: "Stage" }));
+    expect(
+      within(menu).getByRole("button", { name: "All stages" }),
+    ).toBeTruthy();
   });
 
   it("the stalled filter adds stalled=true to the deals query", async () => {
@@ -566,10 +624,22 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(
-      screen.getByLabelText("Stalled only"),
-      "true",
+    // The stalled filter lives on the table view, not the board.
+    await userEvent.click(screen.getByRole("button", { name: "Table" }));
+
+    // The Filter button's attribute step and its value step both carry the
+    // "Stalled only" label — the chip's option shares the attribute's own
+    // name — so each step is picked from inside the menu that is open at
+    // that moment rather than by a plain (ambiguous) name match.
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const menu = screen.getByRole("group", { name: "Filter" });
+    await userEvent.click(
+      within(menu).getByRole("button", { name: "Stalled only" }),
     );
+    await userEvent.click(
+      within(menu).getByRole("button", { name: "Stalled only" }),
+    );
+
     await waitFor(() =>
       expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),
     );

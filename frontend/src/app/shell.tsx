@@ -19,13 +19,16 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
-import { useLocale, useT } from "../i18n";
+import { Logomark } from "../design-system/logomark";
+import { MarginceCoreScene } from "../design-system/margince-core";
+import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout, useMe } from "../screens/common";
 import { useEntityName } from "../screens/entityref";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import { LocaleMenu } from "./localemenu";
 import {
   BADGE_SCREENS,
   MOBILE_PRIMARY,
@@ -36,6 +39,7 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
+import { useTheme } from "./theme";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -50,7 +54,6 @@ export type ShellCounts = Partial<Record<string, number>>;
 const COLLAPSE_KEY = "margince.sidebarCollapsed";
 // Comfortably past --shellAnim (0.36s) in shell.css: the two must not disagree.
 const SETTLE_MS = 420;
-const THEME_KEY = "margince.theme";
 
 // Storage is unavailable in some embedded contexts; a missing preference is a
 // default, never an error.
@@ -68,40 +71,6 @@ function writeStored(key: string, value: string): void {
   } catch {
     // A browser refusing storage must not break navigation.
   }
-}
-
-function Logomark() {
-  // The delivered Margin-rule "M" (brand kit geometry, same as the mockups).
-  return (
-    <svg
-      viewBox="0 0 299 230"
-      width="19"
-      height="14.6"
-      fill="none"
-      aria-hidden
-      role="presentation"
-    >
-      <path
-        d="M141.688 223.911V212.017C141.688 210.362 142.722 209.259 143.239 208.914L160.821 191.849C166.613 186.47 172.198 193.4 172.198 197.02V223.911C172.198 228.048 168.061 229.427 165.993 229.599H147.376C143.239 229.599 141.86 225.807 141.688 223.911Z"
-        fill="currentColor"
-        fillOpacity=".55"
-      />
-      <path
-        d="M191.312 223.907V164.954C191.312 163.299 192.347 162.196 192.864 161.852L210.446 144.786C216.238 139.408 221.823 146.338 221.823 149.957V223.907C221.823 228.044 217.686 229.423 215.618 229.595H197.001C192.864 229.595 191.485 225.803 191.312 223.907Z"
-        fill="currentColor"
-        fillOpacity=".8"
-      />
-      <path
-        d="M241 223.886V112.704C241 111.049 242.034 109.946 242.551 109.602L260.134 92.5361C265.926 87.1579 271.511 94.0875 271.511 97.7074V223.886C271.511 228.023 267.374 229.402 265.305 229.574H246.688C242.551 229.574 241.172 225.782 241 223.886Z"
-        fill="currentColor"
-        fillOpacity=".55"
-      />
-      <path
-        d="M0 29.4771V213.06C0 232.09 40.8535 237.882 40.8535 212.025V94.636C40.8535 90.9127 44.9906 91.5196 46.0249 92.5675C72.2263 119.114 125.974 173.344 131.352 177.895C136.73 182.445 142.556 179.791 144.797 177.895C187.202 135.49 272.219 50.3694 273.046 49.1283C273.874 47.8872 275.115 48.6112 275.632 49.1283C278.735 52.4035 285.147 59.0573 285.975 59.471C293.732 65.1595 298.386 59.6434 298.386 55.851V9.82615C298.386 0 286.492 0 280.803 0H235.296C228.573 0 228.573 8.27414 230.124 9.82554C233.917 13.9626 241.812 22.4436 243.053 23.271C244.294 24.0984 244.259 24.9948 244.087 25.3395C210.301 58.2637 144.797 116.356 142.729 118.424C140.66 120.493 138.419 119.286 137.557 118.424L31.028 16.0316C15.7209 0.724496 0 20.1688 0 29.4771Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
 }
 
 function BrandBlock() {
@@ -138,13 +107,20 @@ function BrandBlock() {
 // line is example data until a list operation exists behind it (the AI activity
 // list has no handler), and it says so on screen rather than passing as real.
 //
-// The orb is pure CSS, deliberately NOT the Core primitive: the Core paints its
-// interior on a canvas, and this sits in permanent chrome on every screen, so it
-// would run a render loop for the whole session. The glass shell here uses the
-// same technique the Core's own shell does — color-mix over tokens, no literal
-// colours — and the interior is layered radial gradients instead of a shader.
+// The orb is the Core primitive (WDS-CORE-1), the same sphere sign-in and
+// onboarding show — there is one orb in the product, and a CSS lookalike in
+// permanent chrome was a second. It sits here rather than on the hero surfaces
+// only, because the Core now costs what it displays: the loop stops when the
+// panel is off screen or the window is away, and the buffer follows the 32px it
+// is drawn at (margince-core-liquid.tsx).
+//
+// `quiet` is the honest state and not merely the cheapest beat: the panel states
+// that routing is CONFIGURED, and the runtime does not continuously prove a
+// provider is reachable, so the sphere must not look busy. The feed is off — a
+// mote drifting across the rail's card is not atmosphere, it is a moving speck in
+// the navigation.
 function AgentOrb() {
-  return <span className="agentorb" aria-hidden />;
+  return <MarginceCoreScene state="quiet" feed={false} className="agentorb" />;
 }
 
 function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
@@ -152,8 +128,20 @@ function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
   if (collapsed) {
     return (
       <div className="agentfield collapsed">
-        <span className="agentcard" title={t("agent.title")}>
+        {/* Collapsed, the orb is the whole panel — and the orb is `aria-hidden`,
+            which WDS-CORE-4 only permits because the surface around it states in
+            text every state it shows. Expanded, the two lines below do that; here
+            there is no room for them, so they are present for a screen reader and
+            clipped for the eye. The `title` is the pointer's version of the same
+            sentence. */}
+        <span
+          className="agentcard"
+          title={`${t("agent.title")} — ${t("agent.configured")}`}
+        >
           <AgentOrb />
+          <span className="sr-only">
+            {t("agent.title")} — {t("agent.configured")}
+          </span>
         </span>
       </div>
     );
@@ -390,33 +378,6 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : screen;
 }
 
-function useTheme(): readonly ["light" | "dark", () => void] {
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = readStored(THEME_KEY);
-    if (stored === "light" || stored === "dark") {
-      return stored;
-    }
-    const prefersDark =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    return prefersDark ? "dark" : "light";
-  });
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  const toggle = useCallback(() => {
-    setTheme((current) => {
-      const next = current === "light" ? "dark" : "light";
-      writeStored(THEME_KEY, next);
-      return next;
-    });
-  }, []);
-
-  return [theme, toggle] as const;
-}
-
 export function TopBar({
   route,
   onOpenSearch,
@@ -427,8 +388,6 @@ export function TopBar({
   actions?: ReactNode;
 }>) {
   const t = useT();
-  const { locale, setLocale } = useLocale();
-  const [theme, toggleTheme] = useTheme();
   const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
@@ -442,6 +401,11 @@ export function TopBar({
           The name resolves through EntityRef's cache and falls back to the raw
           id in mono when it cannot, rather than showing a blank crumb. */}
       <span className="crumb">
+        {/* The nav item's own icon, so the bar names the screen the same way the
+            rail does and the two read as one place rather than two labels. */}
+        {navItem && (
+          <navItem.icon size={16} strokeWidth={1.8} aria-hidden="true" />
+        )}
         {route.id ? (
           <a href={routeHash({ screen: route.screen })}>{title}</a>
         ) : (
@@ -472,41 +436,92 @@ export function TopBar({
           <span className="searchhint">{t("shell.searchHint")}</span>
           <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          aria-label={
-            locale === "de" ? t("locale.toEnglish") : t("locale.toGerman")
-          }
-          onClick={() => setLocale(locale === "de" ? "en" : "de")}
-        >
-          <span className="t-mono">{locale === "de" ? "EN" : "DE"}</span>
-        </button>
-        <button
-          type="button"
-          className="iconbtn"
-          aria-label={
-            theme === "light" ? t("theme.toDark") : t("theme.toLight")
-          }
-          onClick={toggleTheme}
-        >
-          {theme === "light" ? <Moon aria-hidden /> : <Sun aria-hidden />}
-        </button>
+        {/* Language and theme are preferences, not screen actions: they live in
+            the account menu with the rest of what belongs to this person, so the
+            bar carries only search and the one account affordance. */}
         <AccountMenu logout={logout} />
       </div>
     </header>
   );
 }
 
-// The avatar owns Settings and sign-out. A menu rather than
-// two chrome buttons: the prototype's top bar carries one account affordance,
-// and sign-out beside every screen invites a misclick.
+// The two preference rows: language, then theme, each naming the setting and
+// stating what it is set to. Both halves of the name are load-bearing — a menu
+// item has to say what activating it does, or the name describes a state rather
+// than a control, and WCAG 2.5.3 (Label in Name) requires the visible label to be
+// part of the name, or a speech-input user who says the word they can read
+// ("Language") activates nothing.
+//
+// Both keep the account menu OPEN: they stop the click from reaching the document
+// listener that dismisses it. Changing a preference is a thing you may want to do
+// twice, or undo immediately, and a menu that closed under you took the theme
+// you just picked out of view along with the control that picked it. Settings and
+// sign-out leave the menu on purpose — they leave the screen.
+function MenuPreferences() {
+  const t = useT();
+  const [theme, toggleTheme] = useTheme();
+  const light = theme === "light";
+  return (
+    <>
+      {/* Language is a menu of its own, not a toggle — three locales ship, and a
+          toggle cannot say where the next click lands. It brings its own list,
+          its own keyboard movement and its own focus handling (localemenu.tsx);
+          what it takes from here is the row's chrome. */}
+      <LocaleMenu className="menurow" />
+      <button
+        type="button"
+        aria-label={`${t("shell.theme")}: ${
+          light ? t("theme.switchToDark") : t("theme.switchToLight")
+        }`}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleTheme();
+        }}
+      >
+        {light ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}
+        {t("shell.theme")}
+        <span className="menuvalue">
+          {light ? t("theme.light") : t("theme.dark")}
+        </span>
+      </button>
+    </>
+  );
+}
+
+// The avatar owns everything that belongs to this person: the settings surface,
+// their language and theme, and the way out. A menu rather than a row of chrome
+// buttons — the prototype's top bar carries one account affordance, and sign-out
+// beside every screen invites a misclick.
 function AccountMenu({
   logout,
 }: Readonly<{ logout: ReturnType<typeof useLogout> }>) {
   const t = useT();
   const me = useMe();
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  /**
+   * Close, and put focus back where it can be used.
+   *
+   * Dismissing the menu unmounts whatever row was focused, and an unmounted
+   * focus owner leaves the document focused on `<body>` — from there a keyboard
+   * user's next Tab starts at the top of the page, having lost the top bar they
+   * were standing in. The avatar is where they came from, so it is where they go
+   * back to.
+   *
+   * Only when the menu actually HELD focus, which is the difference between
+   * restoring focus and stealing it: an outside click usually lands on something
+   * focusable of its own (a field, a rail link), and pulling focus onto the avatar
+   * after it would undo what the click just did.
+   */
+  const dismiss = useCallback(() => {
+    const held = menu.current?.contains(document.activeElement) ?? false;
+    setOpen(false);
+    if (held) {
+      trigger.current?.focus();
+    }
+  }, []);
 
   const identity = me.data?.user;
   const label = identity?.display_name || identity?.email || "";
@@ -527,11 +542,25 @@ function AccountMenu({
       return;
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
+      if (event.key !== "Escape") {
+        return;
       }
+      // One keystroke closes one layer. The language row opens a submenu inside
+      // this popover, and both dismissals listen on the document, so without this
+      // a single Escape would collapse the submenu AND the menu around it —
+      // leaving the reader two layers away from where they were. The submenu
+      // announces itself through the trigger it expanded; when one is open it owns
+      // Escape, and the second press reaches here.
+      if (
+        menu.current?.querySelector(
+          '[aria-haspopup="menu"][aria-expanded="true"]',
+        )
+      ) {
+        return;
+      }
+      dismiss();
     };
-    const onClick = () => setOpen(false);
+    const onClick = () => dismiss();
     document.addEventListener("keydown", onKey);
     const timer = window.setTimeout(
       () => document.addEventListener("click", onClick),
@@ -542,13 +571,14 @@ function AccountMenu({
       window.clearTimeout(timer);
       document.removeEventListener("click", onClick);
     };
-  }, [open]);
+  }, [open, dismiss]);
 
   return (
     <div className="account">
       <button
         type="button"
         className="user"
+        ref={trigger}
         aria-label={t("shell.accountAria")}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -556,11 +586,14 @@ function AccountMenu({
         {initials ?? <Settings size={15} aria-hidden />}
       </button>
       {open && (
-        <div className="accountmenu">
+        <div className="accountmenu" ref={menu}>
           <a href="#/settings">
             <Settings size={15} aria-hidden />
             {t("nav.settings")}
           </a>
+          <hr />
+          <MenuPreferences />
+          <hr />
           <button
             type="button"
             disabled={logout.isPending}

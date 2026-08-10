@@ -148,3 +148,102 @@ func TestFxRateCrossWorkspaceIsolation(t *testing.T) {
 		t.Fatalf("workspace B sees %d USD rows, want 0 (RLS leak)", n)
 	}
 }
+
+// fxRatePerms is a config-editing principal narrowed to ONE fx_rate grant row.
+// The matrix distinguishes inserting a new (currency, day) from overwriting an
+// existing one; only a principal missing one of the two grants can prove that
+// the endpoint actually asks for the right one.
+func fxRatePerms(g principal.ObjectGrant) principal.Permissions {
+	return principal.Permissions{
+		RoleKeys: []string{"ops"},
+		Objects: map[string]principal.ObjectGrant{
+			"fx_rate": g,
+			// The matrix narrows fx_rate and ONLY fx_rate. Writing a rate
+			// resolves the base currency it converts into, which is read
+			// behind installation_settings — an object every seeded role holds
+			// (0191), so withholding it here would refuse for a reason the
+			// matrix is not about.
+			"installation_settings": {Read: true},
+		},
+		RowScope: principal.RowScopeAll,
+	}
+}
+
+// One endpoint, two grants: it inserts under `create` and overwrites under
+// `update`, and neither grant substitutes for the other. Every refusal is the
+// 403 sentinel, and a refused write leaves the sheet untouched.
+func TestFxRateCreateAndUpdateGrantsGateSeparately(t *testing.T) {
+	e := Setup(t)
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
+	today := fxTestNow.Truncate(24 * time.Hour)
+	setOn := func(ctx context.Context, rate string, day time.Time) error {
+		_, err := e.Deals.SetFxRate(ctx, deals.SetFxRateInput{
+			FromCurrency: "USD", Rate: rate, EffectiveDate: day,
+		})
+		return err
+	}
+	creator := e.As(e.Rep1, nil, fxRatePerms(principal.ObjectGrant{Create: true, Read: true}))
+	updater := e.As(e.Rep1, nil, fxRatePerms(principal.ObjectGrant{Update: true, Read: true}))
+
+	// Nothing on the sheet for (USD, today): there is no rate to update, so
+	// the update-only principal is refused the insert.
+	if err := setOn(updater, "0.9000", today); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("update-only insert = %v, want ErrPermissionDenied", err)
+	}
+	if err := setOn(creator, "0.9100", today); err != nil {
+		t.Fatalf("create-only insert: %v", err)
+	}
+	// The row exists now, so the SAME call is an overwrite — which holding
+	// create alone must not buy.
+	if err := setOn(creator, "0.9200", today); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("create-only overwrite = %v, want ErrPermissionDenied", err)
+	}
+	if err := setOn(updater, "0.9300", today); err != nil {
+		t.Fatalf("update-only overwrite: %v", err)
+	}
+
+	hist, err := e.Deals.FxRateHistory(e.Admin(), "USD")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 1 || hist[0].Rate != "0.9300000000" {
+		t.Fatalf("sheet = %+v, want one row at 0.9300000000 (the refused writes wrote nothing)", hist)
+	}
+
+	// Holding both does both halves: a new day inserts, the same day overwrites.
+	both := e.As(e.Rep1, nil, fxRatePerms(principal.ObjectGrant{Create: true, Read: true, Update: true}))
+	if err := setOn(both, "0.9400", today.AddDate(0, 0, 1)); err != nil {
+		t.Fatalf("both-grants insert on a new day: %v", err)
+	}
+	if err := setOn(both, "0.9500", today); err != nil {
+		t.Fatalf("both-grants overwrite: %v", err)
+	}
+}
+
+// An overwrite is audited as the verb that admitted it, so
+// audit_log.authorization_rule attributes the update grant rather than the
+// create grant the insert used.
+func TestFxRateOverwriteAuditsAsUpdate(t *testing.T) {
+	e := Setup(t)
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
+	ctx := e.Admin()
+	for _, rate := range []string{"0.9", "0.95"} {
+		if _, err := e.Deals.SetFxRate(ctx, deals.SetFxRateInput{
+			FromCurrency: "USD", Rate: rate, EffectiveDate: fxTestNow,
+		}); err != nil {
+			t.Fatalf("set %s: %v", rate, err)
+		}
+	}
+	for action, want := range map[string]int{"create": 1, "update": 1} {
+		if n := e.WsCount(t, `SELECT count(*) FROM audit_log
+			WHERE entity_type='fx_rate' AND action='`+action+`'`); n != want {
+			t.Fatalf("audit rows for %s = %d, want %d", action, n, want)
+		}
+	}
+	// The update audit carries what it displaced — an overwrite whose before
+	// image is null is an unusable ledger entry.
+	if n := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE entity_type='fx_rate' AND action='update' AND before->>'rate' = '0.9000000000'`); n != 1 {
+		t.Fatalf("update audit rows carrying the displaced rate = %d, want 1", n)
+	}
+}

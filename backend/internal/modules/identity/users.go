@@ -13,6 +13,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,6 +34,23 @@ const (
 	userStatusDeactivated = "deactivated"
 	userAuditKeyStatus    = "status"
 	roleAdmin             = "admin"
+)
+
+// The three distinct refusals this surface can answer with. Each WRAPS
+// apperrors.ErrConflict, so every caller that only asks "was this a conflict?"
+// is unaffected, while a handler can tell them apart and say which one it was:
+// the bare sentinel reaches the operator as the single word "conflict", which
+// names neither what happened nor what to do about it. The advice differs per
+// verb (deactivating vs demoting the last admin), so the handler supplies the
+// wording and these carry only the cause.
+var (
+	errEmailTaken      = fmt.Errorf("%w: a member with this email already exists", apperrors.ErrConflict)
+	errNotDeactivated  = fmt.Errorf("%w: the member is not deactivated", apperrors.ErrConflict)
+	errLastActiveAdmin = fmt.Errorf("%w: the member is the only active administrator", apperrors.ErrConflict)
+	// A role key nobody defines is a 404 like a missing member, but it is a
+	// DIFFERENT 404: the admin mistyped a role, not a person. Wrapping keeps
+	// the status while letting the handler say which of the two happened.
+	errUnknownRole = fmt.Errorf("%w: no role with this key is defined", apperrors.ErrNotFound)
 )
 
 // InviteUserInput carries the admin-supplied details for a new member. No
@@ -66,7 +84,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if roleErr != nil {
 			return roleErr
@@ -77,7 +95,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			wsID, in.Email, in.DisplayName).Scan(&newUserID)
 		var pgErr *pgconn.PgError
 		if errors.As(insErr, &pgErr) && pgErr.Code == "23505" {
-			return apperrors.ErrConflict
+			return errEmailTaken
 		}
 		if insErr != nil {
 			return insErr
@@ -142,7 +160,7 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		// is held for a different reason (e.g. lockout) and must not be silently
 		// cleared by this path.
 		if status != userStatusDeactivated {
-			return apperrors.ErrConflict
+			return errNotDeactivated
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'active' WHERE id = $1`, userID); err != nil {
@@ -269,7 +287,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			return err
 		}
 		if lastAdmin {
-			return apperrors.ErrConflict
+			return errLastActiveAdmin
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, in.UserID); err != nil {
@@ -290,36 +308,62 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 
 // revokeBorrowedAuthority ends everything that answers to this human rather
 // than being owned by them, inside the caller's transaction and under the
-// app_user lock it already holds. It is the whole cascade in ORDER, and the
-// order is load-bearing at both ends.
+// app_user lock it already holds: the credential cascade (endCredentialAuthority)
+// plus the one piece of DEACTIVATION-specific fallout, their imported LinkedIn
+// network.
 //
-// The OAuth connections go FIRST, through the one grant cascade. Revoking the
-// human's passports alone would leave the grants alive, and a connector's next
-// renewal mints a replacement while sliding its 90-day window forward — so
-// reactivating the human later would restore full authority with no new
-// consent. The cascade also takes the grant → refresh → passport lock order
-// (oauth_grant.go), and a bulk passport UPDATE ahead of it would take a
-// passport lock first and deadlock against a rotation racing this
-// deactivation.
-//
-// The locally minted passports go LAST, because they are what is left over: the
-// A1 path, which answers to no grant.
+// A departing colleague's imported LinkedIn network goes with them. It is
+// THEIR address book — thousands of third parties who never agreed to be in
+// this CRM and whose only tie to it was that one person's employment. Keeping
+// it would leave the company holding a private contact list belonging to
+// someone who no longer works here, long after the relationship that
+// justified holding it ended. Deleted rather than tombstoned: a tombstone
+// still holds the names. This step is deliberately NOT part of
+// endCredentialAuthority: a password reset or an operator recovery ends the
+// same credentials without the human leaving, and must not cost them their
+// address book.
 func (s *Service) revokeBorrowedAuthority(ctx context.Context, tx pgx.Tx, userID ids.UserID) error {
-	if err := s.revokeGrantsOfUserTx(ctx, tx, userID, deactivatedUserRevokeReason); err != nil {
+	if err := endCredentialAuthority(ctx, tx, userID, deactivatedUserRevokeReason); err != nil {
 		return err
 	}
-	// The consent nobody redeemed yet ends here too. An authorization code
-	// carries the lent scopes and the human's id, and redemption re-checks only
-	// that the human is live (requireLiveConsentingUser) — so a code minted in
-	// the minutes before this deactivation would survive it and build a whole
-	// connection the moment the human is reactivated, on a consent given under
-	// authority an admin has since taken away. That is the same restoration the
-	// grant cascade above exists to prevent; a code is only shorter lived, not
-	// different in kind.
-	//
-	// The window is ended rather than the row marked consumed: nothing redeemed
-	// it, and a consumed_at would claim an exchange that never happened to
-	// everyone who reads the row afterwards.
+	_, err := tx.Exec(ctx, `DELETE FROM linkedin_connection WHERE owner_user_id = $1`, userID)
+	return err
+}
+
+// endCredentialAuthority is the credential cascade every path that ends a
+// human's control of their account — deactivation, a password reset, an
+// operator-driven recovery — must run, inside the caller's transaction. It
+// is the whole cascade in ORDER, and the order is load-bearing at both ends.
+//
+// The OAuth connections go FIRST, through the one grant cascade
+// (revokeGrantsOfUserTx). Revoking the human's passports alone would leave
+// the grants alive, and a connector's next renewal mints a replacement while
+// sliding its 90-day window forward — so a stolen session that planted a
+// connection here would keep it after the credential that planted it is
+// gone. The cascade also takes the grant → refresh → passport lock order
+// (oauth_grant.go), and a bulk passport UPDATE ahead of it would take a
+// passport lock first and deadlock against a rotation racing this call.
+//
+// The consent nobody redeemed yet ends next. An authorization code carries
+// the lent scopes and the human's id, and redemption re-checks only that the
+// human is live — so a code minted in the minutes before this call would
+// still exchange for a passport afterward, on a consent given under
+// authority that no longer exists. That is the same restoration the grant
+// cascade above exists to prevent; a code is only shorter lived, not
+// different in kind. The window is ended rather than the row marked consumed:
+// nothing redeemed it, and a consumed_at would claim an exchange that never
+// happened to everyone who reads the row afterwards.
+//
+// The locally minted passports go LAST, because they are what is left over:
+// the A1 path, which answers to no grant.
+//
+// The actor must already be bound on ctx (actorCtx, or an equivalent minimal
+// principal for a caller with no live Identity): the audit rows this writes
+// and the passport.revoked event both name who ended the authority.
+func endCredentialAuthority(ctx context.Context, tx pgx.Tx, userID ids.UserID, reason string) error {
+	if err := revokeGrantsOfUserTx(ctx, tx, userID, reason); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE oauth_authorization_code SET expires_at = now()
 		  WHERE user_id = $1 AND consumed_at IS NULL AND expires_at > now()`,
@@ -329,18 +373,6 @@ func (s *Service) revokeBorrowedAuthority(ctx context.Context, tx pgx.Tx, userID
 	if _, err := tx.Exec(ctx,
 		`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
 		userID); err != nil {
-		return err
-	}
-	// A departing colleague's imported LinkedIn network goes with them. It is
-	// THEIR address book — thousands of third parties who never agreed to be in
-	// this CRM and whose only tie to it was that one person's employment.
-	// Keeping it would leave the company holding a private contact list
-	// belonging to someone who no longer works here, long after the
-	// relationship that justified holding it ended.
-	//
-	// Deleted rather than tombstoned: a tombstone still holds the names.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM linkedin_connection WHERE owner_user_id = $1`, userID); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx,
@@ -382,7 +414,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		var roleID ids.UUID
 		err := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, toRole).Scan(&roleID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if err != nil {
 			return err
@@ -408,7 +440,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 				return err
 			}
 			if lastAdmin {
-				return apperrors.ErrConflict
+				return errLastActiveAdmin
 			}
 		}
 

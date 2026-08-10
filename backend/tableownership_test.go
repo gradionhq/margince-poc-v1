@@ -151,6 +151,14 @@ var tableOwners = map[string]string{
 	// status. It is a connection, so it sits with capture_connection under the
 	// ONE connector.Sink rather than with the identities it delivers.
 	"channel_connection": "internal/modules/capture",
+	// The installation-settings table (ADR-0090/A135). Owned by the platform
+	// mechanism rather than by any module, which is the point: a setting's
+	// MEANING belongs to the module that declares its entry, but no module
+	// owns the row shape — platform/settings is the one writer, and a module
+	// reaching this table directly would be re-implementing the governance
+	// (validator, freeze probe, per-entry audit verb) the entry already
+	// carries. The unusual owner is therefore the invariant, not an exception.
+	"setting": "internal/platform/settings",
 	// search
 	"embedding":           "internal/modules/search",
 	"embed_store_binding": "internal/modules/search",
@@ -166,6 +174,7 @@ var tableOwners = map[string]string{
 	"ai_call":               "internal/modules/ai",
 	"ai_call_payload":       "internal/modules/ai",
 	"ai_call_config":        "internal/modules/ai",
+	"ai_feedback":           "internal/modules/ai",
 	"ai_model_rate":         "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
@@ -174,8 +183,13 @@ var tableOwners = map[string]string{
 	"workflow_run": "internal/modules/automation",
 	"automation":   "internal/modules/automation",
 	// signals (the warm-room signal spine + its append-only resolution log)
-	"signal":            "internal/modules/signals",
-	"signal_resolution": "internal/modules/signals",
+	"finance_connection":        "internal/modules/finance",
+	"finance_external_customer": "internal/modules/finance",
+	"finance_customer_link":     "internal/modules/finance",
+	"finance_invoice":           "internal/modules/finance",
+	"finance_payment":           "internal/modules/finance",
+	"signal":                    "internal/modules/signals",
+	"signal_resolution":         "internal/modules/signals",
 	// collections
 	"list":        "internal/modules/collections",
 	"list_member": "internal/modules/collections",
@@ -217,17 +231,30 @@ var tableOwners = map[string]string{
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
 	"idempotency_key": "internal/compose",
-	"brief_run":       "internal/compose/briefs",
-	"brief_item":      "internal/compose/briefs",
+	// The MCP Tasks handle, beside the claim above and owned for the same
+	// reason: it is transport-owned operational state, not a domain record, and
+	// modules/agents declares the seam while owning no SQL.
+	"agent_task": "internal/compose",
+	"brief_run":  "internal/compose/briefs",
+	"brief_item": "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
+	// The person view acknowledges visits into the SAME table (one baseline
+	// per user per record, whatever kind of record it is), ratified below.
 	"user_record_view": "internal/compose/org360",
+	// Which activities have had their stored originals re-read for further
+	// participants. Job bookkeeping about a background pass rather than a
+	// fact about a customer, and the pass is composed here because it spans
+	// the mail and calendar parsers that no single module may reach across.
+	"activity_participant_replay": "internal/compose",
 	// The rep's own "not this, not now" on a suggestion: per user, keyed on
 	// the evidence it fired on. Same ruling — view state, no audit row.
 	"suggestion_dismissal": "internal/compose/org360",
 	// The account brief's per-user cache: derived content, regenerable at
 	// any time, readable by nobody but its own user. Same ruling.
-	"org_brief": "internal/compose/orgbrief",
+	"org_brief":      "internal/compose/orgbrief",
+	"org_dossier":    "internal/compose/orgdossier",
+	"org_growth_fit": "internal/compose/orgdossier",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through
@@ -242,6 +269,12 @@ var tableOwners = map[string]string{
 // keyed "module-dir:table". Every entry carries its rationale inline so the
 // gate is self-contained on a clean checkout.
 var crossStoreWrites = gatekit.Waive(map[string]string{
+	// One visit baseline per user per record, and a person is a record. A
+	// second table keyed the same way would be the same fact under a second
+	// name, and the two would answer "when did you last look at this?"
+	// differently the first time one write path changed.
+	"internal/compose/person360:user_record_view": "the person view's visit acknowledgement rides org360's table because since-last-visit is one fact per (user, record) — migration 0184 widened its entity_type CHECK to admit a person rather than adding a parallel table that would drift",
+
 	// people's merge/promotion relink rows across aggregates inside their
 	// single transaction — the primary aggregate owns the single-tx
 	// cross-aggregate write, because a merge that could half-commit its
@@ -249,6 +282,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/people:deal":                 "merge/promote relink deal FK rows in the single transaction",
 	"internal/modules/people:project":              "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
 	"internal/modules/people:activity_link":        "merge/promote relink timeline links in the single transaction",
+	"internal/modules/people:attachment":           "org merge carries the document library's account pointer onto the survivor in the same transaction — organization_id is a denormalized READ path nothing else maintains, so a file left on the dissolved company is filed under a record that no longer exists and reads to a user as the contract having vanished",
 	"internal/modules/people:activity_participant": "capture records the counterparty by ADDRESS because no person exists yet — the creation gate runs after that transaction commits, and for a suppressed sender never runs at all. linkActivityToPerson is the one chokepoint every ensure path reaches AND the one that has already settled the person against a merge, so naming that party is the same write, on the same row, in the same transaction as the link",
 	"internal/modules/people:list_member":          "merge relinks list memberships (and archive purges them) in the single transaction",
 	"internal/modules/people:taggable":             "merge relinks tag rows (and archive purges them) in the single transaction",
@@ -276,7 +310,6 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/capture:activity_link":        "the connector sink links the materialized activity in the same ingest transaction",
 	"internal/modules/capture:activity_participant": "the connector principal is the ONLY place the mailbox owner is known (capture_connection is per-user-per-provider); by the time any other module sees the activity its captured_by reads connector:gmail and the human behind it is unrecoverable, so the participant rows commit in the same ingest transaction as the activity they describe",
 	"internal/modules/capture:lead":                 "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
-	"internal/modules/capture:workspace":            "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
 
 	// deals' archive purges the archived deal's collection memberships in
 	// the same transaction — a dangling list/tag row would resurrect the
@@ -310,6 +343,8 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:embedding":                    "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/activities:embedding":                 "the ADR-0072 noise redaction drops the vectors built from the mail it just nulled, in the same transaction — an embedding of redacted text is that text in another shape, and leaving it would let a similarity probe reconstruct what the workspace decided not to retain. Same obligation as the privacy waiver above, at the other place content is destroyed; the embed lane cannot do it itself because it never observes an archived row",
 	"internal/modules/privacy:raw_capture":                  "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:person_profile_field":         "Art. 17 and the retention sweep delete the subject's enrichment sidecar inside the single erasure transaction, beside field_provenance and ai_feedback: anonymize-in-place leaves the person row standing, so nothing cascades here, and the row holds the subject's title and employer with the verbatim sentence naming them",
+	"internal/modules/privacy:ai_feedback":                  "Art. 17 deletes the subject's correction ledger inside the single erasure transaction, exactly as it does field_provenance beside it: the ledger holds a human-typed value ABOUT the subject, and a claim nobody may now assert anything about has nothing left to suppress",
 	"internal/modules/privacy:ai_call_payload":              "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
@@ -426,7 +461,7 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 	t.Helper()
 	writes := map[string][]tableWrite{} // owning dir → writes
 	fset := token.NewFileSet()
-	for _, root := range []string{"internal/modules", "internal/compose"} {
+	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||

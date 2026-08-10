@@ -13,7 +13,10 @@
 // Merge and promotion additionally relink rows in deal, activity_link,
 // list_member, taggable and consent_event inside their single
 // transaction — the ratified cross-aggregate ownership call of the
-// primary aggregate; nothing else in this module touches sibling tables.
+// primary aggregate; nothing else in this module WRITES a sibling table.
+// The person list READS two of collections' — tag and taggable — for the
+// contract's `tag` filter: a tagged person is a link row whichever module
+// writes it, and the alternative is a declared filter answered by nobody.
 //
 // Imports shared + platform + the generated contract only; never a
 // sibling module. Every write rides storekit's audit+outbox shape and

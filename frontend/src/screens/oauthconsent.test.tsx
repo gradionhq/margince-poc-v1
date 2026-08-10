@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -16,6 +17,7 @@ import {
   readPendingAuthorize,
   stashPendingAuthorize,
 } from "../app/pendingauthorize";
+import { pickOption } from "../design-system/select-testing";
 import { formatDate } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { OAuthConsent } from "./oauthconsent";
@@ -352,7 +354,11 @@ describe("OAuthConsent", () => {
       ],
     });
     render(<OAuthConsent />);
-    await userEvent.selectOptions(await screen.findByRole("combobox"), "p2");
+    await pickOption(
+      userEvent.setup(),
+      await screen.findByRole("combobox"),
+      "day agent",
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: /authorize/i }),
     );
@@ -380,20 +386,31 @@ describe("OAuthConsent", () => {
       passports: lendable,
     }));
     const client = renderWithClient(<OAuthConsent />);
-    await userEvent.selectOptions(await screen.findByRole("combobox"), "p2");
+    await pickOption(
+      userEvent.setup(),
+      await screen.findByRole("combobox"),
+      "day agent",
+    );
 
     // The day agent is revoked in another tab; the next read of the same
     // request no longer offers it, and the selector falls back to the one
-    // passport that is left.
+    // passport that is left. The list is what proves the revoked one is gone,
+    // and it exists only while the popup is open — so it is opened for the
+    // count and Escape closes it again before the authorize click.
     lendable = [night];
     await client.invalidateQueries({ queryKey: ["oauth-consent-request"] });
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox")).toHaveTextContent("night agent"),
+    );
+    await userEvent.click(screen.getByRole("combobox"));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await userEvent.keyboard("{Escape}");
 
     await userEvent.click(screen.getByRole("button", { name: /authorize/i }));
-    // Displayed and posted are ONE value. A form still carrying the vanished
-    // p2 would let the human approve the passport on screen while lending a
-    // different one.
-    expect(screen.getByRole("combobox")).toHaveValue("p1");
+    // Displayed and posted are ONE value: the trigger's face IS the display, so
+    // a form still carrying the vanished p2 would let the human approve the
+    // passport on screen while lending a different one.
+    expect(screen.getByRole("combobox")).toHaveTextContent("night agent");
     expect(posted.body.get("passport_id")).toBe("p1");
   });
 
@@ -490,11 +507,15 @@ describe("OAuthConsent", () => {
       passports: [{ id: "p1anonymous", label: "", scopes: ["read"] }],
     });
     render(<OAuthConsent />);
-    // The server maps a NULL label to "" deliberately — a blank <option>
-    // makes two such passports indistinguishable on the one screen where
-    // knowing which credential you're lending is the point.
+    // The server maps a NULL label to "" deliberately — a blank entry makes two
+    // such passports indistinguishable on the one screen where knowing which
+    // credential you're lending is the point. The option list is portalled and
+    // only exists while the control is open, so the check opens it.
+    await userEvent.click(await screen.findByRole("combobox"));
     expect(
-      await screen.findByRole("option", { name: /unnamed passport/i }),
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: /unnamed passport/i,
+      }),
     ).toBeTruthy();
   });
 });
@@ -679,5 +700,48 @@ describe("OAuthConsent — re-entering after sign-in", () => {
       expect(client.getQueryState(["me"])?.status).toBe("error"),
     );
     expect(assigned).toEqual([]);
+  });
+});
+
+// The 2026-07-28 profile makes the redirect's HOST a MUST on this screen, and a
+// loopback one an extra warning. Both exist for the CIMD case: a client id is a
+// URL and a client name is whatever that URL's document says, so the
+// destination is the one fact about a connection only the human can judge —
+// and a document cannot prove which program holds a port on this machine.
+describe("the redirect disclosure", () => {
+  const oneOption: ConsentPayload = {
+    client_name: "Claude Code",
+    offline: false,
+    passports: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        label: "Desk",
+        scopes: ["read"],
+      },
+    ],
+  };
+
+  it("names the host the authorization is sent back to", async () => {
+    globalThis.location.hash = hashWith({
+      redirect_uri: "https://client.example/cb",
+    });
+    stubConsent(oneOption);
+    render(<OAuthConsent />);
+
+    expect(await screen.findByText(/client\.example/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/address on this computer/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("warns when that destination is an address on this computer", async () => {
+    globalThis.location.hash = hashWith({
+      redirect_uri: "http://127.0.0.1:3000/callback",
+    });
+    stubConsent(oneOption);
+    render(<OAuthConsent />);
+
+    expect(await screen.findByText(/127\.0\.0\.1:3000/)).toBeInTheDocument();
+    expect(screen.getByText(/address on this computer/)).toBeInTheDocument();
   });
 });

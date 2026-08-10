@@ -13,9 +13,9 @@
  * --coreTint and --coreTintMix too (see margince-core-liquid.tsx), which is what
  * keeps the sphere inside the token layer instead of carrying its own palette.
  *
- * Only the four status states change hue. idle / listening / working stay brand
- * emerald and differ in motion, because "one meaning per colour" (ADR-0040) is
- * broken the moment a busy orb and a failed orb are both allowed to be amber.
+ * NO state changes the hue. The Core is always the brand green, and state is
+ * carried in the rhythm alone — see the state block below for why, and for what
+ * carries a failure or a success to the reader instead.
  */
 
 .core {
@@ -34,14 +34,14 @@
   /* Defaults, overridden per state below. A Core with no data-core-state still
      renders as idle rather than as nothing. */
   --coreTint: var(--accent);
-  /* How hard the shader pulls its colour ramp toward --coreTint.
-     LOW for the three brand states, and that is the point rather than a
-     tuning: the ramp the shader ships IS the artifact's pale mint glass, and
-     --accent is the colour of an ACTION (a filled button, a link) at a
-     saturation no material should carry. Pulling 72% of the way there turned
-     the sphere into a dark emerald marble. At 0.22 the palette still steers
-     the hue, so a re-themed accent still moves the Core, and the glass stays
-     glass. Status states below invert this: there the hue IS the message. */
+  /* How hard the shader pulls its colour ramp toward --coreTint. LOW, and that
+     is the point rather than a tuning: the ramp the shader ships IS the
+     artifact's pale mint glass, and --accent is the colour of an ACTION (a
+     filled button, a link) at a saturation no material should carry. Pulling
+     72% of the way there turned the sphere into a dark emerald marble. At 0.22
+     the palette still steers the hue, so a re-themed accent still moves the
+     Core, and the glass stays glass. No state overrides this — the sphere is
+     one material, lit one way, whatever the machine is doing. */
   --coreTintMix: 0.22;
   --coreBeat: 5.6s;
   --coreSize: 230px;
@@ -62,52 +62,44 @@
 }
 
 /* ---- state: the whole vocabulary, in one place -------------------------- */
-.core[data-core-state="idle"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
-  --coreBeat: 5.6s;
-}
-/* listening: the same colour, a quicker pulse. Nothing has been claimed yet. */
+/* Every state is the SAME green. The Core is the product's identity, not a
+   status light: a sphere that turns amber or red reads as the brand changing
+   character, and a grey one reads as switched off. So state is carried in the
+   RHYTHM alone — how fast it breathes — and the hue never moves off the accent.
+   `idle` is the `.core` default above and needs no block of its own.
+
+   Nothing is lost by this. Every surface that shows a Core also states its
+   condition in words beside it (the workbench's status line, the read theatre's
+   phase and counts, the gate's notice) and marks it on a small status dot that
+   IS allowed to carry the danger and success hues. Those are the signals a
+   reader acts on; the sphere was only ever repeating them in a colour. */
+/* listening: nothing has been claimed yet. */
 .core[data-core-state="listening"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
   --coreBeat: 3.4s;
 }
 .core[data-core-state="working"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
   --coreBeat: 2.2s;
 }
+/* Settled: the slowest breath in the set. Rest, not celebration. */
 .core[data-core-state="success"] {
-  --coreTint: var(--success);
-  --coreTintMix: 0.9;
   --coreBeat: 6.4s;
 }
+/* attention / error: quicker than rest, so the sphere is visibly unsettled
+   without borrowing the warn or danger hue to say it. */
 .core[data-core-state="attention"] {
-  --coreTint: var(--warn);
-  --coreTintMix: 0.9;
   --coreBeat: 2.8s;
 }
 .core[data-core-state="error"] {
-  --coreTint: var(--danger);
-  --coreTintMix: 0.9;
   --coreBeat: 4.2s;
 }
-/* quiet: present, not working. Desaturated rather than dimmed, so it does not
-   read as a disabled control. */
+/* quiet: present, not working — nearly still, and still green, so it never
+   reads as a disabled control. */
 .core[data-core-state="quiet"] {
-  --coreTint: var(--textTertiary);
-  --coreTintMix: 0.9;
   --coreBeat: 9s;
 }
 /* unavailable: the one state that does not breathe. A server we cannot reach
-   should not look busy. */
-.core[data-core-state="unavailable"] {
-  --coreTint: var(--textMuted);
-  --coreTintMix: 0.9;
-}
+   should not look busy — but it is not a dead grey ball either. */
 .core[data-core-state="unavailable"] .core-glass,
-.core[data-core-state="unavailable"] .core-tilt,
 .core[data-core-state="unavailable"] .core-glow {
   animation: none;
 }
@@ -116,23 +108,16 @@
 }
 
 /* ---- the glass ---------------------------------------------------------- */
+/* The stage the glass is centred in: the sphere is --coreGlass across inside a
+   --coreSize box, so without this it would sit in the corner. It holds the Core
+   STILL in its box — the sphere breathes in place and never travels, so a Core
+   next to copy cannot drift into it and one on a dense surface cannot be
+   mistaken for something the page is moving. */
 .core-tilt {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  animation: core-float 11s var(--coreEase) infinite;
-}
-/* Deliberately NOT on the beat: a slow drift sharing no factor with the breath
-   keeps the two from locking into one pumping motion. */
-@keyframes core-float {
-  0%,
-  100% {
-    transform: translateY(-4px);
-  }
-  50% {
-    transform: translateY(5px);
-  }
 }
 .core-glass {
   position: relative;
@@ -140,40 +125,58 @@
   height: var(--coreGlass);
   z-index: 1;
   border-radius: var(--r-full);
+  /* The washes over the liquid are TINT-led, not white-led. White at 65% over
+     the top third was most of why the sphere read pale: it desaturated the one
+     part of the Core that is supposed to look like a lit material, and it did it
+     directly over the brightest interior. The white that remains is the entry
+     point of the light source and stops at 24%; the body wash below it carries
+     the green instead. */
   background:
     radial-gradient(
       circle at 30% 22%,
-      color-mix(in srgb, var(--overlayLight) 65%, transparent) 0%,
-      transparent 22%
+      color-mix(in srgb, var(--overlayLight) 40%, transparent) 0%,
+      transparent 24%
     ),
     radial-gradient(
       circle at 50% 42%,
-      color-mix(in srgb, var(--coreTint) 22%, transparent) 0%,
-      color-mix(in srgb, var(--coreTint) 8%, transparent) 100%
+      color-mix(in srgb, var(--coreTint) 34%, transparent) 0%,
+      color-mix(in srgb, var(--coreTint) 16%, transparent) 100%
     );
+  /* NO hairline ring here, and its absence is deliberate: a 1.5px near-white
+     inset used to outline the sphere, and an outline is the one thing a light
+     source does not have — it read as a drawn circle sitting in front of the
+     glow. The shader's fresnel term carries the edge instead, which is an edge
+     made of light rather than of ink.
+
+     The shade below is 18% ALPHA, not an opaque dark green. `color-mix(…
+     var(--overlayDark) 18%)` mixes toward black and stays fully opaque, which
+     painted a solid dark crescent over two thirds of the sphere and is what made
+     the Core read as a dark marble. The artifact's value is the same hue at 18%
+     alpha — barely there. */
   box-shadow:
-    inset 0 0 0 1.5px color-mix(in srgb, var(--overlayLight) 65%, transparent),
-    /* 18% ALPHA, not an opaque dark green. `color-mix(… var(--overlayDark)
-       18%)` mixes toward black and stays fully opaque, which painted a solid
-       dark crescent over two thirds of the sphere and is what made the Core
-       read as a dark marble rather than as glass. The artifact's value is the
-       same hue at 18% alpha — barely there. */
-    inset
-    -8px -12px 22px
+    inset -8px -12px 22px
     color-mix(
       in srgb,
       color-mix(in oklab, var(--coreTint) 55%, var(--overlayDark)) 18%,
       transparent
     ),
-    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 32%, transparent),
+    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 20%, transparent),
     /* The bounce light off the bottom of the glass. The artifact's is nearly
        white at 45% alpha: this is the sphere's SECOND light source, and rendering
        it in the shade colour at a lower alpha is what made the glass look unlit
        from below. */
     inset
-    0 -3px 12px color-mix(in srgb, var(--coreLight) 45%, transparent),
-    0 18px 34px color-mix(in srgb, var(--coreTint) 20%, transparent),
-    0 4px 10px color-mix(in srgb, var(--coreTint) 10%, transparent);
+    0 -3px 12px color-mix(in srgb, var(--coreLight) 55%, transparent),
+    /* Light LEAVING the stone, not a shadow cast by it. These were offset
+       downward — `0 18px 34px` — which is what a solid object does to the light
+       falling on it, and it read as a green drop shadow under a green ball. A
+       source is lit evenly around itself, so these are centred and graded from a
+       tight bloom to a wide bleed. The ground contact is `.core-caustic`'s job,
+       and it still does it. */
+    0
+    0 16px color-mix(in srgb, var(--coreLight) 50%, transparent),
+    0 0 38px color-mix(in srgb, var(--coreTint) 28%, transparent),
+    0 0 78px color-mix(in srgb, var(--coreTint) 12%, transparent);
   /* Breath and sheen share ONE period. At 1 : 0.7 two close periods beat against
      each other, so the swell and the brightening drifted in and out of phase over
      a ~19s cycle — read as the Core stuttering rather than as two rhythms. */
@@ -202,29 +205,48 @@
   );
   filter: blur(6px);
 }
-/* The specular highlight, and its absence was a primary reason the sphere read
-   flat. In the artifact this comes from `.login-orb::after` — a 92%-white blurred
-   ellipse over the top-left, ABOVE the canvas. The port inherited the group rule
-   that disabled `::before` (the rotating sheen, correctly dropped for cost) and
-   lost the `::after` with it. Without it there is no hard light source and the
-   liquid inside is the only thing lighting the glass. */
+/* The surface lighting, ABOVE the canvas. Without it the liquid inside is the
+   only thing lighting the glass, which is most of why the sphere read flat. */
 .core-glass::after {
   content: "";
   position: absolute;
-  left: 16%;
-  top: 9%;
-  width: 36%;
-  height: 24%;
+  inset: 0;
   z-index: 2;
   border-radius: var(--r-full);
   pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    color-mix(in srgb, var(--overlayLight) 92%, transparent),
-    transparent 70%
-  );
-  filter: blur(1px);
-  transform: rotate(-20deg);
+  /*
+   * THREE lights, not one, and the count is the point. A single soft ellipse is
+   * the highlight of a matte plastic ball; polished stone has a hard specular
+   * kernel sitting inside a broad sheen, and a translucent stone also passes
+   * light out the far side. All three live in one pseudo-element as stacked
+   * gradients, so this is still a single paint and no new box in the tree.
+   *
+   * They stay in CSS rather than moving into the shader on purpose: a hard
+   * highlight rendered into a 96..160px buffer and then upscaled swims and
+   * shimmers as the sphere breathes. Here it is resolution-independent.
+   */
+  background:
+/* the star: small, near-opaque, barely softened — the light source itself */
+    radial-gradient(
+      ellipse 9% 6% at 27% 20%,
+      color-mix(in srgb, var(--overlayLight) 96%, transparent) 0%,
+      transparent 68%
+    ),
+    /* the sheen: broad and soft, offset from the star — the waxy surface */
+    radial-gradient(
+      ellipse 22% 15% at 31% 24%,
+      color-mix(in srgb, var(--overlayLight) 55%, transparent) 0%,
+      transparent 72%
+    ),
+    /* the far side: light that went THROUGH the stone and left again, opposite
+       the source. This is the cue that reads as translucency rather than as a
+       lit opaque ball, and it is why it is tinted and not white. */
+    radial-gradient(
+      ellipse 34% 24% at 68% 78%,
+      color-mix(in srgb, var(--coreLight) 34%, transparent) 0%,
+      transparent 70%
+    );
+  filter: blur(0.5px);
 }
 /* One swell per period, out and back. The stops were 42% / 68% under
    `ease-in-out`, which re-accelerates at every stop: the sphere lurched out,
@@ -304,13 +326,30 @@
   border-radius: var(--r-full);
   pointer-events: none;
   z-index: 0;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--coreLight) 26%, transparent) 0%,
-    color-mix(in srgb, var(--coreLight) 14%, transparent) 30%,
-    color-mix(in srgb, var(--coreLight) 5%, transparent) 55%,
-    transparent 70%
-  );
+  /*
+   * TWO layers: a tight bloom hugging the glass, over the wide falloff that
+   * dissolves into the page. One gradient could only be tight or wide — as one
+   * it read as a flat disc of tint painted behind the sphere. Light leaving a
+   * bright body is brightest right at the body, and the near bloom is what says
+   * the sphere is the source rather than something sitting on a halo.
+   *
+   * Plain alpha over the page, never a blend mode. An additive glow needs a dark
+   * canvas to read as light; on our light surfaces it turns into grey haze.
+   */
+  background:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--coreLight) 30%, transparent) 0%,
+      color-mix(in srgb, var(--coreLight) 20%, transparent) 34%,
+      transparent 45%
+    ),
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--coreLight) 15%, transparent) 0%,
+      color-mix(in srgb, var(--coreLight) 8%, transparent) 42%,
+      color-mix(in srgb, var(--coreLight) 3%, transparent) 60%,
+      transparent 74%
+    );
   animation: core-fed var(--coreBeat) var(--coreEase) infinite;
 }
 /* The halo is light leaving the sphere, so it swells WITH the sphere — on the
@@ -400,6 +439,27 @@
   transition: stroke-dasharray 0.4s ease;
 }
 
+/* ---- an unfocused window: the Core goes still ---------------------------- */
+/*
+ * Nobody is watching a window that sits behind another one, so every rhythm
+ * stops together — the breath and the sheen, the halo, and the motes on their
+ * way in. The liquid inside stops too, in the same breath and off the same
+ * signal: `window-focus.ts` owns one `focus`/`blur` pair for the document, sets
+ * this attribute, and parks the WebGL loop (margince-core-liquid.tsx). ONE
+ * signal, so the sphere and its glow can never disagree about whether the Core
+ * is moving.
+ *
+ * PAUSED, not `animation: none`. A paused animation holds the frame it reached,
+ * which is what coming back to a Core should look like; removing the animation
+ * would snap the sphere to its unanimated size and brightness — a visible jump
+ * every time the reader clicks away.
+ */
+:root[data-window-blurred] .core-glass,
+:root[data-window-blurred] .core-glow,
+:root[data-window-blurred] .core-feed i {
+  animation-play-state: paused;
+}
+
 /* ---- reduced motion: the END state, never nothing ----------------------- */
 /*
  * The feed is atmosphere and is the one thing safe to simply remove. Everything
@@ -410,7 +470,6 @@
   .core-feed {
     display: none;
   }
-  .core-tilt,
   .core-glass,
   .core-glow {
     animation: none;

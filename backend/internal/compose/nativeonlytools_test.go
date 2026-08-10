@@ -122,9 +122,9 @@ type recordingRetriever struct {
 	assembled bool
 }
 
-func (r *recordingRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
+func (r *recordingRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
 	r.searched = true
-	return nil, nil
+	return retrieval.Result{}, nil
 }
 
 func (r *recordingRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
@@ -282,7 +282,7 @@ func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 // wiring pin must cover exactly those tools.
 //
 // The unit specs above prove what a guard DOES given a mode; only
-// integration/overlay_toolsurface_integration_test.go proves a guard is actually
+// integration/overlay/overlay_toolsurface_integration_test.go proves a guard is actually
 // wired, and its map is written by hand. So the obligation is derived here:
 // declaring a guard enrols its tool.
 //
@@ -349,7 +349,7 @@ func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
 		if named == 0 {
 			t.Errorf("%s names no tool the wiring pin covers. Its doc comment must name the tool(s) it "+
 				"guards, and each must appear in nativeOnlyAgentTools "+
-				"(compose/integration/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
+				"(compose/integration/overlay/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
 				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", guard, doc)
 		}
 	}
@@ -379,7 +379,7 @@ const nativeOnlyPrefix = "nativeOnly"
 // the whole point is that there be one.
 func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
 	t.Helper()
-	const pinFile = "integration/overlay_toolsurface_integration_test.go"
+	pinFile := overlayPin(t)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, pinFile, nil, 0)
 	if err != nil {
@@ -411,4 +411,53 @@ func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
 		t.Fatalf("no tool names found in %s's nativeOnlyAgentTools — the pin moved or was renamed", pinFile)
 	}
 	return out
+}
+
+// --- read_brief ---
+
+func TestBriefReaderRefusesInOverlayMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		called = true
+		return agents.ReadBriefResult{}, nil
+	}
+
+	_, err := nativeOnlyBriefReader(overlayMode(), inner)(context.Background())
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("err = %v, want ErrUnsupportedBySoR", err)
+	}
+	if called {
+		t.Error("the brief was read for an overlay workspace, whose deals are in the incumbent — " +
+			"the queue would be empty, and 'nothing needs your attention today' is the one " +
+			"failure a caller cannot see through")
+	}
+}
+
+func TestBriefReaderServesNativeMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		called = true
+		return agents.ReadBriefResult{}, nil
+	}
+
+	if _, err := nativeOnlyBriefReader(nativeMode(), inner)(context.Background()); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !called {
+		t.Error("native mode did not reach the brief read")
+	}
+}
+
+func TestBriefReaderRefusesWhenModeCannotBeResolved(t *testing.T) {
+	// An unresolved mode refuses rather than defaulting to native: guessing
+	// wrong in that direction is the silent break the guard exists to stop.
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		t.Error("the brief was read without a resolved system-of-record mode")
+		return agents.ReadBriefResult{}, nil
+	}
+
+	if _, err := nativeOnlyBriefReader(unresolvableMode(), inner)(context.Background()); err == nil {
+		t.Fatal("err = nil, want the mode-resolution failure")
+	}
 }

@@ -31,6 +31,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -45,9 +46,10 @@ import (
 var offerRenderDeskPerms = principal.Permissions{
 	RoleKeys: []string{"deal_desk"},
 	Objects: map[string]principal.ObjectGrant{
-		"deal":           {Create: true, Read: true, Update: true},
-		"offer":          {Create: true, Read: true, Update: true},
-		"offer_template": {Create: true, Read: true},
+		"deal":                  {Create: true, Read: true, Update: true},
+		"offer":                 {Create: true, Read: true, Update: true},
+		"offer_template":        {Create: true, Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -385,10 +387,11 @@ func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferI
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"deal_desk"},
 			Objects: map[string]principal.ObjectGrant{
-				"pipeline":       {Create: true, Read: true},
-				"deal":           {Create: true, Read: true, Update: true},
-				"offer":          {Create: true, Read: true, Update: true},
-				"offer_template": {Create: true, Read: true},
+				"pipeline":              {Create: true, Read: true},
+				"deal":                  {Create: true, Read: true, Update: true},
+				"offer":                 {Create: true, Read: true, Update: true},
+				"offer_template":        {Create: true, Read: true},
+				"installation_settings": {Read: true},
 			},
 			RowScope: principal.RowScopeAll,
 		},
@@ -487,7 +490,7 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
 	blob := &spyBlobStore{Store: blobstore.NewMemory()}
-	h := deals.NewHandlers(e.Pool).WithBlobstore(blob)
+	h := deals.NewHandlers(e.Pool, identity.BaseCurrencyOf).WithBlobstore(blob)
 
 	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)

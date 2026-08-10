@@ -99,13 +99,31 @@ func TestSplitHumanOwnedEdges(t *testing.T) {
 // recordingApprovals captures staging and redemption for assertions.
 type recordingApprovals struct {
 	staged    []StageRequest
+	steppedUp []QuotaReleaseRequest
 	redeemed  []string // "id tool hash"
 	redeemErr error
+	// stepUpDeclined replays the human who has already said no to this
+	// question: nothing is staged, it is reported, and the quota refusal has to
+	// stand on its own rather than becoming an error about staging.
+	stepUpDeclined bool
+	stepUpErr      error
 }
 
 func (r *recordingApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalID, error) {
 	r.staged = append(r.staged, in)
 	return ids.New[ids.ApprovalKind](), nil
+}
+
+func (r *recordingApprovals) StageQuotaRelease(_ context.Context, in QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	r.steppedUp = append(r.steppedUp, in)
+	switch {
+	case r.stepUpErr != nil:
+		return ids.ApprovalID{}, false, r.stepUpErr
+	case r.stepUpDeclined:
+		return ids.ApprovalID{}, false, nil
+	default:
+		return ids.New[ids.ApprovalKind](), true, nil
+	}
 }
 
 func (r *recordingApprovals) Redeem(_ context.Context, id ids.ApprovalID, tool, hash string) (int64, bool, error) {
@@ -257,7 +275,7 @@ func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 			Replay     json.RawMessage `json:"replay"`
 		} `json:"staged_approval"`
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := json.Unmarshal(payloadOf(t, out), &result); err != nil {
 		t.Fatal(err)
 	}
 	if len(result.StagedApproval.Fields) != 1 || result.StagedApproval.Fields[0] != "full_name" {

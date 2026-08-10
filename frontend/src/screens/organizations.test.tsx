@@ -12,7 +12,10 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
+import { AssistantPanel } from "./assistant";
+import { AccountBrief } from "./company360";
 import {
   CompaniesScreen,
   CompanyScreen,
@@ -582,7 +585,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByRole("searchbox"), {
+      fireEvent.change(screen.getByPlaceholderText("Search"), {
         target: { value: "brandt" },
       });
       act(() => {
@@ -597,7 +600,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
     );
   });
 
-  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+  it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
         return jsonResponse({
@@ -615,8 +618,9 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
 
-    const loadMore = screen.getByRole("button", { name: "Load more" });
-    await userEvent.click(loadMore);
+    const next = screen.getByRole("button", { name: "Next ›" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(next);
 
     await waitFor(() =>
       expect(screen.getByText("Nordwind Logistik")).toBeTruthy(),
@@ -627,6 +631,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
 
 describe("CompaniesScreen — rich create (P-15)", () => {
   it("posts display_name + size_band + domains + source:manual on submit", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/organizations")) {
@@ -636,18 +641,15 @@ describe("CompaniesScreen — rich create (P-15)", () => {
       return emptyPage();
     });
     render(<CompaniesScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.type(
+    await user.click(screen.getByTestId("new-record"));
+    await user.type(
       screen.getByLabelText("Company name *"),
       "Otto Fischer GmbH",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Company size"),
-      "11-50",
-    );
-    await userEvent.click(screen.getByText("Add domain"));
-    await userEvent.type(screen.getByLabelText("Domain *"), "otto.example");
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await pickOption(user, screen.getByLabelText("Company size"), "11-50");
+    await user.click(screen.getByText("Add domain"));
+    await user.type(screen.getByLabelText("Domain *"), "otto.example");
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({
@@ -1431,6 +1433,7 @@ describe("CompanyScreen — archived is read-only (P-3)", () => {
 
 describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
   it("offers org↔org kinds (not deal_stakeholder) from a company and POSTs counterparty_org_id", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/relationships")) {
@@ -1456,20 +1459,23 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
     const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
+    await user.click(peopleTab);
     expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByTestId("add-relationship"));
+    await user.click(screen.getByTestId("add-relationship"));
 
     // An org anchors employment + the org↔org kinds; deal_stakeholder needs a
-    // person endpoint and must not be offered here.
+    // person endpoint and must not be offered here. The kinds only exist in the
+    // DOM while the popup is open, so the absence is asserted on an open list.
     const kind = screen.getByLabelText("Kind");
-    expect(within(kind).queryByText("Deal stakeholder")).toBeNull();
-    await userEvent.selectOptions(kind, "partner_of");
+    await user.click(kind);
+    const kinds = screen.getByRole("listbox");
+    expect(within(kinds).queryByText("Deal stakeholder")).toBeNull();
+    await user.click(within(kinds).getByRole("option", { name: "Partner of" }));
 
-    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+    await user.type(screen.getByPlaceholderText("Search…"), "acme");
     vi.useFakeTimers();
     try {
       act(() => {
@@ -1479,8 +1485,8 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       vi.useRealTimers();
     }
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
-    await userEvent.click(screen.getByText("Acme Corp"));
-    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+    await user.click(screen.getByText("Acme Corp"));
+    await user.click(screen.getByTestId("add-relationship-submit"));
 
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({
@@ -1614,12 +1620,27 @@ const stalledSuggestion = {
   evidence: [{ entity_type: "deal", entity_id: "d-1" }],
 };
 
+// The suggestion rows and the ask card are components of their own, mounted
+// here directly rather than through the company page, which renders neither.
+// This matters for the "the card is absent" cases below: asserted against a
+// page that never mounts one, they would hold no matter what the card did.
+function renderBriefFor(three60: unknown) {
+  render(
+    <AccountBrief
+      orgId="o-1"
+      view={three60 as never}
+      enabled
+      onOpenRecord={() => {}}
+      onPerform={() => {}}
+    />,
+  );
+}
+
 describe("CompanyScreen — next-step suggestions", () => {
   it("leads each suggestion with the reason the rule fired, and cites the record", async () => {
-    stubFetch(companyBackstop, {
-      org360: { ...org360, suggestions: [stalledSuggestion] },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = { ...org360, suggestions: [stalledSuggestion] };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1630,14 +1651,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   });
 
   it("names how many suggestions the card left out", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 3,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 3,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     // A truncated list with no count reads as "that is everything".
     await waitFor(() =>
@@ -1648,14 +1668,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when there is nothing left out", async () => {
     // Zero is the ordinary case, so the "N more" line must not render on it —
     // otherwise every card carries "0 more not shown here."
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 0,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 0,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1666,14 +1685,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when the count is absent", async () => {
     // Absent means the section was never computed. A "0 more" line would state a
     // fact about an account this read did not look at.
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: undefined,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: undefined,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1683,35 +1701,33 @@ describe("CompanyScreen — next-step suggestions", () => {
 
   it("says nothing at all when the account needs nothing", async () => {
     stubFetch(companyBackstop);
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor(org360);
 
-    await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
-    );
     // "No advice" is not something a rep acts on, so the card is absent
-    // rather than empty.
-    expect(screen.queryByText("Worth doing next")).toBeNull();
+    // rather than empty. Asserted against a MOUNTED brief: on a page that
+    // never renders one, this would hold no matter what the component did.
+    await waitFor(() =>
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
+    );
   });
 
   it("stays silent rather than claiming no advice when the section is withheld", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: undefined,
-        sections_omitted: ["suggestions"],
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: undefined,
+      sections_omitted: ["suggestions"],
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
     );
-    expect(screen.queryByText("Worth doing next")).toBeNull();
   });
 
-  it("dismisses by fingerprint, and re-reads the 360 rather than hiding the row itself", async () => {
+  it("dismisses by fingerprint and leaves the row for the server to remove", async () => {
     let dismissed: unknown;
-    const { urls } = stubFetch(
+    stubFetch(
       async (url, method, request) => {
         if (method === "POST" && url.includes("/suggestions/dismiss")) {
           dismissed = await request.json();
@@ -1721,7 +1737,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1729,11 +1745,11 @@ describe("CompanyScreen — next-step suggestions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Not now" }));
 
     await waitFor(() => expect(dismissed).toBeTruthy());
+    // The server decides what survives: the card sends the fingerprint and
+    // does NOT hide the row itself. Whether the surrounding page then re-reads
+    // the 360 is the page's business, and this suite mounts the card alone.
     expect(dismissed).toEqual({ fingerprint: "fp-stalled-1" });
-    // The server decides what survives: the row goes when the re-read says so.
-    await waitFor(() =>
-      expect(urls.filter((u) => u.endsWith("/360")).length).toBeGreaterThan(1),
-    );
+    expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy();
   });
 
   it("says a dismissal failed instead of leaving the click looking like a miss", async () => {
@@ -1746,7 +1762,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1784,7 +1800,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1815,7 +1831,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1838,7 +1854,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1855,46 +1871,134 @@ describe("CompanyScreen — Ask Margince", () => {
   });
 });
 
-// The page must not re-column itself under the reader. RecordView picks its
-// grid template from which zones are present, so a right rail that arrives
-// with the composite read moves the whole middle column — and everything the
-// reader was looking at — sideways the moment it lands.
-describe("CompanyScreen — the layout does not shift as the read lands", () => {
-  it("holds the three-column template while the 360 is still in flight", async () => {
+// ONE column, and a grid of cards inside it (mockup State D). The page had a
+// work column and a context column beside it; the context column is gone,
+// because that is the space the composer drawer opens into and no mockup shows
+// both. Its cards moved into the grid, which is the obligation these cases
+// keep: a layout change must not become an availability change.
+describe("CompanyScreen — State D's one column and its card grid", () => {
+  it("puts the account's context beside the work, and no rail on the left", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await waitFor(() =>
+      expect(container.querySelector(".co-grid")).toBeTruthy(),
+    );
+    // Two columns, not three: the work and the context beside it. A LEFT rail
+    // would be a third place to look, and the mockups draw none.
+    expect(container.querySelector(".record-aside")).toBeTruthy();
+    expect(container.querySelector(".co-rail")).toBeTruthy();
+    expect(container.querySelector(".record-rail")).toBeNull();
+  });
+
+  // Every card is still ON the page, wherever it sits. Named individually
+  // rather than counted: a count passes on a layout that lost one card and
+  // grew another, and moving a card between columns must never be the way one
+  // disappears.
+  it("carries every business card across its two columns", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const grid = await screen.findByRole("complementary", { name: "Business" });
+    // The business of the account: what is running, and the paperwork.
+    for (const card of ["Deals", "Documents"]) {
+      expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
+    }
+    // Filing metadata stays folded, and stays in the grid: tags and lists are
+    // governed 360 sections like the cards above them, so a withheld half has
+    // to say so where the reader is looking for it.
+    expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+
+    // The relationship around it moved to the rail rather than off the page.
+    const rail = container.querySelector(".co-rail");
+    expect(rail).toBeTruthy();
+    for (const card of ["People", "Signals"]) {
+      expect(rail?.textContent).toContain(card);
+    }
+  });
+
+  // The drawer opens INTO the rail's column. Both composers do — the header's
+  // Write-email and the one anchored on a message — so the rail stands down
+  // for either, and comes back when the drawer closes.
+  it("stands the rail down while a composer holds its column", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Write email" }));
+    await waitFor(() => expect(container.querySelector(".co-rail")).toBeNull());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+  });
+
+  // A call or a note often carries no subject. Counting only the subjected
+  // rows would draw "nothing logged with them yet" on an account that has been
+  // called five times — a false statement about the account, made from a fact
+  // about a row.
+  it("counts every logged activity, not only the ones with a subject", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "call",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const rail = container.querySelector(".co-rail");
+    await waitFor(() => expect(rail?.textContent).toContain("Recent activity"));
+    expect(rail?.textContent).not.toContain("Nothing logged with them yet");
+  });
+
+  // None of the reference cards comes from the 360 — each runs its own read —
+  // so they must be on the page before that read lands, and stay there if it
+  // never does.
+  it("offers the reference cards before the 360 read lands", async () => {
     let releaseView: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       releaseView = resolve;
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) => {
-        const pathname = new URL(request.url).pathname;
-        if (pathname.endsWith("/360")) {
-          await held;
-          return jsonResponse(org360);
-        }
-        if (pathname.endsWith("/hierarchy-rollup")) {
-          return jsonResponse(emptyRollup);
-        }
-        if (pathname.endsWith("/organizations/o-1")) {
-          return jsonResponse(org);
-        }
-        return jsonResponse({
-          data: [],
-          page: { has_more: false, next_cursor: null },
-        });
-      }),
-    );
+    const { fetchMock } = stubFetch(companyBackstop);
+    const held360 = vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname.endsWith("/360")) {
+        await held;
+      }
+      return fetchMock(request);
+    });
+    vi.stubGlobal("fetch", held360);
+
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
-    const zonesWhileLoading = container.querySelector(".record-zones");
-    expect(zonesWhileLoading?.className).toContain("record-zones-both");
+
+    // Asserted on the disclosure summaries a reader actually clicks: these
+    // words also appear in the app's navigation, so a bare text match would
+    // pass on a page that had lost every one of these cards.
+    const summaries = () =>
+      Array.from(container.querySelectorAll(".disclosure-summary")).map((el) =>
+        el.textContent?.trim(),
+      );
+    await waitFor(() => expect(summaries()).toContain("Company profile"));
+    expect(summaries()).toContain("Where this came from");
+    expect(summaries()).toContain("Data & tools");
     releaseView?.();
-    await waitFor(() =>
-      expect(container.querySelector(".record-zones")?.className).toContain(
-        "record-zones-both",
-      ),
-    );
   });
 });
 
@@ -1923,7 +2027,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(
       screen.getByText(
         "This account has more activities than fit here. Only the most recent ones are listed.",
@@ -1952,7 +2058,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText(/more activities than fit here/)).toBeNull();
   });
 });

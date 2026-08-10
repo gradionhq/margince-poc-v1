@@ -85,20 +85,39 @@ default.
 
 ## Layout
 
+- **`src/design-system/README.md` is the catalog — read it before hand-rolling a
+  control.** Every interactive control comes from that directory; a native
+  `<select>` or a hand-rolled dropdown is a defect, and
+  `scripts/check-native-controls.sh` refuses one. `pnpm storybook` shows them all.
 - `src/design-system/` — tokens (Ledger Green canon, pinned by
   `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
   `color-mix()` of a canonical token, never a new hex, so it follows the dark
   theme's accent lift automatically and passes the purity gate. Then atoms, the
-  trust primitives (§4 vocabulary: EvidenceChip, ConfidenceMeter, ProvenanceTag,
-  StagingCard, ApprovalGate, StagedProposal), the **Margince Core**
+  **EvidenceMark** (`evidencemark*`) — the ONE §4 provenance affordance: a dotted
+  underline on a value that came from somewhere other than a person typing it,
+  opening to where it came from, how sure we were, the text it was read from, and
+  when. One mark is open across the page at a time, for pointer and keyboard
+  alike. It replaces the stack of three chips that used to sit under every value;
+  the older primitives (EvidenceChip, ConfidenceMeter, ProvenanceTag) now live
+  INSIDE the mark and on the staging surfaces (StagingCard, ApprovalGate,
+  StagedProposal) — never stacked under a field again. The migration is real but
+  partial: the company record page consumes the mark today while the other record
+  screens still render the older primitives directly. Then the **Margince Core**
   (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
   vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
   callers pass `state` and size it through `--coreSize` / `--coreGlass` and
   never restyle it), `motion.ts` (reduced motion jumps to the END state, never
   to nothing), composed surfaces, and `conformance.test.ts` — the drift gates.
-- `src/app/` — shell (WorkspaceRail + top bar), hash router, ⌘K palette,
-  Ask FAB.
-- `src/screens/` — one file per surface; unbuilt routes render the honest
+- `src/app/` — the shell (a labeled sidebar that collapses to the canonical
+  rail, its preference persisted; at phone width the same markup is a bottom bar
+  with a More overflow), the top bar, `nav.ts` (the canonical ten items in three
+  groups — a label is presentation and never a route id: `deals` presents as
+  Pipeline, `inbox` as Approvals, `ai` as Ask Margince), `theme.ts` (light/dark
+  resolved and applied BEFORE React mounts, so an unauthenticated screen can be
+  dark at all), the hash router, the ⌘K palette, and the Ask FAB. See
+  [docs/explanation/frontend-architecture.md](../docs/explanation/frontend-architecture.md).
+- `src/screens/` — one file per surface, or one directory when a surface is a
+  state machine (`onboarding-conversation/`); unbuilt routes render the honest
   pending state.
 - `src/i18n/` — DE (A24 default) + EN catalogs; key parity enforced at
   compile time and runtime.
@@ -106,7 +125,13 @@ default.
   IANA-only zones, FX lineage display (consumes the IR base_value
   verbatim, never multiplies).
 - `src/api/` — `schema.d.ts` is GENERATED (never hand-edit); `client.ts`
-  is the one API seam (session cookie + `X-Workspace-Slug`, `/v1` mount).
+  is the seam every typed `/v1` call goes through — the LinkedIn CSV upload is the
+  one `/v1` route that bypasses it, because the generated client cannot serialize
+  multipart (the OAuth discovery read in `connected-agents.tsx` is a raw `fetch`
+  too, but it is not a `/v1` route at all). Also the session cookie and the `/v1`
+  mount — no tenant header:
+  one installation serves one organization, and the server binds that singleton
+  itself, so two tests assert the absence of any workspace header).
 - `e2e/` — the Playwright harness: AC-named acceptance tests, the 390px
   no-horizontal-scroll sweep, axe WCAG 2.2 AA on every core screen, the
   PERF-1 <300 ms perceived record-open budget. Runs over a network-edge
@@ -125,11 +150,23 @@ default.
 6. The service worker never caches or fabricates a `/v1` response.
 7. WCAG 2.2 AA (axe) + the perceived-perf budget in the e2e lane.
 8. The unauthenticated surface at 390px / 320px / 200% zoom (ADR-0076): no
-   horizontal scroll, the primary action reachable, nothing hidden to fit, the
-   task region above the identity region below 960px, one h1 and it is the task,
-   the Core out of the a11y tree, and axe. The rest of the §3.8 sweep walks
-   authenticated routes only, so login had never been measured at any width —
-   the first run of this found a contrast defect in the field labels.
+   horizontal scroll, the primary action reachable, the identity region whole
+   wherever it is shown at all, the task region above it below 960px, one h1 and
+   it is the task, the Core out of the a11y tree, and axe. The rest of the §3.8
+   sweep walks authenticated routes only, so login had never been measured at any
+   width — the first run of this found a contrast defect in the field labels.
+
+   **One deliberate departure, at phone width.** Below 561px the surface is the
+   task alone: the identity region is dropped whole — the sphere, the limits and
+   the AI's own sentence — because on a phone the form is the only thing the
+   screen is for (founder ruling, 2026-08-07). So this surface does NOT disclose
+   the AI at that width, which ADR-0076 Decision 1 asks for at every width. It is
+   a departure rather than a defect: stated in `src/screens/auth.css` beside the
+   rule that makes it, pinned in both directions by `e2e/ac.spec.ts` so it cannot
+   drift back, and owed upstream for the spec to reconcile (issue #562). Every
+   wider layout makes the disclosure in full. Where the region IS shown it shows
+   all of itself — no limit dropped to fit, which is the rule this replaced a
+   `display: none` sweep to get.
 
 ## Working agreements
 

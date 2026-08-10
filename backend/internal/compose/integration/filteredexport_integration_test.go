@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -39,13 +40,13 @@ type filteredDealFixture struct {
 	matchOther ids.UUID // rep3, forecast 'commit' — matches but invisible to rep1
 }
 
-func (e *searchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
+func (e *SearchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
 	t.Helper()
-	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
+	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
 
 	deal := func(owner ids.UUID, name, forecast string) ids.UUID {
-		return e.seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, forecast_category, source, captured_by)
+		return e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, forecast_category, source, captured_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', 'human:x')`, owner, name, pipelineID, stageID, forecast)
 	}
 	return filteredDealFixture{
@@ -65,7 +66,7 @@ func commitDeals() storekit.Predicate {
 // both visible to them and match the predicate — excluding invisible rows
 // AND non-matching rows.
 func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	f := e.seedFilteredDeals(t)
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -78,7 +79,7 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 		t.Fatalf("row count = %d, want 1 (only the visible matching deal)", result.RowCount)
 	}
 
-	gotIDs := csvColumn(t, result.Body, "id")
+	gotIDs := CSVColumn(t, result.Body, "id")
 	set := map[string]bool{}
 	for _, id := range gotIDs {
 		set[id] = true
@@ -98,7 +99,7 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 // and carry the same slice, and that the export operation writes one
 // audit_log row describing what slice was exported.
 func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 	writer := compose.NewFilteredExportWriter(e.Pool)
 
@@ -108,7 +109,7 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("csv export: %v", err)
 	}
-	if got := len(csvColumn(t, csvResult.Body, "id")); got != 2 {
+	if got := len(CSVColumn(t, csvResult.Body, "id")); got != 2 {
 		t.Fatalf("csv rows = %d, want 2 (both teams' commit deals)", got)
 	}
 
@@ -155,7 +156,7 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 // TestFilteredExportEmptyResultIsHonest: a predicate that matches nothing
 // yields a valid CSV with only the header row, not an error.
 func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -181,7 +182,7 @@ func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
 // resource's §13.5 allow-list is a PredicateError the transport maps to
 // 422 — the filter can never reach an arbitrary column.
 func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
 	_, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -200,10 +201,10 @@ func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
 // lastSystemLog reads the most recent system_log row for an action inside
 // the workspace-bound GUC (FORCE RLS applies even to the table owner), so the
 // suite can assert the export was recorded.
-func lastSystemLog(t *testing.T, e *searchEnv, action string) (gotAction string, detail map[string]any) {
+func lastSystemLog(t *testing.T, e *SearchEnv, action string) (gotAction string, detail map[string]any) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -229,9 +230,9 @@ func lastSystemLog(t *testing.T, e *searchEnv, action string) (gotAction string,
 // filtered export returns a CSV download, and an out-of-vocabulary filter
 // answers 422 — proving the transport wiring and error mapping.
 func TestFilteredExportHTTPEndToEnd(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ada@example.com", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("login → %d", status)
@@ -239,21 +240,21 @@ func TestFilteredExportHTTPEndToEnd(t *testing.T) {
 
 	// A valid filter with no matching rows still returns a CSV (header row):
 	// the endpoint is wired and the open format is honest on an empty slice.
-	body, err := json.Marshal(anyMap{
+	body, err := json.Marshal(apptest.AnyMap{
 		"object": "deal",
-		"filter": anyMap{"field": "forecast_category", "op": "eq", "value": "commit"},
+		"filter": apptest.AnyMap{"field": "forecast_category", "op": "eq", "value": "commit"},
 		"format": "csv",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest("POST", e.ts.URL+"/v1/exports", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", e.TS.URL+"/v1/exports", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Workspace-Slug", e.slug)
-	resp, err := e.client.Do(req)
+	req.Header.Set("X-Workspace-Slug", e.Slug)
+	resp, err := e.Client.Do(req)
 	if err != nil {
 		t.Fatalf("export request: %v", err)
 	}
@@ -280,9 +281,9 @@ func TestFilteredExportHTTPEndToEnd(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "POST", "/v1/exports", anyMap{
+	if status := e.Call(t, "POST", "/v1/exports", apptest.AnyMap{
 		"object": "deal",
-		"filter": anyMap{"field": "amount_minor", "op": "eq", "value": 1},
+		"filter": apptest.AnyMap{"field": "amount_minor", "op": "eq", "value": 1},
 		"format": "csv",
 	}, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("out-of-vocabulary filter → %d, want 422", status)

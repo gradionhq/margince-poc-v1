@@ -3,6 +3,7 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type TextareaHTMLAttributes,
   useEffect,
   useId,
   useRef,
@@ -80,6 +81,16 @@ export function Avatar({
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const broken = Boolean(src) && brokenSrc === src;
   const setBroken = () => setBrokenSrc(src ?? null);
+  // The monogram is the floor UNDER the mark, so it has to stop being drawn the
+  // moment the mark is actually on screen: a logo with transparency would
+  // otherwise show the initials through it. Tracked by src for the same reason
+  // as the failure above.
+  const [paintedSrc, setPaintedSrc] = useState<string | null>(null);
+  // A mark that painted once and then failed on a later load is no longer on
+  // screen, so it stops holding the monogram down: without the `!broken` the
+  // image is removed while the fallback stays suppressed, and the avatar is
+  // simply empty.
+  const painted = Boolean(src) && paintedSrc === src && !broken;
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -101,6 +112,7 @@ export function Avatar({
   if (tinted) classes.push(`avatar-t${tone}`);
   if (size === "lg") classes.push("avatar-lg");
   if (src && !broken) classes.push("avatar-has-logo");
+  if (painted) classes.push("avatar-painted");
   return (
     <span className={classes.join(" ")}>
       {src && !broken ? (
@@ -112,9 +124,10 @@ export function Avatar({
           alt=""
           loading="lazy"
           onError={setBroken}
+          onLoad={() => setPaintedSrc(src ?? null)}
         />
       ) : null}
-      {initials}
+      {!painted && initials}
     </span>
   );
 }
@@ -139,6 +152,140 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
 }
 
 /**
+ * Textarea carries no label of its own, exactly like TextInput: the label is
+ * composed outside it, by the `.field` wrapper a form uses or by a screen's own
+ * richer shell. What it owns is the ONE spelling of the control's surface, so a
+ * note field in a create form and one in settings cannot drift.
+ *
+ * The dropdown is NOT here: `Select` in select.tsx is a button and a portalled
+ * listbox, because a native `<select>` draws its own option list in the
+ * platform's idiom and no CSS reaches inside it. It still reads `.input` for its
+ * closed face — a dropdown and a text input are the same field on screen.
+ */
+export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={`textarea ${props.className ?? ""}`.trim()}
+    />
+  );
+}
+
+/**
+ * Checkbox and Radio DO carry their label, and that is the difference from the
+ * fields above: for a tick the label is not a caption sitting nearby, it is the
+ * other half of the click target. Wrapping the input is what makes the words
+ * clickable and what gives the control its accessible name without an `id` to
+ * thread — which is why seventeen of the twenty hand-rolled sites already wrote
+ * this shape, each with its own wrapper class and its own idea of the gap.
+ *
+ * `label` is a ReactNode, not a string: a consent line carries emphasis and a
+ * settings toggle carries a help line under the name.
+ *
+ * `className` lands on the LABEL, not the input, because that is where every
+ * existing call site puts its layout — a row that needs `align-items:flex-start`
+ * for a two-line label says so there.
+ */
+type ToggleProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  label: ReactNode;
+};
+
+function Toggle({
+  kind,
+  label,
+  className,
+  ...rest
+}: ToggleProps & { kind: "checkbox" | "radio" }) {
+  return (
+    <label
+      className={["checkfield", className ?? ""].filter(Boolean).join(" ")}
+    >
+      <input type={kind} {...rest} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+export function Checkbox(props: ToggleProps) {
+  return <Toggle kind="checkbox" {...props} />;
+}
+
+export function Radio(props: ToggleProps) {
+  return <Toggle kind="radio" {...props} />;
+}
+
+/**
+ * What a Field hands its control: the id its label points at, the required
+ * state, and the hint to describe it by. Callers spread it whole rather than
+ * picking pieces, so a field that later grows a hint wires it up without the
+ * call site changing.
+ */
+export type FieldControl = Readonly<{
+  id: string;
+  required?: boolean;
+  "aria-describedby"?: string;
+}>;
+
+/**
+ * Field is the label-above-control row every form is built from.
+ *
+ * It owns the id. Before this, each call site minted its own — `${formId}-role`,
+ * `${headingId}-expiry`, a hardcoded "overlay-region" — and had to remember to
+ * repeat it in two places; a typo in either half silently unlabels the control,
+ * and nothing fails. `useId` removes the chance to get it wrong.
+ *
+ * The label is a real `<label>` with `htmlFor`, which is the other reason this
+ * exists: eleven call sites drew the same row with a `<span>` and pointed at it
+ * with `aria-labelledby`. That announces correctly but is not a label — clicking
+ * the words does not focus the control, and the browser's own form semantics
+ * never engage.
+ *
+ * The hint sits OUTSIDE the label deliberately. Inside, it would be swallowed
+ * into the control's accessible name, so a reader would hear the entire help
+ * text every time focus lands.
+ *
+ * `required` marks the label and the control from one prop. The asterisk is
+ * `aria-hidden` because the control's own `required` already announces the
+ * state — spelling it twice is how a field ends up read as "Role star required".
+ */
+export function Field({
+  label,
+  hint,
+  required,
+  className,
+  children,
+}: Readonly<{
+  // A node, not a string: a label is usually words, but a field whose value was
+  // read from somewhere carries its provenance in the label row — a confidence
+  // meter and a source chip beside the name.
+  label: ReactNode;
+  hint?: string;
+  required?: boolean;
+  // Layout the surrounding form owns — a width, a grid span, a screen's own
+  // field modifier. It lands on the wrapper, which is the only element a
+  // caller has any business positioning.
+  className?: string;
+  children: (control: FieldControl) => ReactNode;
+}>) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  return (
+    <div className={["field", className ?? ""].filter(Boolean).join(" ")}>
+      <label className="t-label" htmlFor={id}>
+        {label}
+        {required && <span aria-hidden> *</span>}
+      </label>
+      {children({ id, required, "aria-describedby": hintId })}
+      {hint && (
+        <p className="t-caption" id={hintId}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * StatCard is one reading at the top of a record: a label, the reading itself,
  * and one line of detail saying what it is drawn from.
  *
@@ -155,15 +302,23 @@ export function StatCard({
   value,
   detail,
   tone,
+  source,
 }: Readonly<{
   label: string;
   value: string;
   detail?: string;
   tone?: "warn" | "danger";
+  // Where the figure came from, named on the card that shows it. A money
+  // reading a reader cannot trace is one they have to go and verify
+  // elsewhere, which is the trip the badge saves them.
+  source?: ReactNode;
 }>) {
   return (
     <section className="stat-card">
-      <span className="stat-card-label t-caption">{label}</span>
+      <span className="stat-card-label t-caption">
+        {label}
+        {source && <span className="stat-card-source">{source}</span>}
+      </span>
       <span
         className={
           tone
@@ -265,6 +420,7 @@ export function Modal({
   onClose,
   labelledBy,
   size = "default",
+  placement = "center",
   children,
 }: Readonly<{
   open: boolean;
@@ -273,6 +429,11 @@ export function Modal({
   // "wide" roomier variant for content-dense dialogs (code/YAML previews);
   // "default" keeps the compact form width every confirm/create modal uses.
   size?: "default" | "wide";
+  // "right" anchors the dialog to the right edge, full height — the drawer
+  // form the composer and the evidence receipt use, where the record behind
+  // stays visible as context rather than being covered by a centred box.
+  // `size` does not apply to it: a drawer's width comes from the viewport.
+  placement?: "center" | "right";
   children: ReactNode;
 }>) {
   const dialog = useRef<HTMLDivElement | null>(null);
@@ -322,7 +483,7 @@ export function Modal({
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
     <div
-      className="overlay"
+      className={placement === "right" ? "overlay overlay-right" : "overlay"}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -334,7 +495,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={size === "wide" ? "modal modal-wide" : "modal"}
+        className={modalClass(size, placement)}
         ref={dialog}
         // Focusable so a dialog whose body is pure text still receives focus
         // when it opens, rather than leaving it on the page behind.
@@ -345,6 +506,15 @@ export function Modal({
     </div>,
     document.body,
   );
+}
+
+// A right-anchored dialog draws its width from the viewport, so the `size`
+// variants — which exist to widen a centred box — do not apply to it.
+function modalClass(size: "default" | "wide", placement: "center" | "right") {
+  if (placement === "right") {
+    return "modal modal-drawer";
+  }
+  return size === "wide" ? "modal modal-wide" : "modal";
 }
 
 // Keep Tab inside the dialog. `aria-modal` tells a screen reader the rest of
@@ -497,6 +667,13 @@ export function DataTable<Row>({
  *
  * `open` forces it open for a state the reader must not miss (a tool that is
  * running, a result that just arrived); left undefined the reader decides.
+ *
+ * `summary` is a node rather than a string because a summary is a ROW, and
+ * some of them carry more than a label — a count beside the name, a status
+ * chip. Passing a string stays the ordinary case and reads identically; the
+ * alternative was a second `<details>` implementation living beside this one,
+ * which is how two disclosures on one screen end up disagreeing about their
+ * own caret. `className` is the same bargain for the row's chrome.
  */
 // OverflowMenu folds the verbs a record offers but a reader rarely wants —
 // merge, archive, share — behind one control, so the header carries identity
@@ -610,14 +787,19 @@ export function OverflowMenu({
 export function Disclosure({
   summary,
   open,
+  className,
   children,
 }: Readonly<{
-  summary: string;
+  summary: ReactNode;
   open?: boolean;
+  className?: string;
   children: ReactNode;
 }>) {
   return (
-    <details className="disclosure" open={open}>
+    <details
+      className={className ? `disclosure ${className}` : "disclosure"}
+      open={open}
+    >
       <summary className="disclosure-summary">
         <ChevronRight className="disclosure-chevron" aria-hidden="true" />
         <span className="t-label">{summary}</span>

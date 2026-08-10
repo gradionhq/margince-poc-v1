@@ -12,7 +12,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // screenshot shows the actual error sentence, not just the empty form.
 
 const meta: Meta<typeof ImapConnectForm> = {
-  title: "screens/imap-connect-form",
+  title: "Screens/imap-connect-form",
   component: ImapConnectForm,
 };
 export default meta;
@@ -21,14 +21,14 @@ type Story = StoryObj<typeof ImapConnectForm>;
 async function fillAndSubmit(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   await userEvent.type(
-    canvas.getByLabelText("IMAP server"),
+    canvas.getByLabelText("IMAP server *"),
     "mail.example.org",
   );
   await userEvent.type(
-    canvas.getByLabelText("Email address"),
+    canvas.getByLabelText("Email address *"),
     "lars@example.org",
   );
-  await userEvent.type(canvas.getByLabelText("App password"), "app-password");
+  await userEvent.type(canvas.getByLabelText("App password *"), "app-password");
   await userEvent.click(canvas.getByRole("button", { name: "Connect" }));
 }
 

@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type fxRateDTO struct {
@@ -28,28 +30,28 @@ type fxRateListDTO struct {
 	Data []fxRateDTO `json:"data"`
 }
 
-func (e *env) baseCurrency(t *testing.T) string {
+func baseCurrency(e *apptest.AppEnv, t *testing.T) string {
 	t.Helper()
 	var base string
-	if err := e.owner.QueryRow(context.Background(),
-		`SELECT base_currency FROM workspace WHERE slug = $1`, e.slug).Scan(&base); err != nil {
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT base_currency FROM workspace WHERE slug = $1`, e.Slug).Scan(&base); err != nil {
 		t.Fatalf("base currency lookup: %v", err)
 	}
 	return base
 }
 
 func TestFxRatesOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	today := time.Now().UTC().Format("2006-01-02")
 
 	from := "USD"
-	if e.baseCurrency(t) == "USD" {
+	if baseCurrency(e, t) == "USD" {
 		from = "GBP"
 	}
 
 	var created fxRateDTO
-	if status := e.call(t, "POST", "/v1/fx-rates",
+	if status := e.Call(t, "POST", "/v1/fx-rates",
 		map[string]any{"from_currency": from, "rate": "0.92", "effective_date": today}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("POST /fx-rates → %d, want 201", status)
 	}
@@ -59,7 +61,7 @@ func TestFxRatesOverHTTP(t *testing.T) {
 	}
 
 	var list fxRateListDTO
-	if status := e.call(t, "GET", "/v1/fx-rates", nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/fx-rates", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET /fx-rates → %d, want 200", status)
 	}
 	if len(list.Data) != 1 || list.Data[0].FromCurrency != from {
@@ -68,7 +70,7 @@ func TestFxRatesOverHTTP(t *testing.T) {
 
 	// A past effective date is a clean 422, not a 500.
 	past := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	if status := e.call(t, "POST", "/v1/fx-rates",
+	if status := e.Call(t, "POST", "/v1/fx-rates",
 		map[string]any{"from_currency": from, "rate": "0.9", "effective_date": past}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("past-date POST /fx-rates → %d, want 422", status)
 	}
@@ -89,12 +91,12 @@ type aiModelRateListDTO struct {
 }
 
 func TestAiModelRatesOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	today := time.Now().UTC().Format("2006-01-02")
 
 	var created aiModelRateDTO
-	if status := e.call(t, "POST", "/v1/ai-model-rates", map[string]any{
+	if status := e.Call(t, "POST", "/v1/ai-model-rates", map[string]any{
 		"provider": "anthropic", "model_id": "claude-opus-4-8",
 		"input_per_mtok": "5.00", "output_per_mtok": "25",
 		"cache_read_per_mtok": "0.5", "cache_write_per_mtok": "6.25",
@@ -110,7 +112,7 @@ func TestAiModelRatesOverHTTP(t *testing.T) {
 	// The workspace bootstrap seeds default model rates; our upsert corrects
 	// the opus row in place, so the list contains opus at our input of 5.
 	var list aiModelRateListDTO
-	if status := e.call(t, "GET", "/v1/ai-model-rates", nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/ai-model-rates", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET /ai-model-rates → %d, want 200", status)
 	}
 	found := false
@@ -127,7 +129,7 @@ func TestAiModelRatesOverHTTP(t *testing.T) {
 	}
 
 	past := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	if status := e.call(t, "POST", "/v1/ai-model-rates", map[string]any{
+	if status := e.Call(t, "POST", "/v1/ai-model-rates", map[string]any{
 		"provider": "anthropic", "model_id": "m",
 		"input_per_mtok": "1", "output_per_mtok": "1",
 		"cache_read_per_mtok": "0", "cache_write_per_mtok": "0",

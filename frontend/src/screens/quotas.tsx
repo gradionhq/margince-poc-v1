@@ -13,7 +13,12 @@ import {
 } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
-import { ProblemError, problemMessage, QueryGate } from "./common";
+import {
+  ProblemError,
+  problemMessageOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
 import { EntityRef } from "./entityref";
 import {
   ArchiveQuotaAction,
@@ -40,7 +45,7 @@ export function useQuotas() {
       const { data, error } = await api.GET("/quotas", {
         params: { query: {} },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data.data;
     },
   });
@@ -322,8 +327,7 @@ function AttainmentSection({
     const problem =
       query.error instanceof ProblemError ? query.error.problem : null;
     const code = problemCode(problem);
-    const detail =
-      query.error instanceof Error ? query.error.message : t("common.error");
+    const detail = problemMessageOf(query.error, t);
     if (code === "attainment_target_zero") {
       return (
         <AttainmentRefusal title={t("quotas.err.targetZero")} detail={detail} />

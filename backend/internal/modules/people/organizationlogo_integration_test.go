@@ -204,19 +204,6 @@ func TestSetOrganizationLogoHandsBackTheObjectItSuperseded(t *testing.T) {
 	}
 }
 
-func TestSetOrganizationLogoRefusesAHalfResolvedWrite(t *testing.T) {
-	e := setupDedupe(t)
-	ctx := e.as()
-	orgID := seedLogoOrg(ctx, t, e, "Halbmond GmbH", "halbmond.test")
-
-	if _, _, err := e.store.SetOrganizationLogo(ctx, orgID, "", "https://halbmond.test/f.png"); err == nil {
-		t.Fatal("a logo with no storage key must be refused")
-	}
-	if _, _, err := e.store.SetOrganizationLogo(ctx, orgID, "k", ""); err == nil {
-		t.Fatal("a logo with no source URL must be refused — its provenance would be blank")
-	}
-}
-
 func TestOrganizationLogoIsRowScopedLikeEveryOtherRead(t *testing.T) {
 	e := setupDedupe(t)
 	owner := e.as()

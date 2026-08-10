@@ -92,7 +92,7 @@ async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
 }
 
 const meta: Meta<typeof WebhooksCard> = {
-  title: "screens/webhooks",
+  title: "Screens/webhooks",
   component: WebhooksCard,
 };
 export default meta;

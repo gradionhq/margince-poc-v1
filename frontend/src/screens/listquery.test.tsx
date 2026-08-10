@@ -6,23 +6,23 @@ import {
   fireEvent,
   render as rtlRender,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { ProblemError } from "./common";
 import {
-  ListGate,
-  type ListGateState,
+  type FilterSpec,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 
 // The shared list foundation (P-14): keyset pagination via useListQuery, and
-// the search/sort/filter toolbar every list screen adopts next. The
+// ListTable binding that query to the design-system list surface. The
 // debounce is real (setTimeout) so we drive it with fake timers, never a
 // real sleep (craft T11).
 
@@ -42,7 +42,7 @@ function render(ui: ReactNode) {
   );
 }
 
-type Row = { id: string };
+type Row = { id: string; name: string };
 
 function Harness({
   fetchPage,
@@ -77,12 +77,12 @@ describe("useListQuery", () => {
       async (_query: ListQuery, cursor: string | null) => {
         if (cursor === null) {
           return {
-            data: [{ id: "a" }],
+            data: [{ id: "a", name: "Anna" }],
             page: { next_cursor: "c1", has_more: true },
           };
         }
         return {
-          data: [{ id: "b" }],
+          data: [{ id: "b", name: "Bob" }],
           page: { next_cursor: null, has_more: false },
         };
       },
@@ -101,232 +101,273 @@ describe("useListQuery", () => {
   });
 });
 
-const sortOptions = [
-  { value: "-created_at", label: "list.search" as const },
-  { value: "name", label: "list.sort" as const },
-];
-
-function baseQuery(): ListQuery {
-  return { q: "", sort: "", includeArchived: false, filters: {} };
+function emptyPage(): ListPage<Row> {
+  return { data: [], page: { next_cursor: null, has_more: false } };
 }
 
-describe("ListToolbar", () => {
-  it("debounces search updates and calls setQuery after the delay", () => {
+function ListTableHarness({
+  fetchPage,
+  chips,
+  action,
+}: Readonly<{
+  fetchPage: (
+    query: ListQuery,
+    cursor: string | null,
+  ) => Promise<ListPage<Row>>;
+  chips?: readonly FilterSpec[];
+  action?: ReactNode;
+}>) {
+  const state = useListQuery<Row>({
+    key: "list-table-harness",
+    initialSort: "-created_at",
+    fetchPage,
+  });
+  return (
+    <ListTable
+      state={state}
+      unit="nav.contacts"
+      columns={[
+        {
+          key: "name",
+          header: "people.name",
+          cell: (row: Row) => row.name,
+          sort: "full_name",
+        },
+      ]}
+      rowKey={(row) => row.id}
+      chips={chips}
+      action={action}
+    />
+  );
+}
+
+describe("ListTable: query vocabulary", () => {
+  it("debounces search input before sending it to fetchPage", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(<ListTableHarness fetchPage={fetchPage} />);
+    const search = await screen.findByPlaceholderText("Search");
+
     vi.useFakeTimers();
     try {
-      const setQuery = vi.fn();
-      render(
-        <ListToolbar
-          query={baseQuery()}
-          setQuery={setQuery}
-          sortOptions={sortOptions}
-        />,
-      );
-
-      const search = screen.getByRole("searchbox");
       fireEvent.change(search, { target: { value: "acme" } });
 
-      expect(setQuery).not.toHaveBeenCalled();
+      expect(fetchPage.mock.calls.some(([query]) => query.q === "acme")).toBe(
+        false,
+      );
 
-      vi.advanceTimersByTime(250);
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
 
-      // setQuery is now called with a functional updater (see the
-      // stale-query race regression test below), not a plain object.
-      expect(setQuery).toHaveBeenCalledTimes(1);
-      const updater = setQuery.mock.calls[0][0] as (
-        prev: ListQuery,
-      ) => ListQuery;
-      expect(updater(baseQuery())).toEqual(
-        expect.objectContaining({ q: "acme" }),
+      expect(fetchPage.mock.calls.some(([query]) => query.q === "acme")).toBe(
+        true,
       );
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("does not revert a concurrent toggle when the debounced search commits", () => {
+  it("does not revert a concurrent archived toggle when the debounced search commits", async () => {
     // Regression: the debounce timer used to close over the `query` prop at
     // the time it was scheduled. Typing into search, then toggling
     // include-archived before the 250ms debounce fires, used to overwrite
     // the toggle with the stale query captured before it happened.
-    function ControlledToolbar() {
-      const [query, setQuery] = useState<ListQuery>(baseQuery());
-      return (
-        <>
-          <ListToolbar
-            query={query}
-            setQuery={setQuery}
-            sortOptions={sortOptions}
-          />
-          <div data-testid="query-json">{JSON.stringify(query)}</div>
-        </>
-      );
-    }
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(<ListTableHarness fetchPage={fetchPage} />);
+    const search = await screen.findByPlaceholderText("Search");
 
     vi.useFakeTimers();
     try {
-      render(<ControlledToolbar />);
-
-      const search = screen.getByRole("searchbox");
       fireEvent.change(search, { target: { value: "acme" } });
 
-      // Still inside the debounce window: toggle include-archived, which
-      // commits to query immediately.
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100);
       });
-      const archived = screen.getByLabelText(
-        "Show archived",
-      ) as HTMLInputElement;
+      const archived = screen.getByLabelText("Show archived");
       fireEvent.click(archived);
 
-      // Let the pending debounce timer fire.
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(250);
+        await Promise.resolve();
       });
 
-      const finalQuery = JSON.parse(
-        screen.getByTestId("query-json").textContent ?? "{}",
-      ) as ListQuery;
-      expect(finalQuery.q).toBe("acme");
-      expect(finalQuery.includeArchived).toBe(true);
+      const lastCall = fetchPage.mock.calls.at(-1);
+      expect(lastCall?.[0].q).toBe("acme");
+      expect(lastCall?.[0].includeArchived).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("updates sort and includeArchived immediately", async () => {
-    const setQuery = vi.fn();
-    render(
-      <ListToolbar
-        query={baseQuery()}
-        setQuery={setQuery}
-        sortOptions={sortOptions}
-      />,
+  it("clicking a sortable column header requests that field from the server", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
     );
+    render(<ListTableHarness fetchPage={fetchPage} />);
 
-    const sortSelect = screen.getByLabelText("Sort") as HTMLSelectElement;
-    await userEvent.selectOptions(sortSelect, "name");
-    expect(setQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ sort: "name" }),
+    const sortButton = await screen.findByRole("button", {
+      name: "Sort by people.name",
+    });
+    await userEvent.click(sortButton);
+
+    expect(
+      fetchPage.mock.calls.some(([query]) => query.sort === "full_name"),
+    ).toBe(true);
+  });
+
+  it("toggling Show archived requests archived rows", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
     );
+    render(<ListTableHarness fetchPage={fetchPage} />);
 
-    const archived = screen.getByLabelText("Show archived") as HTMLInputElement;
+    const archived = await screen.findByLabelText("Show archived");
     await userEvent.click(archived);
-    expect(setQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ includeArchived: true }),
-    );
+
+    expect(
+      fetchPage.mock.calls.some(([query]) => query.includeArchived === true),
+    ).toBe(true);
   });
 
-  it("updates a select filter", async () => {
-    const setQuery = vi.fn();
-    render(
-      <ListToolbar
-        query={baseQuery()}
-        setQuery={setQuery}
-        sortOptions={sortOptions}
-        filters={[
+  it("picking a filter chip narrows the query, and clearing it drops the key", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    const { container } = render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
           {
-            kind: "select",
             key: "status",
-            label: "people.name",
+            label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
             options: [
-              { value: "new", label: "list.sort" },
-              { value: "won", label: "list.search" },
+              { value: "new", label: "lead.statusNew" },
+              { value: "working", label: "lead.statusWorking" },
             ],
           },
         ]}
       />,
     );
 
-    const statusSelect = screen.getByLabelText("Name") as HTMLSelectElement;
-    await userEvent.selectOptions(statusSelect, "new");
-    expect(setQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ filters: { status: "new" } }),
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Filter" }),
     );
-  });
+    await userEvent.click(screen.getByRole("button", { name: "Status" }));
+    await userEvent.click(screen.getByRole("button", { name: "New" }));
 
-  it("removes a cleared select filter's key instead of storing an empty string", async () => {
-    const setQuery = vi.fn();
-    render(
-      <ListToolbar
-        query={{ ...baseQuery(), filters: { status: "new" } }}
-        setQuery={setQuery}
-        sortOptions={sortOptions}
-        filters={[
-          {
-            kind: "select",
-            key: "status",
-            label: "people.name",
-            options: [
-              { value: "new", label: "list.sort" },
-              { value: "won", label: "list.search" },
-            ],
-          },
-        ]}
-      />,
-    );
+    expect(
+      fetchPage.mock.calls.some(([query]) => query.filters.status === "new"),
+    ).toBe(true);
 
-    const statusSelect = screen.getByLabelText("Name") as HTMLSelectElement;
-    await userEvent.selectOptions(statusSelect, "");
-    expect(setQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ filters: {} }),
-    );
-    const lastCall = setQuery.mock.calls.at(-1)?.[0] as ListQuery;
-    expect(lastCall.filters).not.toHaveProperty("status");
+    // The applied filter now reads as a row (attribute/condition/value); its
+    // value segment reopens the same value list, showing the chosen label —
+    // scoped to the trigger itself, since its own (closed) menu carries a
+    // same-labelled option.
+    const valueTrigger = container.querySelector<HTMLElement>(".lt-frow-value");
+    if (!valueTrigger) {
+      throw new Error("the applied filter's value trigger did not render");
+    }
+    await userEvent.click(valueTrigger);
+    await userEvent.click(screen.getByRole("button", { name: "All statuses" }));
+
+    const lastCall = fetchPage.mock.calls.at(-1);
+    expect(lastCall?.[0].filters).not.toHaveProperty("status");
   });
 });
 
-describe("ListGate", () => {
-  function emptyState(): ListGateState<{ id: string }> {
-    return {
-      rows: [],
-      isPending: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-      hasMore: false,
-      loadMore: () => {},
-    };
-  }
-
-  function stubMe(mode: "native" | "overlay") {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              user: { id: "u1", email: "a@example.test", display_name: "A" },
-              roles: ["admin"],
-              teams: [],
-              system_of_record: { mode },
-            }),
-            { headers: { "Content-Type": "application/json" } },
-          ),
-      ),
+describe("ListTable: pending, error and empty states", () => {
+  it("keeps the header, toolbar and primary action on screen while the first page loads, and shows placeholder rows in the body", () => {
+    const fetchPage = vi.fn(() => new Promise<ListPage<Row>>(() => {}));
+    const { container } = render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        action={<button type="button">New contact</button>}
+      />,
     );
-  }
-
-  it("explains owner mapping in the overlay empty state", async () => {
-    stubMe("overlay");
-    render(
-      <ListGate state={emptyState()} empty="No leads yet.">
-        {() => null}
-      </ListGate>,
-    );
-    await screen.findByText("No leads yet.");
-    expect(await screen.findByText(/owner's HubSpot email/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New contact" })).toBeTruthy();
+    expect(container.querySelectorAll(".lt-loading").length).toBeGreaterThan(0);
+    expect(container.querySelector(".lt-bone")).toBeTruthy();
   });
 
-  it("shows only the caller's empty copy in native mode", async () => {
-    stubMe("native");
-    render(
-      <ListGate state={emptyState()} empty="No leads yet.">
-        {() => null}
-      </ListGate>,
+  it("shows the server's error detail and retries on demand", async () => {
+    const fetchPage = vi
+      .fn<(query: ListQuery, cursor: string | null) => Promise<ListPage<Row>>>()
+      // A server problem, not a bare Error: the body reports the detail the
+      // API sent, and a failure with no problem behind it falls back to the
+      // generic copy rather than putting an internal message on the screen.
+      .mockRejectedValueOnce(
+        new ProblemError({ detail: "missing scope people:read" }),
+      )
+      .mockResolvedValue(emptyPage());
+    render(<ListTableHarness fetchPage={fetchPage} />);
+
+    await screen.findByText("Couldn't load this view.");
+    expect(screen.getByText("missing scope people:read")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await screen.findByRole("cell", { name: "No Contacts yet." });
+  });
+
+  it("renders the table's own empty state once the list loads with no rows", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
     );
-    await screen.findByText("No leads yet.");
-    expect(screen.queryByText(/owner's HubSpot email/i)).toBeNull();
+    render(<ListTableHarness fetchPage={fetchPage} />);
+
+    await screen.findByRole("cell", { name: "No Contacts yet." });
+  });
+});
+
+describe("removing an applied filter", () => {
+  it("drops the key from the query when the row's Delete filter is used", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "status",
+            label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
+            options: [{ value: "working", label: "lead.statusWorking" }],
+          },
+        ]}
+      />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Filter" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Status" }));
+    await userEvent.click(screen.getByRole("button", { name: "Working" }));
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.some(([query]) => query.filters.status)).toBe(
+        true,
+      ),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "More actions for the Status filter",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete filter" }),
+    );
+
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
+        "status",
+      ),
+    );
   });
 });

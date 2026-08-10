@@ -15,7 +15,7 @@ package integration
 // Start), never a sleep or a poll — the same idiom
 // no_activity_reminder_workqueue_integration_test.go established for
 // this package's other real-worker suites (applyRiverSchema/
-// awaitKindCompleted are that file's helpers, reused here unchanged).
+// AwaitKindCompleted are that file's helpers, reused here unchanged).
 //
 // The 409-vs-202 split rides the marker's own claim, proven here through
 // the real handler, not asserted against the store directly —
@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -107,7 +108,7 @@ func embedReindexRouter(t *testing.T, modelName string) *ai.Router {
 // (the vacuous "nothing populated yet, nothing configured differently"
 // baseline binding_integration_test.go's SeedBinding test proves), and
 // leaves the bootstrap admin's session in the client jar.
-func setupEmbedReindex(t *testing.T, router *ai.Router) *env {
+func setupEmbedReindex(t *testing.T, router *ai.Router) *apptest.AppEnv {
 	t.Helper()
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	if appDSN == "" {
@@ -115,9 +116,9 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *env {
 	}
 	ctx := context.Background()
 
-	// A separate pool from the pointed-at-the-same-DSN pool env's own
-	// setupWithOptions opens below — jobs.NewInserter just needs SOME
-	// pool reaching the same Postgres, not the exact same *pgxpool.Pool
+	// A separate pool from the pointed-at-the-same-DSN pool that
+	// apptest.SetupAppWithOptions opens below — jobs.NewInserter just needs
+	// SOME pool reaching the same Postgres, not the exact same *pgxpool.Pool
 	// object (mirrors SchemaPool(t)'s own separate-connection precedent).
 	wirePool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
@@ -130,18 +131,18 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *env {
 		t.Fatalf("jobs.NewInserter: %v", err)
 	}
 
-	e := setupWithOptions(t, compose.WithEmbedReindex(router, inserter))
+	e := apptest.SetupAppWithOptions(t, compose.WithEmbedReindex(router, inserter))
 	// The confirm handler enqueues into river_job on ITS OWN transaction
 	// (search.Store.ClaimAndEnqueueReembedding), so the schema must exist
 	// before the FIRST confirm call, not merely before a worker starts —
 	// applyRiverSchema is idempotent (existence-guarded), so every
 	// caller of this setup pays for it at most once per process.
 	ApplyRiverSchema(t)
-	bootstrapWorkspaceSession(t, e, "Embed Reindex E2E", "embed-reindex@fable.test", "Admin")
-	e.slug = "embed-reindex-e2e" // slugify("Embed Reindex E2E")
+	apptest.BootstrapWorkspaceSession(t, e, "Embed Reindex E2E", "embed-reindex@fable.test", "Admin")
+	e.Slug = "embed-reindex-e2e" // slugify("Embed Reindex E2E")
 
 	identity, _ := router.EmbedIdentity()
-	if err := search.NewStore(e.pool).SeedBinding(ctx, identity); err != nil {
+	if err := search.NewStore(e.Pool).SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	return e
@@ -149,12 +150,12 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *env {
 
 // embedReindexWorkspaceID resolves the bootstrapped workspace's raw id —
 // there is no /v1/workspaces endpoint to read it from, so this reads it
-// the same way demoteToRep/setWorkspaceSeat already do (owner connection,
+// the same way demoteToRep/SetWorkspaceSeat already do (owner connection,
 // by slug).
-func embedReindexWorkspaceID(t *testing.T, e *env) string {
+func embedReindexWorkspaceID(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var wsID string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	return wsID
@@ -165,16 +166,16 @@ func embedReindexWorkspaceID(t *testing.T, e *env) string {
 // binding_integration_test.go's TestReindexNeededAfterStaleIdentityRow
 // proves at the store: an entity with an embedding row, just not a
 // CURRENT one, must still count as pending.
-func seedStaleEmbeddingRow(t *testing.T, e *env, wsID string) {
+func seedStaleEmbeddingRow(t *testing.T, e *apptest.AppEnv, wsID string) {
 	t.Helper()
 	ctx := context.Background()
 	var personID string
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`INSERT INTO person (workspace_id, full_name, source, captured_by) VALUES ($1, 'Stale Row Person', 'manual', 'human:x') RETURNING id`,
 		wsID).Scan(&personID); err != nil {
 		t.Fatalf("seeding the stale-row person: %v", err)
 	}
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'stale-hash', 'fake/stale-identity@1024', '[1,2,3]'::vector)`,
 		wsID, personID); err != nil {
@@ -189,11 +190,11 @@ func seedStaleEmbeddingRow(t *testing.T, e *env, wsID string) {
 // store pass standing in for it. The three always-on periodic passes
 // are given a long interval so they don't interleave noise into this
 // suite's completion/cancellation stream.
-func newEmbedReindexRunner(t *testing.T, e *env, embedder search.Embedder) *jobs.Runner {
+func newEmbedReindexRunner(t *testing.T, e *apptest.AppEnv, embedder search.Embedder) *jobs.Runner {
 	t.Helper()
 	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner, err := compose.NewJobRunner(e.pool, quiet, compose.JobRunnerConfig{
+	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -225,26 +226,26 @@ func startEmbedReindexRunner(t *testing.T, runner *jobs.Runner) {
 // embedStatus/embedPreview/embedConfirm are the three ops' thin call
 // wrappers — every scenario below drives the SAME transport, never the
 // store directly (that coverage is binding_integration_test.go's).
-func embedStatus(t *testing.T, e *env) (int, embedReindexStatusWire, embedReindexProblem) {
+func embedStatus(t *testing.T, e *apptest.AppEnv) (int, embedReindexStatusWire, embedReindexProblem) {
 	t.Helper()
 	return embedReindexDecode[embedReindexStatusWire](t, e, "GET", "/v1/embeddings/reindex/status", nil)
 }
 
-func embedPreview(t *testing.T, e *env) (int, embedReindexPreviewWire, embedReindexProblem) {
+func embedPreview(t *testing.T, e *apptest.AppEnv) (int, embedReindexPreviewWire, embedReindexProblem) {
 	t.Helper()
 	return embedReindexDecode[embedReindexPreviewWire](t, e, "GET", "/v1/embeddings/reindex/preview", nil)
 }
 
 // embedConfirm issues the confirm call. body is nil for a bare confirm
 // (an empty request — decodeEmbedReindexStart's zero-value path) or an
-// anyMap carrying previewed_identity/force; passed straight through as
+// apptest.AnyMap carrying previewed_identity/force; passed straight through as
 // `any` so a literal nil stays a true nil interface (never a boxed nil
 // map, which would marshal to the 4-byte literal "null" instead of an
 // empty body — harmless to the handler's own decode either way, but this
 // keeps the ContentLength==0 path genuinely exercised).
 //
 //craft:ignore naked-any a type parameter would box the literal-nil body a bare confirm depends on (see above)
-func embedConfirm(t *testing.T, e *env, body any) (int, embedReindexStatusWire, embedReindexProblem) {
+func embedConfirm(t *testing.T, e *apptest.AppEnv, body any) (int, embedReindexStatusWire, embedReindexProblem) {
 	t.Helper()
 	return embedReindexDecode[embedReindexStatusWire](t, e, "POST", "/v1/embeddings/reindex", body)
 }
@@ -257,10 +258,10 @@ func embedConfirm(t *testing.T, e *env, body any) (int, embedReindexStatusWire, 
 // success shape, so the status code must pick the target type first).
 //
 //craft:ignore naked-any body passes embedConfirm's nil-preserving contract through to the harness call
-func embedReindexDecode[T any](t *testing.T, e *env, method, path string, body any) (int, T, embedReindexProblem) {
+func embedReindexDecode[T any](t *testing.T, e *apptest.AppEnv, method, path string, body any) (int, T, embedReindexProblem) {
 	t.Helper()
 	var raw json.RawMessage
-	status := e.call(t, method, path, body, nil, &raw)
+	status := e.Call(t, method, path, body, nil, &raw)
 	var success T
 	var problem embedReindexProblem
 	if len(raw) == 0 {
@@ -395,7 +396,7 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK {
@@ -418,7 +419,7 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 	// The released marker is claimable again: the run gave it back, rather
 	// than the confirm having to wait for a job row to age out of some
 	// uniqueness window.
-	if status, _, _ := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+	if status, _, _ := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusAccepted {
 		t.Fatalf("confirm after the run released -> %d, want 202", status)
 	}
 }
@@ -439,7 +440,7 @@ func TestEmbedReindexRepeatConfirmIsRefusedAfterItsDispatcherFinishes(t *testing
 	if status, _, _ := embedConfirm(t, e, nil); status != http.StatusAccepted {
 		t.Fatalf("first confirm -> %d, want 202", status)
 	}
-	tag, err := e.owner.Exec(context.Background(),
+	tag, err := e.Owner.Exec(context.Background(),
 		`UPDATE river_job SET state = 'completed', finalized_at = now() WHERE kind = 'embed_reindex' AND state != 'completed'`)
 	if err != nil {
 		t.Fatalf("finalizing the dispatcher row: %v", err)
@@ -466,13 +467,13 @@ func TestEmbedReindexConfirmRefusesIdentityDrift(t *testing.T) {
 	wsID := embedReindexWorkspaceID(t, e)
 	seedStaleEmbeddingRow(t, e, wsID)
 
-	status, _, problem := embedConfirm(t, e, anyMap{"previewed_identity": "fake/someone-else@1024"})
+	status, _, problem := embedConfirm(t, e, apptest.AnyMap{"previewed_identity": "fake/someone-else@1024"})
 	if status != http.StatusConflict || problem.Code != "reindex_identity_drift" {
 		t.Fatalf("drifted confirm -> %d %+v, want 409 reindex_identity_drift", status, problem)
 	}
 
 	identity, _ := router.EmbedIdentity()
-	status, confirmed, _ := embedConfirm(t, e, anyMap{"previewed_identity": identity})
+	status, confirmed, _ := embedConfirm(t, e, apptest.AnyMap{"previewed_identity": identity})
 	if status != http.StatusAccepted {
 		t.Fatalf("matching-identity confirm -> %d, want 202 (the drifted attempt must not have left a live claim)", status)
 	}
@@ -502,7 +503,7 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 	// force=true: this scenario is about the WORKER's own drift guard,
 	// not about whether the store happens to derive reindex-needed —
 	// force is the affordance that lets the enqueue happen regardless.
-	status, confirmed, _ := embedConfirm(t, e, anyMap{"force": true})
+	status, confirmed, _ := embedConfirm(t, e, apptest.AnyMap{"force": true})
 	if status != http.StatusAccepted || confirmed.Status != "reembedding" {
 		t.Fatalf("confirm -> %d %+v, want 202/reembedding", status, confirmed)
 	}
@@ -517,10 +518,10 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	var jobState string
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT state FROM river_job WHERE kind = 'embed_reindex_workspace' ORDER BY id DESC LIMIT 1`).Scan(&jobState); err != nil {
 		t.Fatalf("reading the job's terminal state: %v", err)
 	}
@@ -538,7 +539,7 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 	if st.PopulatedIdentity != before {
 		t.Fatalf("populated_identity = %q, want it unmoved at %q — a cancelled run re-embedded nothing and must claim nothing", st.PopulatedIdentity, before)
 	}
-	if status, _, problem := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+	if status, _, problem := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusAccepted {
 		t.Fatalf("re-confirm after the drifted run cancelled -> %d %+v, want 202 — the marker is what the next run needs back", status, problem)
 	}
 }
@@ -567,7 +568,7 @@ func TestEmbedReindexForceReindexWhenNotNeeded(t *testing.T) {
 		t.Fatalf("bare confirm on a caught-up store -> %d %+v, want 409 reindex_not_needed", status, problem)
 	}
 
-	status, forced, _ := embedConfirm(t, e, anyMap{"force": true})
+	status, forced, _ := embedConfirm(t, e, apptest.AnyMap{"force": true})
 	if status != http.StatusAccepted {
 		t.Fatalf("forced confirm -> %d, want 202 (force is the rebuild affordance)", status)
 	}
@@ -581,7 +582,7 @@ func TestEmbedReindexForceReindexWhenNotNeeded(t *testing.T) {
 	startEmbedReindexRunner(t, runner2)
 	waitCtx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
-	awaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK || final.Status != "idle" || final.ReindexNeeded {
