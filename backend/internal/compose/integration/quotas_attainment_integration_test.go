@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -35,7 +35,7 @@ var attainmentClock = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC)
 
 func attainmentStore(e *Env) *quotas.Store {
 	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock },
-		compose.InstallationBaseCurrency())
+		identity.BaseCurrencyOf)
 }
 
 // attainmentDealSeed is one deal row inserted directly — attainment is a

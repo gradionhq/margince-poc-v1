@@ -29,8 +29,9 @@ import (
 var offerDeskPerms = principal.Permissions{
 	RoleKeys: []string{"deal_desk"},
 	Objects: map[string]principal.ObjectGrant{
-		"deal":  {Create: true, Read: true, Update: true},
-		"offer": {Create: true, Read: true, Update: true},
+		"deal":                  {Create: true, Read: true, Update: true},
+		"offer":                 {Create: true, Read: true, Update: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

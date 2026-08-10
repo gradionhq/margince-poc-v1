@@ -100,10 +100,16 @@ func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
 // ratesPricedAgainstBase counts the sheet rows converting into the base the
 // workspace currently holds, and returns that base so the reason can name it.
 //
-// It reads workspace.base_currency rather than the setting row: this runs
-// inside the settings write's own transaction, BEFORE the new value is stored,
-// so the mirror column still holds the base being replaced — which is exactly
-// the one the sheet was priced against.
+// It reads workspace.base_currency rather than the setting row, and NOT
+// because the setting row is unwritten at this point — it holds the outgoing
+// value too, since the freeze probe runs before the update. The reason is the
+// FIRST write: on an installation that has never stored the setting there is
+// no row to read, and the refusing read (settings.RequireTx) would fail the
+// probe rather than answer "nothing is priced yet". The column always has a
+// value, so it can answer for the base being replaced in both cases.
+//
+// This is why the probe is not part of the sweep that moved the other readers
+// (issue #521): it needs the reading that tolerates an unset setting.
 func ratesPricedAgainstBase(ctx context.Context, tx pgx.Tx) (int, string, error) {
 	var base string
 	var priced int

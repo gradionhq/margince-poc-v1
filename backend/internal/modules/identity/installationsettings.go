@@ -110,8 +110,10 @@ func (s *InstallationSettingsStore) baseCurrencyLock(ctx context.Context) (bool,
 //
 // Every field commits in ONE transaction, together with a mirror write onto
 // the `workspace` columns. The mirror is TRANSITIONAL and load-bearing until
-// it goes: roll-ups, FX conversion, quota attainment and the report builder
-// still read workspace.base_currency and workspace.timezone directly. Without
+// it goes. What still reads the columns directly, and so still depends on it:
+// the company roll-up and the org-360 reads, the brief ranker, the close-date
+// sweep's timezone, and the base-currency freeze probe below — deals, quotas
+// and finance have moved to the settings row (issue #521). Without
 // it, this surface would report a base currency that nothing computes in —
 // changing it would move the number on this screen and leave every roll-up on
 // the old basis, which is worse than not offering the control. The mirror

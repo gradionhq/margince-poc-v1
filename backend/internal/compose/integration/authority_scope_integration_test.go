@@ -33,10 +33,11 @@ func repPermsWithOrg() principal.Permissions {
 	p := principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"person":       {Create: true, Read: true, Update: true},
-			"organization": {Create: true, Read: true, Update: true},
-			"deal":         {Create: true, Read: true, Update: true},
-			"pipeline":     {Read: true},
+			"person":                {Create: true, Read: true, Update: true},
+			"organization":          {Create: true, Read: true, Update: true},
+			"deal":                  {Create: true, Read: true, Update: true},
+			"pipeline":              {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}

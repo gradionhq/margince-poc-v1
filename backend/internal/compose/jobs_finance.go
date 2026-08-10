@@ -26,6 +26,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/finance"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -93,7 +94,7 @@ func (w *financeSyncWorker) Work(ctx context.Context, job *river.Job[FinanceSync
 		// connected nothing, and a sweep over them has nothing to do.
 		return nil
 	}
-	store := finance.NewStore(w.pool, InstallationBaseCurrency())
+	store := finance.NewStore(w.pool, identity.BaseCurrencyOf)
 	result, err := store.SyncConnection(wsCtx, provider)
 	if err != nil {
 		return jobs.FaultContext(ctx, store.RecordSyncFailure(wsCtx, err))

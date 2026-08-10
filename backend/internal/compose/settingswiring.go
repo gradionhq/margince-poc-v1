@@ -9,12 +9,10 @@ package compose
 // owns the mechanism and knows no domain; the modules own the meaning.
 
 import (
-	"context"
 	"reflect"
 	"strings"
 	"sync"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -133,21 +131,4 @@ func yamlPaths(t reflect.Type, prefix string) map[string]bool {
 		}
 	}
 	return out
-}
-
-// InstallationBaseCurrency is the one real BaseCurrencyFunc: the currency the
-// installation reports in, resolved from the settings row inside the caller's
-// own transaction.
-//
-// It lives in compose because it is a cross-module edge — the modules that
-// convert money (quotas, finance) may not import the module that owns the
-// setting (identity), so the entry is named HERE, once, and injected there.
-//
-// RequireTx rather than Get: an absent row must refuse rather than read as the
-// registered default, because these callers are converting and freezing money
-// against the answer.
-func InstallationBaseCurrency() func(context.Context, pgx.Tx) (string, error) {
-	return func(ctx context.Context, tx pgx.Tx) (string, error) {
-		return settings.RequireTx(ctx, tx, identity.BaseCurrency)
-	}
 }

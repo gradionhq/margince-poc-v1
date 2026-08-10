@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -76,15 +77,12 @@ func Setup(t *testing.T) *Env {
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Authz', 'authz', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	// The installation's base currency, as a setting row (ADR-0090/A135). It
-	// is seeded HERE, beside the workspace insert, because the two are one
-	// fact: this harness builds the installation by raw SQL, so migration
-	// 0191's backfill — which keys on a workspace that already exists — never
-	// saw it, and bootstrap's seed never ran either.
-	//
-	// It must match the column above. The readers are mid-migration off that
-	// column (ADR-0091 phase 4), so a suite whose two copies disagree is
-	// measuring the drift rather than the behaviour under test.
+	// The installation's base currency as a settings row (ADR-0090/A135), the
+	// other half of the same fact. This harness builds the installation by raw
+	// SQL, so bootstrap never seeded it and 0191's backfill ran before the
+	// workspace existed — and the money readers resolve the SETTING, not the
+	// column (issue #521). It must match the column above: a suite whose two
+	// copies disagree measures the drift rather than the behaviour under test.
 	if _, err := owner.Exec(ctx,
 		`INSERT INTO setting (key, value) VALUES ('installation.base_currency', '"EUR"'::jsonb)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
@@ -122,7 +120,7 @@ func Setup(t *testing.T) *Env {
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool)
+	e.Deals = deals.NewStore(pool, identity.BaseCurrencyOf)
 	e.Activities = activities.NewStore(pool)
 	return e
 }

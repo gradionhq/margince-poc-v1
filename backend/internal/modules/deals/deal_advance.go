@@ -99,7 +99,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 			return err
 		}
 
-		p, status, err := stageTransitionPatch(ctx, tx, current, in, semantic)
+		p, status, err := s.stageTransitionPatch(ctx, tx, current, in, semantic)
 		if err != nil {
 			return err
 		}
@@ -179,7 +179,29 @@ func resolveAdvanceTarget(ctx context.Context, tx pgx.Tx, toStage ids.StageID, c
 // and the resulting status: terminal fields (closed_at, lost_reason,
 // frozen FX) are set when the target semantic closes the deal and
 // cleared when a won/lost deal reopens.
-func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in AdvanceDealInput, semantic string) (*storekit.Patch, string, error) {
+// freezeClosingRate resolves the installation's base currency and stamps the
+// frozen conversion onto the patch. Split out of stageTransitionPatch so the
+// resolve-then-freeze pair reads as one step there rather than as four more
+// branches in an already-branchy transition.
+func (s *Store) freezeClosingRate(ctx context.Context, tx pgx.Tx,
+	currency string, p *storekit.Patch,
+) error {
+	base, err := s.baseCurrency(ctx, tx)
+	if err != nil {
+		return err
+	}
+	rate, rateDate, err := s.freezeFx(ctx, tx, base, currency, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("freeze fx at close: %w", err)
+	}
+	p.Set("fx_rate_to_base", nil, rate)
+	p.Set("fx_rate_date", nil, rateDate)
+	return nil
+}
+
+func (s *Store) stageTransitionPatch(ctx context.Context, tx pgx.Tx,
+	current crmcontracts.Deal, in AdvanceDealInput, semantic string,
+) (*storekit.Patch, string, error) {
 	status := "open"
 	var closedAt *time.Time
 	switch semantic {
@@ -210,12 +232,9 @@ func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	// Closing with an amount freezes today's FX rate so base-currency
 	// roll-ups stay reproducible (deal_closed_fx).
 	if DealStatus(status) != DealOpen && current.AmountMinor != nil && current.Currency != nil {
-		rate, rateDate, err := freezeFx(ctx, tx, *current.Currency, time.Now().UTC())
-		if err != nil {
-			return nil, "", fmt.Errorf("freeze fx at close: %w", err)
+		if err := s.freezeClosingRate(ctx, tx, *current.Currency, p); err != nil {
+			return nil, "", err
 		}
-		p.Set("fx_rate_to_base", nil, rate)
-		p.Set("fx_rate_date", nil, rateDate)
 	}
 	// Reopening a won/lost deal must clear every terminal field —
 	// the DB CHECKs are one-directional, so a stale closed_at or
@@ -250,18 +269,16 @@ func (e *MissingFxRateError) MessageFault() (code, message string) {
 // deal: the latest fx_rate on or before asOf. Used at close (asOf = now)
 // and when a closed deal is re-priced (asOf = its close date), so the
 // frozen rate always reflects the deal's close, never the edit.
-func freezeFx(ctx context.Context, tx pgx.Tx, currency string, asOf time.Time) (string, time.Time, error) {
+func (s *Store) freezeFx(ctx context.Context, tx pgx.Tx,
+	base, currency string, asOf time.Time,
+) (string, time.Time, error) {
 	asOfDate := asOf.UTC().Truncate(24 * time.Hour)
-	var base string
-	if err := tx.QueryRow(ctx,
-		`SELECT base_currency FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
-		return "", time.Time{}, err
-	}
 	if currency == base {
 		return "1", asOfDate, nil
 	}
+	var err error
 	var rate string
-	err := tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT rate::text FROM fx_rate
 		 WHERE from_currency = $1 AND to_currency = $2 AND rate_date <= $3
 		 ORDER BY rate_date DESC LIMIT 1`,

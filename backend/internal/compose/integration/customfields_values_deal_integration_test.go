@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -30,9 +31,10 @@ import (
 var dealCFVPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
-		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
-		"deal":         {Create: true, Read: true, Update: true, Delete: true},
-		"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
+		"custom_field":          {Create: true, Read: true, Update: true, Delete: true},
+		"deal":                  {Create: true, Read: true, Update: true, Delete: true},
+		"pipeline":              {Create: true, Read: true, Update: true, Delete: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -57,7 +59,7 @@ func setupDealCFV(t *testing.T) dealCFVFixture {
 	return dealCFVFixture{
 		e:        e,
 		svc:      svc,
-		store:    deals.NewStore(e.Pool).WithFieldCatalog(svc),
+		store:    deals.NewStore(e.Pool, identity.BaseCurrencyOf).WithFieldCatalog(svc),
 		ctx:      e.As(e.Rep1, nil, dealCFVPerms),
 		pipeline: pipeline,
 		stage:    open,

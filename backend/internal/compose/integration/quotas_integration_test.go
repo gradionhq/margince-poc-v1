@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -69,7 +69,7 @@ func ownerQuotaInput(owner ids.UUID, target int64) quotas.CreateQuotaInput {
 
 func TestQuotaCreate_OwnerAndTeamQuotas(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	owned, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 28000000))
@@ -108,7 +108,7 @@ func TestQuotaCreate_OwnerAndTeamQuotas(t *testing.T) {
 
 func TestQuotaCreate_XORRefusedBeforeInsert(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	both := ownerQuotaInput(e.Rep1, 1000)
@@ -133,7 +133,7 @@ func TestQuotaCreate_XORRefusedBeforeInsert(t *testing.T) {
 
 func TestQuotaWrite_NegativeTargetRefused(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	// The contract's target_minor minimum (0) holds at the store for BOTH
@@ -174,7 +174,7 @@ func TestQuotaWrite_NegativeTargetRefused(t *testing.T) {
 
 func TestQuotaCreate_UnknownOwnerOrTeamAnswersNotFound(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	ghost := ids.NewV7()
@@ -190,7 +190,7 @@ func TestQuotaCreate_UnknownOwnerOrTeamAnswersNotFound(t *testing.T) {
 
 func TestQuotaGet_LiveArchivedAndAbsent(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	created, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 1000))
@@ -221,7 +221,7 @@ func TestQuotaGet_LiveArchivedAndAbsent(t *testing.T) {
 
 func TestQuotaUpdate_HappyVersionSkewAndMergedXOR(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	created, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 28000000))
@@ -282,7 +282,7 @@ func TestQuotaUpdate_HappyVersionSkewAndMergedXOR(t *testing.T) {
 
 func TestQuotaUpdate_PeriodAndCurrency(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	created, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 1000))
@@ -305,7 +305,7 @@ func TestQuotaUpdate_PeriodAndCurrency(t *testing.T) {
 
 func TestQuotaArchive_IdempotentAndAuditedOnce(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	created, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 1000))
@@ -337,7 +337,7 @@ func TestQuotaArchive_IdempotentAndAuditedOnce(t *testing.T) {
 
 func TestQuotaList_KeysetFiltersAndArchived(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	for _, owner := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
@@ -399,7 +399,7 @@ func TestQuotaList_KeysetFiltersAndArchived(t *testing.T) {
 
 func TestQuotaList_SortVocabulary(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	// Three owner-quotas whose period_start order deliberately disagrees
@@ -476,7 +476,7 @@ func TestQuotaList_SortVocabulary(t *testing.T) {
 
 func TestQuotaRBAC_RepReadsButNeverMutates(t *testing.T) {
 	e := Setup(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	admin := e.As(e.Rep1, nil, quotaAdminPerms)
 	rep := e.As(e.Rep2, []ids.UUID{e.Team1}, quotaRepPerms)
 
@@ -517,7 +517,7 @@ func TestQuotaRBAC_RepReadsButNeverMutates(t *testing.T) {
 func TestQuotaRLS_TenantIsolation(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
-	store := quotas.NewStore(e.Pool, compose.InstallationBaseCurrency())
+	store := quotas.NewStore(e.Pool, identity.BaseCurrencyOf)
 	ctxA := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	created, err := store.CreateQuota(ctxA, ownerQuotaInput(e.Rep1, 1000))

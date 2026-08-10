@@ -59,7 +59,7 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 		}
 	}
 
-	wsID, created, err := identity.NewService(pool).BootstrapInstallation(ctx, create, configuredSeed(cfg.Seeds, deals.NewHandlers(pool)))
+	wsID, created, err := identity.NewService(pool).BootstrapInstallation(ctx, create, configuredSeed(cfg.Seeds, deals.NewHandlers(pool, identity.BaseCurrencyOf)))
 	if errors.Is(err, identity.ErrNotBootstrapped) {
 		return fmt.Errorf("compose: the database holds no organization and the configuration names no bootstrap_admin — add organization + bootstrap_admin to margince.yaml for first boot: %w", err)
 	}
