@@ -576,8 +576,11 @@ export const en = {
   "co.chip.linkedin": "LinkedIn",
   "co.chip.employees": "{band} employees",
   "co.chip.rowLabel": "Company details",
+  "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 months",
   "co.strip.openInvoices": "Open invoices",
+  "co.strip.overdue": "Overdue",
+  "co.strip.paidAfterDue": "Median paid after due",
   "co.strip.financeUnknown": "—",
   "co.strip.fin.noConnection": "Connect your accounting",
   "co.strip.fin.unmapped": "Not matched to a customer yet",
@@ -586,6 +589,7 @@ export const en = {
   "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
   "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
   "co.strip.fin.nothingBilled": "Nothing invoiced yet",
+  "co.strip.fin.tooFewSettled": "Too few settled invoices to say",
   "co.strip.fin.error": "Could not be read",
   "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",
@@ -625,6 +629,7 @@ export const en = {
   "timeline.group.mayContinue": "may continue earlier",
   "tab.people": "People",
   "tab.timeline": "History",
+  "tab.documents": "Documents",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",

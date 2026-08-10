@@ -28,21 +28,32 @@ import (
 // mutation rides the storekit audit shape in one transaction.
 type Store struct {
 	pool *pgxpool.Pool
+	// baseCurrency resolves the installation's reporting currency
+	// (ADR-0090/A135). Injected because quotas may not import the module that
+	// owns the setting, and REQUIRED by the constructor because a store that
+	// merely looks constructed would convert money against whatever it found.
+	baseCurrency BaseCurrencyFunc
 	// now is the store's clock: the attainment read's as-of instant,
 	// pace window, and FX as-of day all evaluate at it, so a pinned test
 	// reads the same moment it seeded against.
 	now func() time.Time
 }
 
+// BaseCurrencyFunc resolves the installation's reporting currency inside a
+// transaction the caller already holds. Compose supplies the one real
+// implementation; declaring the seam as a function rather than a settings
+// handle keeps quotas free of a registry it has no other use for.
+type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
+
 // NewStore wires the store over the RLS-bound app pool.
-func NewStore(pool *pgxpool.Pool) *Store {
-	return NewStoreWithClock(pool, time.Now)
+func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
+	return NewStoreWithClock(pool, time.Now, baseCurrency)
 }
 
 // NewStoreWithClock is NewStore with an explicit clock (the
 // ratelimit.NewWithClock precedent) — the attainment suites pin it.
-func NewStoreWithClock(pool *pgxpool.Pool, now func() time.Time) *Store {
-	return &Store{pool: pool, now: now}
+func NewStoreWithClock(pool *pgxpool.Pool, now func() time.Time, baseCurrency BaseCurrencyFunc) *Store {
+	return &Store{pool: pool, now: now, baseCurrency: baseCurrency}
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {

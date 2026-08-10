@@ -577,8 +577,11 @@ export const vi = {
   "co.chip.linkedin": "LinkedIn",
   "co.chip.employees": "{band} nhân viên",
   "co.chip.rowLabel": "Thông tin công ty",
+  "co.strip.netInvoicedLifetime": "Đã xuất hóa đơn ròng · trọn đời",
   "co.strip.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
   "co.strip.openInvoices": "Hóa đơn chưa thanh toán",
+  "co.strip.overdue": "Quá hạn",
+  "co.strip.paidAfterDue": "Trung vị sau hạn",
   "co.strip.financeUnknown": "—",
   "co.strip.fin.noConnection": "Kết nối phần mềm kế toán",
   "co.strip.fin.unmapped": "Chưa khớp với khách hàng nào",
@@ -588,6 +591,7 @@ export const vi = {
   "co.strip.fin.errorFigure":
     "Đồng bộ gần nhất thất bại — có thể không còn đúng",
   "co.strip.fin.nothingBilled": "Chưa xuất hóa đơn nào",
+  "co.strip.fin.tooFewSettled": "Quá ít hóa đơn đã thanh toán để kết luận",
   "co.strip.fin.error": "Không đọc được",
   "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",
@@ -627,6 +631,7 @@ export const vi = {
   "timeline.group.mayContinue": "có thể còn tiếp phía trước",
   "tab.people": "Người",
   "tab.timeline": "Lịch sử",
+  "tab.documents": "Tài liệu",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "Họ là ai",

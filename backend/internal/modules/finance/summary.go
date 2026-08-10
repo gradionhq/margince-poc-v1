@@ -215,6 +215,12 @@ func (s *Store) fillFigures(
 	if net := NetInvoicedOver(invoices, now); !net.RateUnavailable {
 		out.NetInvoiced = money(net.AmountMinorBase, currency)
 	}
+	// The same fold over every mirrored invoice. Read separately rather than
+	// derived from the trailing figure: the two refuse independently, and a
+	// lifetime total inferred from a refused window would be a guess.
+	if life := NetInvoicedLifetime(invoices, now); !life.RateUnavailable {
+		out.NetInvoicedLifetime = money(life.AmountMinorBase, currency)
+	}
 	if open := OpenBalanceAt(invoices, now); !open.RateUnavailable {
 		out.OpenBalance = money(open.OpenMinorBase, currency)
 		out.Overdue = money(open.OverdueMinorBase, currency)

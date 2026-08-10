@@ -81,16 +81,46 @@ type NetInvoiced struct {
 
 // NetInvoicedOver folds the invoices issued within the window ending at asOf.
 func NetInvoicedOver(invoices []Invoice, asOf time.Time) NetInvoiced {
-	out := NetInvoiced{WindowDays: IssuedWindowDays}
 	from := asOf.AddDate(0, 0, -IssuedWindowDays)
+	return netInvoicedBetween(invoices, from, asOf, IssuedWindowDays)
+}
+
+// NetInvoicedLifetime folds every invoice this connection has ever mirrored,
+// with no lower bound on the issue date.
+//
+// The window is the ONLY difference from the trailing figure: the same fold
+// skips drafts and voids, subtracts credit notes exactly once, and refuses the
+// whole total when any row lacks a conversion rate (FIN-AC-6). Lifetime is
+// per current CONNECTION — what the mirror holds, not what the customer has
+// ever been billed — so a re-connected source restates it.
+// asOf is still the UPPER bound: an invoice issued after it is a forecast, and
+// a lifetime figure that counted next month's billing would not be a total.
+func NetInvoicedLifetime(invoices []Invoice, asOf time.Time) NetInvoiced {
+	// The zero time as the lower bound: every issued row is at or after it,
+	// so `issuedInWindow` keeps its single spelling of the status rules.
+	// WindowDays comes back 0, which reads as "no lower bound" rather than as
+	// a zero-day window. Nothing outside this package's tests reads the field
+	// today; a surface that ever labels the window will need the two cases
+	// told apart in the type rather than by that convention.
+	return netInvoicedBetween(invoices, time.Time{}, asOf, 0)
+}
+
+// netInvoicedBetween is FIN-FORM-1's fold over one date range, inclusive at
+// both ends. windowDays is carried onto the result for a surface to label.
+func netInvoicedBetween(
+	invoices []Invoice,
+	from, to time.Time,
+	windowDays int,
+) NetInvoiced {
+	out := NetInvoiced{WindowDays: windowDays}
 	for _, inv := range invoices {
-		if !issuedInWindow(inv, from, asOf) {
+		if !issuedInWindow(inv, from, to) {
 			continue
 		}
 		if inv.RateMissing {
 			// One unconvertible row refuses the whole figure. Reporting the
 			// rest would be a partial sum wearing the label of a total.
-			return NetInvoiced{WindowDays: IssuedWindowDays, RateUnavailable: true}
+			return NetInvoiced{WindowDays: windowDays, RateUnavailable: true}
 		}
 		if inv.CreditsInvoice {
 			// Subtracted exactly once, through the credited total below.
