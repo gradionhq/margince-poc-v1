@@ -506,14 +506,20 @@ describe("the cn.done finish action", () => {
 
 // The four step-level consent guarantees used to be a two-column table
 // squeezed into the rail's ~250px column, wrapping into broken-looking text.
-// They now render on the artifact surface, where the reader actually passes
-// through them before authorizing anything — and OPEN, which is the part that
-// matters: they are foldable so a returning reader can move past them, never
-// so a first-time reader has to go looking for them.
+// They render on the artifact surface now, where the reader passes through them
+// before authorizing anything — behind a fold that names them, like every other
+// disclosure in the product, and reachable in one click from the scene rather
+// than from inside a provider's dialog.
 describe("the consent guarantees", () => {
-  it("render open on the surface before any provider dialog opens, not in the rail", () => {
+  it("sit on the surface behind a named fold, not in the rail", async () => {
     installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct();
+
+    const toggle = screen.getByText(en["ob.conv.connect.guaranteesToggle"]);
+    const fold = toggle.closest("details");
+    expect(fold?.open).toBe(false);
+    await userEvent.click(toggle);
+    expect(fold?.open).toBe(true);
 
     for (const key of [
       "ob.s4.scope1Lead",
@@ -522,8 +528,7 @@ describe("the consent guarantees", () => {
       "ob.s4.scope4Lead",
     ] as const) {
       const found = screen.getByText(en[key]);
-      const fold = found.closest("details");
-      expect(fold?.open).toBe(true);
+      expect(found.closest("details")).toBe(fold);
       expect(found.closest(".mw-thread")).toBeNull();
     }
   });

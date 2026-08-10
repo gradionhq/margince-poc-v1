@@ -82,15 +82,13 @@
   animation-delay: 0.16s;
 }
 .ob-gate-form,
-.ob-scan-phase {
+.ob-scan-panel {
   animation-delay: 0.24s;
 }
-.ob-gate-alert,
-.ob-scan-strip {
+.ob-gate-alert {
   animation-delay: 0.32s;
 }
-.ob-gate-alt,
-.ob-scan-counts {
+.ob-gate-alt {
   animation-delay: 0.4s;
 }
 .ob-gate-ai,
@@ -351,24 +349,41 @@
 
 /* ===== the read theatre ================================================= */
 
-/* ONE alignment for the whole theatre, the head included. A crawl is a report,
-   and a report reads flush to one edge, top to bottom. Centring the headline
-   and its subtitle over a flush-left crawl stacked two layouts that had nothing
-   to say to each other, and the seam between them was the first thing the eye
-   found. */
-.ob-scan {
-  align-items: flex-start;
-  text-align: left;
-}
+/* ONE alignment for the whole theatre, the head included — and it is the gate's
+   own, inherited, not re-stated. Submitting a URL should change what the column
+   says, not where the column is: the orb, the headline and its subtitle are the
+   SAME elements before and after, so flipping the axis under them made the read
+   look like a different screen that had loaded over the first one.
+
+   That leaves the regions below to centre their own contents; each says so
+   where it is defined, because a strip of tiles and a line of counts centre for
+   different reasons and one blanket rule here would hide both. */
+
 /* Every region takes the column's full width, which is what lets the tile grid
    and the wrapping model list stay inside it instead of shrink-wrapping to a
    size the flex column then places past the edge. */
+.ob-scan-panel,
 .ob-scan-phase,
-.ob-scan-strip,
 .ob-scan-ticker,
 .ob-scan-counts,
 .ob-scan-cost {
   width: 100%;
+}
+
+/* The instrument: the four readouts of a running crawl, in one frame. Loose on
+   the page they read as four unrelated widgets that happened to stack — the
+   phase, a grid of green squares, a path, a tally — and the squares in
+   particular looked like a decoration nobody had finished. Framed, they read as
+   one thing being watched. */
+.ob-scan-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgCard);
 }
 
 /* Fixed height so the crossfade cannot move the strip beneath it. */
@@ -377,6 +392,7 @@
   min-height: 26px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   font-family: var(--f-body);
   font-size: var(--fs-meta);
@@ -427,16 +443,22 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  /* The column is the ceiling, not a suggestion: a shrink-wrapped row of
-     flex items sizes itself to fit ALL of them on one line before wrapping
-     is even considered, so at 40+ tiles the box — and the tiles inside it —
-     ran straight past the column's edge and off the viewport. Taking the
-     full width up front, and capping it there, means wrapping happens
-     against a size that is already correct however many pages arrive. */
+  /* The column is the ceiling, and the ONLY thing this box is told about its
+     own width — it fits its tiles and stops there. A shrink-wrapped row of flex
+     items would size itself to fit all of them on one line, which at 40+ tiles
+     runs past the column's edge; the cap is what re-wraps it against a size
+     that is correct however many pages arrive. Taking the full width instead
+     used to be the fix, but the sheen below spans this box, so on a short read
+     it was a bar of light crossing empty column beside seven tiles. */
   max-width: 100%;
   min-height: 22px;
   display: flex;
   flex-wrap: wrap;
+  /* Centred on the column like everything else in the panel, and the LAST row
+     centres with the rest — which is the point: a part-filled final row hanging
+     off the left edge is what made a growing strip look like a grid that had
+     failed to fill rather than a count that is still climbing. */
+  justify-content: center;
   /* Rows stack from the top as the strip grows, so a new row appears below
      the ones already read rather than re-spacing all of them. */
   align-content: flex-start;
@@ -444,11 +466,22 @@
   /* The sheen below travels 70% of this box's width in each direction, which
      is a long way outside it. Clipped exactly at the horizontal edges and
      deliberately NOT at the vertical ones, so the light stays inside the
-     column's own left rule — the line the eye reads down on a flush-left
-     report — while keeping the few pixels of vertical bleed that make it read
-     as light rather than as a filled bar. */
+     panel's own padding while keeping the few pixels of vertical bleed that
+     make it read as light rather than as a filled bar. */
   clip-path: inset(-6px 0);
 }
+/* Before the first page lands the strip has nothing to draw, and an empty box
+   with the reserved height of a full one is a hole in the middle of the panel.
+   One placeholder bar stands in for the row that is coming — the sheen below
+   crosses it, so the wait reads as work rather than as a gap. It claims no
+   count: it is one shape, not a guess at how many pages there will be. */
+.ob-scan-strip:empty {
+  inline-size: 8rem;
+  block-size: 14px;
+  border-radius: 3px;
+  background: var(--bgHover);
+}
+
 /* A slow light crossing the tiles: the strip's own way of saying the crawl is
    still going, which the growing row alone cannot say (a row that has not gained
    a tile for a few seconds looks finished). It stops when the read does. */
@@ -517,11 +550,20 @@
   border-radius: var(--r-full);
 }
 
+/* The tile that just landed wears a ring, so the eye has somewhere to be while
+   the crawl runs — forty identical squares give no clue which end is the live
+   one. It leaves the moment the read settles: a ring on a finished row would
+   claim work that is over. */
+.ob-scan:not(.is-settled) .ob-scan-strip li:last-child .ob-scan-tile {
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
 .ob-scan-counts {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   font-family: var(--f-body);
   font-size: var(--fs-meta);
@@ -563,14 +605,17 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  margin-top: var(--space-4);
+  /* The column's own gap is the distance above the rule; a margin here would
+     be a second one stacked on it. */
   padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
+  text-align: center;
 }
 .ob-scan-cost-head {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-2);
 }
 .ob-scan-cost-label {
@@ -613,8 +658,9 @@
 .ob-scan-ticker {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--space-1);
-  margin: var(--space-3) 0 0;
+  margin: 0;
 }
 
 /* min-height reserves the wrapped case (path's own line plus the reason's
@@ -626,6 +672,7 @@
   min-height: 46px;
   display: flex;
   align-items: baseline;
+  justify-content: center;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
   list-style: none;
@@ -640,13 +687,18 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   min-width: 0;
   gap: var(--space-1) var(--space-3);
   animation: ob-scan-ticker-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Sized to its own text rather than claiming the row: with `flex: 1` the path
+   took every spare pixel, which pushed the reason to the far edge and left the
+   pair reading as two columns of a table instead of one centred line. */
 .ob-scan-ticker-path {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   color: var(--textContent);
@@ -674,14 +726,14 @@
    of how much of it the clamp leaves in the DOM. */
 .ob-scan-ticker-kind {
   display: -webkit-box;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
   border: none;
   background: none;
   padding: 0;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   color: var(--textMeta);
   font-family: var(--f-body);

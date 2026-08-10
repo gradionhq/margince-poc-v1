@@ -5,6 +5,17 @@
 @import "./design-system/brand.css";
 @import "./design-system/base.css";
 
+/* The document is not a scroller here. `.app` is exactly one viewport tall and
+   every screen scrolls inside its own pane, so a gesture that runs past the end
+   of a pane has nowhere to chain to — and a root that still answers it bounces
+   the entire app upward and shows a band of bare ground beneath it. Declared on
+   the root rather than on each pane because it is a fact about the SHELL: no
+   surface in this product scrolls the document, so none of them should be able
+   to make it move. Panes that must not chain say `contain` for themselves. */
+html {
+  overscroll-behavior: none;
+}
+
 body {
   font-family: var(--f-body);
   font-size: 14px;

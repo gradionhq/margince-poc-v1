@@ -10,6 +10,9 @@
   min-height: 0;
   gap: var(--space-4);
   overflow-y: auto;
+  /* Ends at its own last turn rather than handing the leftover gesture to the
+     document, which has no scroll to give and bounces the whole app instead. */
+  overscroll-behavior: contain;
   padding: var(--space-2) 0;
   /* The transcript is the conversation column's scroller, and it scrolls without
      drawing a bar across the turns. The bar is what is hidden, never the
@@ -534,6 +537,37 @@
    very first pixel reads as content that was cut off above. */
 .ob-conv-artifact {
   padding-block-start: var(--space-4);
+}
+
+/*
+ * A surface fills the pane even when its content does not.
+ *
+ * The foot bar is STICKY, which only pins it while there is more surface below
+ * it to pin against. On a short act — the voice corpus with nothing attached
+ * yet, an empty section — the surface ended a few hundred pixels down and the
+ * bar came to rest there, a full-bleed rule with its fill drawn straight across
+ * the middle of an otherwise empty column, and the pane's ground below it
+ * reading as a screen that had failed to finish rendering.
+ *
+ * Three links in one chain, because the bar is three levels down and an `auto`
+ * margin only pushes inside a flex column: the pane's surface fills the pane,
+ * the scene fills the surface, the board fills the scene. Where the content is
+ * already taller than the pane none of this binds — `min-block-size` and
+ * `flex: 1` are both floors, not sizes.
+ */
+.mw-artifact > .ob-conv-artifact {
+  display: flex;
+  min-block-size: 100%;
+  flex-direction: column;
+}
+
+.mw-artifact > .ob-conv-artifact > .ob-scene,
+.ob-scene > .ob-conv-confirm.ob-triage {
+  flex: 1;
+}
+
+.ob-triage-continue {
+  margin-block-start: auto;
 }
 
 /* A one-line artifact is a real state, not a half-drawn one — before a read
@@ -1826,8 +1860,20 @@
   width: 100%;
 }
 
+/* The panel spaces its own children with a flex gap, so the actions row asks
+   only for the DIFFERENCE between that gap and the beat it gets in the
+   block-flow dialogs — adding its full margin on top of the gap put 28px above
+   this one row and 16px above the identical row in every other dialog. */
+.ob-connect-linkedin-panel .ob-connect-dialog-actions {
+  margin-top: var(--space-1);
+}
+
+/* Same shape as the primary above it, one weight quieter: a bare label with no
+   padding sat in a row with a 44px-tall button and gave the reader a two-line
+   hit area for the choice that undoes the whole dialog. */
 .ob-connect-dialog-notnow {
-  padding: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
   border: 0;
   background: none;
   color: var(--textMeta);
@@ -1836,6 +1882,7 @@
 }
 
 .ob-connect-dialog-notnow:hover {
+  background: var(--bgHover);
   color: var(--textSecondary);
 }
 
@@ -2046,6 +2093,7 @@
    the body would refuse to shrink below its own content's intrinsic width
    — a registered address is read verbatim off the page and can run long. */
 .ob-company-card-body {
+  flex: 1;
   min-width: 0;
 }
 
@@ -2058,24 +2106,34 @@
   letter-spacing: var(--tracking-display);
 }
 
+/* Each fact is its own tile: label over value, one to a card, the row sized in
+   equal columns that reflow rather than wrap mid-pair. Read as a run of inline
+   label-value pairs the three of them ran together into one grey sentence, and
+   the identity of the company — the one thing this whole surface is about —
+   was the hardest line on the board to scan. */
 .ob-company-card-facts {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: var(--space-4);
-  row-gap: var(--space-1);
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-1) 0 0;
 }
 
 .ob-company-card-facts > div {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
 }
 
 .ob-company-card-facts dt {
   color: var(--textMeta);
   font-family: var(--f-body);
   font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-eyebrow);
 }
@@ -2083,17 +2141,21 @@
 .ob-company-card-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-  color: var(--textSecondary);
+  color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
 }
 
 .ob-company-card-facts dd button {
+  padding: 0;
   border: 0;
   background: none;
-  color: var(--textSecondary);
+  color: inherit;
   cursor: pointer;
   font: inherit;
+  text-align: start;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
@@ -2177,6 +2239,12 @@
      on the edge. Sideways it stays exactly where it is; the fill that spans the
      pane is drawn by the ::before below. */
   bottom: calc(-1 * var(--ob-pane-pad-block, 0px));
+  /* The same distance again, taken back out of flow. Offsetting the stick line
+     alone only settles the bar while it is PINNED; scrolled to the very end it
+     returns to its flow position, which is one bottom-padding up, so the gap
+     the reader was chasing reappeared exactly where they stopped. Eating that
+     padding puts the resting position on the pane's edge too. */
+  margin-block-end: calc(-1 * var(--ob-pane-pad-block, 0px));
   /* Above the section map (z-index 1), which is itself above the rows. The
      pinned action is the last thing on this surface that may be obscured. */
   z-index: 3;
@@ -2200,15 +2268,19 @@
    * whatever it is asked to be — a sideways scroll into empty space, one
    * trackpad flick away. A shadow never joins the scrollable region at all.
    *
-   * Two of them: the surface, and the hairline one pixel above it so the rule
-   * reaches the same edges the fill does. `clip-path` then cuts both back to
-   * the bar's own height — without it the spread would paint over the rows the
-   * bar is pinned in front of.
+   * Two of them, and the ORDER of the two is the whole trick. The hairline is
+   * spread across the pane like the fill, so on its own the fill would bury it:
+   * a spread reaches in every direction at once, and there is no way to ask for
+   * a wide one that is not also a tall one. So the fill is pushed down by its
+   * own spread plus a pixel — its rect then begins one pixel below the bar's
+   * top edge, and the hairline behind it survives in exactly that pixel and
+   * nowhere else. `clip-path` cuts both back to the bar's own box, or the
+   * spread would paint over the rows the bar is pinned in front of.
    */
   box-shadow:
-    0 0 0 100vw var(--bgElevated),
-    0 -1px 0 100vw var(--borderSubtle);
-  clip-path: inset(-1px -100vw 0);
+    0 calc(100vw + 1px) 0 100vw var(--bgElevated),
+    0 0 0 100vw var(--borderSubtle);
+  clip-path: inset(0 -100vw 0);
 }
 
 /* No clearance is reserved above the bar, and none is needed: the bar is
@@ -3252,7 +3324,7 @@
 .ob-conv-scopes {
   display: grid;
   gap: var(--space-2);
-  margin: 0 var(--space-4);
+  margin: 0;
 }
 
 .ob-conv-scopes p {
@@ -3316,11 +3388,18 @@
 /* The LinkedIn act's one input: the profile the imported network is
    attributed to. Matches the scope list beside it rather than the form
    modules, because it sits in the artifact panel and not in a form. */
+/* No margin of its own: every column this label sits in already sets a gap,
+   and the two used to add up — 12px of gap plus 12px of margin above one field
+   in a stack where everything else was 12px apart. Two of its siblings were
+   inset 16px from each side while the rest were not, so the panel showed four
+   different left edges in one column. */
 .ob-conv-field {
   display: grid;
   gap: var(--space-1);
-  margin: var(--space-3) var(--space-4) 0;
-  color: var(--textMuted);
+  margin: 0;
+  /* Secondary, not Muted: this is the name of the field under it, and at 13px
+     Muted was quieter than the placeholder it labels. */
+  color: var(--textSecondary);
   font: var(--fw-medium) var(--fs-sm) / var(--lh-normal) var(--f-body);
 }
 

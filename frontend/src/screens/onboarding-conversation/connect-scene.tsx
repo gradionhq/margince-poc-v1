@@ -356,12 +356,12 @@ function ConnectGuarantees() {
     { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
     { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
   ];
-  // Open by default, and deliberately so: this is the page where a reader
-  // hands over a mailbox, and the four promises are exactly what that decision
-  // rests on. It is a disclosure rather than a fixed band only so a reader who
-  // has already read it once can collapse it and get to the providers.
+  // Shut, like every other disclosure in the product. The four promises are
+  // what the summary line names, so nothing is hidden that the reader is not
+  // told about — and a scene that arrives with a block of reassurance already
+  // unfolded buries the providers it exists to offer.
   return (
-    <Disclosure summary={t("ob.conv.connect.guaranteesToggle")} open>
+    <Disclosure summary={t("ob.conv.connect.guaranteesToggle")}>
       <ul className="ob-connect-guarantees-grid">
         {items.map((item) => (
           <li key={item.lead}>
@@ -588,11 +588,12 @@ function LinkedinPanel({
 
   return (
     <div className="ob-connect-linkedin-panel">
-      {/* Open by default: this is the moment the network is handed over, and
-          the four scopes are what that consent is FOR. Folding it shut by
-          default would be asking for a signature on a page nobody was
-          shown. */}
-      <Disclosure summary={t("ob.conv.linkedin.limitsToggle")} open>
+      {/* Shut, like every other disclosure in the product: what this dialog
+          asks for is already in its headline and its intro, and a fold that
+          arrives open is a fold in name only — it teaches the reader that the
+          summary line is decoration rather than a control. The scopes stay one
+          click away, named by the summary, for the reader who wants them. */}
+      <Disclosure summary={t("ob.conv.linkedin.limitsToggle")}>
         <div className="ob-conv-scopes">
           {linkedinScopes.map((scope) => (
             <p key={scope.lead}>

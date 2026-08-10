@@ -933,12 +933,35 @@
   color: var(--textPrimary);
   font-weight: var(--fw-semibold);
 }
+/* One column, one gap. Every child used to carry a margin of its own — 8px,
+   12px, 12px, 16px down a stack of four blocks that are all the same kind of
+   thing — three of them written inline, where they also silently reset the
+   margins the stylesheet had set. The block owns its own rhythm now. */
 .connect-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   margin-top: var(--space-5);
   background: var(--successBg);
   border: 1px solid var(--online);
   border-radius: var(--r-md);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+/* The measure the result text and the warning banner share, so a dialog's two
+   possible endings are set to the same width. The banner drops the standalone
+   top margin `.readfail` carries for the full-page surfaces: in a dialog every
+   neighbour it can have already owns the distance to it. */
+.connect-result .ob-sub,
+.ob-connect-warn {
+  width: min(460px, 100%);
+  margin-inline: auto;
+}
+
+.ob-connect-warn {
+  margin-top: 0;
 }
 .connect-result .cr-h {
   display: flex;
@@ -1113,10 +1136,22 @@
 .backfill-stale {
   color: var(--textSecondary);
 }
+/* A caution, and it now looks like one. This is the line that warns a reader
+   Google will call the app unverified — it read as ordinary grey helper text,
+   indistinguishable from the hint directly above it, so the one sentence on
+   the panel that predicts a scary screen was the quietest thing on it. */
 .ob-google-unverified {
-  max-width: 460px;
-  margin: var(--space-2) auto 0;
-  color: var(--textSecondary);
+  display: block;
+  width: min(460px, 100%);
+  margin: var(--space-3) auto 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warnBorder);
+  border-radius: var(--r-sm);
+  background: var(--warnBg);
+  color: var(--textContent);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  text-align: start;
 }
 /* The "Soon" pill on a provider chip that has no live path yet. */
 .ob-chip-soon {
@@ -1835,7 +1870,15 @@
   min-height: 0;
   flex-direction: column;
   gap: var(--space-4);
-  overflow: hidden;
+  /* `clip`, not `hidden`, and given the column's gutter as slack. Hidden is a
+     scroll container with its bars turned off, and it cuts at the border box —
+     which cut off the two scroll shadows this box carries (see
+     margince-workbench.css) exactly at the transcript's edges, so the hint that
+     the COLUMN continues stopped a gutter short of the column. Clip is not a
+     scroll container at all, and the margin lets the shadows out while still
+     fencing the turns. */
+  overflow: clip;
+  overflow-clip-margin: var(--mw-gutter, 0px);
 }
 /* The one column body with no ConversationThread inside it, so here the body
    itself has to be the scroller. It has to be declared BEFORE the breakpoint

@@ -432,64 +432,73 @@ function TheatreTail({
 
   return (
     <>
-      {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
-      <p className="ob-scan-phase" aria-live="polite">
-        <span className="ob-scan-phase-dot" aria-hidden />
-        {phase === null ? null : (
-          <span key={phase} className="ob-scan-phase-text">
-            {t(phase)}
-          </span>
-        )}
-      </p>
-
-      <ul className="ob-scan-strip" aria-label={t("ob.scan.pageStripLabel")}>
-        {read.pages.map((page) => {
-          const label = pageLabel(t, page);
-          return (
-            <li key={page.url}>
-              <span
-                className="ob-scan-tile"
-                data-page-status={page.status}
-                role="img"
-                title={label}
-                aria-label={label}
-              />
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* The page itself: which one the crawl just walked, not a growing
-          transcript of all of them. Fixed height, one occupant at a time —
-          the old page fades out as the new one fades in, and under reduced
-          motion the text simply swaps. If pages arrive faster than the fade
-          can play, this shows whichever is newest and drops the rest rather
-          than queuing a backlog: the count beside it is the honest tally,
-          not a promise that every page was seen crossing the ticker. */}
-      <div className="ob-scan-ticker">
-        <ul
-          className="ob-scan-ticker-row"
-          aria-live="polite"
-          aria-label={t("ob.scan.logLabel")}
-        >
-          {latestPage === null ? null : (
-            <ScanTickerEntry key={latestPage.url} page={latestPage} t={t} />
+      {/* One panel for the whole read: what it is doing, what it has walked,
+          where it is now, and what that has found. Four sibling blocks on bare
+          ground read as four unrelated readouts stacked in a column; inside one
+          card they read as one instrument, which is what they are. The spend
+          stays outside it — that is the page's disclosure, not the read's. */}
+      <div className="ob-scan-panel">
+        {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
+        <p className="ob-scan-phase" aria-live="polite">
+          <span className="ob-scan-phase-dot" aria-hidden />
+          {phase === null ? null : (
+            <span key={phase} className="ob-scan-phase-text">
+              {t(phase)}
+            </span>
           )}
+        </p>
+
+        <ul className="ob-scan-strip" aria-label={t("ob.scan.pageStripLabel")}>
+          {read.pages.map((page) => {
+            const label = pageLabel(t, page);
+            return (
+              <li key={page.url}>
+                <span
+                  className="ob-scan-tile"
+                  data-page-status={page.status}
+                  role="img"
+                  title={label}
+                  aria-label={label}
+                />
+              </li>
+            );
+          })}
         </ul>
-        <p className="ob-scan-ticker-total">
-          {t("ob.scan.pagesRead", { pages: counts.format(pagesRead) })}
+
+        {/* The page itself: which one the crawl just walked, not a growing
+            transcript of all of them. Fixed height, one occupant at a time —
+            the old page fades out as the new one fades in, and under reduced
+            motion the text simply swaps. If pages arrive faster than the fade
+            can play, this shows whichever is newest and drops the rest rather
+            than queuing a backlog: the count beside it is the honest tally,
+            not a promise that every page was seen crossing the ticker. */}
+        <div className="ob-scan-ticker">
+          <ul
+            className="ob-scan-ticker-row"
+            aria-live="polite"
+            aria-label={t("ob.scan.logLabel")}
+          >
+            {latestPage === null ? null : (
+              <ScanTickerEntry key={latestPage.url} page={latestPage} t={t} />
+            )}
+          </ul>
+          <p className="ob-scan-ticker-total">
+            {t("ob.scan.pagesRead", { pages: counts.format(pagesRead) })}
+          </p>
+        </div>
+
+        <p className="ob-scan-counts">
+          <span>
+            {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
+          </span>
+          <span className="ob-scan-found">
+            {t("ob.scan.factsSoFar", {
+              count: counts.format(read.facts.length),
+            })}
+          </span>
+          {settled ? null : <span>{t("ob.scan.stillReading")}</span>}
         </p>
       </div>
-
-      <p className="ob-scan-counts">
-        <span>
-          {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
-        </span>
-        <span className="ob-scan-found">
-          {t("ob.scan.factsSoFar", { count: counts.format(read.facts.length) })}
-        </span>
-        {settled ? null : <span>{t("ob.scan.stillReading")}</span>}
-      </p>
 
       {/* The AI indigo, not the brand accent: this is what the machine spent,
           not something the user is being asked to do. The spend and call
