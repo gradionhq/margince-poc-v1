@@ -131,6 +131,20 @@ type TierResolverInput struct {
 	SourceStageSemantic string
 	TargetStageSemantic string
 	PipelineID          string
+	// ObservedVersion is the version of the record the tier decision was read
+	// from, and it is what binds that decision to the write it admits.
+	//
+	// A dynamic tier is resolved from a record's state, and that read commits
+	// before the write does. Without the version, an auto-execute answer means
+	// only "the record permitted this when the gate looked" — the record can
+	// change in the window, and the agent controls both sides of it. The
+	// admission point carries this into the write as its precondition, so a
+	// record that moved in between loses to the version compare instead of to
+	// timing.
+	//
+	// nil means the tool's tier did not turn on a record's state, so there is
+	// nothing to bind.
+	ObservedVersion *int64
 }
 
 // Registry admits and dispatches tools. Registration is init()-time,

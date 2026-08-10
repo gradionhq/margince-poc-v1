@@ -131,23 +131,87 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 		return ctx, err
 	}
 
-	tier := spec.Tier
-	if tier == mcp.TierDynamic {
-		if spec.TierResolver == nil {
-			// Registration should have refused this spec; failing closed
-			// here keeps a mis-registered tool from defaulting to 🟢.
-			return ctx, fmt.Errorf("gate: %s is TierDynamic without a resolver", spec.Name)
-		}
-		in, err := resolve()
-		if err != nil {
-			return ctx, err
-		}
-		tier = spec.TierResolver(in)
+	tier, observed, err := resolveTier(spec, resolve)
+	if err != nil {
+		return ctx, err
+	}
+	// A dynamic tier that cannot name the record it was read from is RAISED, not
+	// admitted. Without this the bind below is advisory: a dynamic tool that
+	// answers no version would run unattended with nothing conditioning its
+	// write, which is the unpinned auto-execute this whole path exists to end —
+	// restored by omission rather than by decision. Raising is the shape the
+	// resolver contract already takes (it may only ever raise), and a human is
+	// the safe answer to "this server could not establish the record's state".
+	if tier == mcp.TierAutoExecute && spec.Tier == mcp.TierDynamic && observed == nil {
+		return ctx, fmt.Errorf(
+			"gate: %s resolved to auto-execute without naming the record version it was resolved from: %w",
+			spec.Name, apperrors.ErrRequiresApproval)
 	}
 	if tier != mcp.TierAutoExecute {
 		return ctx, fmt.Errorf("gate: %s is a confirm-first (🟡) action: %w", spec.Name, apperrors.ErrRequiresApproval)
 	}
+	// The tier said this call may run unattended, and for a dynamic tool it said
+	// so by reading a record. That read commits before the write it admits, and
+	// the agent controls both sides of the window, so the answer is only true of
+	// the record as it WAS. Binding the version here is what makes the write
+	// re-check it inside the transaction that mutates, where a record that moved
+	// in between loses to the version compare instead of to timing.
+	//
+	// Set HERE rather than by each dispatch layer: the MCP registry and the REST
+	// agent gate both come through Admit, and a rule spelled twice on this seam
+	// is how the tier itself came to judge both endpoints of a deal move on one
+	// door and only the destination on the other.
+	if observed != nil {
+		ctx = withAutoExecutePin(ctx, *observed)
+	}
 	return ctx, nil
+}
+
+// resolveTier answers the call's effective tier, plus the version of the record
+// a dynamic tier was decided from — nil when the tier turned on no record, which
+// is every static tier and any dynamic tool that reports none.
+func resolveTier(spec mcp.ToolSpec, resolve func() (mcp.TierResolverInput, error)) (mcp.RiskTier, *int64, error) {
+	if spec.Tier != mcp.TierDynamic {
+		// A static tier is the tool's whole tier: nothing was read to decide it,
+		// so a resolver input built for one names no record this call proved
+		// anything about.
+		return spec.Tier, nil, nil
+	}
+	if spec.TierResolver == nil {
+		// Registration should have refused this spec; failing closed
+		// here keeps a mis-registered tool from defaulting to 🟢.
+		return spec.Tier, nil, fmt.Errorf("gate: %s is TierDynamic without a resolver", spec.Name)
+	}
+	in, err := resolve()
+	if err != nil {
+		return spec.Tier, nil, err
+	}
+	return spec.TierResolver(in), in.ObservedVersion, nil
+}
+
+// autoExecutePinKey carries the version a dynamic tier was resolved from, on a
+// call this gate admitted at the auto-execute tier.
+type autoExecutePinKey struct{}
+
+// withAutoExecutePin is unexported and reached from exactly one place: the 🟢
+// outcome of Admit. The pin asserts that THIS gate proved THIS record's state,
+// and a caller able to mint one could condition its own write on a version
+// nothing ever checked.
+func withAutoExecutePin(ctx context.Context, version int64) context.Context {
+	return context.WithValue(ctx, autoExecutePinKey{}, version)
+}
+
+// AutoExecutePin answers the version the gate resolved this call's dynamic tier
+// from, for the transports that turn it into the write's precondition — an
+// `if_version` argument on the MCP door, an `If-Match` header on the REST one.
+//
+// ok is false for every call whose tier was not decided by reading a record: a
+// static tier, a tier raised to confirm-first (whose pin is the approval's,
+// taken at the moment the human was shown the record), and a human principal,
+// whom the gate's tier model does not govern.
+func AutoExecutePin(ctx context.Context) (version int64, ok bool) {
+	version, ok = ctx.Value(autoExecutePinKey{}).(int64)
+	return version, ok
 }
 
 // deniedIfGone maps a vanished granting human (revoked, archived,
