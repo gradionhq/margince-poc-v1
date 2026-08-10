@@ -43,20 +43,21 @@ const generatedContract = "internal/contracts/api_gen.go"
 // name today, proved by TestEveryRequiredBodyIDIsNamedWhenAbsent in the module
 // that owns the mapping.
 var probedRequiredIDBodies = map[string]bool{
-	"CreateDealRequest":            true,
-	"CreateProjectRequest":         true,
-	"AdvanceDealRequest":           true,
-	"CreateStageRequest":           true,
-	"AddListMemberRequest":         true,
-	"ApplyTagRequest":              true,
-	"RecordConsentRequest":         true,
-	"IssueDoubleOptInJSONBody":     true,
-	"SetProjectStakeholderRequest": true,
-	"CreateRecordGrantRequest":     true,
-	"MergePersonJSONBody":          true,
-	"MergeOrganizationJSONBody":    true,
-	"RelinkActivityJSONBody":       true,
-	"DraftAccountEmailJSONBody":    true,
+	"CreateDealRequest":              true,
+	"CreateProjectRequest":           true,
+	"AdvanceDealRequest":             true,
+	"CreateStageRequest":             true,
+	"AddListMemberRequest":           true,
+	"ApplyTagRequest":                true,
+	"RecordConsentRequest":           true,
+	"IssueDoubleOptInJSONBody":       true,
+	"SetProjectStakeholderRequest":   true,
+	"CreateRecordGrantRequest":       true,
+	"MergePersonJSONBody":            true,
+	"RecordConversationClaimRequest": true,
+	"MergeOrganizationJSONBody":      true,
+	"RelinkActivityJSONBody":         true,
+	"DraftAccountEmailJSONBody":      true,
 }
 
 // unguardedRequiredIDBodies is what is left, and both entries are WAIVERS rather

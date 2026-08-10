@@ -68,7 +68,11 @@ var tableOwners = map[string]string{
 	// The channel identity is a resolution key on the person, not connection
 	// state: it answers "which Person is this Telegram user", so it lives with
 	// the one dedupe implementation that resolves them.
-	"person_channel_identity":        "internal/modules/people",
+	"person_channel_identity": "internal/modules/people",
+	// What was promised, asked and decided in captured conversations
+	// (ADR-0097 D1). It lives with people because a claim is an attribute of
+	// the PERSON it is about, written through the same store that owns them.
+	"conversation_claim":             "internal/modules/people",
 	"organization":                   "internal/modules/people",
 	"organization_domain":            "internal/modules/people",
 	"organization_relationship_type": "internal/modules/people",

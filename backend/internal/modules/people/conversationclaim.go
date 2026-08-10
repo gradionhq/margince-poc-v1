@@ -57,18 +57,27 @@ type ClaimInput struct {
 // both: citing a message the caller cannot open would disclose that the
 // message exists, which is what the activity read protects.
 func (s *Store) RecordConversationClaim(ctx context.Context, in ClaimInput) (crmcontracts.ConversationClaim, error) {
-	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
-		return crmcontracts.ConversationClaim{}, err
-	}
+	// The MALFORMED-REQUEST checks run first, before any authority question.
+	// A caller who omitted a field made a mistake the server can name; making
+	// them fail an auth check instead reports their own typo as a permission
+	// problem, and nothing about the missing field discloses a record.
 	if in.Body == "" {
 		return crmcontracts.ConversationClaim{}, httperr.Validation("body", "required",
 			"a claim says something; an empty one is not a claim")
 	}
-	if in.Quote == "" || in.ActivityID == (ids.UUID{}) {
-		// Grounded or absent. Both halves, because a snippet with no source is
-		// unverifiable and a source with no snippet cannot be checked against.
+	// Grounded or absent, and the two halves are refused separately so the
+	// caller is told which one is missing. An omitted id decodes to the zero
+	// UUID with no error, so without this probe it would reach the visibility
+	// check, match nothing, and answer not-found for a message nobody named.
+	if err := httperr.RequireBodyID("source_activity_id", in.ActivityID); err != nil {
+		return crmcontracts.ConversationClaim{}, err
+	}
+	if in.Quote == "" {
 		return crmcontracts.ConversationClaim{}, httperr.Validation("source_quote", "required",
-			"a claim carries the activity it was read from and the words it was read from — an ungrounded claim is dropped, never stored")
+			"a claim carries the words it was read from — an ungrounded claim is dropped, never stored")
+	}
+	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+		return crmcontracts.ConversationClaim{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
@@ -148,7 +157,7 @@ func (s *Store) ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.Per
 		return nil, err
 	}
 	if scope == "" {
-		scope = "true"
+		scope = sqlAlwaysVisible
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT c.id, c.kind, c.body, c.source_activity_id, c.source_quote,
