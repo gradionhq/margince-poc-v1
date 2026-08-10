@@ -76,13 +76,14 @@ const (
 // record's id without applying that record's row scope. Keyed
 // "package-dir:FuncName", each entry stating what stands in for the clause.
 var unscopedReferenceReads = gatekit.Waive(map[string]string{
-	// Signal producer. It runs inside signalScanWorkspaceWorker, which binds
-	// PrincipalSystem "agent:signal-scan" before the read (jobs_signals.go),
+	// Signal producers. Both run inside signalScanWorkspaceWorker, which binds
+	// PrincipalSystem "agent:signal-scan" before either read (jobs_signals.go),
 	// so there is no human actor for a row scope to narrow to and the org id
 	// goes to the signal being written rather than to any caller. What a REP may
 	// then see of those signals is decided on the read side, by
 	// auth.SignalScopeClause.
 	"internal/compose:scanGhostedThreads": "the ghosted-thread rule's account scan, under the signal-scan sweep's system principal: the organization it names is what the signal is ABOUT, and it is handed to signals.RecordDerived, never to a reader",
+	"internal/compose:dueThreads":         "the signal extractor's settled-conversation backlog, under the same sweep and the same system principal: the single organization a thread resolves to is what the extraction is filed against, and the rows go to the model lane rather than to a caller",
 
 	"internal/compose:employerOf": "the person auto-enrich consumer's employer resolution, under the PrincipalSystem actor its own systemContext binds before the pass (compose/personautoenrich.go): it answers which company's published site may describe this person, and the id is spent inside the same transaction choosing that site — a caller never sees it",
 
@@ -303,9 +304,23 @@ func reachesRowScope(fns map[string]*rowScopeFnInfo, name string, seen map[strin
 
 // referenceSites indexes the compose tier and returns every SQL select list in
 // it that names a row-scoped record's id column, with the function it sits in.
+//
+// SQL lives in two places, and both are read. A literal inside a function body
+// attributes to that function directly. A query grown long enough to move to a
+// package-level var (signalextractread.go's dueThreadsQuery is the standing
+// example) attributes to every function that mentions the var's name: leaving
+// declarations unread would let any query walk out of this census by being
+// promoted, which is the quiet narrowing the extractor floor below exists to
+// refuse.
 func referenceSites(t *testing.T, tables map[string]bool) (map[string]rowScopePkg, []referenceSite) {
 	t.Helper()
 	pkgs := map[string]rowScopePkg{}
+	queryVars := map[string]map[string][]referenceSite{}
+	type funcUse struct {
+		at     referenceSite
+		idents map[string]bool
+	}
+	var uses []funcUse
 	var sites []referenceSite
 	for _, src := range tierFiles(t, composeTier) {
 		dir := filepath.ToSlash(filepath.Dir(src.Path))
@@ -313,6 +328,10 @@ func referenceSites(t *testing.T, tables map[string]bool) (map[string]rowScopePk
 			pkgs[dir] = rowScopePkg{}
 		}
 		for _, decl := range src.File.Decls {
+			if gen, ok := decl.(*ast.GenDecl); ok {
+				collectQueryVars(gen, tables, dir, src, queryVars)
+				continue
+			}
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
@@ -329,15 +348,55 @@ func referenceSites(t *testing.T, tables map[string]bool) (map[string]rowScopePk
 			// Seeded without a line: every site reports the line of the SQL that
 			// holds the reference, which is what a reader has to go and look at.
 			at := referenceSite{dir: dir, recv: recv, fn: fn.Name.Name}
-			sites = append(sites, indexFuncBody(fn, info, tables, at, src)...)
+			idents := map[string]bool{}
+			sites = append(sites, indexFuncBody(fn, info, tables, at, src, idents)...)
+			uses = append(uses, funcUse{at: at, idents: idents})
+		}
+	}
+	for _, use := range uses {
+		for name, varSites := range queryVars[use.at.dir] {
+			if !use.idents[name] {
+				continue
+			}
+			for _, site := range varSites {
+				site.recv, site.fn = use.at.recv, use.at.fn
+				sites = append(sites, site)
+			}
 		}
 	}
 	return pkgs, sites
 }
 
+// collectQueryVars records the reference sites held by a package-level string
+// declaration — a query var or const, including one assembled by `+`. The line
+// points into the declaration itself, where the SQL is.
+func collectQueryVars(gen *ast.GenDecl, tables map[string]bool, dir string, src tierFile, into map[string]map[string][]referenceSite) {
+	if gen.Tok != token.VAR && gen.Tok != token.CONST {
+		return
+	}
+	for _, spec := range gen.Specs {
+		value, ok := spec.(*ast.ValueSpec)
+		if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
+			continue
+		}
+		sql, holdsLiteral := concatenatedSQL(value.Values[0], map[ast.Node]bool{})
+		if !holdsLiteral {
+			continue
+		}
+		for _, ref := range referencedTables(sql, tables) {
+			if into[dir] == nil {
+				into[dir] = map[string][]referenceSite{}
+			}
+			into[dir][value.Names[0].Name] = append(into[dir][value.Names[0].Name], referenceSite{
+				dir: dir, table: ref.table, line: src.Line(value.Pos()) + ref.lineOffset,
+			})
+		}
+	}
+}
+
 // indexFuncBody records one function's row-scope calls and edges, and returns
 // the reference sites its SQL holds.
-func indexFuncBody(fn *ast.FuncDecl, info *rowScopeFnInfo, tables map[string]bool, at referenceSite, src tierFile) []referenceSite {
+func indexFuncBody(fn *ast.FuncDecl, info *rowScopeFnInfo, tables map[string]bool, at referenceSite, src tierFile, idents map[string]bool) []referenceSite {
 	var sites []referenceSite
 	// A statement assembled by `+` is read as ONE query, and its parts are not
 	// read again on their own. Half a statement is the shape that reads green
@@ -383,6 +442,10 @@ func indexFuncBody(fn *ast.FuncDecl, info *rowScopeFnInfo, tables map[string]boo
 			if text, isString := stringConst(node); isString && !joined[node] {
 				record(text, node.Pos())
 			}
+		case *ast.Ident:
+			// The names this body mentions, so a package-level query var's
+			// sites can be attributed to the functions that actually run it.
+			idents[node.Name] = true
 		}
 		return true
 	})
