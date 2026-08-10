@@ -170,9 +170,10 @@ var (
 	RepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson:  {Create: true, Read: true, Update: true},
-			objDeal:    {Create: true, Read: true, Update: true},
-			"pipeline": {Read: true},
+			objPerson:               {Create: true, Read: true, Update: true},
+			objDeal:                 {Create: true, Read: true, Update: true},
+			"pipeline":              {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
@@ -186,13 +187,14 @@ var (
 	AccountRepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objOrg:      {Read: true},
-			objPerson:   {Create: true, Read: true, Update: true},
-			objDeal:     {Create: true, Read: true, Update: true},
-			objActivity: {Create: true, Read: true, Update: true},
-			"pipeline":  {Read: true},
-			"tag":       {Read: true},
-			"list":      {Read: true},
+			objOrg:                  {Read: true},
+			objPerson:               {Create: true, Read: true, Update: true},
+			objDeal:                 {Create: true, Read: true, Update: true},
+			objActivity:             {Create: true, Read: true, Update: true},
+			"pipeline":              {Read: true},
+			"tag":                   {Read: true},
+			"list":                  {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
@@ -200,6 +202,7 @@ var (
 		RoleKeys: []string{"read_only"},
 		Objects: map[string]principal.ObjectGrant{
 			objPerson: {Read: true}, objDeal: {Read: true}, "pipeline": {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
