@@ -58,7 +58,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				return
 			}
 			if !mutatingMethod(r.Method) {
-				refuseAgentRead(w, r, next, gate)
+				refuseAgentRead(w, r, next, gate, reg)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -107,7 +107,13 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 // The bound itself binds BOTH doors: a Passport that spent its window through
 // the MCP surface must not keep reading the same records over /v1. One
 // credential governed two ways is the hole ADR-0055 exists to close.
-func refuseAgentRead(w http.ResponseWriter, r *http.Request, next http.Handler, gate *auth.Gate) {
+//
+// And the door that refuses on the bound PAYS INTO it: the handler answers
+// through a servedMeter, so the records this read hands over are charged where
+// they leave. Consulting a counter nothing increments bounds nobody — a
+// credential reading only over /v1 would sit at zero forever, however much it
+// read.
+func refuseAgentRead(w http.ResponseWriter, r *http.Request, next http.Handler, gate *auth.Gate, reg *agents.Registry) {
 	if refusedAsHumanOnly(w, r) {
 		return
 	}
@@ -115,7 +121,7 @@ func refuseAgentRead(w http.ResponseWriter, r *http.Request, next http.Handler, 
 		httperr.Write(w, r, err)
 		return
 	}
-	next.ServeHTTP(w, r)
+	next.ServeHTTP(&servedMeter{ResponseWriter: w, r: r, reg: reg, mayRefuse: nothingHasHappenedYet}, r)
 }
 
 // refusedAsHumanOnly applies x-agent-access to a NON-mutating agent call, and
@@ -225,11 +231,18 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 		// refused. A quota counts what an agent did, so a rejected mutation that
 		// spent a write would let a caller exhaust its own allowance on requests
 		// that changed nothing, which is a bound nobody wrote.
+		// The meter sits OUTSIDE the recorder, so the handler's WriteJSON finds
+		// it by a plain assertion while the recorder still sees every status.
+		// A mutation that answers with the row it changed handed over a record,
+		// and the MCP door charges that record at chargeAnswer whatever the tool
+		// kind — a read-back free on one door and charged on the other is the
+		// same asymmetry this gate exists to close.
 		performed := &effectRecorder{ResponseWriter: w}
+		metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
 		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
-			splitOrRedeemUpdate(performed, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
+			splitOrRedeemUpdate(metered, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
 		} else {
-			next.ServeHTTP(performed, r)
+			next.ServeHTTP(metered, r)
 		}
 		if performed.done() {
 			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
@@ -241,7 +254,8 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 		// the effect for both would bill a refusal, so this arm charges only
 		// where redeemIfPresented actually forwarded.
 		performed := &effectRecorder{ResponseWriter: w}
-		ran := stageOrRedeem(performed, r, next, outcome.staging, outcome.pol, outcome.body)
+		metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
+		ran := stageOrRedeem(metered, r, next, outcome.staging, outcome.pol, outcome.body)
 		if !ran {
 			return
 		}
