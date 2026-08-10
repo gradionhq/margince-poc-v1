@@ -13274,6 +13274,17 @@ type Organization360Suggestion struct {
 		Kind Organization360SuggestionActionKind `json:"kind"`
 	} `json:"action,omitempty"`
 
+	// DueAt The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+	//
+	// Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+	// a due date would turn it into an obligation nobody agreed to. Null where the rule
+	// fired on something with no date of its own.
+	//
+	// Excluded from the fingerprint for the same reason as the title, and more sharply: a
+	// date moves on its own, so a dismissal keyed on one would expire without anything
+	// about the account changing.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
 	// Evidence The records the rule fired on — always ones this reader can open.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
 
@@ -13299,6 +13310,16 @@ type Organization360Suggestion struct {
 	Reason      string                                `json:"reason"`
 	SubjectId   *openapi_types.UUID                   `json:"subject_id,omitempty"`
 	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
+
+	// Title What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+	//
+	// Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+	// the system has no basis for and no way to complete; a title here says only what the
+	// rule that fired already knows.
+	//
+	// It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+	// suggestion every reader has ever dismissed the moment the wording changed.
+	Title *string `json:"title,omitempty"`
 }
 
 // Organization360SuggestionActionKind `draft_reply` — open the composer on the message that went unanswered.

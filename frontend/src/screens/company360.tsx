@@ -2784,6 +2784,7 @@ export function SuggestionsSection({
   // the deal and the task form all live above it.
   onPerform?: (action: SuggestionAction) => void;
 }>) {
+  const { locale } = useLocale();
   const t = useT();
   const client = useQueryClient();
   const dismiss = useMutation({
@@ -2825,13 +2826,24 @@ export function SuggestionsSection({
         {suggestions.map((suggestion) => (
           <li key={suggestion.fingerprint} className="co-row">
             <span>
+              {/* The title leads where the rule gave one: it says what to DO,
+                  where the kind says which rule fired. Absent on a rule that
+                  named none, and the kind carries the row alone. */}
               <span className="co-suggest-kind">
-                {t(`co.suggest.kind.${suggestion.kind}`)}
+                {suggestion.title ?? t(`co.suggest.kind.${suggestion.kind}`)}
               </span>
               {/* The reason is the suggestion. Everything else is chrome. */}
               <span className="co-suggest-reason">{suggestion.reason}</span>
             </span>
             <span className="co-row-meta">
+              {/* The date the EVIDENCE carries — when the thread went quiet,
+                  when the deal last moved. Never a deadline the system chose,
+                  which is why a rule firing on an absence shows none. */}
+              {suggestion.due_at && (
+                <span>
+                  {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
+                </span>
+              )}
               <Citations
                 evidence={suggestion.evidence}
                 onOpenRecord={onOpenRecord}

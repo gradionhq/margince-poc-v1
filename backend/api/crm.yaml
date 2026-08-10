@@ -12804,6 +12804,30 @@ components:
             filed under: a `contract_ended` signal stands while the record still reads as a live
             customer or an open opportunity. The page states the conflict rather than resolving
             it, because which of the two is wrong is a judgment only the reader can make.
+        title:
+          type: [string, 'null']
+          description: |
+            What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+
+            Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+            the system has no basis for and no way to complete; a title here says only what the
+            rule that fired already knows.
+
+            It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+            suggestion every reader has ever dismissed the moment the wording changed.
+        due_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+
+            Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+            a due date would turn it into an obligation nobody agreed to. Null where the rule
+            fired on something with no date of its own.
+
+            Excluded from the fingerprint for the same reason as the title, and more sharply: a
+            date moves on its own, so a dismissal keyed on one would expire without anything
+            about the account changing.
         fingerprint:
           type: string
           description: |

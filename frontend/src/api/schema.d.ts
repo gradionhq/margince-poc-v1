@@ -8465,6 +8465,30 @@ export interface components {
              */
             kind: "no_reply" | "stalled_deal" | "no_next_step" | "lifecycle_conflict";
             /**
+             * @description What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+             *
+             *     Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+             *     the system has no basis for and no way to complete; a title here says only what the
+             *     rule that fired already knows.
+             *
+             *     It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+             *     suggestion every reader has ever dismissed the moment the wording changed.
+             */
+            title?: string | null;
+            /**
+             * Format: date-time
+             * @description The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+             *
+             *     Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+             *     a due date would turn it into an obligation nobody agreed to. Null where the rule
+             *     fired on something with no date of its own.
+             *
+             *     Excluded from the fingerprint for the same reason as the title, and more sharply: a
+             *     date moves on its own, so a dismissal keyed on one would expire without anything
+             *     about the account changing.
+             */
+            due_at?: string | null;
+            /**
              * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
              *     kind, the subject and the records it fired on. Dismissing a suggestion stores
              *     this, so the same advice stays gone — and re-arms by itself when the evidence
