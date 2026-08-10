@@ -1265,7 +1265,12 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
+              {/* The SEVERITY colours the row. A tone-neutral badge made an
+                  urgent risk look like an informational note, which is the one
+                  distinction a reader scans this card for. */}
+              <Badge tone={signalTone(signal.severity)}>
+                {t(SIGNAL_KIND_LABELS[signal.kind])}
+              </Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>
@@ -1540,9 +1545,21 @@ type Suggestion = components["schemas"]["Organization360Suggestion"];
 export function SentenceList({
   sentences,
   onOpenRecord,
+  citations = "per-sentence",
 }: Readonly<{
   sentences: BriefSentence[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // WHERE the receipts go, which is a reading decision rather than a styling
+  // one.
+  //
+  // "per-sentence" is the brief's: each line is a separate claim a reader
+  // checks on its own, so its chips belong beside it.
+  //
+  // "collected" is the dossier's: it is one continuous description of a
+  // company, and a chip after every clause turned three sentences into a wall
+  // of "fact fact fact". The sources are the same, gathered once underneath —
+  // every claim stays checkable, and the prose stays readable.
+  citations?: "per-sentence" | "collected";
 }>) {
   const t = useT();
   return (
@@ -1563,9 +1580,22 @@ export function SentenceList({
             </Badge>
           )}{" "}
           {sentence.text}
-          <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
+          {citations === "per-sentence" && (
+            <Citations
+              evidence={sentence.evidence}
+              onOpenRecord={onOpenRecord}
+            />
+          )}
         </li>
       ))}
+      {citations === "collected" && (
+        <li className="co-brief-sources">
+          <Citations
+            evidence={sentences.flatMap((sentence) => sentence.evidence)}
+            onOpenRecord={onOpenRecord}
+          />
+        </li>
+      )}
     </ul>
   );
 }
@@ -1955,6 +1985,17 @@ type Health = NonNullable<Organization360["health"]>;
 // The rating vocabulary, worst first. The ORDER is the worst-of rule: a
 // verdict is the lowest-ranked rating among the dimensions that have one
 // (PO-AC-N-11).
+// fitStripColumns sets the grid's column count to the number of slots that
+// actually rendered. A fixed template reserves a cell for a reading the account
+// does not have, and an empty cell in a bordered row reads as a figure that
+// failed to load.
+function fitStripColumns(node: HTMLElement | null) {
+  if (!node) {
+    return;
+  }
+  node.style.setProperty("--co-strip-slots", String(node.childElementCount));
+}
+
 const HEALTH_RANK = ["at_risk", "good", "strong"] as const;
 type HealthRating = (typeof HEALTH_RANK)[number];
 
@@ -2223,7 +2264,18 @@ export function StateStrip({
   // reads as though the relationship were still running.
   const customer = strip.account.lifecycle === "customer";
   return (
-    <section className="co-strip" aria-label={t("co.strip.title")}>
+    <section
+      className="co-strip"
+      aria-label={t("co.strip.title")}
+      // The grid draws exactly the slots this account has. A customer's row is
+      // six; a non-customer with no open signal is five, and a template that
+      // reserved a sixth would leave a grey cell where a reading never was.
+      // Counted from the DOM rather than predicted: several slots return null
+      // on their own (engagement with no grant, pipeline with no deals), so an
+      // expression here would have to restate every one of their conditions and
+      // would drift the moment one changed.
+      ref={fitStripColumns}
+    >
       {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
           and how it is held: what they have ever been worth, what lately,
           what is outstanding, what is late, how late they usually are, and

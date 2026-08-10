@@ -98,8 +98,11 @@ describe("what this company is", () => {
     show();
 
     await screen.findByText(/What they offer: load-shifting software/);
+    // The sentences, not every row: the card renders one collected sources row
+    // underneath them, which is a receipt rather than a claim.
     const sentences = screen
       .getAllByRole("listitem")
+      .filter((item) => !item.classList.contains("co-brief-sources"))
       .map((item) => item.textContent?.trim());
     expect(sentences).toEqual([
       expect.stringContaining("What they offer: load-shifting software."),

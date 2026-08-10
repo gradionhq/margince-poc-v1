@@ -515,7 +515,11 @@
    three, which is a deliberate fold rather than an accidental one. */
 .co-strip {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* The column count follows the SLOTS, set by the component that knows how
+     many it drew. A fixed six-column template reserves the sixth cell even on a
+     non-customer that has five — a grey gap that reads as a reading which
+     failed to load rather than as one the account does not have. */
+  grid-template-columns: repeat(var(--co-strip-slots, 6), 1fr);
   gap: 1px; /* ds:ignore a hairline divider, not spacing rhythm — this 1px IS the rule between slots */
   margin-block-end: 0.9rem;
   border: 1px solid var(--borderSubtle);
