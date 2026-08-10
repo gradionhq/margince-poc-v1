@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // promptVersion changes whenever ANYTHING about how a brief is written
@@ -45,7 +46,9 @@ type Input struct {
 	ContactCount int       `json:"contact_count"`
 	Contacts     []NamedIn `json:"contacts,omitempty"`
 	OpenDeals    []DealIn  `json:"open_deals,omitempty"`
-	WonLifetime  int64     `json:"won_lifetime_minor"`
+	// WonLifetime is minor units, and reaches the model as `won_lifetime`
+	// rendered — see MarshalJSON, and DealIn.AmountMinor for why.
+	WonLifetime int64 `json:"-"`
 	// WonCurrency is the won total's OWN currency — the workspace base, which
 	// the 360 converts to at each deal's frozen close-time rate. It has no
 	// relation to whatever the open deals are priced in, so it must never be
@@ -94,10 +97,29 @@ type TaskIn struct {
 
 // DealIn is one open deal as the brief reads it.
 type DealIn struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Stage       string `json:"stage,omitempty"`
-	AmountMinor int64  `json:"amount_minor"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Stage string `json:"stage,omitempty"`
+	// Amount is the MAJOR-unit figure, rendered — "180000.00", not the
+	// 18000000 the column holds. The prompt carried minor units and said
+	// nothing about it, so the model read a 180,000 EUR deal as eighteen
+	// million and wrote that onto a customer-facing screen whose own card,
+	// two inches above, said 180,000.
+	//
+	// Rendered here rather than divided at the point of use, because /100 is
+	// wrong too: a zero-decimal currency has no minor unit, so dividing
+	// understates ¥18,000,000 by a hundred. values.MajorUnits carries the
+	// ISO-4217 table both this and the offer-draft price check read.
+	// AmountMinor is the exact integer, and it is what the package does
+	// ARITHMETIC on: the deterministic fallback sums open deals, and summing
+	// rendered decimal strings would reintroduce the rounding a minor-unit
+	// integer exists to prevent.
+	//
+	// It does not reach the model. MarshalJSON renders `amount` from it, so
+	// the figure the model reads is DERIVED from the integer at the moment it
+	// is written rather than stored beside it — two spellings of one number
+	// that a caller can set independently are two numbers.
+	AmountMinor int64  `json:"-"`
 	Currency    string `json:"currency,omitempty"`
 	Stalled     bool   `json:"stalled"`
 }
@@ -108,6 +130,60 @@ type ActIn struct {
 	Kind    string `json:"kind"`
 	Subject string `json:"subject,omitempty"`
 	At      string `json:"at"`
+	// Done says whether a timeline item that CAN be finished has been. It is a
+	// pointer because most items cannot: a call happened, and asking whether it
+	// is "done" is a category error that a plain false would answer anyway.
+	//
+	// Without it the same task reached the model twice — once under open_tasks
+	// and once here, as a past-dated timeline row with no state — and nothing
+	// linked the two shapes or said the second was still outstanding. The model
+	// did the reasonable thing with a dated entry and wrote that the account's
+	// open tasks had been completed, directly above a card showing one of them
+	// overdue.
+	Done *bool `json:"done,omitempty"`
+}
+
+// MarshalJSON writes the amount as the figure a person would say — "180000.00"
+// for 18000000 EUR, "18000000" for the same integer in JPY — rather than the
+// minor-unit integer the column holds.
+//
+// The prompt used to carry the integer, under a key that said `amount_minor` to
+// this file and nothing at all to the model. It read a 180,000 EUR deal as
+// eighteen million and wrote that onto a customer-facing screen whose own card,
+// two inches above, said 180,000.
+//
+// Derived here rather than divided at the point of use, and derived rather than
+// stored, for two different reasons. `/100` is wrong for a zero-decimal
+// currency — ¥18,000,000 IS eighteen million yen — so the ISO-4217 table
+// decides the scale. And a rendered copy kept beside the integer is a second
+// number a caller can set on its own; taking it at the moment of writing means
+// there is only ever one.
+func (d DealIn) MarshalJSON() ([]byte, error) {
+	type wire DealIn // no methods, so no recursion back into this one
+	return json.Marshal(struct {
+		wire
+		Amount string `json:"amount,omitempty"`
+	}{wire: wire(d), Amount: renderedAmount(d.AmountMinor, d.Currency)})
+}
+
+// MarshalJSON renders the won-to-date total for the reason DealIn's does: it
+// was minor units under a name only this file understood.
+func (in Input) MarshalJSON() ([]byte, error) {
+	type wire Input
+	return json.Marshal(struct {
+		wire
+		WonLifetime string `json:"won_lifetime,omitempty"`
+	}{wire: wire(in), WonLifetime: renderedAmount(in.WonLifetime, in.WonCurrency)})
+}
+
+// renderedAmount is the one rendering both use. An amount with no currency
+// renders as nothing: a figure printed without its code is a number whose scale
+// the reader has to guess, which is the defect rather than a lesser form of it.
+func renderedAmount(minor int64, currency string) string {
+	if minor == 0 || currency == "" {
+		return ""
+	}
+	return values.MajorUnits(minor, currency)
 }
 
 // briefInputActivities bounds how much of the timeline the brief reads. A
@@ -119,10 +195,7 @@ const briefInputActivities = 12
 // re-queries: the 360 ran under the caller's gates, so anything absent from
 // it is absent because that caller may not see it.
 func FromView(view crmcontracts.Organization360) Input {
-	in := Input{
-		Name:        view.Organization.DisplayName,
-		WonLifetime: 0,
-	}
+	in := Input{Name: view.Organization.DisplayName}
 	if view.Organization.Industry != nil {
 		in.Industry = *view.Organization.Industry
 	}
@@ -154,22 +227,21 @@ func foldDeals(view crmcontracts.Organization360, in *Input) {
 		return
 	}
 	in.LostCount = view.Deals.LostCount
-	if view.Deals.WonLifetime.AmountMinor != nil {
+	if view.Deals.WonLifetime.AmountMinor != nil && view.Deals.WonLifetime.Currency != nil {
+		in.WonCurrency = *view.Deals.WonLifetime.Currency
 		in.WonLifetime = *view.Deals.WonLifetime.AmountMinor
-		if view.Deals.WonLifetime.Currency != nil {
-			in.WonCurrency = *view.Deals.WonLifetime.Currency
-		}
 	}
 	for _, deal := range view.Deals.Data {
 		d := DealIn{ID: deal.DealId.String(), Name: deal.Name, Stalled: deal.Stalled}
 		if deal.StageName != nil {
 			d.Stage = *deal.StageName
 		}
-		if deal.Amount != nil && deal.Amount.AmountMinor != nil {
+		// Both halves or neither: a figure with no currency cannot be rendered
+		// into major units at all, and one printed without its code is a number
+		// whose scale the reader has to guess — which is the whole defect.
+		if deal.Amount != nil && deal.Amount.AmountMinor != nil && deal.Amount.Currency != nil {
+			d.Currency = *deal.Amount.Currency
 			d.AmountMinor = *deal.Amount.AmountMinor
-			if deal.Amount.Currency != nil {
-				d.Currency = *deal.Amount.Currency
-			}
 		}
 		in.OpenDeals = append(in.OpenDeals, d)
 	}
@@ -205,6 +277,13 @@ func foldRecent(view crmcontracts.Organization360, in *Input) {
 		}
 		if activity.Subject != nil {
 			act.Subject = *activity.Subject
+		}
+		// Only for the kinds that can BE finished. A call or a mail is not
+		// outstanding or complete, and answering false for one would invent a
+		// state the record does not have.
+		if activity.Kind == crmcontracts.ActivityKindTask {
+			done := activity.IsDone != nil && *activity.IsDone
+			act.Done = &done
 		}
 		in.Recent = append(in.Recent, act)
 	}
