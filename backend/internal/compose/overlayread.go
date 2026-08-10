@@ -375,10 +375,16 @@ func clampOverlaySearchLimit(v int) int {
 	}
 }
 
-// Search shadows the global search: in overlay mode it is a best-effort
-// visibility-filtered union across entity types (design.md §4.5) — a
-// single capped page with no cross-type cursor, so a supplied cursor is
-// refused rather than silently restarting the walk.
+// Search shadows the global search: in overlay mode it is a
+// visibility-filtered walk across entity types (design.md §4.5), served by
+// the provider's own sweep so the MCP tool and this route answer one
+// implementation rather than two.
+//
+// It PAGES. The walk has no ranking to interleave types by, but the sweep's
+// cursor names where it stopped — the type plus that type's mirror cursor —
+// so `has_more` now comes with somewhere to go. It previously refused
+// `cursor` outright and still reported more, which told a caller rows existed
+// and left them unreachable.
 func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontracts.SearchParams) {
 	ov, ok := s.overlayReadMode(w, r)
 	if !ok {
@@ -388,79 +394,88 @@ func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontrac
 		s.searchHandlers.Search(w, r, params)
 		return
 	}
-	if params.Cursor != nil {
-		unsupportedOverlayParam(w, r, "cursor")
+	types, ok := s.overlaySearchScope(w, r, params.Types)
+	if !ok {
 		return
 	}
-	types := overlaySearchTypes
-	if params.Types != nil {
-		types = make([]datasource.EntityType, 0, len(*params.Types))
-		for _, t := range *params.Types {
-			types = append(types, datasource.EntityType(t))
-		}
+	query := datasource.SearchQuery{Text: params.Q, EntityTypes: types}
+	if params.Cursor != nil {
+		query.Cursor = *params.Cursor
 	}
-	limit := overlaySearchDefaultLimit
 	if params.Limit != nil {
-		limit = clampOverlaySearchLimit(*params.Limit)
+		query.Limit = clampOverlaySearchLimit(*params.Limit)
+	} else {
+		query.Limit = overlaySearchDefaultLimit
 	}
-	hits := make([]crmcontracts.SearchResult, 0, limit)
-	// hasMore turns true when the page filled before every requested type
-	// was fully walked — there is no cross-type cursor to resume with, so
-	// the flag is the one honest signal that narrowing the query would
-	// surface more.
-	hasMore := false
-	for _, et := range types {
-		if len(hits) >= limit {
-			hasMore = true
-			break
-		}
-		typed, more, err := s.overlaySearchOneType(r.Context(), et, params.Q, limit-len(hits))
-		if err != nil {
+	// An empty scope is an answerable question with an empty answer: the seat
+	// may read none of the types it asked about. Serving it here rather than
+	// through the provider keeps that a page, not a 403 — search shows the
+	// object classes a seat can read and says nothing about the rest, which is
+	// the native surface's own posture (search/store.go's branchScope).
+	res := datasource.SearchResult{}
+	if len(types) > 0 {
+		var err error
+		if res, err = s.sorDispatch.Search(r.Context(), query); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			httperr.Write(w, r, err)
 			return
 		}
-		hits = append(hits, typed...)
-		if more {
-			hasMore = true
-		}
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SearchResponse{Data: hits, Page: crmcontracts.PageInfo{HasMore: hasMore}})
+	hits, err := overlaySearchHits(res)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	page := crmcontracts.PageInfo{HasMore: res.HasMore}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SearchResponse{Data: hits, Page: page})
 }
 
-// overlaySearchOneType pages one entity type's visibility-joined mirror
-// hits for the overlay search union, titled per type. A type the caller
-// may not read answers empty, not a query-wide 403 — search shows only
-// the object classes the seat can read, the native surface's own
-// posture; an unmapped caller likewise sees the empty world
-// (overlayList's rationale). Anything else is a real failure and
-// surfaces.
-func (s Server) overlaySearchOneType(ctx context.Context, et datasource.EntityType, text string, remaining int) (typed []crmcontracts.SearchResult, hasMore bool, err error) {
-	if err := auth.Require(ctx, string(et), principal.ActionRead); err != nil {
-		if errors.Is(err, apperrors.ErrPermissionDenied) {
-			return nil, false, nil
+// overlaySearchScope resolves which entity types this request sweeps: the
+// ones it named, or every mirrored one, minus those the seat may not read.
+//
+// A named type the mirror does not hold is REFUSED rather than walked past.
+// The mirror carries five object classes and the contract's `types` enum
+// carries six, so a caller asking for projects would otherwise be handed an
+// empty page reading "this workspace has no projects" — an answer about the
+// records, when the truth is about the mode.
+func (s Server) overlaySearchScope(
+	w http.ResponseWriter, r *http.Request, named *[]crmcontracts.SearchParamsTypes,
+) ([]datasource.EntityType, bool) {
+	asked := overlaySearchTypes
+	if named != nil {
+		asked = make([]datasource.EntityType, 0, len(*named))
+		for _, t := range *named {
+			et := datasource.EntityType(t)
+			if !overlayMirroredTypes[string(et)] {
+				unsupportedOverlayParam(w, r, "types")
+				return nil, false
+			}
+			asked = append(asked, et)
 		}
-		return nil, false, err
 	}
-	res, err := s.sorDispatch.Search(ctx, datasource.SearchQuery{
-		Text:        text,
-		EntityTypes: []datasource.EntityType{et},
-		Limit:       remaining,
-	})
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, false, nil
+	readable := make([]datasource.EntityType, 0, len(asked))
+	for _, et := range asked {
+		if auth.Require(r.Context(), string(et), principal.ActionRead) == nil {
+			readable = append(readable, et)
 		}
-		return nil, false, err
 	}
-	typed = ContractSearchResults(res)
+	return readable, true
+}
+
+// overlaySearchHits assembles one swept page onto the wire, titling each hit
+// by the type it came from.
+func overlaySearchHits(res datasource.SearchResult) ([]crmcontracts.SearchResult, error) {
+	typed := ContractSearchResults(res)
 	for i, rec := range res.Records {
-		fields, fieldsErr := overlayRecordFields(rec)
-		if fieldsErr != nil {
-			return nil, false, fieldsErr
+		fields, err := overlayRecordFields(rec)
+		if err != nil {
+			return nil, err
 		}
-		if title := overlayWireTitle(et, fields); title != "" {
+		if title := overlayWireTitle(rec.Ref.Type, fields); title != "" {
 			typed[i].Title = &title
 		}
 	}
-	return typed, res.HasMore, nil
+	return typed, nil
 }

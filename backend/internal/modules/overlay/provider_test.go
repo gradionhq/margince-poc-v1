@@ -5,9 +5,11 @@ package overlay
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -241,23 +243,59 @@ func TestExternalIDUUIDBridgeRejectsUnknownActivityClass(t *testing.T) {
 	}
 }
 
-// TestProviderSearchRequiresExactlyOneEntityType proves Search's own
-// branch-1 scope guard: any number of entity types other than exactly
-// one is a clean error, never a silent "search the first one" guess. A
-// zero-value MirrorStore is enough here — the guard runs before Search
-// ever touches p.ms.
-func TestProviderSearchRequiresExactlyOneEntityType(t *testing.T) {
+// TestProviderSearchRefusesATypeTheMirrorCannotHold proves the sweep's own
+// vocabulary guard: the mirror carries five object classes, and a query
+// naming a sixth is refused rather than walked past. Walking past it would
+// answer an empty page about the RECORDS when the truth is about the mode.
+// A zero-value MirrorStore is enough — the guard runs before p.ms is touched.
+func TestProviderSearchRefusesATypeTheMirrorCannotHold(t *testing.T) {
 	p := NewProvider(&MirrorStore{}, nil)
 
-	tests := [][]datasource.EntityType{
-		nil,
-		{datasource.EntityPerson, datasource.EntityDeal},
+	_, err := p.Search(context.Background(), datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityPerson, datasource.EntityProject},
+	})
+	var unsupported *datasource.UnsupportedEntityError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("Search naming an unmirrored type = %v, want an UnsupportedEntityError", err)
 	}
-	for _, types := range tests {
-		_, err := p.Search(context.Background(), datasource.SearchQuery{EntityTypes: types})
-		if err == nil {
-			t.Fatalf("Search with %d entity types: want an error, got nil", len(types))
-		}
+	if unsupported.Type != string(datasource.EntityProject) {
+		t.Errorf("the refusal names %q, want the type the mirror cannot hold", unsupported.Type)
+	}
+}
+
+// TestASweepCursorResumesItsOwnSweepAndRefusesAnother pins the resume token
+// #586 turns on: it round-trips the position, and a cursor minted for a sweep
+// that walked OTHER types is malformed rather than silently reindexed.
+// Reading it as position zero would restart the walk; reading it as some
+// arbitrary index would skip whatever lies between the two scopes.
+func TestASweepCursorResumesItsOwnSweepAndRefusesAnother(t *testing.T) {
+	walked := []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal}
+
+	from, inner, err := decodeSweepCursor(encodeSweepCursor(datasource.EntityOrganization, "mirror-42"), walked)
+	if err != nil {
+		t.Fatalf("decoding a cursor this sweep minted: %v", err)
+	}
+	if from != 1 || inner != "mirror-42" {
+		t.Errorf("resume position = (%d, %q), want the organization arm at its own mirror cursor", from, inner)
+	}
+
+	// An empty cursor is the start of the walk, not a malformed one.
+	if from, inner, err = decodeSweepCursor("", walked); err != nil || from != 0 || inner != "" {
+		t.Errorf("the empty cursor decoded to (%d, %q, %v), want the beginning", from, inner, err)
+	}
+
+	for _, probe := range []struct{ name, cursor string }{
+		{"minted for a sweep this one does not walk", encodeSweepCursor(datasource.EntityLead, "mirror-7")},
+		{"not base64 at all", "not a cursor!!"},
+		{"base64 of something that is not a position", base64.RawURLEncoding.EncodeToString([]byte("nonsense"))},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			_, _, err := decodeSweepCursor(probe.cursor, walked)
+			var malformed *storekit.MalformedCursorError
+			if !errors.As(err, &malformed) {
+				t.Errorf("decoding a cursor %s = %v, want the malformed-cursor answer", probe.name, err)
+			}
+		})
 	}
 }
 
