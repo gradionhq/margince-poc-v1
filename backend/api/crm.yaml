@@ -2234,14 +2234,20 @@ paths:
       description: |
         The `advance_deal` MCP verb. Writes one `deal_stage_history` row + one audit row
         (action `advance_stage`) recording prior + next stage; closed-won emits `deal.stage_changed` (to_status=won).
-        Advancing to a closed-won/closed-lost stage is 🟡 confirm-first (irreversible /
-        touches money) — for an agent caller this requires an approval token.
+        A move with a closed-won/closed-lost stage at EITHER end is 🟡 confirm-first
+        (irreversible / touches money) — for an agent caller this requires an approval
+        token. Closing a deal is the obvious half; REOPENING one is the other, and it is
+        the same money: moving a won deal back to an open stage clears its close date,
+        its lost reason and the FX rate frozen at close, and takes revenue out of a
+        quarter that has already been reported.
       # advance_deal is the one TierDynamic tool (A34/ADR-0026): the gate resolves the tier from the
-      # TARGET stage's semantic, NOT statically. open→open = 🟢 (no token); advancing INTO a
-      # won/lost terminal stage = 🟡 (approval token required). The resolver reads the target stage's
-      # `semantic` from pipeline config (and the overlay stage-mapping in overlay mode), not just the
-      # request args — see interfaces.md §2.1 (TierDynamic) and events.md §5.3.
-      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: target_stage_semantic, confirmation_required_when: 'target stage semantic in (won, lost)', scope: write }
+      # stage semantics at BOTH ENDS of the move, not statically. open→open = 🟢 (no token); a
+      # terminal won/lost stage at either end = 🟡 (approval token required), so closing a deal and
+      # reopening one are both gated. The resolver reads each stage's `semantic` from pipeline config
+      # (and the overlay stage-mapping in overlay mode), not just the request args — and it may only
+      # ever RAISE, so an unknown or malformed semantic at either end fails toward the approval gate.
+      # See interfaces.md §2.1 (TierDynamic) and events.md §5.3.
+      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: stage_semantic_at_either_endpoint, confirmation_required_when: 'source or target stage semantic in (won, lost)', scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
