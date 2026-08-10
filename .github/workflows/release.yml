@@ -1,0 +1,173 @@
+name: release
+
+# Draft a margince-constellation release for every build that lands on main
+# (and on test, where the flow is exercised against the constellation
+# deployment at test.margince.com before it is trusted on the mainline). The
+# release lives in the constellation dist service, not on GitHub.
+#
+# The flow, in order: draft the release versioned <year>.<build> (the build is
+# this workflow's run number, fitting the constellation YYYY.edition version
+# scheme) with the incremental patch attached, then build the three role
+# images, push them to ghcr, and add each to the draft as a digest-pinned
+# image reference. Publishing the release is deliberately NOT part of this
+# workflow yet.
+#
+# Both the patch cut and the release upload go through the release-management
+# CLI (a closed-source tool built and published from
+# gradionhq/margince-constellation as a private container image), run here
+# against this repo's checkout: the product source the release describes lives
+# here, so the release is cut here. The upload authenticates with the dist
+# publisher token (the MARGINCE_DIST_PUBLISHER_TOKEN secret — only CI holds
+# it) against the dist service URL below.
+#
+# The patch range is the push's before..after — exactly what the push added.
+# On a branch creation (all-zeros github.event.before) or a force-push (a
+# before the fetched history no longer reaches) there is no ancestor to diff
+# from, so the release drafts without a patch. On a manual dispatch there is
+# no push range, so it falls back to the parent commit (HEAD~1..HEAD).
+on:
+  push:
+    branches: [main, test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The release-management CLI image, published :latest from constellation's
+  # main (gradionhq/margince-constellation). The pull authenticates with the
+  # job's default GITHUB_TOKEN (packages: read).
+  RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
+  # The dist service of the constellation deployment the release is drafted
+  # into. The CLI reads this variable directly and refuses a non-https URL.
+  MARGINCE_RELEASE_MANAGEMENT_DIST_URL: https://dist.test.margince.com
+
+jobs:
+  draft:
+    name: draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Pull the private release-management image from ghcr.io with the
+      # default GITHUB_TOKEN.
+      packages: read
+    outputs:
+      version: ${{ steps.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history so both ends of the range resolve; the shallow default
+          # would not carry the before commit.
+          fetch-depth: 0
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Cut the patch and draft the release
+        id: draft
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(date -u +%Y).${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A push carries its previous tip in BEFORE; a manual dispatch carries
+          # nothing, so fall back to the parent commit. Two shapes of BEFORE
+          # mean there is no ancestor to diff from, and the release drafts
+          # without a patch: all-zeros (branch creation), and a commit the
+          # fetched history no longer reaches (a force-push discards its old
+          # tip, so even a full fetch of the new tip cannot resolve it).
+          base="$BEFORE"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
+          fi
+          patch_args=()
+          if [ -n "$base" ] && ! printf '%s' "$base" | grep -qE '^0+$' \
+            && git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
+            # there and diff it with -repo. The image's own user is non-root and
+            # does not own the runner's checkout, so run as the runner's uid/gid —
+            # the CLI then writes the patch as the mount's owner. That uid has no
+            # passwd entry in the image, so point HOME at a writable path, and
+            # inject safe.directory via git's env config (no writable config file
+            # needed) for the CLI's git subprocess.
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -v "$PWD":/work \
+              -e HOME=/tmp \
+              -e GIT_CONFIG_COUNT=1 \
+              -e GIT_CONFIG_KEY_0=safe.directory \
+              -e GIT_CONFIG_VALUE_0='*' \
+              "$RELEASE_MANAGEMENT_IMAGE" \
+              create-patch -from "$base" -to "$AFTER" -repo . -out "$GITHUB_REF_NAME-$AFTER.patch"
+            patch_args=(-patch "$GITHUB_REF_NAME-$AFTER.patch")
+          else
+            echo "No ancestor commit to diff from; drafting the release without a patch." >&2
+          fi
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/work \
+            -e HOME=/tmp \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            draft-release -version "$version" -revision "$AFTER" "${patch_args[@]}"
+
+  # One leg per role: build the image, push it to ghcr, and add it to the
+  # drafted release as a digest-pinned reference (the digest is the identity;
+  # the version tag is recorded for humans). Each leg adds a distinct image
+  # role, so the legs cannot conflict in the dist service.
+  #
+  # `docker-image`, not `image`: the check-image-pins gate key-anchors every
+  # `image:` in a workflow as a container reference to digest-check, and that
+  # includes a job id.
+  docker-image:
+    name: image (${{ matrix.role }})
+    needs: [draft]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      # A broken web image must not hide whether api/worker still build.
+      fail-fast: false
+      matrix:
+        role: [api, web, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Build and push the image, add it to the draft
+        env:
+          ROLE: ${{ matrix.role }}
+          VERSION: ${{ needs.draft.outputs.version }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        # ONE revision for every role, so the api and the web tier can be
+        # compared at run time. A role that does not declare the ARG simply
+        # ignores it.
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/$GITHUB_REPOSITORY/$ROLE:$VERSION"
+          docker build --build-arg MARGINCE_BUILD_REVISION="$GITHUB_SHA" -f "Dockerfile.$ROLE" -t "$ref" .
+          docker push "$ref"
+          # The push assigns the manifest digest; RepoDigests carries it for
+          # the one repository this image was pushed to.
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$ref")"
+          docker run --rm \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            add-artifacts -version "$VERSION" -image "$ROLE=$ref@${digest##*@}"

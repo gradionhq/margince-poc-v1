@@ -248,10 +248,17 @@ Wiring details:
   the `license gate` job in `ci.yml` (above), so each event path runs the policy
   exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
-- **`patch.yml`** — on every push to `main`, runs the release-management CLI over
-  the push's range and uploads the incremental patch as a short-retention
-  artifact for the distribution pipeline. The two degenerate cases go opposite
-  ways: a branch creation or force-push has an all-zeros `before` — no ancestor
-  to diff from — so the job **no-ops**, while a **manual dispatch** carries no
-  push range at all and falls back to the parent commit (`HEAD~1..HEAD`). Not a
-  gate — it never blocks a merge.
+- **`release.yml`** — on every push to `main` (and to `test`, where the flow is
+  exercised against the constellation deployment at test.margince.com), drafts
+  a margince-constellation release versioned `<year>.<build>` in the dist
+  service — not a GitHub release: the release-management CLI cuts the
+  incremental patch over the push's range and uploads it with `draft-release`,
+  then the three role images are built, pushed to ghcr, and added to the draft
+  as digest-pinned references with `add-artifacts`. Publishing the release is
+  deliberately not part of the workflow yet. The upload authenticates with the
+  dist publisher token (the `MARGINCE_DIST_PUBLISHER_TOKEN` secret). The two
+  degenerate patch cases go opposite ways: a branch creation (all-zeros
+  `before`) or a force-push (a `before` the fetched history no longer reaches)
+  has no ancestor to diff from, so the release drafts **without a patch**,
+  while a **manual dispatch** carries no push range at all and falls back to
+  the parent commit (`HEAD~1..HEAD`). Not a gate — it never blocks a merge.
