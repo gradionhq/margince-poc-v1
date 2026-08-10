@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,6 +21,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -51,6 +54,10 @@ var _ datasource.SystemOfRecordProvider = (*Provider)(nil)
 // searchable is the entity set Search sweeps when the query names none.
 // Activities are deliberately absent: the timeline is reached through
 // read_record/list on a named entity, not blind full-text sweep.
+// defaultSearchPageSize is the page a caller that named no limit gets — the
+// size this seam has always answered when asked for none.
+const defaultSearchPageSize = 20
+
 var searchable = []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityLead, datasource.EntityProject}
 
 func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasource.Record, error) {
@@ -86,54 +93,163 @@ func (p *Provider) ListFilters(t datasource.EntityType) []string {
 	}
 }
 
+// Search answers one page of records: one entity type's, or a SWEEP across
+// several — which is what the tool surface advertises when a caller names no
+// record type, and what this provider must therefore be able to page.
+//
+// The page is bounded ONCE, across the whole walk. Charging each type the full
+// limit and concatenating would answer five times the ceiling the caller
+// named, on the surface where that context is paid for and displaces the run's
+// own observations.
+//
+// It is walked type by type rather than ranked across them, because the types
+// have no common score to interleave by. What makes that pageable is the
+// composite cursor: the position is the type plus that type's own keyset, so a
+// caller resumes where the page stopped. HasMore is true if and only if there
+// is such a position — a page that reports a remainder it cannot hand back
+// leaves those records unreachable, and one that reports completeness it has
+// not established stops the caller looking.
 func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (datasource.SearchResult, error) {
-	types := q.EntityTypes
-	if len(types) == 0 {
-		types = searchable
+	types, err := sweepOrder(q.EntityTypes)
+	if err != nil {
+		return datasource.SearchResult{}, err
 	}
-	limit := q.Limit
-	if limit <= 0 {
-		limit = 20
+	position, err := storekit.DecodeSweepCursor(q.Cursor)
+	if err != nil {
+		return datasource.SearchResult{}, err
 	}
 	text := &q.Text
 	if q.Text == "" {
 		text = nil
 	}
-	// Keyset cursors are per-entity streams; a cross-type cursor would
-	// have to interleave four of them. Honest bound: cursor pagination
-	// needs exactly one entity type, multi-type queries get page one.
-	var cursor *string
-	if q.Cursor != "" {
-		if len(types) != 1 {
-			return datasource.SearchResult{}, errors.New("compose: search cursor requires exactly one entity_type")
-		}
-		cursor = &q.Cursor
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultSearchPageSize
 	}
 
 	out := datasource.SearchResult{Records: []datasource.Record{}}
-	for _, t := range types {
-		var (
-			records []datasource.Record
-			next    string
-			more    bool
-			err     error
-		)
-		switch t {
-		case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
-			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
-		case datasource.EntityDeal, datasource.EntityProject:
-			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
-		default:
-			return datasource.SearchResult{}, &datasource.UnsupportedEntityError{Type: string(t)}
+	inner := position.Inner
+	for i := resumeIndex(types, position.Stream); i < len(types); i++ {
+		et := types[i]
+		if string(et) != position.Stream {
+			// The stream the cursor was minted in is not this one, so this
+			// type starts at ITS beginning rather than inheriting a keyset
+			// from another.
+			inner = ""
 		}
+		records, next, err := p.searchOneType(ctx, et, text, limit-len(out.Records), inner, q.Filters, len(types) > 1)
 		if err != nil {
 			return datasource.SearchResult{}, err
 		}
 		out.Records = append(out.Records, records...)
-		if len(types) == 1 {
-			out.NextCursor, out.HasMore = next, more
+		if next != "" {
+			return sweepResumesAt(out, et, next)
+		}
+		inner = ""
+		if len(out.Records) >= limit && i+1 < len(types) {
+			return sweepResumesAt(out, types[i+1], "")
 		}
 	}
+	return out, nil
+}
+
+// searchOneType pages one entity type through the module that owns it.
+//
+// In a SWEEP a denied type is omitted; a caller who NAMED one type hears the
+// denial. Search shows a seat the object classes it can read and says nothing
+// about the rest — the posture ListObjects and the native /v1/search branches
+// already take — and refusing the whole walk for one missing grant would make
+// the advertised all-types sweep unusable for any seat that is not universal.
+func (p *Provider) searchOneType(ctx context.Context, t datasource.EntityType, text *string, limit int,
+	cursor string, filters map[string]string, sweeping bool,
+) ([]datasource.Record, string, error) {
+	var inner *string
+	if cursor != "" {
+		inner = &cursor
+	}
+	var (
+		records []datasource.Record
+		next    string
+		err     error
+	)
+	switch t {
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+		records, next, _, err = p.people.SearchEntity(ctx, t, text, limit, inner, filters)
+	case datasource.EntityDeal, datasource.EntityProject:
+		records, next, _, err = p.deals.SearchEntity(ctx, t, text, limit, inner, filters)
+	default:
+		return nil, "", &datasource.UnsupportedEntityError{Type: string(t)}
+	}
+	if err != nil {
+		if sweeping && errors.Is(err, apperrors.ErrPermissionDenied) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	return records, next, nil
+}
+
+// sweepOrder resolves the types one query walks: the ones it named, or every
+// searchable type when it named none.
+//
+// Always in one fixed order and always without repeats, whatever order the
+// caller listed them in and however many times — a stream walked twice serves
+// its records twice, and a cursor names the type rather than one of its
+// appearances, so a resumed walk would re-serve them forever.
+func sweepOrder(named []datasource.EntityType) ([]datasource.EntityType, error) {
+	if len(named) == 0 {
+		return searchable, nil
+	}
+	asked := make(map[datasource.EntityType]bool, len(named))
+	for _, et := range named {
+		if !slices.Contains(searchable, et) {
+			return nil, &datasource.UnsupportedEntityError{Type: string(et)}
+		}
+		asked[et] = true
+	}
+	walk := make([]datasource.EntityType, 0, len(asked))
+	for _, et := range searchable {
+		if asked[et] {
+			walk = append(walk, et)
+		}
+	}
+	return walk, nil
+}
+
+// resumeIndex is where in this walk the cursor's stream resumes.
+//
+// The token names a stream, not an index into one request's slice, so it still
+// means the same place when the request presenting it is not the one that
+// minted it — a narrowed type list, or a grant lost between pages. A stream
+// this walk no longer covers resumes at the next type PAST it: the records
+// between belong to a stream this request is not reading, and the contract
+// already says changing a filter mid-walk changes what the remaining pages
+// see.
+func resumeIndex(walk []datasource.EntityType, stream string) int {
+	if stream == "" {
+		return 0
+	}
+	at := slices.Index(searchable, datasource.EntityType(stream))
+	if at < 0 {
+		return len(walk)
+	}
+	for i, et := range walk {
+		if slices.Index(searchable, et) >= at {
+			return i
+		}
+	}
+	return len(walk)
+}
+
+// sweepResumesAt finishes a page that stopped short of the walk's end: the
+// position to continue from, and the flag that says one exists. They are set
+// together and only together.
+func sweepResumesAt(out datasource.SearchResult, et datasource.EntityType, inner string) (datasource.SearchResult, error) {
+	cursor, err := storekit.EncodeSweepCursor(storekit.SweepCursor{Stream: string(et), Inner: inner})
+	if err != nil {
+		return datasource.SearchResult{}, err
+	}
+	out.NextCursor, out.HasMore = cursor, true
 	return out, nil
 }
 

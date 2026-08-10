@@ -269,11 +269,11 @@ func TestProviderSearchRefusesATypeTheMirrorCannotHold(t *testing.T) {
 // token has to mean the same place when the request presenting it is not the
 // one that minted it.
 func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.T) {
-	minted, err := encodeSweepCursor(datasource.EntityOrganization, "mirror-42")
+	minted, err := storekit.EncodeSweepCursor(storekit.SweepCursor{Stream: string(datasource.EntityOrganization), Inner: "mirror-42"})
 	if err != nil {
 		t.Fatalf("encoding a sweep position: %v", err)
 	}
-	resumeAt, inner, err := decodeSweepCursor(minted)
+	resumeAt, inner, err := resumeStream(minted)
 	if err != nil {
 		t.Fatalf("decoding a cursor the sweep minted: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.
 	}
 
 	// An empty cursor is the start of the walk, not a malformed one.
-	if resumeAt, inner, err = decodeSweepCursor(""); err != nil || resumeAt != "" || inner != "" {
+	if resumeAt, inner, err = resumeStream(""); err != nil || resumeAt != "" || inner != "" {
 		t.Errorf("the empty cursor decoded to (%q, %q, %v), want the beginning", resumeAt, inner, err)
 	}
 
@@ -293,7 +293,7 @@ func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.
 		{"naming an object class the mirror cannot hold", mustEncodeSweepCursor(t, datasource.EntityProject)},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
-			_, _, err := decodeSweepCursor(probe.cursor)
+			_, _, err := resumeStream(probe.cursor)
 			var malformed *storekit.MalformedCursorError
 			if !errors.As(err, &malformed) {
 				t.Errorf("decoding a cursor %s = %v, want the malformed-cursor answer", probe.name, err)
@@ -306,7 +306,7 @@ func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.
 // than swallowing an encoding error into an empty cursor.
 func mustEncodeSweepCursor(t *testing.T, et datasource.EntityType) string {
 	t.Helper()
-	cursor, err := encodeSweepCursor(et, "mirror-7")
+	cursor, err := storekit.EncodeSweepCursor(storekit.SweepCursor{Stream: string(et), Inner: "mirror-7"})
 	if err != nil {
 		t.Fatalf("encoding a sweep position for %s: %v", et, err)
 	}

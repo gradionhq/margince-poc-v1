@@ -8,10 +8,7 @@ package overlay
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -92,7 +89,7 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 // forward until a match turns up — is a request whose cost is decided by how
 // rare the caller's word is.
 func (p *Provider) sweep(ctx context.Context, types []datasource.EntityType, q datasource.SearchQuery) (datasource.SearchResult, error) {
-	resumeAt, inner, err := decodeSweepCursor(q.Cursor)
+	resumeAt, inner, err := resumeStream(q.Cursor)
 	if err != nil {
 		return datasource.SearchResult{}, err
 	}
@@ -234,34 +231,11 @@ func resumePosition(walk []datasource.EntityType, resumeAt datasource.EntityType
 	return len(walk)
 }
 
-// sweepCursor is where a sweep stopped: the entity type being walked and that
-// type's own mirror cursor within it. Both halves are needed — the type alone
-// would restart it, and the mirror cursor alone would not say which object
-// class it indexes into.
-type sweepCursor struct {
-	Type  string `json:"t"`
-	Inner string `json:"c"`
-}
-
-// encodeSweepCursor renders a resume position opaquely: a caller must never
-// build or edit one, and the shape inside is this package's business.
-//
-// It answers an error rather than an empty cursor, because the caller pairs
-// the result with HasMore: a silent "" there would report more with nowhere
-// to go, which is the answer this whole file exists to stop giving.
-func encodeSweepCursor(et datasource.EntityType, inner string) (string, error) {
-	raw, err := json.Marshal(sweepCursor{Type: string(et), Inner: inner})
-	if err != nil {
-		return "", fmt.Errorf("overlay: encoding the sweep position for %s: %w", et, err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
-}
-
 // withResumePosition finishes a page that stopped short of the walk's end:
 // the position to continue from, and the flag that says one exists. They are
 // set together and only together, which is the whole of the invariant.
 func withResumePosition(out datasource.SearchResult, et datasource.EntityType, inner string) (datasource.SearchResult, error) {
-	cursor, err := encodeSweepCursor(et, inner)
+	cursor, err := storekit.EncodeSweepCursor(storekit.SweepCursor{Stream: string(et), Inner: inner})
 	if err != nil {
 		return datasource.SearchResult{}, err
 	}
@@ -269,28 +243,19 @@ func withResumePosition(out datasource.SearchResult, et datasource.EntityType, i
 	return out, nil
 }
 
-// decodeSweepCursor resolves a cursor to the mirrored type it resumes at and
-// the position within that type's stream. An empty cursor starts at the
-// beginning of the walk.
-//
-// Malformed is reserved for a token this package could not have minted:
-// something that is not base64, not the position shape, or names an object
-// class the mirror does not hold. Whether the CURRENT request still walks that
-// type is not a question about the token — see resumePosition, which answers
-// it without calling a caller's valid cursor an input error.
-func decodeSweepCursor(cursor string) (resumeAt datasource.EntityType, inner string, err error) {
-	if cursor == "" {
+// resumeStream reads the position a cursor names, refusing one this package
+// could not have minted: a token whose stream is an object class the mirror
+// does not hold. Whether THIS request still walks that stream is
+// resumePosition's question, not a fault in the token.
+func resumeStream(cursor string) (datasource.EntityType, string, error) {
+	position, err := storekit.DecodeSweepCursor(cursor)
+	if err != nil {
+		return "", "", err
+	}
+	if position.Stream == "" {
 		return "", "", nil
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return "", "", &storekit.MalformedCursorError{}
-	}
-	var position sweepCursor
-	if err := json.Unmarshal(raw, &position); err != nil {
-		return "", "", &storekit.MalformedCursorError{}
-	}
-	at := datasource.EntityType(position.Type)
+	at := datasource.EntityType(position.Stream)
 	if !slices.Contains(knownEntityTypes, at) {
 		return "", "", &storekit.MalformedCursorError{}
 	}
