@@ -73,6 +73,19 @@ rates:
 mcp:
   connector_enabled: true
 
+# The MCP App views (the ui:// documents a host renders beside a tool's answer)
+# are static files the web tier serves, and the api reads them over HTTP:
+# GET <origin>/mcp-apps/<view>.html, once at startup and periodically after.
+# There is nothing to configure here — the origin is --mcp-apps-base-url /
+# MARGINCE_MCP_APPS_BASE_URL, which DEFAULTS to --public-base-url, and the
+# connector gate above already makes that a boot error to omit.
+#
+# Set it only when the api cannot reach the public origin: a container without
+# ingress hairpin routing, external DNS or egress. The value has to be
+# API-reachable, which is not the same as publicly reachable. A CDN origin works
+# and is recommended — it trades the dependency on the web tier for a better
+# one rather than removing it. See docs/reference/configuration.md.
+
 # Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
 # moving backward disables reads/injection/surfaces but never deletes confirmed
 # company data. Stages include the prior stage: off < read < tasks < onboarding.
