@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CompaniesScreen, CompanyScreen } from "./organizations";
+import { CompanyScreen } from "./company-page";
+import { CompaniesScreen } from "./organizations";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // CompaniesScreen (list) and CompanyScreen (360 Overview) both read through

@@ -14,9 +14,9 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
+import { CompanyScreen } from "./company-page";
 import {
   CompaniesScreen,
-  CompanyScreen,
   companyEditFields,
   mapOrgUpdate,
 } from "./organizations";

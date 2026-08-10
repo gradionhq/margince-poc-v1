@@ -12,8 +12,8 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { CompanyScreen } from "./company-page";
 import { PeopleCard } from "./company360";
-import { CompanyScreen } from "./organizations";
 
 // The company view's honesty rules, which are the whole point of the
 // composite read:
