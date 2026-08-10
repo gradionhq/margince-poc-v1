@@ -372,8 +372,11 @@
    story is the wide right-hand side, the readings sit where the eye
    starts. DOM order stays main-then-aside so readers and tab order still
    meet the story first. */
+/* 4:7, not 3:7 — a card of money or pipeline in the business column needs a
+   figure, its label and its caveat on readable lines, and at 3fr each of them
+   broke over two. The story keeps the wider side either way. */
 .record-zones-aside-first {
-  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
 }
 .record-zones-aside-first .record-main {
   grid-column: 2;

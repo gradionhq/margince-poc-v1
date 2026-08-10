@@ -875,6 +875,8 @@ export const en = {
   "co.decisions.title": "Decisions waiting",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Nothing is waiting on a decision here.",
+  "co.chronology.viewAll": "View full history",
+  "co.ask.open": "Ask",
   "co.ask.title": "Ask Margince",
   "co.ask.q.whats_open": "What's open here?",
   "co.ask.q.meeting_prep": "Prep me for a meeting",
@@ -1417,7 +1419,7 @@ export const en = {
 
   "dedupe.viewExisting": "View existing record",
 
-  "today.title": "Today on this account",
+  "today.title": "What to do next",
   "today.loading": "Reading the account…",
   "today.failed":
     "This could not be assembled. The rest of the page still shows what it could read.",

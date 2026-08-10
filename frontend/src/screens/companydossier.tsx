@@ -98,7 +98,10 @@ export function DossierPanel({
       : undefined;
 
   return (
-    <section className="co-part co-dossier" aria-label={t("co.dossier.title")}>
+    <section
+      className="card co-part co-dossier"
+      aria-label={t("co.dossier.title")}
+    >
       <h2 className="co-part-label">{t("co.dossier.title")}</h2>
       {dossier.isPending ? (
         <Skeleton width="100%" height={64} />

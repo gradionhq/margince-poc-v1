@@ -876,6 +876,8 @@ export const vi = {
   "co.decisions.title": "Quyết định đang chờ",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Ở đây không có gì đang chờ quyết định.",
+  "co.chronology.viewAll": "Xem toàn bộ lịch sử",
+  "co.ask.open": "Hỏi",
   "co.ask.title": "Hỏi Margince",
   "co.ask.q.whats_open": "Ở đây đang mở những gì?",
   "co.ask.q.meeting_prep": "Chuẩn bị cho tôi một cuộc họp",
@@ -1425,7 +1427,7 @@ export const vi = {
 
   "dedupe.viewExisting": "Xem bản ghi hiện có",
 
-  "today.title": "Hôm nay ở tài khoản này",
+  "today.title": "Việc nên làm tiếp theo",
   "today.loading": "Đang đọc tài khoản…",
   "today.failed":
     "Không thể tổng hợp phần này. Phần còn lại của trang vẫn hiển thị những gì đọc được.",

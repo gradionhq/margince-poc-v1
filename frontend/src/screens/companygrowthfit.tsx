@@ -110,7 +110,7 @@ export function GrowthFitPanel({
 
   return (
     <section
-      className="co-part co-growth-fit"
+      className="card co-part co-growth-fit"
       aria-label={t("co.growthFit.title")}
     >
       <h2 className="co-part-label">{t("co.growthFit.title")}</h2>

@@ -482,7 +482,13 @@ export function RecordView({
         <div className="record-main">
           {children}
           {timeline && (
-            <section aria-label={timelineTitle ?? t("record.timeline")}>
+            // A card, like every other reading in the columns: the chronology
+            // was the one block with no edge of its own, so it read as loose
+            // rows spilled under the cards rather than as the record's story.
+            <section
+              className="card record-timeline"
+              aria-label={timelineTitle ?? t("record.timeline")}
+            >
               <h2 className="t-sub">{timelineTitle ?? t("record.timeline")}</h2>
               {timelineHeader}
               {timelineNotice ??

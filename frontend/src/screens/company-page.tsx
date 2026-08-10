@@ -33,7 +33,6 @@ import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
-import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   LoadMoreButton,
@@ -48,6 +47,7 @@ import {
 } from "./common";
 import {
   AccountBrief,
+  AskSection,
   DealsCard,
   HealthCard,
   NextSteps,
@@ -59,6 +59,7 @@ import {
   StateStrip,
   StateStripSkeleton,
   type SuggestionAction,
+  SuggestionsSection,
   TagsCard,
   useAcknowledgeOrganizationView,
   useOrganization360,
@@ -950,6 +951,15 @@ function companyTabsFor(
 // happened WITH them, changes is what happened TO the record; a reader who
 // wants them in one order picks "all".
 const TIMELINE_FILTERS = ["activities", "changes", "all"] as const;
+
+// How much of the chronology a tab shows.
+type ChronologyMode = "full" | "recent" | "off";
+
+// The overview's short run. Five rows is about a week on an account anyone is
+// working, which is the span the question "what just happened here" covers —
+// long enough to see a thread, short enough that the decision the overview
+// exists for stays on the same screen.
+const RECENT_CHRONOLOGY_ROWS = 5;
 type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
 
 type Activity = components["schemas"]["Activity"];
@@ -1217,22 +1227,151 @@ function ChronologyFilter({
   );
 }
 
+// The overview's short run of the chronology: the last few rows, the period
+// headings that make them legible, and a pointer at the tab that holds the
+// rest. No filter and no paging — a reader who wants to work the history goes
+// to the tab that is built for it.
+function recentChronologySlots({
+  history,
+  view,
+  loading,
+  failed,
+  filter,
+  onOpenHistory,
+  t,
+}: Readonly<{
+  history: ReturnType<typeof useAccountChronology>;
+  view?: Organization360View;
+  loading: boolean;
+  failed: boolean;
+  filter: TimelineFilter;
+  // Opens the tab that holds the whole chronology. A sentence naming that tab
+  // told a reader where the rest was and left them to find it; the verb takes
+  // them there.
+  onOpenHistory: () => void;
+  t: ReturnType<typeof useT>;
+}>): ChronologySlots {
+  const recent = history.entries.slice(0, RECENT_CHRONOLOGY_ROWS);
+  return {
+    timeline: recent,
+    // Grouped by period like the full list: even five rows read better with
+    // "this week" over them than as five undated lines.
+    timelineGroups: groupChronology(recent, false),
+    timelineFooter:
+      history.entries.length > recent.length ? (
+        <button type="button" className="link-button" onClick={onOpenHistory}>
+          {t("co.chronology.viewAll")}
+        </button>
+      ) : undefined,
+    timelineNotice: chronologyNotice(
+      {
+        loading: loading || history.loading,
+        failed: failed || history.failed,
+        assembled: Boolean(view?.activities),
+        filter,
+      },
+      history.entries.length,
+      t,
+    ),
+  };
+}
+
+// The History tab's chronology: every row the merge produced, the filter over
+// it, the paging under it, and the notices that keep "still loading", "the
+// read failed" and "nothing happened" apart.
+function fullChronologySlots({
+  history,
+  view,
+  loading,
+  failed,
+  filter,
+  setFilter,
+  t,
+}: Readonly<{
+  history: ReturnType<typeof useAccountChronology>;
+  view?: Organization360View;
+  loading: boolean;
+  failed: boolean;
+  filter: TimelineFilter;
+  setFilter: (next: TimelineFilter) => void;
+  t: ReturnType<typeof useT>;
+}>): ChronologySlots {
+  return {
+    timeline: history.entries,
+    // Conversations, not messages. The account's timeline is where the same
+    // exchange showed up three times — a product update to three contacts
+    // was three rows, and a five-message thread was five.
+    timelineGroups: groupChronology(
+      history.entries,
+      view?.activities?.page.has_more ?? false,
+    ),
+    timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
+    timelineFooter: (
+      <>
+        {/* Where the merged view stops being complete, said out loud.
+              Silence here would read as the end of the account's history. */}
+        {history.truncated && (
+          <p className="t-small">
+            {t(
+              filter === "activities"
+                ? "co.chronology.truncatedActivities"
+                : "co.chronology.truncated",
+            )}
+          </p>
+        )}
+        {/* Only where fetching more changes actually lengthens the list.
+              Under "all" the merge is cut at whichever feed is shorter, so if
+              the ACTIVITY feed is the constraint, another page of changes is
+              filtered straight back out and the button does nothing. */}
+        {(filter === "changes" ||
+          (filter === "all" && history.changesAreTheLimit)) && (
+          <LoadMoreButton query={history.changes} />
+        )}
+      </>
+    ),
+    timelineNotice: chronologyNotice(
+      {
+        // Per filter, because the two feeds fail independently. A 360 that
+        // omitted its activities section says nothing about the change
+        // feed, and reporting the Changes view as unavailable on that
+        // basis hid rows that had loaded perfectly well.
+        loading:
+          filter === "changes" ? history.loading : loading || history.loading,
+        failed:
+          filter === "changes" ? history.failed : failed || history.failed,
+        assembled: filter === "changes" ? true : Boolean(view?.activities),
+        filter,
+      },
+      history.entries.length,
+      t,
+    ),
+  };
+}
+
 function useChronologySlots({
   org,
   view,
   overlay,
   loading,
   failed,
-  active,
+  mode,
+  openHistory,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   loading: boolean;
   failed: boolean;
-  // Whether the chronology is on screen at all. The Partner tab is a form,
-  // so it renders no timeline rather than an empty one.
-  active: boolean;
+  // How much of the chronology this tab shows. "full" is the History tab —
+  // filters, paging, the lot. "recent" is the overview's short run: the last
+  // few things that happened, because a reader deciding what to do about an
+  // account needs to know what just happened without leaving the page they
+  // decide on. "off" is the Partner tab, a form, which renders no timeline
+  // rather than an empty one.
+  mode: ChronologyMode;
+  // Switches the record to the History tab, for the overview's "View full
+  // history".
+  openHistory: () => void;
 }>): {
   slots: ChronologySlots;
   showChanges: () => void;
@@ -1258,12 +1397,23 @@ function useChronologySlots({
   // rather than opening a screen of its own.
   const showChanges = () => setFilter("changes");
 
-  if (!active) {
+  if (mode === "off") {
     return { slots: { timelineNotice: <span /> }, showChanges };
   }
-  // In overlay mode the refusal is stated once, in the body: repeating it over
-  // the timeline would read as two separate things being unavailable rather
-  // than one page not being assembled.
+  if (mode === "recent") {
+    return {
+      showChanges,
+      slots: recentChronologySlots({
+        history,
+        view,
+        loading,
+        failed,
+        filter,
+        onOpenHistory: openHistory,
+        t,
+      }),
+    };
+  }
   if (overlay) {
     return {
       slots: { timeline: history.entries, timelineNotice: <span /> },
@@ -1272,56 +1422,15 @@ function useChronologySlots({
   }
   return {
     showChanges,
-    slots: {
-      timeline: history.entries,
-      // Conversations, not messages. The account's timeline is where the same
-      // exchange showed up three times — a product update to three contacts
-      // was three rows, and a five-message thread was five.
-      timelineGroups: groupChronology(
-        history.entries,
-        view?.activities?.page.has_more ?? false,
-      ),
-      timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
-      timelineFooter: (
-        <>
-          {/* Where the merged view stops being complete, said out loud.
-              Silence here would read as the end of the account's history. */}
-          {history.truncated && (
-            <p className="t-small">
-              {t(
-                filter === "activities"
-                  ? "co.chronology.truncatedActivities"
-                  : "co.chronology.truncated",
-              )}
-            </p>
-          )}
-          {/* Only where fetching more changes actually lengthens the list.
-              Under "all" the merge is cut at whichever feed is shorter, so if
-              the ACTIVITY feed is the constraint, another page of changes is
-              filtered straight back out and the button does nothing. */}
-          {(filter === "changes" ||
-            (filter === "all" && history.changesAreTheLimit)) && (
-            <LoadMoreButton query={history.changes} />
-          )}
-        </>
-      ),
-      timelineNotice: chronologyNotice(
-        {
-          // Per filter, because the two feeds fail independently. A 360 that
-          // omitted its activities section says nothing about the change
-          // feed, and reporting the Changes view as unavailable on that
-          // basis hid rows that had loaded perfectly well.
-          loading:
-            filter === "changes" ? history.loading : loading || history.loading,
-          failed:
-            filter === "changes" ? history.failed : failed || history.failed,
-          assembled: filter === "changes" ? true : Boolean(view?.activities),
-          filter,
-        },
-        history.entries.length,
-        t,
-      ),
-    },
+    slots: fullChronologySlots({
+      history,
+      view,
+      loading,
+      failed,
+      filter,
+      setFilter,
+      t,
+    }),
   };
 }
 
@@ -1419,6 +1528,97 @@ function CompanyStanding({
   );
 }
 
+// The surfaces the page opens OVER itself: the composer, the task form, the
+// task detail, the decision queue and the evidence receipt. Split out of
+// CompanyPage because none of them is part of the page's reading — they are
+// what its verbs open — and together they made the page's own render
+// unreadable.
+function CompanySurfaces({
+  org,
+  view,
+  tab,
+  taskUpdate,
+  replyToActivityId,
+  taskFormOpen,
+  openTaskId,
+  decisionsOpen,
+  cited,
+  onCloseReply,
+  onCloseTaskForm,
+  onCloseTask,
+  onCloseDecisions,
+  onCloseReceipt,
+  onStepReceipt,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  tab: CompanyTab;
+  taskUpdate: ReturnType<typeof useTaskUpdate>;
+  replyToActivityId: string | null;
+  taskFormOpen: boolean;
+  openTaskId: string | null;
+  decisionsOpen: boolean;
+  cited: CitedRecord | null;
+  onCloseReply: () => void;
+  onCloseTaskForm: () => void;
+  onCloseTask: () => void;
+  onCloseDecisions: () => void;
+  onCloseReceipt: () => void;
+  onStepReceipt?: (direction: 1 | -1) => void;
+}>) {
+  return (
+    <>
+      {/* The composer, anchored on the message a draft_reply suggestion named.
+          It is the same modal the timeline's own Reply opens — the advice
+          shortcuts to it rather than inventing a second way to answer. */}
+      {replyToActivityId && (
+        <ComposeModal
+          activityId={replyToActivityId}
+          entityType="organization"
+          entityId={org.id}
+          kind="email"
+          open
+          onClose={onCloseReply}
+        />
+      )}
+      {taskFormOpen && (
+        <LogActivityAction
+          entityType="organization"
+          entityId={org.id}
+          initialKind="task"
+          openOnMount
+          onClose={onCloseTaskForm}
+        />
+      )}
+      {openTaskId && (
+        <TaskDetailModal
+          activityId={openTaskId}
+          onClose={onCloseTask}
+          update={taskUpdate}
+        />
+      )}
+      {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
+          Partner put a panel from one tab on top of another, and a reader who
+          switched tabs to get rid of it could not. */}
+      {decisionsOpen && tab === "overview" && (
+        <CompanyApprovalsPanel
+          orgId={org.id}
+          view={view}
+          onClose={onCloseDecisions}
+        />
+      )}
+      {cited && (
+        <EvidenceModal
+          orgId={org.id}
+          cited={cited}
+          onClose={onCloseReceipt}
+          onStep={onStepReceipt}
+        />
+      )}
+    </>
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -1454,6 +1654,7 @@ function CompanyPage({
   );
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const receipt = useCitedReceipt();
   // A task written or completed from this page changes the account's timeline,
@@ -1465,7 +1666,8 @@ function CompanyPage({
     overlay,
     loading,
     failed,
-    active: tab === "timeline",
+    mode: tab === "timeline" ? "full" : tab === "overview" ? "recent" : "off",
+    openHistory: () => onTab("timeline"),
   });
   // An evidence mark asks where a value came from, and the answer is the
   // record's change history — which now lives on its own tab.
@@ -1510,7 +1712,21 @@ function CompanyPage({
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
-      actions={<CompanyPrimaryActions org={org} />}
+      // Ask stands with the record's verbs rather than at the foot of the
+      // overview, where a reader had to scroll past everything the page DID
+      // answer before finding out they could ask. Its answer opens as a
+      // drawer, the way the composer and the receipt do: the account stays on
+      // screen as the context the answer is about. Overlay has no grounded
+      // answer to give, so the verb is absent there rather than refusing once
+      // pressed.
+      actions={
+        <>
+          <CompanyPrimaryActions org={org} />
+          {!overlay && (
+            <Button onClick={() => setAskOpen(true)}>{t("co.ask.open")}</Button>
+          )}
+        </>
+      }
       // Two columns, the business beside the story: the readings a rep scans
       // sit where the eye starts, and the account's own story keeps the wide
       // side. They belong to the RECORD rather than to the overview, so the
@@ -1572,63 +1788,29 @@ function CompanyPage({
           onOpenRecord={receipt.open}
         />
       )}
-      {/* The composer, anchored on the message a draft_reply suggestion named.
-          It is the same modal the timeline's own Reply opens — the advice
-          shortcuts to it rather than inventing a second way to answer. */}
-      {replyToActivityId && (
-        <ComposeModal
-          activityId={replyToActivityId}
-          entityType="organization"
-          entityId={org.id}
-          kind="email"
-          open
-          onClose={() => setReplyToActivityId(null)}
-        />
-      )}
-      {taskFormOpen && (
-        <LogActivityAction
-          entityType="organization"
-          entityId={org.id}
-          initialKind="task"
-          openOnMount
-          onClose={() => setTaskFormOpen(false)}
-        />
-      )}
       {/* The People tab gives the account team the whole middle column. The
-          rail's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
-      {/* Asking sits UNDER the account's own story: it is the tool for when the
-          page did not already answer the question. It belongs to the account
-          rather than to its history, so it stays on the overview instead of
-          following the chronology onto its own tab. */}
+          business column's card is a summary; this is the roster, with room
+          for the title and the last exchange beside each name. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
-      {openTaskId && (
-        <TaskDetailModal
-          activityId={openTaskId}
-          onClose={() => setOpenTaskId(null)}
-          update={taskUpdate}
-        />
-      )}
-      {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
-          Partner put a panel from one tab on top of another, and a reader who
-          switched tabs to get rid of it could not. */}
-      {decisionsOpen && tab === "overview" && (
-        <CompanyApprovalsPanel
-          orgId={org.id}
-          view={view}
-          onClose={() => setDecisionsOpen(false)}
-        />
-      )}
-      {receipt.cited && (
-        <EvidenceModal
-          orgId={org.id}
-          cited={receipt.cited}
-          onClose={receipt.close}
-          onStep={receipt.step}
-        />
-      )}
+      <CompanySurfaces
+        org={org}
+        view={view}
+        tab={tab}
+        taskUpdate={taskUpdate}
+        replyToActivityId={replyToActivityId}
+        taskFormOpen={taskFormOpen}
+        openTaskId={openTaskId}
+        decisionsOpen={decisionsOpen}
+        cited={receipt.cited}
+        onCloseReply={() => setReplyToActivityId(null)}
+        onCloseTaskForm={() => setTaskFormOpen(false)}
+        onCloseTask={() => setOpenTaskId(null)}
+        onCloseDecisions={() => setDecisionsOpen(false)}
+        onCloseReceipt={receipt.close}
+        onStepReceipt={receipt.step}
+      />
       {/* Context is what Margince HOLDS about the account: the profile the
           site read produced, its facts, its relationships, the dossier and the
           fit assessment, and the one-off tools. Folded into the overview it
@@ -1639,12 +1821,31 @@ function CompanyPage({
           with it. Overlay is the one exception: the page has already refused
           once there. */}
       {!overlay && tab === "context" && (
-        <>
+        <div className="co-context">
           <DossierPanel orgId={org.id} enabled onOpenRecord={openCitation} />
           <GrowthFitPanel orgId={org.id} enabled onOpenRecord={openCitation} />
           <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
-        </>
+        </div>
       )}
+      {/* Asking about the account, in the drawer its verb opens. Mounted only
+          while open: the question is a model call, and a panel nobody opened
+          should hold no state to replay. */}
+      <Modal
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        labelledBy="co-ask-title"
+        placement="right"
+      >
+        <h2 id="co-ask-title" className="t-h2 modal-title">
+          {t("co.ask.title")}
+        </h2>
+        {askOpen && (
+          <AskSection orgId={org.id} enabled onOpenRecord={openCitation} />
+        )}
+        <div className="form-actions">
+          <Button onClick={() => setAskOpen(false)}>{t("fab.close")}</Button>
+        </div>
+      </Modal>
       {/* The audit spine, opened from the header's overflow menu. It belongs
           to the RECORD, not to a tab, so it opens over whichever tab is up. */}
       <Modal
@@ -1707,6 +1908,24 @@ function CompanyOverviewStack({
         loading={loading}
         failed={failed}
         onPrepareMeeting={onCompose}
+        // The rule-fired advice reads INSIDE today's card. It was a second
+        // list of what to do next, standing beside the first, and a reader had
+        // no way to tell which of the two was the account's real ask.
+        advice={
+          view && !overlay ? (
+            <SuggestionsSection
+              orgId={org.id}
+              view={view}
+              onOpenRecord={onOpenRecord}
+              onPerform={(action) =>
+                performSuggestion(action, {
+                  compose: onCompose,
+                  logTask: onLogTask,
+                })
+              }
+            />
+          ) : undefined
+        }
       />
       {/* Then what the account looks like right now, in its own words and
           ours. These three read the same evidence and cite it the same way, so
@@ -1718,12 +1937,6 @@ function CompanyOverviewStack({
           view={view}
           enabled={!overlay}
           onOpenRecord={onOpenRecord}
-          onPerform={(action) =>
-            performSuggestion(action, {
-              compose: onCompose,
-              logTask: onLogTask,
-            })
-          }
         />
       )}
       {/* The open commitments in full, then the tool for when the page did not
@@ -1742,7 +1955,6 @@ function CompanyOverviewStack({
           )}
         />
       )}
-      <AssistantPanel orgId={org.id} enabled onOpenRecord={onOpenRecord} />
     </>
   );
 }

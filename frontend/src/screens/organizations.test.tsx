@@ -1794,6 +1794,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   });
 });
 
+// openAsk opens the drawer the record's Ask verb opens. Asking is a verb of
+// the record now, not a card at the foot of the overview, so a test about the
+// answer has to press it first.
+async function openAsk() {
+  await userEvent.click(await screen.findByRole("button", { name: "Ask" }));
+}
+
 describe("CompanyScreen — Ask Margince", () => {
   const answer = {
     organization_id: "o-1",
@@ -1818,6 +1825,7 @@ describe("CompanyScreen — Ask Margince", () => {
       return companyBackstop(url);
     });
     render(<CompanyScreen id="o-1" />);
+    await openAsk();
 
     await waitFor(() =>
       expect(
@@ -1849,6 +1857,7 @@ describe("CompanyScreen — Ask Margince", () => {
       return companyBackstop(url);
     });
     render(<CompanyScreen id="o-1" />);
+    await openAsk();
 
     await waitFor(() =>
       expect(
@@ -1872,6 +1881,7 @@ describe("CompanyScreen — Ask Margince", () => {
       return companyBackstop(url);
     });
     render(<CompanyScreen id="o-1" />);
+    await openAsk();
 
     await waitFor(() =>
       expect(

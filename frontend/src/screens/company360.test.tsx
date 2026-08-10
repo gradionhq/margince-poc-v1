@@ -1613,16 +1613,17 @@ describe("company view — the account's own tabs", () => {
     );
   });
 
-  it("keeps Ask on the overview rather than following the history", async () => {
+  it("keeps the Ask verb on the record, whichever tab is open", async () => {
     stub(view());
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // Asking is a tool for when the page did not answer the question. It
-    // belongs to the account, not to its chronology.
-    expect(screen.getByText("Ask Margince")).toBeTruthy();
+    // Asking is a tool for when the page did not answer the question, so it
+    // belongs to the record rather than to one tab: its verb stands with the
+    // record's other verbs and survives a tab switch.
+    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.queryByText("Ask Margince")).toBeNull();
+    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
   });
 });
 

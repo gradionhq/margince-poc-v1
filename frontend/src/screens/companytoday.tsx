@@ -98,6 +98,7 @@ export function TodayOnThisAccount({
   loading,
   failed,
   onPrepareMeeting,
+  advice,
 }: Readonly<{
   view?: Organization360;
   loading: boolean;
@@ -106,6 +107,10 @@ export function TodayOnThisAccount({
   // one of them is a fact about the account.
   failed: boolean;
   onPrepareMeeting?: (activityId: string) => void;
+  // What the account's own rules say is worth doing next, rendered under the
+  // tiles. It is advice about the same day the tiles report, so it reads in
+  // the same card rather than as a second list beside it.
+  advice?: ReactNode;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -192,6 +197,7 @@ export function TodayOnThisAccount({
           <TodayActions view={view} t={t} onPrepareMeeting={onPrepareMeeting} />
         </div>
       )}
+      {advice}
       <TodayWithheld view={view} />
     </SectionCard>
   );
@@ -213,6 +219,10 @@ function TodayActions({
   view: Organization360;
   t: TodayContext["t"];
   onPrepareMeeting?: (activityId: string) => void;
+  // What the account's own rules say is worth doing next, rendered under the
+  // tiles. It is advice about the same day the tiles report, so it reads in
+  // the same card rather than as a second list beside it.
+  advice?: ReactNode;
 }>) {
   const recipient = [...(view.people?.data ?? [])].sort(byStrengthThenId)[0];
   const meeting = view.next_meeting;

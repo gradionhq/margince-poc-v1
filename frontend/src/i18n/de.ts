@@ -877,6 +877,8 @@ export const de = {
   "co.decisions.title": "Offene Entscheidungen",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Hier wartet nichts auf eine Entscheidung.",
+  "co.chronology.viewAll": "Ganzen Verlauf ansehen",
+  "co.ask.open": "Fragen",
   "co.ask.title": "Margince fragen",
   "co.ask.q.whats_open": "Was ist hier offen?",
   "co.ask.q.meeting_prep": "Auf ein Gespräch vorbereiten",
@@ -1430,7 +1432,7 @@ export const de = {
 
   "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
 
-  "today.title": "Heute bei diesem Account",
+  "today.title": "Was als Nächstes zu tun ist",
   "today.loading": "Account wird gelesen…",
   "today.failed":
     "Das ließ sich nicht zusammenstellen. Der Rest der Seite zeigt weiterhin, was gelesen werden konnte.",

@@ -292,11 +292,14 @@
   margin-top: var(--space-3);
 }
 .co-part-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textMeta);
+  /* A label sits ON its section rather than against the first line of it: with
+     no gap the eyebrow and the sentence under it read as one wrapped line. */
+  margin-block-end: var(--space-3);
 }
 
 /* A profile/fact row: label above the value, with the value carrying its
@@ -317,9 +320,12 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 8px 0;
-  font-size: 13.5px;
+  /* One sentence per line, each with its own citations under it: at 6px the
+     citations of one sentence sat as close to the next sentence as to their
+     own. */
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 /* A sentence's citations sit in their own wrapping row after the prose, each
@@ -516,12 +522,12 @@
    rather than rules: a boxed heading reads as a card, and these are parts of
    one reading. */
 .co-brief-section + .co-brief-section {
-  margin-block-start: 0.7rem;
+  margin-block-start: var(--space-4);
 }
 
 .co-brief-section-label {
   color: var(--textMeta);
-  margin-block-end: 0.2rem;
+  margin-block-end: var(--space-2);
 }
 
 /* The growth fit sits between the brief and the next steps: what this account
@@ -749,4 +755,49 @@
 }
 .com-block + .com-block {
   margin-top: var(--space-3);
+}
+
+/* The Context tab: what Margince HOLDS about the account, each part carrying
+   the same edge as the readings beside it. A folded disclosure here takes the
+   cards' chrome for the same reason it does in the business column — without
+   it a closed section sits as bare text and reads as a card that failed to
+   render rather than as one that is shut. */
+.co-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.co-context > .card {
+  margin-bottom: 0;
+}
+.co-context > .disclosure {
+  background: var(--bgElevated);
+  /* The card's own edge replaces the disclosure's top rule — kept, the rule
+     and the border drew two lines, and the rule's padding-top pushed the
+     summary off the centre of its own row. */
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  padding-top: 0;
+  margin-bottom: 0;
+}
+/* A card inside an open disclosure is a card inside a card: the disclosure
+   already drew the edge, and the section it holds already has the summary's
+   words as its title. The inner card gives up both. */
+.co-context .disclosure-body > .card {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+.co-context .disclosure-body > .card > .section-header {
+  display: none;
+}
+.co-context > .disclosure > .disclosure-summary,
+.co-context > .disclosure > .disclosure-body {
+  padding-inline: var(--space-4);
+}
+.co-context > .disclosure > .disclosure-summary {
+  padding-block: var(--space-3);
 }

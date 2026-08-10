@@ -1644,7 +1644,6 @@ export function AccountBrief({
   view,
   enabled,
   onOpenRecord,
-  onPerform,
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
@@ -1653,7 +1652,6 @@ export function AccountBrief({
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
-  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1692,7 +1690,10 @@ export function AccountBrief({
   // account with nothing to say — the same distinction every card here keeps.
   const readable = Array.isArray(written?.sections) ? written : undefined;
   return (
-    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
+    // A card, like everything else in the two columns: as a bare "part" the
+    // brief read as loose prose spilled between two carded neighbours, and a
+    // reader could not tell where the account's own summary began or ended.
+    <section className="card co-part co-brief" aria-label={t("co.brief.title")}>
       <h2 className="co-part-label">{t("co.brief.title")}</h2>
       {brief.isPending && <Skeleton width="100%" height={64} />}
       {/* Errored, or answered with a payload this build cannot read: both are
@@ -1735,18 +1736,6 @@ export function AccountBrief({
         <p className="t-caption form-error">
           {problemMessageOf(rewrite.error, t)}
         </p>
-      )}
-      {/* What to do about it, in the same block that said what it is. These
-          were two cards — one describing the account, one advising on it —
-          so the reader carried the reading from the first into the second
-          themselves. */}
-      {view && (
-        <SuggestionsSection
-          orgId={orgId}
-          view={view}
-          onOpenRecord={onOpenRecord}
-          onPerform={onPerform}
-        />
       )}
       <BriefFooter view={view} />
     </section>
@@ -2442,8 +2431,13 @@ export function SuggestionsSection({
     return null;
   }
   return (
+    // A part of "What to do next", not a card of its own, and with no heading
+    // of its own either: as a second titled list beside the tiles, the page
+    // gave two answers to one question and left the reader to work out which
+    // was authoritative. The tiles say what is true today, these rows say what
+    // to do about it, and the card's own title covers both. The landmark keeps
+    // its name so the rows are still reachable as a group.
     <section className="co-part co-suggest" aria-label={t("co.suggest.title")}>
-      <h3 className="co-part-label">{t("co.suggest.title")}</h3>
       <ul className="co-list">
         {suggestions.map((suggestion) => (
           <li key={suggestion.fingerprint} className="co-row">
