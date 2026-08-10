@@ -414,8 +414,8 @@ describe("company view — consent is per purpose", () => {
   });
 });
 
-describe("company view — the context column belongs to the account, not to a tab", () => {
-  it("keeps the context column mounted when the reader switches tab", async () => {
+describe("company view — the business column belongs to the overview", () => {
+  it("gives every other tab the whole width", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
 
@@ -423,16 +423,18 @@ describe("company view — the context column belongs to the account, not to a t
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
 
-    // Partner and History used to render in a header-only frame, so the side
-    // column unmounted, the grid re-columned under the reader, and every query
-    // behind it refetched on the way back.
+    // A tab that IS one subject gets the page: beside a form, a roster or a
+    // deal table, the business column repeats what the tab is already showing
+    // and narrows the thing the reader came to read.
+    expect(
+      screen.queryByRole("complementary", { name: "Business" }),
+    ).toBeNull();
+    // And it comes back with the overview, rather than being a thing the
+    // reader has to go and find again.
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
     expect(
       screen.getByRole("complementary", { name: "Business" }),
     ).toBeTruthy();
-    // There is no second landmark to check any more: the profile, documents,
-    // facts and tools disclosures live INSIDE the Business column (plan §4 —
-    // one context column, not two), so they ride on its mount.
-    expect(screen.queryByRole("complementary", { name: "Profile" })).toBeNull();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
@@ -1606,11 +1608,13 @@ describe("company view — the account's own tabs", () => {
     await screen.findByRole("complementary", { name: "Business" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
-    // The rail's card is a summary; the tab is the roster. Both read the same
-    // section of the one composite read, so they cannot disagree.
-    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
-      1,
-    );
+    // The overview's card is a summary; the tab is the roster, and it has the
+    // page to itself. Both read the same section of the one composite read, so
+    // they cannot disagree.
+    expect(
+      screen.queryByRole("complementary", { name: "Business" }),
+    ).toBeNull();
+    expect(screen.getAllByText("Christian Hagemeyer").length).toBe(1);
   });
 
   it("keeps the Ask verb on the record, whichever tab is open", async () => {

@@ -49,7 +49,6 @@ import {
   AccountBrief,
   AskSection,
   DealsCard,
-  HealthCard,
   NextSteps,
   type Org360Result,
   OverlayFallback,
@@ -82,6 +81,7 @@ import {
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
 import { CustomFieldsCard } from "./customfields.card";
+import { dealColumns } from "./deals";
 import {
   EvidenceVerdict,
   factClaim,
@@ -91,6 +91,12 @@ import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
 import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
 import { mergeChronology } from "./history.logic";
 import { confidenceLevel } from "./inbox";
+import {
+  type ListPage,
+  type ListQuery,
+  ListTable,
+  useListQuery,
+} from "./listquery";
 import { LogActivityAction } from "./logactivity";
 import { LIFECYCLE_LABELS, RELATIONSHIP_TYPE_LABELS } from "./organizations";
 import { PartnerTab } from "./partners";
@@ -109,6 +115,7 @@ import { groupChronology } from "./timelinegroups";
 // share only the form mappers a record edit and a record create both need.
 
 type Organization = components["schemas"]["Organization"];
+type Deal = components["schemas"]["Deal"];
 type Organization360View = components["schemas"]["Organization360"];
 type CompanyProfileField = components["schemas"]["CompanyProfileField"];
 type OrganizationFact = components["schemas"]["OrganizationFact"];
@@ -916,6 +923,7 @@ function FactsCard({
 // form, not a reading of this account.
 const COMPANY_TABS = [
   "overview",
+  "deals",
   "context",
   "people",
   "timeline",
@@ -944,7 +952,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview", "context", "people", "timeline"] as const);
+    : (["overview", "deals", "context", "people", "timeline"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1043,6 +1051,7 @@ function CompanyRecord({
         label={t("record.tabs")}
         labels={{
           overview: t("tab.overview"),
+          deals: t("tab.deals"),
           context: t("tab.context"),
           people: t("tab.people"),
           timeline: t("tab.timeline"),
@@ -1619,6 +1628,194 @@ function CompanySurfaces({
   );
 }
 
+// What the open tab puts in the work column. Split out of CompanyPage because
+// the page's own job — the masthead, the columns, the surfaces its verbs open
+// — was buried under six tab branches.
+
+// The account's page of deals. Same read the pipeline screen's table makes,
+// with the organization pinned: the tab is one company's deals, so the filter
+// is not a dial the reader can turn.
+async function fetchAccountDealsPage(
+  orgId: string,
+  query: ListQuery,
+  cursor: string | null,
+): Promise<ListPage<Deal>> {
+  const { data, error } = await api.GET("/deals", {
+    params: {
+      query: {
+        organization_id: orgId,
+        sort: query.sort || undefined,
+        include_archived: query.includeArchived || undefined,
+        cursor: cursor || undefined,
+        limit: 50,
+        ...query.filters,
+      },
+    },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return {
+    data: data.data,
+    page: {
+      next_cursor: data.page.next_cursor ?? null,
+      has_more: data.page.has_more,
+    },
+  };
+}
+
+// The account's deals, on the shared list surface.
+//
+// Same component, columns and controls as the pipeline screen's table — the
+// query is simply pinned to this organization. A table written for this tab
+// alone would be a second deals list to keep in agreement with the first, and
+// the two would drift the first time a column was added to either.
+function CompanyDealsTab({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  // The stage NAMES the rows show. Without the pipeline read a row can only
+  // print a stage id, which names nothing to a reader.
+  const pipelines = useQuery({
+    queryKey: ["pipelines", "all"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/pipelines", {
+        params: { query: {} },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data.data;
+    },
+  });
+  const stageName = new Map(
+    (pipelines.data ?? []).flatMap((pipeline) =>
+      (pipeline.stages ?? []).map(
+        (stage) => [stage.id, stage.name] as [string, string],
+      ),
+    ),
+  );
+  const state = useListQuery<Deal>({
+    key: `deals:organization:${org.id}`,
+    initialSort: "-last_activity_at",
+    fetchPage: (query, cursor) => fetchAccountDealsPage(org.id, query, cursor),
+  });
+  return (
+    <ListTable
+      state={state}
+      unit="deals.unit"
+      columns={dealColumns(t, locale, stageName)}
+      rowKey={(deal) => deal.id}
+      rowRoute={(deal) => ({ screen: "deals", id: deal.id })}
+      // The account is the filter. A search box and a company chip on a list
+      // that is already one company's deals offer to narrow it to itself.
+      searchable={false}
+      action={
+        org.archived_at ? undefined : (
+          <NewDealAction orgId={org.id} orgName={org.display_name} />
+        )
+      }
+    />
+  );
+}
+
+function CompanyTabBody({
+  org,
+  view,
+  overlay,
+  loading,
+  failed,
+  tab,
+  taskUpdate,
+  onOpenTask,
+  onCompose,
+  onLogTask,
+  onOpenRecord,
+  onOpenHistory,
+  onOpenCitation,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  loading: boolean;
+  failed: boolean;
+  tab: CompanyTab;
+  taskUpdate: ReturnType<typeof useTaskUpdate>;
+  onOpenTask: (step: { activity_id: string }) => void;
+  onCompose: (activityId: string) => void;
+  onLogTask: () => void;
+  onOpenRecord: (cited: CitedRecord) => void;
+  // An evidence mark asks where a value came from; the answer is the record's
+  // change history, on the tab that holds it.
+  onOpenHistory: () => void;
+  onOpenCitation: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {/* Overlay refuses the whole company page, not one tab of it: the
+          partner extension and the field history are native records the
+          mirror does not hold, so switching tabs must not walk around the
+          refusal into reads that can only fail. */}
+      {overlay && <OverlayFallback />}
+      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {tab === "overview" && failed && (
+        <EmptyState>{t("co.partial")}</EmptyState>
+      )}
+      {/* What needs a person, before anything that merely reports state. It is
+          assembled from sections the page already read — open tasks, the
+          calendar, what changed since the last visit, the suggestions — put in
+          the order a rep works them, with facts, assessments and
+          recommendations labelled apart. */}
+      {tab === "overview" && (
+        <CompanyOverviewStack
+          org={org}
+          view={view}
+          overlay={overlay}
+          loading={loading}
+          failed={failed}
+          taskUpdate={taskUpdate}
+          onOpenTask={onOpenTask}
+          onCompose={onCompose}
+          onLogTask={onLogTask}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      {/* The People tab gives the account team the whole middle column. The
+          business column's card is a summary; this is the roster, with room
+          for the title and the last exchange beside each name. */}
+      {tab === "people" && (
+        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
+      )}
+      {/* The deals tab gives the pipeline the whole width, on the SAME list
+          surface the pipeline screen and every other list uses — same columns,
+          same sort, same empty and error states — filtered to this account. A
+          table drawn only for this tab would be a second deals list to keep in
+          agreement with the first. */}
+      {!overlay && tab === "deals" && <CompanyDealsTab org={org} />}
+      {/* Context is what Margince HOLDS about the account: the profile the
+          site read produced, its facts, its relationships, the dossier and the
+          fit assessment, and the one-off tools. Folded into the overview it
+          was more content than the rest of the page put together, and none of
+          it answers "what do I do about this account".
+          None of it comes from the 360 either — each card runs its own read,
+          so a failed composite must not take the company's profile and files
+          with it. Overlay is the one exception: the page has already refused
+          once there. */}
+      {!overlay && tab === "context" && (
+        <div className="co-context">
+          <DossierPanel orgId={org.id} enabled onOpenRecord={onOpenCitation} />
+          <GrowthFitPanel
+            orgId={org.id}
+            enabled
+            onOpenRecord={onOpenCitation}
+          />
+          <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -1727,17 +1924,17 @@ function CompanyPage({
           )}
         </>
       }
-      // Two columns, the business beside the story: the readings a rep scans
-      // sit where the eye starts, and the account's own story keeps the wide
-      // side. They belong to the RECORD rather than to the overview, so the
-      // column stands on every tab — a reader moving between tabs keeps their
-      // anchor. Overlay is the one exception: cards that each read as an empty
-      // account are the half-page the refusal exists to prevent.
+      // Two columns on the OVERVIEW: the readings a rep scans sit where the eye
+      // starts, and the account's story keeps the wide side. Every other tab is
+      // one subject at full width — beside a tab that is already showing the
+      // deals or the roster, the column repeats it and narrows the thing the
+      // reader came to read. Overlay drops it too: cards that each read as an
+      // empty account are the half-page the refusal exists to prevent.
       //
       // DOM order still meets the story first (asideFirst is placement only),
       // so a screen reader and the tab order are unaffected by the seating.
       aside={
-        overlay ? undefined : (
+        overlay || tab !== "overview" ? undefined : (
           <CompanyBusinessColumn
             org={org}
             view={view}
@@ -1760,40 +1957,21 @@ function CompanyPage({
       tabs={tabs}
       {...slots}
     >
-      {/* Overlay refuses the whole company page, not one tab of it: the
-          partner extension and the field history are native records the
-          mirror does not hold, so switching tabs must not walk around the
-          refusal into reads that can only fail. */}
-      {overlay && <OverlayFallback />}
-      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
-      {tab === "overview" && failed && (
-        <EmptyState>{t("co.partial")}</EmptyState>
-      )}
-      {/* What needs a person, before anything that merely reports state. It is
-          assembled from sections the page already read — open tasks, the
-          calendar, what changed since the last visit, the suggestions — put in
-          the order a rep works them, with facts, assessments and
-          recommendations labelled apart. */}
-      {tab === "overview" && (
-        <CompanyOverviewStack
-          org={org}
-          view={view}
-          overlay={overlay}
-          loading={loading}
-          failed={failed}
-          taskUpdate={taskUpdate}
-          onOpenTask={openTask}
-          onCompose={setReplyToActivityId}
-          onLogTask={() => setTaskFormOpen(true)}
-          onOpenRecord={receipt.open}
-        />
-      )}
-      {/* The People tab gives the account team the whole middle column. The
-          business column's card is a summary; this is the roster, with room
-          for the title and the last exchange beside each name. */}
-      {tab === "people" && (
-        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
-      )}
+      <CompanyTabBody
+        org={org}
+        view={view}
+        overlay={overlay}
+        loading={loading}
+        failed={failed}
+        tab={tab}
+        taskUpdate={taskUpdate}
+        onOpenTask={openTask}
+        onCompose={setReplyToActivityId}
+        onLogTask={() => setTaskFormOpen(true)}
+        onOpenRecord={receipt.open}
+        onOpenHistory={showChanges}
+        onOpenCitation={openCitation}
+      />
       <CompanySurfaces
         org={org}
         view={view}
@@ -1811,22 +1989,6 @@ function CompanyPage({
         onCloseReceipt={receipt.close}
         onStepReceipt={receipt.step}
       />
-      {/* Context is what Margince HOLDS about the account: the profile the
-          site read produced, its facts, its relationships, the dossier and the
-          fit assessment, and the one-off tools. Folded into the overview it
-          was more content than the rest of the page put together, and none of
-          it answers "what do I do about this account".
-          None of it comes from the 360 either — each card runs its own read,
-          so a failed composite must not take the company's profile and files
-          with it. Overlay is the one exception: the page has already refused
-          once there. */}
-      {!overlay && tab === "context" && (
-        <div className="co-context">
-          <DossierPanel orgId={org.id} enabled onOpenRecord={openCitation} />
-          <GrowthFitPanel orgId={org.id} enabled onOpenRecord={openCitation} />
-          <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
-        </div>
-      )}
       {/* Asking about the account, in the drawer its verb opens. Mounted only
           while open: the question is a model call, and a panel nobody opened
           should hold no state to replay. */}
@@ -1912,18 +2074,35 @@ function CompanyOverviewStack({
         // list of what to do next, standing beside the first, and a reader had
         // no way to tell which of the two was the account's real ask.
         advice={
-          view && !overlay ? (
-            <SuggestionsSection
-              orgId={org.id}
-              view={view}
-              onOpenRecord={onOpenRecord}
-              onPerform={(action) =>
-                performSuggestion(action, {
-                  compose: onCompose,
-                  logTask: onLogTask,
-                })
-              }
-            />
+          view ? (
+            <>
+              {!overlay && (
+                <SuggestionsSection
+                  orgId={org.id}
+                  view={view}
+                  onOpenRecord={onOpenRecord}
+                  onPerform={(action) =>
+                    performSuggestion(action, {
+                      compose: onCompose,
+                      logTask: onLogTask,
+                    })
+                  }
+                />
+              )}
+              {/* The commitments somebody already made, last: advice is what
+                  the page thinks, a task is what a person decided. */}
+              <NextSteps
+                view={view}
+                onOpenTask={onOpenTask}
+                renderAction={(step) => (
+                  <TaskQuickActions
+                    activityId={step.activity_id}
+                    dueAt={step.due_at}
+                    update={taskUpdate}
+                  />
+                )}
+              />
+            </>
           ) : undefined
         }
       />
@@ -1937,22 +2116,6 @@ function CompanyOverviewStack({
           view={view}
           enabled={!overlay}
           onOpenRecord={onOpenRecord}
-        />
-      )}
-      {/* The open commitments in full, then the tool for when the page did not
-          answer the question. Neither is a card about the account — one is a
-          work list and one is a prompt — so neither belongs in the grid. */}
-      {view && (
-        <NextSteps
-          view={view}
-          onOpenTask={onOpenTask}
-          renderAction={(step) => (
-            <TaskQuickActions
-              activityId={step.activity_id}
-              dueAt={step.due_at}
-              update={taskUpdate}
-            />
-          )}
         />
       )}
     </>
@@ -2023,7 +2186,6 @@ function CompanyBusinessColumn({
           Beside the deals card because the two answer the same question at
           different depths. */}
       <CompanyCommercialCard view={view} />
-      <HealthCard health={view?.health} />
       {/* The money, next to the pipeline it belongs beside. Absent entirely on
           an account we have never billed — an empty finance card on a target
           is a question nobody asked. */}

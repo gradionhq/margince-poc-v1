@@ -322,7 +322,10 @@
    grouping, and elevation is spent once, on the block a reader acts from. */
 .record-zones .card {
   box-shadow: none;
-  padding: var(--space-3) var(--space-4);
+  /* Even inset. At 12/16 the label sat closer to the card's top edge than to
+     the first line under it, so the heading read as though it had slipped out
+     of the card rather than as the title of what follows. */
+  padding: var(--space-4);
 }
 /* A card's title is a label for what is inside it, not a heading competing
    with the record's own name: small, uppercase, and quiet enough that the
@@ -395,6 +398,16 @@
 .record-zones .record-aside,
 .record-zones .record-main {
   min-width: 0;
+  /* The readings in a column are separated by the same gap the columns are:
+     cards carrying their own bottom margins drifted apart at three different
+     rhythms depending on which component drew them. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.record-zones .record-main > *,
+.record-zones .record-aside > * {
+  margin-bottom: 0;
 }
 @media (max-width: 1200px) {
   .record-zones {

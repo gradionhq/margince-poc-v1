@@ -801,3 +801,66 @@
 .co-context > .disclosure > .disclosure-summary {
   padding-block: var(--space-3);
 }
+
+/* A contact in the People card: who they are, what is true of them, what can
+   be done about it — three lines, in that order. One wrapping row of pills put
+   a status badge, a deal role, a colleague's name, a consent chip and two
+   buttons on the same visual footing, so nothing said which of them was a
+   reading and which was a verb. */
+.co-contact + .co-contact {
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--borderSubtle);
+}
+.co-contact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* The facts read as one quiet line separated by dots rather than as a row of
+   competing chips — only the status badge above them is worth a fill. */
+.co-contact-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--textMeta);
+}
+.co-contact-facts > span + span::before {
+  content: "·";
+  margin-inline-end: var(--space-2);
+  color: var(--textTertiary);
+}
+.co-contact-verbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-2) 0 0;
+}
+
+/* The advice inside "What to do next": the tiles say what is true today, these
+   rows say what to do about it, and a hairline marks the turn between them. It
+   is one card, so the rows carry no heading — but they are a different KIND of
+   statement, and without the rule they read as a fourth tile that had lost its
+   layout. */
+.co-suggest {
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--borderSubtle);
+}
+.co-suggest .co-row + .co-row {
+  margin-block-start: var(--space-3);
+}
+
+/* The open tasks close "What to do next": the tiles say what is true, the
+   advice says what the page thinks, and these are what a person already
+   committed to. Same rule between the bands as above them. */
+.co-next {
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--borderSubtle);
+}

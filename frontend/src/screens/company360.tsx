@@ -6,6 +6,7 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  DataTable,
   EmptyState,
   Field,
   Modal,
@@ -857,29 +858,38 @@ function ContactRow({
       : undefined;
   const reach = reachOf(contact);
   return (
-    <li className="co-row">
-      <button
-        type="button"
-        className="co-rowlink"
-        onClick={() => navigate({ screen: "contacts", id: contact.person_id })}
-      >
-        {contact.full_name}
-      </button>
-      <span className="co-row-meta">
-        {contact.title && <span>{contact.title}</span>}
+    // Three lines, not one wrapping field of pills: the person, then what is
+    // true of them, then what can be done about it. As one row the status
+    // badge, the deal role, the colleague who can reach them, the consent
+    // chip and two buttons all wrapped together, and nothing said which of
+    // them was a reading and which was a verb.
+    <li className="co-row co-contact">
+      <div className="co-contact-head">
+        <button
+          type="button"
+          className="co-rowlink"
+          onClick={() =>
+            navigate({ screen: "contacts", id: contact.person_id })
+          }
+        >
+          {contact.full_name}
+        </button>
         {/* Where this person stands with us. "No reply" and "never asked"
             looked identical in this list and call for opposite next moves. */}
         <Badge tone={reach === "answered" ? "success" : undefined}>
           {t(reachLabelKey(reach))}
         </Badge>
+      </div>
+      <p className="co-contact-facts">
+        {contact.title && <span>{contact.title}</span>}
         {roles.map((entry) => {
           const deal = nameOfDeal(entry.deal_id);
           return (
-            <Badge key={`${entry.deal_id}:${entry.role}`}>
+            <span key={`${entry.deal_id}:${entry.role}`}>
               {deal
                 ? `${dealRoleLabel(entry.role, t)} · ${deal}`
                 : dealRoleLabel(entry.role, t)}
-            </Badge>
+            </span>
           );
         })}
         {/* Who here can actually reach them, inline rather than a click away.
@@ -887,12 +897,18 @@ function ContactRow({
             so the row names the few worth naming and counts the rest. */}
         <ContactRoutes routes={contact.routes} />
         <ConsentChip consent={contact.consent} />
-        {/* The page said "nobody here is your champion" and gave no way to
-            say who is: the roles are set on the deal screen, which is a
-            different page and a different task. */}
-        {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
-        {orgId && <RouteInAction orgId={orgId} contact={contact} />}
-      </span>
+      </p>
+      {(writable || orgId) && (
+        <p className="co-contact-verbs">
+          {/* The page said "nobody here is your champion" and gave no way to
+              say who is: the roles are set on the deal screen, which is a
+              different page and a different task. */}
+          {writable && (
+            <SetRoleAction contact={contact} openDeals={openDeals} />
+          )}
+          {orgId && <RouteInAction orgId={orgId} contact={contact} />}
+        </p>
+      )}
     </li>
   );
 }
@@ -1140,6 +1156,95 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
  * caller who could read tags but not lists was told "not on any list, and no
  * tags applied", which was false about the half nobody had answered for.
  */
+
+// The account's open deals as a table: one row per deal, the stage, what it is
+// worth, when it is expected to close, and whether it has stalled. The
+// business column's card is the summary a reader scans; this is the list they
+// work, with room for the columns a summary cannot carry.
+export function DealsTable({
+  view,
+  actions,
+}: Readonly<{
+  view?: Organization360;
+  // The verb that opens a new deal on this account. Under the list it
+  // changes, so a reader who has just read "no open deal here" is one click
+  // from opening one.
+  actions?: ReactNode;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const deals = view?.deals;
+  const rows = deals?.data ?? [];
+  return (
+    <SectionCard
+      title={t("co.deals.title")}
+      state={sectionState(view, "deals", Boolean(deals), rows.length)}
+      emptyLabel={t("co.deals.empty")}
+      actions={actions}
+    >
+      {rows.length === 0 ? (
+        <EmptyState>{t("co.deals.empty")}</EmptyState>
+      ) : (
+        <DataTable
+          rows={[...rows]}
+          rowKey={(deal) => deal.deal_id}
+          onRowClick={(deal) => navigate({ screen: "deals", id: deal.deal_id })}
+          columns={[
+            {
+              key: "name",
+              header: t("co.deals.col.name"),
+              render: (deal) => deal.name,
+            },
+            {
+              key: "stage",
+              header: t("co.deals.col.stage"),
+              render: (deal) => deal.stage_name ?? t("co.deals.noStage"),
+            },
+            {
+              key: "amount",
+              header: t("co.deals.col.amount"),
+              // A deal with no amount reads as a blank cell, never as zero:
+              // "not priced yet" and "worth nothing" are opposite facts.
+              render: (deal) =>
+                deal.amount?.amount_minor != null ? (
+                  <span className="t-mono">
+                    {formatMoney(
+                      deal.amount.amount_minor,
+                      deal.amount.currency ?? "",
+                      locale,
+                    )}
+                  </span>
+                ) : (
+                  <span className="co-empty">{t("co.deals.noAmount")}</span>
+                ),
+            },
+            {
+              key: "close",
+              header: t("co.deals.col.close"),
+              render: (deal) =>
+                deal.expected_close_date ? (
+                  formatDate(deal.expected_close_date, locale)
+                ) : (
+                  <span className="co-empty">{t("co.deals.noClose")}</span>
+                ),
+            },
+            {
+              key: "state",
+              header: t("co.deals.col.state"),
+              // Only a stall is worth a badge: "running normally" is what a
+              // reader assumes from a row that says nothing.
+              render: (deal) =>
+                deal.stalled ? (
+                  <Badge tone="warn">{t("co.deals.stalled")}</Badge>
+                ) : null,
+            },
+          ]}
+        />
+      )}
+    </SectionCard>
+  );
+}
+
 export function TagsCard({
   view,
   listAction,
@@ -1296,8 +1401,12 @@ export function NextSteps({
     return null;
   }
   return (
-    <section className="card co-card">
-      <SectionHeader title={t("co.next.title")} />
+    // A part of "What to do next", not a card of its own: the open tasks ARE
+    // what to do next, and as a separate card under the advice the page gave
+    // the reader two headings for one question. The heading stays, because
+    // unlike the advice these are commitments somebody already made.
+    <section className="co-part co-next" aria-label={t("co.next.title")}>
+      <h3 className="co-part-label">{t("co.next.title")}</h3>
       {state === "unavailable" && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
@@ -1907,86 +2016,6 @@ export function AskSection({
   );
 }
 
-/**
- * SuggestionsCard is what this account looks like it needs next.
- *
- * Each row leads with the REASON the rule fired, because a rep must be able to
- * disagree with the reason rather than with a verdict they cannot inspect. A
- * dismissal is theirs alone and is keyed on the evidence, so the same advice
- * stays gone while the situation holds and comes back when it changes.
- */
-type Health = NonNullable<Organization360["health"]>;
-
-/**
- * HealthCard is how the relationship stands, in the parts a reader can act on
- * (AC-company-3).
- *
- * It replaced a single 0–100 score. That number was the MAX over the account's
- * contacts of a decayed message count, so one talkative contact spoke for the
- * whole account and a long, low-volume relationship read as near-dead. Each
- * line here names a fact instead: "no inbound for 90 days" says what to do,
- * where "2/100" said only a mood.
- *
- * A part the server could not compute is ABSENT, never zero. Zero is a claim
- * about the account; absence is a fact about the reading.
- */
-export function HealthCard({ health }: Readonly<{ health?: Health }>) {
-  const t = useT();
-  if (!health) {
-    return null;
-  }
-  const lines: string[] = [];
-  if (health.days_since_last_inbound != null) {
-    lines.push(
-      t("co.health.sinceInbound", { days: health.days_since_last_inbound }),
-    );
-  }
-  if (health.reply_balance != null) {
-    lines.push(
-      t("co.health.replyBalance", {
-        percent: Math.round(health.reply_balance * 100),
-      }),
-    );
-  }
-  if (health.active_contacts != null) {
-    lines.push(
-      t("co.health.activeContacts", { count: health.active_contacts }),
-    );
-  }
-  if (health.open_commitments != null && health.open_commitments > 0) {
-    lines.push(
-      t("co.health.openCommitments", { count: health.open_commitments }),
-    );
-  }
-  if (lines.length === 0) {
-    return null;
-  }
-  return (
-    <SectionCard
-      title={t("co.health.title")}
-      state="ready"
-      // Never reached: the card returns null when it has no line to draw,
-      // because "how it stands: nothing" is not a reading of an account.
-      emptyLabel={t("co.health.title")}
-    >
-      <ul className="co-list">
-        {lines.map((line) => (
-          <li key={line} className="co-row">
-            {line}
-          </li>
-        ))}
-      </ul>
-      {/* The one shape a rep can fix before it costs them the account, so it
-          is said rather than scored. */}
-      {health.single_threaded && (
-        <p className="co-row-meta">
-          <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>
-        </p>
-      )}
-    </SectionCard>
-  );
-}
-
 type StateStrip = NonNullable<Organization360["state_strip"]>;
 
 const ENGAGEMENT_LABELS: Record<
@@ -2029,6 +2058,25 @@ export function StateStripSkeleton() {
     </section>
   );
 }
+
+/**
+ * StateStrip is the three readings the overview leads with (AC-company-13):
+ * where the account stands, whose move it is, and what commercial work is open.
+ *
+ * Each half is drawn only when the server answered it. A null engagement means
+ * the caller may not read the account's mail, and inventing "never contacted"
+ * from that would state a business conclusion the page has no basis for — the
+ * one a rep would act on.
+ */
+// The compact KPI row (plan §4.2): at most four cards, and WHICH four depends
+// on where the account stands. A customer is asked about money and health; a
+// prospect is asked about pipeline, timing and fit. Showing one set to both
+// makes half of them noise.
+//
+// What it must never render is the harder half of the rule, and every omission
+// below is one of its bullets: no €0 when the figure is unavailable, no
+// cross-currency sum without its conversion source, and nothing called
+// "revenue" that is only a count of open deals.
 
 /**
  * StateStrip is the three readings the overview leads with (AC-company-13):

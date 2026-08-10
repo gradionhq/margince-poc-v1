@@ -411,7 +411,7 @@ export function buildColumns(
 // is direct field access. Only amount_minor and expected_close_date are in
 // the deals list's sortable vocabulary (data-model.md DM-VOCAB-3); name,
 // stage and status carry no `sort` because the API has no column for them.
-function dealColumns(
+export function dealColumns(
   t: ReturnType<typeof useT>,
   locale: Locale,
   stageName: Map<string, string>,
