@@ -1456,8 +1456,12 @@ export interface paths {
          * Advance a deal to a new stage (audit-logged with prior + next stage).
          * @description The `advance_deal` MCP verb. Writes one `deal_stage_history` row + one audit row
          *     (action `advance_stage`) recording prior + next stage; closed-won emits `deal.stage_changed` (to_status=won).
-         *     Advancing to a closed-won/closed-lost stage is 🟡 confirm-first (irreversible /
-         *     touches money) — for an agent caller this requires an approval token.
+         *     A move with a closed-won/closed-lost stage at EITHER end is 🟡 confirm-first
+         *     (irreversible / touches money) — for an agent caller this requires an approval
+         *     token. Closing a deal is the obvious half; REOPENING one is the other, and it is
+         *     the same money: moving a won deal back to an open stage clears its close date,
+         *     its lost reason and the FX rate frozen at close, and takes revenue out of a
+         *     quarter that has already been reported.
          */
         post: operations["advanceDeal"];
         delete?: never;
