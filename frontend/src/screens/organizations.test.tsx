@@ -211,10 +211,19 @@ async function openHistory() {
   await userEvent.click(await screen.findByRole("button", { name: "History" }));
 }
 
+// openContext switches to the tab the account's reference material lives on:
+// the profile the site read produced, its facts, its relationships and the
+// one-off tools. None of it is on the overview, which answers what to DO about
+// the account rather than what we hold about it.
+async function openContext() {
+  await userEvent.click(await screen.findByRole("button", { name: "Context" }));
+}
+
 describe("company-360 enrichment", () => {
   it("stages an evidence-backed proposal: human labels, confidence, confirm-first banner", async () => {
     stubApi(() => jsonResponse(proposal));
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
@@ -239,6 +248,7 @@ describe("company-360 enrichment", () => {
       ),
     );
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
@@ -358,6 +368,10 @@ describe("company-360 deep read", () => {
     vi.useFakeTimers();
     try {
       render(<CompanyScreen id="o-1" />);
+      // fireEvent, not userEvent: the click has to land on the fake clock this
+      // test installed, and userEvent's own delay would never advance.
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Context" }));
       await flush();
       await flush();
       fireEvent.click(screen.getByRole("button", { name: "Read full site" }));
@@ -396,6 +410,7 @@ describe("company-360 deep read", () => {
         }),
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await startDeepRead(calls);
 
     await waitFor(() =>
@@ -424,6 +439,7 @@ describe("company-360 deep read", () => {
         }),
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await startDeepRead(calls);
 
     await waitFor(() =>
@@ -448,6 +464,7 @@ describe("company-360 deep read", () => {
         }),
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await startDeepRead(calls);
 
     await waitFor(() =>
@@ -474,6 +491,7 @@ describe("company-360 deep read", () => {
         ),
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
@@ -490,6 +508,7 @@ describe("company-360 deep read", () => {
       post: () => jsonResponse({ title: "Not Implemented" }, 501),
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
@@ -837,6 +856,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() =>
       expect(screen.getByText("What they promise")).toBeTruthy(),
@@ -868,6 +888,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() =>
       expect(screen.getByText(/Nothing read yet/)).toBeTruthy(),
@@ -919,6 +940,7 @@ describe("CompanyScreen — facts card (B6)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() =>
       expect(screen.getByText("Facts read from the site")).toBeTruthy(),
@@ -1197,10 +1219,15 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    // Relationships are what we HOLD about the account, so they read on
+    // Context beside the profile and the facts — the People tab is the roster
+    // of humans, not the edges between records.
+    await openContext();
+    expect(
+      (await screen.findByRole("button", { name: "Context" })).getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1232,9 +1259,7 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    await openContext();
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1286,6 +1311,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       { rollup },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
@@ -1309,6 +1335,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() =>
       expect(
@@ -1338,6 +1365,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContext();
 
     await waitFor(() =>
       expect(
@@ -1456,9 +1484,7 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await user.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    await openContext();
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1590,7 +1616,10 @@ describe("CompanyScreen — the record's history", () => {
 
     // Scoped to the timeline: the account is called "Brandt Automotive GmbH",
     // so a page-wide match on the old value would pass on the heading.
-    const timeline = await screen.findByRole("region", { name: "Timeline" });
+    // The account's chronology is named in the record's own words now.
+    const timeline = await screen.findByRole("region", {
+      name: "What happened",
+    });
     await waitFor(() =>
       expect(within(timeline).getByText("Manufacturing")).toBeTruthy(),
     );
@@ -1864,8 +1893,8 @@ describe("CompanyScreen — Ask Margince", () => {
 // because that is the space the composer drawer opens into and no mockup shows
 // both. Its cards moved into the grid, which is the obligation these cases
 // keep: a layout change must not become an availability change.
-describe("CompanyScreen — State D's one column and its card grid", () => {
-  it("gives the account's story the full width, with no rail and no aside", async () => {
+describe("CompanyScreen — the business beside the story", () => {
+  it("seats the business as its own column, aside-first", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
@@ -1873,35 +1902,40 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     await waitFor(() =>
       expect(container.querySelector(".co-grid")).toBeTruthy(),
     );
-    // No zone template at all: RecordView names one only when a rail or an
-    // aside is present, so the page cannot re-column under the reader when
-    // the composite read lands — there is no second column to arrive.
-    expect(container.querySelector(".record-zones")).toBeNull();
+    // The business is a column of the record, so it is an aside inside the
+    // zone template — and the template is the aside-first one, which seats it
+    // on the left while DOM order still meets the story first.
+    expect(container.querySelector(".record-zones-aside-first")).toBeTruthy();
+    expect(container.querySelector(".record-aside")).toBeTruthy();
+    // No rail: three columns would give the reader a third place to look for
+    // facts the other two already carry.
     expect(container.querySelector(".record-rail")).toBeNull();
-    expect(container.querySelector(".record-aside")).toBeNull();
   });
 
-  // Every card the context column held is in the grid. Named individually
-  // rather than counted: a count passes on a grid that lost one card and
-  // grew another.
-  it("carries the business cards the context column used to hold", async () => {
+  // Every card the business column holds. Named individually rather than
+  // counted: a count passes on a column that lost one card and grew another.
+  it("carries the business cards the account is read by", async () => {
     stubFetch(companyBackstop, { org360 });
     render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
-    const grid = await screen.findByRole("complementary", { name: "Business" });
+    const business = await screen.findByRole("complementary", {
+      name: "Business",
+    });
     for (const card of ["People", "Deals", "Signals", "Documents"]) {
-      expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
+      expect(within(business).getAllByText(card).length).toBeGreaterThan(0);
     }
-    // Filing metadata stays folded, and stays in the grid: tags and lists are
-    // governed 360 sections like the cards above them, so a withheld half has
-    // to say so where the reader is looking for it.
-    expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+    // Filing metadata stays folded, and stays in the column: tags and lists
+    // are governed 360 sections like the cards above them, so a withheld half
+    // has to say so where the reader is looking for it.
+    expect(
+      within(business).getAllByText("Lists & tags").length,
+    ).toBeGreaterThan(0);
   });
 
   // None of the reference cards comes from the 360 — each runs its own read —
-  // so they must be on the page before that read lands, and stay there if it
-  // never does.
+  // so they must be on the Context tab before that read lands, and stay there
+  // if it never does.
   it("offers the reference cards before the 360 read lands", async () => {
     let releaseView: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
@@ -1918,6 +1952,7 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
 
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
+    await openContext();
 
     // Asserted on the disclosure summaries a reader actually clicks: these
     // words also appear in the app's navigation, so a bare text match would

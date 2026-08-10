@@ -913,7 +913,13 @@ function FactsCard({
 // header's overflow menu. A tab of equal weight beside the account's story
 // said the two were the same kind of question. Partner stays a tab: it is a
 // form, not a reading of this account.
-const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
+const COMPANY_TABS = [
+  "overview",
+  "context",
+  "people",
+  "timeline",
+  "partner",
+] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // Partner is not a permanent tab. It renders the partner programme —
@@ -937,7 +943,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview", "people", "timeline"] as const);
+    : (["overview", "context", "people", "timeline"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1027,6 +1033,7 @@ function CompanyRecord({
         label={t("record.tabs")}
         labels={{
           overview: t("tab.overview"),
+          context: t("tab.context"),
           people: t("tab.people"),
           timeline: t("tab.timeline"),
           partner: t("tab.partner"),
@@ -1504,16 +1511,28 @@ function CompanyPage({
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={<CompanyPrimaryActions org={org} />}
-      // NO rail and NO aside: the page is a header, a full-width work column
-      // and a grid of cards inside it (mockup State D). A context column beside
-      // the grid would be a third place to look for facts the grid already
-      // carries, and it is the space the composer drawer opens into — the
-      // mockups never show both.
+      // Two columns, the business beside the story: the readings a rep scans
+      // sit where the eye starts, and the account's own story keeps the wide
+      // side. They belong to the RECORD rather than to the overview, so the
+      // column stands on every tab — a reader moving between tabs keeps their
+      // anchor. Overlay is the one exception: cards that each read as an empty
+      // account are the half-page the refusal exists to prevent.
       //
-      // Everything the right rail used to hold moved into that grid or onto a
-      // tab. Nothing was dropped; see CompanyOverviewStack.
-      // The chronology is the account's story and belongs to the overview.
-      // The Partner tab is a form, so it does not repeat it under itself.
+      // DOM order still meets the story first (asideFirst is placement only),
+      // so a screen reader and the tab order are unaffected by the seating.
+      aside={
+        overlay ? undefined : (
+          <CompanyBusinessColumn
+            org={org}
+            view={view}
+            failed={failed}
+            readOnly={Boolean(org.archived_at)}
+          />
+        )
+      }
+      asideFirst
+      timelineTitle={t("co.story.title")}
+      // The Partner tab is a form, so it does not repeat the chronology.
       // Where the account stands and the tabs that switch what is read about
       // it belong to the record's masthead, not to the overview: they were
       // the same on every tab and still redrew themselves inside each one.
@@ -1551,19 +1570,6 @@ function CompanyPage({
           onCompose={setReplyToActivityId}
           onLogTask={() => setTaskFormOpen(true)}
           onOpenRecord={receipt.open}
-        />
-      )}
-      {/* The business grid belongs to the RECORD, not to the overview: a
-          reader who switches to Partner and back must not pay for every query
-          behind these cards a second time, and the page must not re-flow under
-          them on the way. It renders on every tab for that reason, below
-          whatever the tab itself put up. */}
-      {!overlay && (
-        <CompanyBusinessGrid
-          org={org}
-          view={view}
-          failed={failed}
-          readOnly={Boolean(org.archived_at)}
         />
       )}
       {/* The composer, anchored on the message a draft_reply suggestion named.
@@ -1623,16 +1629,21 @@ function CompanyPage({
           onStep={receipt.step}
         />
       )}
-      {/* The reference material a reader opens when the cards above are not
-          enough: the profile, how the account is filed, its facts, its
-          relationships and the one-off tools.
-          It belongs to the RECORD rather than to a tab, and it renders in
-          every state of the 360, because none of it comes from the 360 — each
-          card runs its own read, and a failed composite must not take the
-          company's profile and files with it. Overlay is the one exception:
-          the page has already refused once there. */}
-      {!overlay && (
-        <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
+      {/* Context is what Margince HOLDS about the account: the profile the
+          site read produced, its facts, its relationships, the dossier and the
+          fit assessment, and the one-off tools. Folded into the overview it
+          was more content than the rest of the page put together, and none of
+          it answers "what do I do about this account".
+          None of it comes from the 360 either — each card runs its own read,
+          so a failed composite must not take the company's profile and files
+          with it. Overlay is the one exception: the page has already refused
+          once there. */}
+      {!overlay && tab === "context" && (
+        <>
+          <DossierPanel orgId={org.id} enabled onOpenRecord={openCitation} />
+          <GrowthFitPanel orgId={org.id} enabled onOpenRecord={openCitation} />
+          <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
+        </>
       )}
       {/* The audit spine, opened from the header's overflow menu. It belongs
           to the RECORD, not to a tab, so it opens over whichever tab is up. */}
@@ -1715,16 +1726,6 @@ function CompanyOverviewStack({
           }
         />
       )}
-      <DossierPanel
-        orgId={org.id}
-        enabled={!overlay}
-        onOpenRecord={onOpenRecord}
-      />
-      <GrowthFitPanel
-        orgId={org.id}
-        enabled={!overlay}
-        onOpenRecord={onOpenRecord}
-      />
       {/* The open commitments in full, then the tool for when the page did not
           answer the question. Neither is a card about the account — one is a
           work list and one is a prompt — so neither belongs in the grid. */}
@@ -1755,7 +1756,7 @@ const GRID_SKELETON_HEIGHTS = [96, 96, 64, 96, 64, 32];
 // It belongs to the RECORD rather than to the overview: a reader who switches
 // to Partner and back must not pay for every query behind these cards a second
 // time, and the page must not re-flow under them on the way back.
-function CompanyBusinessGrid({
+function CompanyBusinessColumn({
   org,
   view,
   failed,
@@ -1778,7 +1779,7 @@ function CompanyBusinessGrid({
   // cells until it does.
   if (!view && !failed) {
     return (
-      <aside className="co-grid" aria-label={t("record.business")}>
+      <div className="co-grid">
         {GRID_SKELETON_HEIGHTS.map((height, index) => (
           <section
             // The placeholders are positional and interchangeable; there is no
@@ -1790,15 +1791,13 @@ function CompanyBusinessGrid({
             <Skeleton width="100%" height={height} />
           </section>
         ))}
-      </aside>
+      </div>
     );
   }
   return (
-    // An <aside>, still: these are the same business cards the right column
-    // held, and moving them into the flow changed where they sit, not what
-    // they are. Keeping the landmark means a reader who navigated the old page
-    // by landmark can navigate this one the same way.
-    <aside className="co-grid" aria-label={t("record.business")}>
+    // A plain div: RecordView seats this in its own <aside> and names it, so
+    // a second landmark here would announce the business twice.
+    <div className="co-grid">
       {/* The commercial picture. */}
       <DealsCard
         view={view}
@@ -1833,7 +1832,7 @@ function CompanyBusinessGrid({
           listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
         />
       </Disclosure>
-    </aside>
+    </div>
   );
 }
 

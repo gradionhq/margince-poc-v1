@@ -455,10 +455,10 @@ describe("company view — the context column belongs to the account, not to a t
     // The chronology moved off the overview when the page gained its own
     // History tab, so it is not under the partner form either.
     await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByRole("region", { name: "Timeline" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "What happened" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
-    expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "What happened" })).toBeNull();
   });
 });
 
