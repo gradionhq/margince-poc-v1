@@ -302,10 +302,12 @@ func openDealLine(deal DealIn) string {
 	if deal.Stage != "" {
 		line += ", " + deal.Stage
 	}
-	if deal.AmountMinor > 0 && deal.Currency != "" {
-		// Minor units are rendered as a plain major-unit figure; the card
-		// formats money properly, and this text is the fallback.
-		line += fmt.Sprintf(", %d %s", deal.AmountMinor/100, deal.Currency)
+	if amount := renderedAmount(deal.AmountMinor, deal.Currency); amount != "" {
+		// The same rendering the prompt gets, not a fresh /100 of the minor
+		// integer: dividing understates every zero-decimal currency a
+		// hundredfold, and two renderings of one number are two chances to
+		// disagree. The card formats money properly; this text is the fallback.
+		line += ", " + amount + " " + deal.Currency
 	}
 	if deal.Stalled {
 		line += ", stalled"
