@@ -229,6 +229,74 @@ log_activity "$nadia_id" email outbound "Proposal shared" \
   "Shared the proposal with the phased rollout." \
   "$(day 18)" "Proposal shared"
 
+# ---------------------------------------------------------------------------
+# What was said. These go through the production claims writer, not SQL: the
+# commitments card and the what-matters card read this store, and filling them
+# any other way would prove nothing about the writer that will fill them for
+# real (the extraction task, issue #849).
+#
+# Every claim cites the activity it was read from and quotes it verbatim. The
+# writer refuses one that does not, which is the invariant rather than this
+# script's good manners.
+# ---------------------------------------------------------------------------
+
+echo "== seed-person-page: what was said =="
+activity_id() { # activity_id <person-id> <subject> — prints the id, empty if absent
+  local person="$1" subject="$2" status
+  status="$(api GET "/activities?entity_type=person&entity_id=$person&limit=50")"
+  [ "$status" = "200" ] || fail "GET /v1/activities returned HTTP $status"
+  jq -r --arg s "$subject" '.data[] | select(.subject == $s) | .id' "$workdir/body" | head -1
+}
+
+claim() { # claim <person-id> <kind> <body> <source-subject> <quote> [due-at]
+  local person="$1" kind="$2" body="$3" subject="$4" quote="$5" due="${6:-}" source status
+  source="$(activity_id "$person" "$subject")"
+  [ -n "$source" ] || fail "no captured activity titled \"$subject\" to ground this claim on"
+
+  status="$(api GET "/people/$person/360")"
+  [ "$status" = "200" ] || fail "GET /v1/people/$person/360 returned HTTP $status"
+  if jq -e --arg b "$body" '(.claims // [])[] | select(.body == $b)' "$workdir/body" >/dev/null; then
+    echo "  OK: \"$body\" already recorded"
+    return
+  fi
+
+  status="$(api POST "/people/$person/claims" "$(jq -n --arg k "$kind" --arg b "$body" \
+    --arg a "$source" --arg q "$quote" --arg d "$due" \
+    '{kind:$k,body:$b,source_activity_id:$a,source_quote:$q}
+     + (if $d == "" then {} else {due_at:$d} end)')")"
+  [ "$status" = "201" ] || { cat "$workdir/body" >&2; fail "record claim returned HTTP $status"; }
+  echo "  OK: recorded \"$body\""
+}
+
+# Sarah: what she cares about, and the loops that are open.
+claim "$sarah_id" priority "18-month payback" "Re: ROI discussion" \
+  "Wants the ROI model with 18-month payback and sensitivity analysis."
+claim "$sarah_id" objection "Change capacity" "Re: ROI discussion" \
+  "Also flagged change-management capacity as a risk."
+claim "$sarah_id" success_criterion "Phased rollout without a delivery gap" "Expansion workshop" \
+  "Ran the expansion workshop with Sarah, Nick and Mark."
+claim "$sarah_id" commitment_ours "send revised ROI model" "Re: ROI discussion" \
+  "Wants the ROI model with 18-month payback and sensitivity analysis." \
+  "$(ahead 24)"
+claim "$sarah_id" commitment_theirs "confirm finance attendees" "Expansion workshop" \
+  "Ran the expansion workshop with Sarah, Nick and Mark."
+claim "$sarah_id" open_question "implementation capacity" "Re: ROI discussion" \
+  "Also flagged change-management capacity as a risk."
+
+# Nadia: the gone-quiet account. Her commitment of ours is OVERDUE, which is
+# what the mockup's amber "overdue 5 days" row renders.
+claim "$nadia_id" priority "Phased budget approval" "Budget questions" \
+  "She replied asking who owns the budget and whether the expansion can be phased."
+claim "$nadia_id" objection "Change capacity" "Following up on capacity" \
+  "Followed up on the capacity question and the rollout sequence."
+claim "$nadia_id" commitment_ours "answer capacity question" "Budget questions" \
+  "She replied asking who owns the budget and whether the expansion can be phased." \
+  "$(day 5)"
+claim "$nadia_id" commitment_theirs "confirm budget owner" "Budget questions" \
+  "She replied asking who owns the budget and whether the expansion can be phased."
+claim "$nadia_id" open_question "revised rollout sequence" "Following up on capacity" \
+  "Followed up on the capacity question and the rollout sequence."
+
 echo ""
 echo "seed-person-page: DONE"
 echo "  State A (active, meeting ahead): $API_BASE/#/contacts/$sarah_id"

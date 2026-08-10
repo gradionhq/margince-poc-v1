@@ -522,6 +522,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record something promised, asked or decided in a captured conversation.
+         * @description The production writer behind the commitments card and the what-matters card
+         *     (ADR-0097 D1). One store, eight kinds: they share a lifecycle — extracted →
+         *     cited → correctable → dismissible — and differ only by kind.
+         *
+         *     **Grounded or refused.** A claim carries the activity it was read from AND the
+         *     verbatim snippet, and a request missing either is refused rather than stored. A
+         *     claim nobody can check against what was actually written is what the whole
+         *     mechanism exists to prevent, so the invariant lives here rather than in the
+         *     caller's discipline.
+         *
+         *     The reader's grant on the cited activity is checked as well as on the person:
+         *     quoting a message the caller cannot open would disclose that it exists.
+         */
+        post: operations["recordConversationClaim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people/{id}/moment/dismiss": {
         parameters: {
             query?: never;
@@ -9085,6 +9119,25 @@ export interface components {
             first_activity_id?: string;
         };
         /**
+         * @description One claim to record, with the evidence it was read from. Both evidence fields
+         *     are required: a snippet with no source cannot be verified, and a source with no
+         *     snippet cannot be checked against.
+         */
+        RecordConversationClaimRequest: {
+            kind: components["schemas"]["ConversationClaimKind"];
+            /** @description What the claim says, in the reader's language. */
+            body: string;
+            /** Format: uuid */
+            source_activity_id: string;
+            /** @description The verbatim excerpt this was read from — never a summary of it. */
+            source_quote: string;
+            /**
+             * Format: date-time
+             * @description When the commitment is owed, where one is known. Absent on kinds that carry no date.
+             */
+            due_at?: string | null;
+        };
+        /**
          * @description Which moment to hide, and the evidence it was showing when the reader hid it. Both are
          *     required: the fingerprint is what lets the moment come back when the evidence moves,
          *     and a dismissal without one is a permanent silence nobody asked for.
@@ -15184,6 +15237,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonConsentGuard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordConversationClaim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordConversationClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded claim. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationClaim"];
                 };
             };
             401: components["responses"]["Unauthorized"];

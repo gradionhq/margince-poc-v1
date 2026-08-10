@@ -907,6 +907,10 @@ func (stubs) RegeneratePersonBrief(w nethttp.ResponseWriter, r *nethttp.Request,
 	httperr.NotImplemented(w, r, "RegeneratePersonBrief")
 }
 
+func (stubs) RecordConversationClaim(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RecordConversationClaim")
+}
+
 func (stubs) GetPersonConsent(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetPersonConsent")
 }

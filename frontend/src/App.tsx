@@ -39,7 +39,8 @@ import { OfferTemplatesScreen } from "./screens/offertemplates";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
-import { ContactsScreen, PersonScreen } from "./screens/people";
+import { ContactsScreen } from "./screens/people";
+import { isPersonTab, PersonPageV2 } from "./screens/personpage";
 import { PreferenceCenterScreen } from "./screens/preferences";
 import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
@@ -104,7 +105,14 @@ function ScreenView({
     case "design":
       return <DesignScreen />;
     case "contacts":
-      return id ? <PersonScreen id={id} /> : <ContactsScreen />;
+      // The tab rides the URL, so it survives a reload and can be linked to.
+      // An unknown segment falls back to overview rather than rendering an
+      // empty page: a mistyped link should land somewhere, not nowhere.
+      return id ? (
+        <PersonPageV2 id={id} tab={isPersonTab(id2) ? id2 : "overview"} />
+      ) : (
+        <ContactsScreen />
+      );
     case "companies":
       return id ? <CompanyScreen id={id} /> : <CompaniesScreen />;
     case "partners":

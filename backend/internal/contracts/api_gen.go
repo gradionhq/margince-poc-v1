@@ -15816,6 +15816,34 @@ type RecordConsentRequest struct {
 // RecordConsentRequestNewState defines model for RecordConsentRequest.NewState.
 type RecordConsentRequestNewState string
 
+// RecordConversationClaimRequest One claim to record, with the evidence it was read from. Both evidence fields
+// are required: a snippet with no source cannot be verified, and a source with no
+// snippet cannot be checked against.
+type RecordConversationClaimRequest struct {
+	// Body What the claim says, in the reader's language.
+	Body string `json:"body"`
+
+	// DueAt When the commitment is owed, where one is known. Absent on kinds that carry no date.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
+	// Kind The eight kinds one extraction mechanism produces (ADR-0097 D1). They share a
+	// lifecycle — extracted → cited → correctable → dismissible — and differ only here.
+	//
+	// `commitment_ours` / `commitment_theirs` — a promise, by us or by them.
+	// `open_question` — an unanswered business question.
+	// `decision` — an agreed choice, historical memory unless corrected.
+	// `priority` / `objection` / `success_criterion` / `decision_process` — the
+	// what-matters rows.
+	//
+	// `communication_preference` is deliberately absent: observed-style inference is
+	// dropped from the product.
+	Kind             ConversationClaimKind `json:"kind"`
+	SourceActivityId openapi_types.UUID    `json:"source_activity_id"`
+
+	// SourceQuote The verbatim excerpt this was read from — never a summary of it.
+	SourceQuote string `json:"source_quote"`
+}
+
 // RecordGrant A manual per-record share (A52/ADR-0039) — widens own/team/all base scope for one record.
 type RecordGrant struct {
 	// Access 'write' also satisfies 'read'.
@@ -20818,6 +20846,9 @@ type CreatePersonJSONRequestBody = CreatePersonRequest
 
 // UpdatePersonJSONRequestBody defines body for UpdatePerson for application/json ContentType.
 type UpdatePersonJSONRequestBody = UpdatePersonRequest
+
+// RecordConversationClaimJSONRequestBody defines body for RecordConversationClaim for application/json ContentType.
+type RecordConversationClaimJSONRequestBody = RecordConversationClaimRequest
 
 // RecordConsentJSONRequestBody defines body for RecordConsent for application/json ContentType.
 type RecordConsentJSONRequestBody = RecordConsentRequest
@@ -27400,6 +27431,9 @@ type ServerInterface interface {
 	// Regenerate this person's brief, ignoring the cached one.
 	// (POST /people/{id}/brief)
 	RegeneratePersonBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// Record something promised, asked or decided in a captured conversation.
+	// (POST /people/{id}/claims)
+	RecordConversationClaim(w http.ResponseWriter, r *http.Request, id Id)
 	// Read a person's per-purpose consent state plus the append-only proof log.
 	// (GET /people/{id}/consent)
 	GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id)
@@ -29053,6 +29087,12 @@ func (_ Unimplemented) GetPersonBrief(w http.ResponseWriter, r *http.Request, id
 // Regenerate this person's brief, ignoring the cached one.
 // (POST /people/{id}/brief)
 func (_ Unimplemented) RegeneratePersonBrief(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record something promised, asked or decided in a captured conversation.
+// (POST /people/{id}/claims)
+func (_ Unimplemented) RecordConversationClaim(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39451,6 +39491,38 @@ func (siw *ServerInterfaceWrapper) RegeneratePersonBrief(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// RecordConversationClaim operation middleware
+func (siw *ServerInterfaceWrapper) RecordConversationClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecordConversationClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonConsent operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonConsent(w http.ResponseWriter, r *http.Request) {
 
@@ -45802,6 +45874,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/brief", wrapper.RegeneratePersonBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/claims", wrapper.RecordConversationClaim)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/consent", wrapper.GetPersonConsent)

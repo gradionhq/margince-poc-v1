@@ -970,6 +970,49 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/claims:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [People]
+      operationId: recordConversationClaim
+      # Human session only, for now. ADR-0097 D1 makes claim writing 🟢 for the
+      # EXTRACTION AGENT, and when that task lands (issue #849) this gains the
+      # x-mcp-tool declaration that opens it to a passport. Declaring the tool
+      # before the agent exists would publish a governed surface nothing drives,
+      # and fail-closed is the right default in the gap.
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Record something promised, asked or decided in a captured conversation.
+      description: |
+        The production writer behind the commitments card and the what-matters card
+        (ADR-0097 D1). One store, eight kinds: they share a lifecycle — extracted →
+        cited → correctable → dismissible — and differ only by kind.
+
+        **Grounded or refused.** A claim carries the activity it was read from AND the
+        verbatim snippet, and a request missing either is refused rather than stored. A
+        claim nobody can check against what was actually written is what the whole
+        mechanism exists to prevent, so the invariant lives here rather than in the
+        caller's discipline.
+
+        The reader's grant on the cited activity is checked as well as on the person:
+        quoting a message the caller cannot open would disclose that it exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordConversationClaimRequest' }
+      responses:
+        '201':
+          description: The recorded claim.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationClaim' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /people/{id}/moment/dismiss:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -13556,6 +13599,27 @@ components:
           type: string
           format: uuid
           description: What "expand to original" opens.
+
+    RecordConversationClaimRequest:
+      type: object
+      description: |
+        One claim to record, with the evidence it was read from. Both evidence fields
+        are required: a snippet with no source cannot be verified, and a source with no
+        snippet cannot be checked against.
+      required: [kind, body, source_activity_id, source_quote]
+      properties:
+        kind: { $ref: '#/components/schemas/ConversationClaimKind' }
+        body:
+          type: string
+          description: What the claim says, in the reader's language.
+        source_activity_id: { type: string, format: uuid }
+        source_quote:
+          type: string
+          description: The verbatim excerpt this was read from — never a summary of it.
+        due_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the commitment is owed, where one is known. Absent on kinds that carry no date.
 
     DismissPersonMomentRequest:
       type: object
