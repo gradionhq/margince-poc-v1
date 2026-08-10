@@ -23,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -120,5 +119,5 @@ func (c companyEnricher) EnrichCompany(
 func lifecycleSeams(pool *pgxpool.Pool) (activityRelinker, leadDisqualifier, projectPhaseAdvancer) {
 	return activityRelinker{store: activities.NewStore(pool)},
 		leadDisqualifier{store: people.NewStore(pool)},
-		projectPhaseAdvancer{store: deals.NewStore(pool, identity.BaseCurrencyOf)}
+		projectPhaseAdvancer{store: deals.NewStore(pool, DealsInstallation())}
 }

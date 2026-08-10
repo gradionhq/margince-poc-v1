@@ -19,7 +19,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -59,7 +58,7 @@ func setupDealCFV(t *testing.T) dealCFVFixture {
 	return dealCFVFixture{
 		e:        e,
 		svc:      svc,
-		store:    deals.NewStore(e.Pool, identity.BaseCurrencyOf).WithFieldCatalog(svc),
+		store:    deals.NewStore(e.Pool, harnessInstallation()).WithFieldCatalog(svc),
 		ctx:      e.As(e.Rep1, nil, dealCFVPerms),
 		pipeline: pipeline,
 		stage:    open,

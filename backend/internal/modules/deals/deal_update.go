@@ -106,7 +106,7 @@ func (s *Store) updateDealInTx(ctx context.Context, tx pgx.Tx,
 		return crmcontracts.Deal{}, fmt.Errorf("read deal before update: %w", err)
 	}
 
-	p, err := dealUpdatePatch(ctx, tx, current, in)
+	p, err := s.dealUpdatePatch(ctx, tx, current, in)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}

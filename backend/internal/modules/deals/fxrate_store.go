@@ -185,7 +185,7 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 		return FxRateRow{}, fxInvalid("effective_date", "fx_rate_past", "effective_date cannot be in the past")
 	}
 	rate := in.Rate
-	base, err := s.baseCurrency(ctx, tx)
+	base, err := s.installation.BaseCurrency(ctx, tx)
 	if err != nil {
 		return FxRateRow{}, fmt.Errorf("resolve base currency: %w", err)
 	}
@@ -272,7 +272,7 @@ func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 	}
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		base, err := s.baseCurrency(ctx, tx)
+		base, err := s.installation.BaseCurrency(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -302,7 +302,7 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 	}
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		base, err := s.baseCurrency(ctx, tx)
+		base, err := s.installation.BaseCurrency(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -367,7 +367,7 @@ func (s *Store) BaseCurrency(ctx context.Context) (string, error) {
 	var base string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		base, err = s.baseCurrency(ctx, tx)
+		base, err = s.installation.BaseCurrency(ctx, tx)
 		return err
 	})
 	if err != nil {

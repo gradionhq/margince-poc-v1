@@ -15,7 +15,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -77,17 +76,7 @@ func Setup(t *testing.T) *Env {
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Authz', 'authz', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	// The installation's base currency as a settings row (ADR-0090/A135), the
-	// other half of the same fact. This harness builds the installation by raw
-	// SQL, so bootstrap never seeded it and 0191's backfill ran before the
-	// workspace existed — and the money readers resolve the SETTING, not the
-	// column (issue #521). It must match the column above: a suite whose two
-	// copies disagree measures the drift rather than the behaviour under test.
-	if _, err := owner.Exec(ctx,
-		`INSERT INTO setting (key, value) VALUES ('installation.base_currency', '"EUR"'::jsonb)
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
-		t.Fatal(err)
-	}
+	seedInstallationIdentity(ctx, t, owner)
 	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
 		if _, err := owner.Exec(ctx,
 			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
@@ -120,7 +109,7 @@ func Setup(t *testing.T) *Env {
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool, identity.BaseCurrencyOf)
+	e.Deals = deals.NewStore(pool, harnessInstallation())
 	e.Activities = activities.NewStore(pool)
 	return e
 }

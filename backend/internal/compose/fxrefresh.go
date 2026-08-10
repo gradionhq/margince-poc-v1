@@ -16,7 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -303,7 +302,7 @@ func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefresh
 
 func newFxRefreshWorker(pool *pgxpool.Pool, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {
 	return &fxRefreshWorker{refresh: fxRefresh{
-		store:               deals.NewStore(pool, identity.BaseCurrencyOf),
+		store:               deals.NewStore(pool, DealsInstallation()),
 		svc:                 approvals.NewService(pool),
 		fetcher:             webread.New(),
 		brain:               brain,

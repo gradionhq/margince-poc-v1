@@ -73,7 +73,7 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 		// change between them would price the offer in one currency and
 		// record it in another. Nothing has frozen a rate at the first send,
 		// so the settings freeze probe does not close that window either.
-		base, err := s.baseCurrency(ctx, tx)
+		base, err := s.installation.BaseCurrency(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -151,14 +151,11 @@ func (s *Store) sendSnapshots(ctx context.Context, tx pgx.Tx, baseCurrency strin
 	}
 	// The currency is the caller's resolved base, not a second read: the
 	// snapshot must record the basis this offer was actually priced in. The
-	// NAME is still a column read (issue #521).
-	var wsName string
-	if err := tx.QueryRow(ctx,
-		`SELECT name FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).
-		Scan(&wsName); err != nil {
-		return nil, nil, fmt.Errorf("snapshot issuer workspace: %w", err)
+	name, err := s.installation.Name(ctx, tx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("snapshot issuer name: %w", err)
 	}
-	issuer = map[string]any{"workspace_name": wsName, "base_currency": baseCurrency}
+	issuer = map[string]any{"workspace_name": name, "base_currency": baseCurrency}
 	return buyer, issuer, nil
 }
 
@@ -260,7 +257,7 @@ func (s *Store) syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx,
 		}
 		return changed, nil
 	}
-	base, err := s.baseCurrency(ctx, tx)
+	base, err := s.installation.BaseCurrency(ctx, tx)
 	if err != nil {
 		return nil, err
 	}

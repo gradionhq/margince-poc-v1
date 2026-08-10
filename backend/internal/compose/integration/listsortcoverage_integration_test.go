@@ -17,7 +17,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -65,7 +64,7 @@ func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest, seedMiddle)
 	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest, seedLatest)
 
-	store := deals.NewStore(e.Pool, identity.BaseCurrencyOf)
+	store := deals.NewStore(e.Pool, harnessInstallation())
 	for _, tc := range []struct {
 		sort  string
 		order []string
@@ -103,7 +102,7 @@ func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest, seedMiddle)
 	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest, seedLatest)
 
-	store := deals.NewStore(e.Pool, identity.BaseCurrencyOf)
+	store := deals.NewStore(e.Pool, harnessInstallation())
 	for _, tc := range []struct {
 		sort  string
 		order []string

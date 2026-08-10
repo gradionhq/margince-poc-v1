@@ -132,3 +132,16 @@ func yamlPaths(t reflect.Type, prefix string) map[string]bool {
 	}
 	return out
 }
+
+// DealsInstallation is the installation seam the deals module reads through.
+//
+// Named HERE because it is a cross-module edge: deals may not import identity
+// (ADR-0054), so compose is where the two meet. identity owns the readers
+// themselves — it owns the settings they resolve.
+func DealsInstallation() deals.Installation {
+	return deals.Installation{
+		Name:         identity.NameOf,
+		BaseCurrency: identity.BaseCurrencyOf,
+		Timezone:     identity.TimezoneOf,
+	}
+}

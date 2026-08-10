@@ -186,7 +186,7 @@ func resolveAdvanceTarget(ctx context.Context, tx pgx.Tx, toStage ids.StageID, c
 func (s *Store) freezeClosingRate(ctx context.Context, tx pgx.Tx,
 	currency string, p *storekit.Patch,
 ) error {
-	base, err := s.baseCurrency(ctx, tx)
+	base, err := s.installation.BaseCurrency(ctx, tx)
 	if err != nil {
 		return err
 	}

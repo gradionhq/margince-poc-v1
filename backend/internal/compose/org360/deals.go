@@ -18,7 +18,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -125,21 +125,26 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
 	}
+	// The basis is resolved here rather than selected alongside the sums: it
+	// is one installation-wide value, not a per-row one, and it no longer
+	// lives on a row this query can reach.
+	baseCurrency, err := identity.BaseCurrencyOf(ctx, tx)
+	if err != nil {
+		return crmcontracts.Money{}, 0, err
+	}
 	var wonMinor int64
 	var lost int
-	var baseCurrency string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT coalesce(sum(d.amount_minor_base) FILTER (WHERE d.status = 'won'), 0)::bigint,
-		       count(*) FILTER (WHERE d.status = 'lost'),
-		       (SELECT base_currency FROM workspace WHERE id = d.workspace_id)
+		       count(*) FILTER (WHERE d.status = 'lost')
 		FROM deal d
 		WHERE d.organization_id = $%d AND d.archived_at IS NULL
 		  AND d.status IN ('won','lost') AND (%s)
-		GROUP BY d.workspace_id`, orgPos, dealScope), args...).Scan(&wonMinor, &lost, &baseCurrency)
+		GROUP BY d.workspace_id`, orgPos, dealScope), args...).Scan(&wonMinor, &lost)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No closed deal on this account yet: an honest zero in the
-		// workspace's own currency, not a missing figure.
-		return workspaceZero(ctx, tx)
+		// installation's own currency, not a missing figure.
+		return installationZero(ctx, tx)
 	}
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
@@ -147,11 +152,10 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	return crmcontracts.Money{AmountMinor: &wonMinor, Currency: &baseCurrency}, lost, nil
 }
 
-func workspaceZero(ctx context.Context, tx pgx.Tx) (crmcontracts.Money, int, error) {
-	var baseCurrency string
-	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&baseCurrency); err != nil {
-		return crmcontracts.Money{}, 0, fmt.Errorf("read workspace base currency: %w", err)
+func installationZero(ctx context.Context, tx pgx.Tx) (crmcontracts.Money, int, error) {
+	baseCurrency, err := identity.BaseCurrencyOf(ctx, tx)
+	if err != nil {
+		return crmcontracts.Money{}, 0, err
 	}
 	zero := int64(0)
 	return crmcontracts.Money{AmountMinor: &zero, Currency: &baseCurrency}, 0, nil

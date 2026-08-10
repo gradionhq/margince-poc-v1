@@ -69,8 +69,8 @@ func setupCloseDate(t *testing.T) *closeDateEnv {
 	}
 	quiet := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	e.svc = approvals.NewService(e.Pool)
-	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool, identity.BaseCurrencyOf)))
-	e.corrector = deals.NewCloseDateCorrector(e.Pool, closeDateStager{svc: e.svc}, quiet)
+	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool, DealsInstallation())))
+	e.corrector = deals.NewCloseDateCorrector(e.Pool, closeDateStager{svc: e.svc}, quiet, identity.TimezoneOf)
 	return e
 }
 

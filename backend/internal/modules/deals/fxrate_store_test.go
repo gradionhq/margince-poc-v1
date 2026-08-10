@@ -74,7 +74,7 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range admitted {
 		t.Run("admits "+name, func(t *testing.T) {
-			if _, err := NewStore(nil, unreachableBaseCurrency).prepareFxRate(fxRateCtx(g), in); err != nil {
+			if _, err := NewStore(nil, Installation{BaseCurrency: unreachableBaseCurrency}).prepareFxRate(fxRateCtx(g), in); err != nil {
 				t.Fatalf("prepareFxRate = %v, want admitted", err)
 			}
 		})
@@ -89,7 +89,7 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range refused {
 		t.Run("refuses "+name, func(t *testing.T) {
-			_, err := NewStore(nil, unreachableBaseCurrency).prepareFxRate(fxRateCtx(g), in)
+			_, err := NewStore(nil, Installation{BaseCurrency: unreachableBaseCurrency}).prepareFxRate(fxRateCtx(g), in)
 			if !errors.Is(err, apperrors.ErrPermissionDenied) {
 				t.Fatalf("prepareFxRate = %v, want ErrPermissionDenied", err)
 			}
@@ -111,11 +111,11 @@ func unreachableBaseCurrency(context.Context, pgx.Tx) (string, error) {
 // that a check rather than a claim.
 func TestAStoreWithNoBaseCurrencySeamRefusesRatherThanPanicking(t *testing.T) {
 	t.Parallel()
-	_, err := NewStore(nil, nil).baseCurrency(context.Background(), nil)
+	_, err := NewStore(nil, Installation{}).installation.BaseCurrency(context.Background(), nil)
 	if err == nil {
 		t.Fatal("an un-injected seam resolved a base currency; it must refuse")
 	}
-	if !strings.Contains(err.Error(), "identity.BaseCurrencyOf") {
-		t.Errorf("the refusal should name what compose wires, got %q", err)
+	if !strings.Contains(err.Error(), "BaseCurrency") {
+		t.Errorf("the refusal should name which seam is missing, got %q", err)
 	}
 }

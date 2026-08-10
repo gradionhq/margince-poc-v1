@@ -31,7 +31,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -490,7 +489,7 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
 	blob := &spyBlobStore{Store: blobstore.NewMemory()}
-	h := deals.NewHandlers(e.Pool, identity.BaseCurrencyOf).WithBlobstore(blob)
+	h := deals.NewHandlers(e.Pool, harnessInstallation()).WithBlobstore(blob)
 
 	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)

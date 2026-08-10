@@ -23,9 +23,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -97,7 +97,7 @@ func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID
 		if err := auth.EnsureVisible(ctx, tx, "organization", rootID); err != nil {
 			return err
 		}
-		baseCurrency, loc, err := rollupWorkspaceMeta(ctx, tx)
+		baseCurrency, loc, err := rollupInstallationMeta(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -141,11 +141,14 @@ func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID
 // window to UTC rather than failing the read — the zone was validated
 // at write time, so this only fires when the host lost its tzdata, and
 // an aggregate read is the wrong place to surface that deployment fault.
-func rollupWorkspaceMeta(ctx context.Context, tx pgx.Tx) (string, *time.Location, error) {
-	var baseCurrency, tzName string
-	if err := tx.QueryRow(ctx, `SELECT base_currency, timezone FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&baseCurrency, &tzName); err != nil {
-		return "", nil, fmt.Errorf("read workspace meta: %w", err)
+func rollupInstallationMeta(ctx context.Context, tx pgx.Tx) (string, *time.Location, error) {
+	baseCurrency, err := identity.BaseCurrencyOf(ctx, tx)
+	if err != nil {
+		return "", nil, err
+	}
+	tzName, err := identity.TimezoneOf(ctx, tx)
+	if err != nil {
+		return "", nil, err
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {

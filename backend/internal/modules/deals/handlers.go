@@ -36,9 +36,9 @@ type Handlers struct {
 }
 
 // NewHandlers wires the transport over the RLS-bound app pool and the
-// installation's base-currency seam.
-func NewHandlers(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) Handlers {
-	return Handlers{store: NewStore(pool, baseCurrency)}
+// installation's own values.
+func NewHandlers(pool *pgxpool.Pool, inst Installation) Handlers {
+	return Handlers{store: NewStore(pool, inst)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

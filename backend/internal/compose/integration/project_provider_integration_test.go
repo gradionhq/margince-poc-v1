@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -29,7 +28,7 @@ import (
 )
 
 func projectProvider(e *Env) *deals.Provider {
-	return deals.NewProvider(e.Pool, identity.BaseCurrencyOf)
+	return deals.NewProvider(e.Pool, harnessInstallation())
 }
 
 // The seam's create-read-update-archive round trip, with the provenance the
