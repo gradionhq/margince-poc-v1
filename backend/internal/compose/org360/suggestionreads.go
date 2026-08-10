@@ -34,7 +34,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -221,17 +220,12 @@ type pipeline struct {
 // on a different moment than the as_of it is reported under.
 func openPipeline(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	baseCcy string,
 ) (pipeline, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
 	dealScope, err := scopeClause(ctx, "deal", "d", arg)
-	if err != nil {
-		return pipeline{}, err
-	}
-	// One installation-wide value, resolved once rather than selected per row —
-	// it is no longer a column this query can join to.
-	baseCcy, err := identity.BaseCurrencyOf(ctx, tx)
 	if err != nil {
 		return pipeline{}, err
 	}
@@ -380,7 +374,7 @@ func granted(ctx context.Context, object string) (bool, error) {
 // stores nothing. Required, a caller that omits one does not compile.
 func gatherSuggestionInputs(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
-	facts signalFacts, lifecycle string,
+	facts signalFacts, lifecycle string, baseCurrency string,
 ) (suggestionInputs, error) {
 	timeline, err := granted(ctx, "activity")
 	if err != nil {
@@ -404,7 +398,7 @@ func gatherSuggestionInputs(
 		in.scheduled = scheduled
 	}
 	if in.pipeline {
-		open, err := openPipeline(ctx, tx, orgID, now)
+		open, err := openPipeline(ctx, tx, orgID, now, baseCurrency)
 		if err != nil {
 			return suggestionInputs{}, err
 		}

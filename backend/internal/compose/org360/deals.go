@@ -18,7 +18,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -39,7 +38,9 @@ func openDealsWhere(orgPos int, dealScope string) string {
 // figures the header shows. won_lifetime sums amount_minor_base — each
 // deal's amount at its FROZEN close-time rate — so the figure never moves
 // when today's FX does.
-func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) (crmcontracts.Organization360Deals, error) {
+func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	baseCurrency string,
+) (crmcontracts.Organization360Deals, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -102,7 +103,7 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 	}
 	open, page := truncate(open)
 
-	lifetime, lost, err := closedTotals(ctx, tx, orgID)
+	lifetime, lost, err := closedTotals(ctx, tx, orgID, baseCurrency)
 	if err != nil {
 		return crmcontracts.Organization360Deals{}, err
 	}
@@ -117,18 +118,13 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 // closedTotals sums won money and counts lost deals over the same row
 // scope the open list uses — a total that included deals the caller cannot
 // open would disclose their existence through arithmetic.
-func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crmcontracts.Money, int, error) {
+func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	baseCurrency string,
+) (crmcontracts.Money, int, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
 	dealScope, err := scopeClause(ctx, "deal", "d", arg)
-	if err != nil {
-		return crmcontracts.Money{}, 0, err
-	}
-	// The basis is resolved here rather than selected alongside the sums: it
-	// is one installation-wide value, not a per-row one, and it no longer
-	// lives on a row this query can reach.
-	baseCurrency, err := identity.BaseCurrencyOf(ctx, tx)
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
 	}
