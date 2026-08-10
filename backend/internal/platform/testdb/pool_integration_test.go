@@ -30,15 +30,27 @@ import (
 // The two halves fail differently, and only one of them is the detector.
 // Mutation-tested by rebuilding the pool from a bare pgxpool.ParseConfig: the jit
 // assertion goes red, the typed-id slice bind stays green. That is not a weak
-// assertion, it is what the exec mode does — under cache_describe the parameter
-// OID always arrives from the server, so pgx never has to consult the registered
-// type to encode []ids.PersonID. The bind is here to pin the idiom itself (a
-// future exec mode that guesses OIDs would break it, and ANY($n) is used
-// throughout the record stores); jit is here because it is the half that catches
-// the construction regressing.
+// assertion, it is what the exec mode does — the pool runs describe_exec, where
+// the parameter OID always arrives from the server, so pgx never has to consult
+// the registered type to encode []ids.PersonID. The bind is here to pin the idiom
+// itself: pgx's exec and simple_protocol modes infer parameter types from the Go
+// values instead, and would fail on this slice, so a future change of mode meets
+// this test rather than a record store. jit is the half that catches the
+// construction regressing.
 func TestSharedPoolKeepsTheProductionConnectionSetup(t *testing.T) {
 	pool := sharedAppPool(t)
 	ctx := context.Background()
+
+	// The EFFECTIVE mode, not the one testPoolParams asks for. withTestPoolParams
+	// lets a DSN that already names a parameter keep its own value, and
+	// scripts/lib-testdb.sh copies the base DSN's query string verbatim into every
+	// clone — so an exported MARGINCE_TEST_APP_DSN carrying a caching mode
+	// reinstates the unsoundness this pool exists to avoid, without touching any
+	// Go file. Asserted rather than trusted for that reason.
+	if got := pool.Config().ConnConfig.DefaultQueryExecMode; got != pgx.QueryExecModeDescribeExec {
+		t.Errorf("the shared pool runs exec mode %v, want describe_exec — a caching mode lets a connection outlive the schema it cached against, and the DSN wins over testPoolParams, so check MARGINCE_TEST_APP_DSN",
+			got)
+	}
 
 	want := ids.New[ids.PersonKind]()
 	other := ids.New[ids.PersonKind]()

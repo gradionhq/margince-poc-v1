@@ -108,16 +108,18 @@ export function DossierPanel({
         <EmptyState>{t("co.dossier.empty")}</EmptyState>
       ) : (
         <>
+          {/* One reading, not five labelled ones. The mockup draws the dossier
+              as continuous prose with its sources underneath; a heading per
+              section turned three sentences about one company into a form with
+              five fields, and the headings said less than the sentences under
+              them. The sections still ORDER the prose — the server decides
+              what comes first — they just no longer announce themselves. */}
           {readable.sections.map((section) => (
-            <div className="co-dossier-section" key={section.kind}>
-              <h3 className="co-part-sublabel">
-                {t(SECTION_LABELS[section.kind])}
-              </h3>
-              <SentenceList
-                sentences={section.sentences}
-                onOpenRecord={onOpenRecord}
-              />
-            </div>
+            <SentenceList
+              key={section.kind}
+              sentences={section.sentences}
+              onOpenRecord={onOpenRecord}
+            />
           ))}
           <p className="co-part-foot">
             <WrittenBy by={readable.generated_by} />{" "}
