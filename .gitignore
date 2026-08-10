@@ -77,6 +77,10 @@ workspace/
 #   - a repo-root scratch dir (real scratch belongs in the session temp dir)
 #   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
 #     assets like frontend/src/assets/*.png are unaffected.
+#   - screen RECORDINGS, by the same rule and for the same reason. Proving an
+#     MCP App view renders is a video job, so this branch is the one that
+#     starts producing them — the line belongs with the change that creates
+#     the risk rather than in a tidy-up nobody files.
 /.pnpm-store/
 /node_modules/
 /scratchpad/
@@ -84,6 +88,8 @@ workspace/
 /*.jpg
 /*.jpeg
 /*.gif
+/*.mp4
+/*.mov
 
 # JetBrains project settings: per-developer IDE state (run configs, local
 # inspection profiles), not a build input. Machine-local, so it never belongs

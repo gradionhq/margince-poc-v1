@@ -30,12 +30,19 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// documentFor is one view's document, titled the way the catalog expects so an
+// documentFor is one view's document, titled the way the CATALOG expects, so an
 // unrelated title mismatch never explains a failure here.
+//
+// The title is READ from the catalog rather than branched on by URI. A
+// hand-written branch answered "Morning brief" for every view it had not heard
+// of, so a view added to the build arrived here already mismatched — and the
+// noise it made drowned the one deliberate mismatch two of these tests are
+// about. A stand-in that disagrees with production about what it is standing in
+// for is worse than no stand-in.
 func documentFor(uri string) string {
-	title := "Morning brief"
-	if uri == RelationshipMapURI {
-		title = "Who knows this contact"
+	title, declared := DeclaredViews()[uri]
+	if !declared {
+		title = "Morning brief"
 	}
 	return strings.Replace(cleanDocument, "<title>Morning brief</title>", "<title>"+title+"</title>", 1)
 }

@@ -362,3 +362,65 @@ describe("the render helpers refuse to render nonsense", () => {
     expect(bridge.warned([], "sweep_truncated")).toBe(false);
   });
 });
+
+describe("money is scaled by the currency's own minor units", () => {
+  it("scales a two-decimal currency by a hundred", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    // 24_000_000 minor EUR is 240,000 — not 24,000,000, which is the mistake
+    // that made an account brief report every deal a hundred times too large.
+    expect(bridge.money(24_000_000, "EUR")).toContain("240,000");
+  });
+
+  it("does not scale a zero-decimal currency at all", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    // JPY stores 1234 minor units and means ¥1,234. A hard-coded /100 renders
+    // ¥12.34 here and would pass every euro test in the suite.
+    const yen = bridge.money(1234, "JPY");
+    expect(yen).toContain("1,234");
+    expect(yen).not.toContain("12.34");
+  });
+
+  it("renders an absent amount or currency as an em dash, never as zero", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    expect(bridge.money(undefined, "EUR")).toBe("—");
+    expect(bridge.money(1000, undefined)).toBe("—");
+    expect(bridge.money(Number.NaN, "EUR")).toBe("—");
+  });
+
+  it("renders a currency Intl does not know as an em dash rather than throwing", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    // Intl throws a RangeError on an unknown code, and a view that threw
+    // mid-render would leave the reader a blank panel with nothing saying why.
+    expect(() => bridge.money(1000, "not-a-currency")).not.toThrow();
+    expect(bridge.money(1000, "not-a-currency")).toBe("—");
+  });
+});
+
+describe("day renders the calendar day the server judged in", () => {
+  it("renders an instant as its UTC day", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    expect(bridge.day("2026-06-10T12:00:00Z")).toBe("2026-06-10");
+  });
+
+  it("does not shift the day into the reader's own zone", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    // 23:30 UTC is already the next day in much of the world. Rendering it
+    // there would put "due 2026-06-11" beside the word "overdue", which the
+    // server judged against 2026-06-10.
+    expect(bridge.day("2026-06-10T23:30:00Z")).toBe("2026-06-10");
+  });
+
+  it("renders an absent or unparseable instant as an em dash", async () => {
+    const parent = stubParent();
+    const bridge = await loadBridge(parent.win);
+    expect(bridge.day(undefined)).toBe("—");
+    expect(bridge.day("")).toBe("—");
+    expect(bridge.day("not a date")).toBe("—");
+  });
+});

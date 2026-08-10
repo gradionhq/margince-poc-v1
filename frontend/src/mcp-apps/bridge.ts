@@ -280,6 +280,60 @@ export function count(value: unknown): string {
 }
 
 /**
+ * money renders an amount the way the product renders one: integer MINOR units
+ * scaled by the currency's own minor-unit count, never by a hard-coded 100.
+ *
+ * THE SCALING RULE IS THE ONE src/format/format.ts APPLIES, deliberately —
+ * ask Intl how many fraction digits the currency has and divide by that power
+ * of ten. JPY stores 1234 minor units and means ¥1,234; a view that divided by
+ * 100 everywhere would render ¥12.34 for it, and the same class of mistake in
+ * the other direction is what made an account brief report every deal a
+ * hundred times too large.
+ *
+ * It is a second implementation rather than an import because formatMoney
+ * takes the SPA's Locale, and reaching for that would pull the translation
+ * machinery into a document that is inlined whole and served to a third-party
+ * host. So the locale is the host runtime's own, and the rule that must not
+ * drift — the scale — is stated here in the same terms.
+ *
+ * An amount that is not a finite number, or a currency Intl does not know,
+ * renders as the em dash. Intl throws on an unknown currency code, and a view
+ * that threw mid-render would leave the reader a blank panel.
+ */
+export function money(amountMinor: unknown, currency: unknown): string {
+  const minor = asFiniteNumber(amountMinor);
+  const code = asText(currency);
+  if (minor === null || code === "") return ABSENT;
+  try {
+    const formatter = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+    });
+    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+    return formatter.format(minor / 10 ** digits);
+  } catch {
+    return ABSENT;
+  }
+}
+
+/**
+ * day renders an instant as the calendar day it falls on IN UTC, which is the
+ * same day the server's own evidence snippets name.
+ *
+ * UTC and not the reader's zone, because the two would disagree: the answer
+ * says a promise is overdue, and a date rendered in a zone the server did not
+ * judge in can read as "due tomorrow" beside the word "overdue". One clock,
+ * one day, and the state beside it is true of the date shown.
+ */
+export function day(value: unknown): string {
+  const text = asText(value);
+  if (text === "") return ABSENT;
+  const at = new Date(text);
+  if (Number.isNaN(at.getTime())) return ABSENT;
+  return at.toISOString().slice(0, 10);
+}
+
+/**
  * initBridge attaches the transport and announces this view to its host.
  *
  * It runs on import, which is what makes a view a client the moment its document

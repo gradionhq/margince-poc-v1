@@ -18,6 +18,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -79,6 +80,19 @@ func (t whatsSlippingThisWeek) Spec() mcp.ToolSpec {
 			"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Cap the ranked set; omit for the full evidenced set"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[WhatsSlippingResult](),
+		// The view renders this tool's own answer as a ranked list with each
+		// deal's evidence under it. What it buys over the text is the evidence
+		// beside the claim: the rank is only defensible if the reason for it is
+		// readable in the same glance.
+		//
+		// It hangs off THIS tool and not also off run_report, which the product
+		// concept names alongside it. A view reads one payload shape; run_report
+		// answers a different {columns, rows} shape per report and per plan, so
+		// one document over both would either render half of them wrongly or
+		// become a generic table renderer, which is a different product. The
+		// payload shape is hand-mirrored across the Go/TS seam with no gate
+		// (#808), which makes a shape that varies per call strictly worse.
+		UI: &mcp.ToolUI{ResourceURI: apps.PipelineReviewURI},
 	}
 }
 

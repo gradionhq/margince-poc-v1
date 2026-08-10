@@ -134,6 +134,64 @@ h1 {
   color: var(--textSecondary);
 }
 
+/* A promise's state, and a handover's gaps. Both are TEXT, so each clears
+   4.5:1 against --bgElevated in both themes on the canon's own values —
+   --danger 6.47:1 light / 5.83:1 dark, --warn 7.09 / 9.65,
+   --textSecondary 4.82 / 5.88. Named by token because check-ds-purity.sh
+   greps comments too, and a hex here would fail the gate this note explains.
+
+   "overdue" is the one that has to carry weight: it is the only state on
+   these views that asks the reader to do something today. */
+.state-overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.state-upcoming,
+.state-undated {
+  color: var(--textSecondary);
+}
+
+/* A view that reports several kinds of thing at once needs them separated, or
+   the reader takes the first list for the whole answer. */
+.section {
+  margin-top: var(--space-4);
+}
+
+.section-title {
+  margin: 0 0 var(--space-2);
+  color: var(--textSecondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* One thing the records do not answer. It reads as a warning rather than as an
+   error: a gap is work still to do, not a failure. */
+.gap {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border-left: 2px solid var(--warn);
+  padding: var(--space-1) var(--space-3);
+  color: var(--textContent);
+  font-size: 13px;
+}
+
+/* The field a gap was read off. It is the evidence, so it is shown rather than
+   summarized away — and it is machine text, so it wears a monospace face.
+
+   ui-monospace, and NOT var(--f-mono), for the same reason body reaches for
+   system-ui: that token resolves to a web font, and a web font is a network
+   request this document's empty origin allowlist can never admit. */
+.source {
+  color: var(--textSecondary);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* The empty answer, which is a real answer on both of these views: a queue with
    nothing in it, a contact nobody has spoken to. Saying so is the difference
    between an answered question and a view that looks broken. */

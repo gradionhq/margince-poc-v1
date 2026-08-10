@@ -19,12 +19,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// projectStakeholderKind is the edge kind this surface reads and writes;
+// ProjectStakeholderKind is the edge kind this surface reads and writes;
 // projectObjectName is the RBAC object and visibility-probe table the edge
 // annotates. Both spelled once so the kind, the anchor and the probe cannot
 // drift apart.
 const (
-	projectStakeholderKind = "project_stakeholder"
+	ProjectStakeholderKind = "project_stakeholder"
 	projectObjectName      = "project"
 	// projectStakeholderUnique is the index that makes "already attached"
 	// detectable rather than duplicated. Named here because three places rely
@@ -38,7 +38,7 @@ const (
 // per edge).
 func (h Handlers) ListProjectStakeholders(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	projectID := pathID[ids.ProjectKind](id)
-	kind := projectStakeholderKind
+	kind := ProjectStakeholderKind
 	rels, page, err := h.store.ListRelationships(r.Context(), ListRelationshipsInput{
 		Kind:      &kind,
 		ProjectID: &projectID,

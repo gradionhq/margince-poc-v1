@@ -90,13 +90,12 @@ func primedViews(t *testing.T, titles map[string]string) *apps.Provider {
 	return views
 }
 
-// bothViews is the titles map for a deployment serving everything it declares.
-func bothViews() map[string]string {
-	return map[string]string{
-		apps.AccountBriefURI:    "Morning brief",
-		apps.RelationshipMapURI: "Who knows this contact",
-	}
-}
+// everyDeclaredView is the titles map for a deployment serving everything this
+// build declares — read from the catalog rather than listed here, so a view
+// added to the build enters these sweeps with it. A hand-written pair was the
+// shape before, and it would have gone on passing over a deployment serving
+// two of five.
+func everyDeclaredView() map[string]string { return apps.DeclaredViews() }
 
 // composedResources is the view half of the resource surface, assembled through
 // the same constructor the transport uses.
@@ -115,7 +114,7 @@ func bothViews() map[string]string {
 // automatically rather than being a list somebody has to remember.
 func composedResources(t *testing.T) mcp.ResourceProvider {
 	t.Helper()
-	return composeResources(mcpResourceProviders(nil, primedViews(t, bothViews()))...)
+	return composeResources(mcpResourceProviders(nil, primedViews(t, everyDeclaredView()))...)
 }
 
 // readerCtx is an agent holding `read`, which is the scope a view requires. The
@@ -275,12 +274,12 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
 	// Derived from the transport's own list, so a THIRD provider is measured the
 	// commit it is wired rather than the commit somebody remembers this test.
-	wired := mcpResourceProviders(nil, primedViews(t, bothViews()))
+	wired := mcpResourceProviders(nil, primedViews(t, everyDeclaredView()))
 	if len(wired) != 2 {
 		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the "+
 			"vocabulary and the views. Add the new one's scheme below before it can collide with a view", len(wired))
 	}
-	for _, r := range primedViews(t, bothViews()).Resources(readerCtx()) {
+	for _, r := range primedViews(t, everyDeclaredView()).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
 			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with the query "+
 				"vocabulary, and the fan-out would resolve that silently by composition order", r.URI, mcp.AppURIScheme)

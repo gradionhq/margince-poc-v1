@@ -70,7 +70,7 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		return s.UpdateRelationship(ctx, existingID, UpdateRelationshipInput{Role: &in.Role})
 	}
 	row, err := s.CreateRelationship(ctx, CreateRelationshipInput{
-		Kind:      projectStakeholderKind,
+		Kind:      ProjectStakeholderKind,
 		PersonID:  &in.PersonID,
 		ProjectID: &in.ProjectID,
 		Role:      &in.Role,
@@ -92,7 +92,7 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 			// this read. The roster is empty again, so the original request
 			// is simply true once more: create it.
 			return s.CreateRelationship(ctx, CreateRelationshipInput{
-				Kind: projectStakeholderKind, PersonID: &in.PersonID,
+				Kind: ProjectStakeholderKind, PersonID: &in.PersonID,
 				ProjectID: &in.ProjectID, Role: &in.Role, Source: projectStakeholderSource,
 			})
 		}
@@ -115,7 +115,7 @@ func (s *Store) projectStakeholderEdge(ctx context.Context, projectID ids.Projec
 		err := tx.QueryRow(ctx, `
 			SELECT id FROM relationship
 			WHERE kind = $1 AND project_id = $2 AND person_id = $3 AND archived_at IS NULL`,
-			projectStakeholderKind, projectID, personID).Scan(&edge)
+			ProjectStakeholderKind, projectID, personID).Scan(&edge)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -147,7 +147,7 @@ func (s *Store) RemoveProjectStakeholder(ctx context.Context, projectID ids.Proj
 		// ArchiveRelationship; this read only resolves which edge is meant.
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
-		kindPos, projectPos, personPos := arg(projectStakeholderKind), arg(projectID), arg(personID)
+		kindPos, projectPos, personPos := arg(ProjectStakeholderKind), arg(projectID), arg(personID)
 		scope, err := auth.RelationshipEndpointScope(ctx, "r", arg)
 		if err != nil {
 			return err

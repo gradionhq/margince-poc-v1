@@ -86,6 +86,17 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// native tables. It takes no arguments: the queue a caller may read is
 		// the one belonging to the human they act for.
 		"read_brief": `{}`,
+		// The open-promise review. Its rows are task ACTIVITIES, and a mirrored
+		// workspace's timeline holds no task projection — so unguarded it
+		// answers "nothing is outstanding" out of a table holding none of its
+		// rows, which is the one wrong answer to this question that reads as
+		// good news.
+		"review_commitments": `{}`,
+		// The delivery handoff. A project is a native record with no incumbent
+		// analogue at all, so the refusal is the declared answer rather than a
+		// degradation — and it has to land before the project read, or a
+		// mirrored workspace learns not-found instead of "not available here".
+		"prepare_handoff": fmt.Sprintf(`{"project_id":%q}`, anchor),
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.
