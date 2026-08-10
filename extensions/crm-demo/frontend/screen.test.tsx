@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../../i18n";
-import { CrmDemoScreen } from "./crmdemo";
+import { LocaleProvider } from "@margince/frontend/app";
+import CrmDemoScreen from "./screen";
 
 // The reference extension's screen, over a stubbed transport.
 //

@@ -43,7 +43,21 @@
       // route half of the ordering constraint, enforced at compile time (the
       // RBAC-object half is not; see src/app/capability.ts).
       "@composition/screens": ["../build/composition/frontend/extscreens.gen"],
-      "@composition/copy": ["../build/composition/frontend/extlocales.gen"]
+      "@composition/copy": ["../build/composition/frontend/extlocales.gen"],
+      // Every enabled unit's screen package, by the name the generated registry
+      // imports it under.
+      //
+      // A mapping rather than a dependency, and that is the point: pnpm links a
+      // workspace member into its DEPENDENTS' node_modules, so resolving
+      // @margince-ext/<unit> by installation would mean frontend/package.json
+      // listing every enabled unit — an upstream-owned file that adding a unit
+      // would have to edit. The whole tier rests on presence under extensions/
+      // being the enablement, so the SPA learns a unit exists from the
+      // generated registry and resolves it from here.
+      //
+      // Workspace membership still earns its keep: it is what installs and
+      // resolves a unit's OWN dependencies, from inside the unit's directory.
+      "@margince-ext/*": ["../extensions/*/frontend"]
     }
   },
   // A unit's screen lives outside src/ entirely now, and tsc reaches it by

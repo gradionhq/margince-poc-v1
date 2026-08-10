@@ -122,35 +122,6 @@ export const de = {
     "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
   "ext.operations": "Veröffentlichte Operationen",
 
-  "extDemo.title": "Demo-Notizblock",
-  "extDemo.sub": "Die Referenzerweiterung, von Anfang bis Ende.",
-  "extDemo.signing.title": "Signaturschlüssel",
-  "extDemo.signing.sub":
-    "Vom Schlüsseldienst der Installation verwahrt. Er wird nirgends angezeigt.",
-  "extDemo.signing.connected": "Verbunden",
-  "extDemo.signing.notConnected": "Kein Schlüssel hinterlegt",
-  "extDemo.signing.keyLabel": "Signaturschlüssel",
-  "extDemo.signing.store": "Schlüssel hinterlegen",
-  "extDemo.signing.payloadLabel": "Zu signierende Nutzdaten",
-  "extDemo.signing.sign": "Signieren",
-  "extDemo.signing.signFailed":
-    "Es wurde nichts signiert. Hinterlegen Sie zuerst einen Signaturschlüssel.",
-  "extDemo.signing.noGrant":
-    "Sie haben keinen Zugriff auf den Signaturschlüssel dieser Erweiterung.",
-  "extDemo.notes.title": "Notizen",
-  "extDemo.notes.bodyLabel": "Neue Notiz",
-  "extDemo.notes.add": "Hinzufügen",
-  "extDemo.notes.remove": "Entfernen",
-  "extDemo.notes.empty": "Noch keine Notizen.",
-  "extDemo.notes.noGrant":
-    "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
-  "extDemo.signing.storeFailed":
-    "Das Hinterlegen des Schlüssels ist fehlgeschlagen. Ob er gespeichert wurde, ist offen — prüfen Sie den Status oben, bevor Sie ihn erneut einfügen.",
-  "extDemo.notes.addFailed":
-    "Das Hinzufügen der Notiz ist fehlgeschlagen. Ob sie gespeichert wurde, ist offen — prüfen Sie die Liste unten, bevor Sie sie erneut hinzufügen.",
-  "extDemo.notes.removeFailed":
-    "Das Entfernen der Notiz ist fehlgeschlagen. Prüfen Sie die Liste unten.",
-
   "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",

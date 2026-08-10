@@ -47,27 +47,53 @@ const proxyTarget = `http://localhost:${backendPort}`;
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@composition/extensions": join(compositionDir, "extensions.gen.ts"),
+    // An ARRAY rather than a record, because one entry must match a pattern:
+    // the unit-package mapping below is a family of names, not one name.
+    alias: [
+      {
+        find: "@composition/extensions",
+        replacement: join(compositionDir, "extensions.gen.ts"),
+      },
       // The unit SCREENS, selected by the same switch and for the same reason.
       // Both sides are GENERATED now, and the composed one imports each unit's
       // own workspace package: a screen calls routes only a composed
       // installation serves, so the vanilla bundle resolves an empty registry
       // and never pulls a unit into the graph at all.
-      "@composition/screens": join(compositionDir, "extscreens.gen.ts"),
-      // A unit's own copy, merged into the catalogue. Selected by the same
-      // switch: on a vanilla tree it is an empty object, so `useT` resolves
-      // exactly the core keys it always did.
-      "@composition/copy": join(compositionDir, "extlocales.gen.ts"),
-    },
-    // ONE React, whichever copy a unit package's own dependency tree would
-    // otherwise resolve. React's hook dispatcher is per-instance: a second copy
-    // in the bundle gives a unit's screen a dispatcher its host never rendered
-    // through, and every hook it calls throws with a message naming neither the
-    // unit nor the cause. The package rule refuses react as a DIRECT dependency
-    // (gen-composition's collectUnitFrontend); this is the half that holds when
-    // one of a unit's own dependencies pulls it in transitively.
-    dedupe: ["react", "react-dom"],
+      {
+        find: "@composition/screens",
+        replacement: join(compositionDir, "extscreens.gen.ts"),
+      },
+      // A unit's own copy, merged into the catalogue. On a vanilla tree it is
+      // an empty object, so `useT` resolves exactly the core keys it always did.
+      {
+        find: "@composition/copy",
+        replacement: join(compositionDir, "extlocales.gen.ts"),
+      },
+      // Every enabled unit's screen package, by the name the generated registry
+      // imports it under. The compile-time half is tsconfig.composed.json's
+      // "@margince-ext/*" mapping.
+      //
+      // Resolved by NAME rather than installed as a dependency of the SPA: pnpm
+      // links a member into its DEPENDENTS' node_modules, so installing it
+      // would mean frontend/package.json listing every enabled unit — an
+      // upstream-owned file that adding a unit would then have to edit.
+      // Presence under extensions/ is the enablement here exactly as it is on
+      // the Go side.
+      {
+        find: /^@margince-ext\/(.+)$/,
+        replacement: join(frontendRoot, "..", "extensions", "$1", "frontend"),
+      },
+    ],
+    // ONE copy of every package that keeps state the HOST owns: React's hook
+    // dispatcher, and react-query's QueryClient context. A second copy is a
+    // second, empty one — a unit's hooks throw because the host never
+    // dispatched them, or its first useQuery reports no QueryClient on a page
+    // that plainly has one.
+    //
+    // gen-composition refuses these as DIRECT dependencies of a unit; this is
+    // the half that holds when one of a unit's own dependencies pulls a second
+    // copy in transitively.
+    dedupe: ["react", "react-dom", "@tanstack/react-query"],
   },
   server: {
     // build/composition/ sits OUTSIDE the Vite root (frontend/), and Vite's

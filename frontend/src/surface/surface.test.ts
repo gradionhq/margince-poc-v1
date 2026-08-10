@@ -46,6 +46,7 @@ describe("the published frontend surface", () => {
       "throwProblem",
     ]);
     expect(Object.keys(appSurface).sort()).toEqual([
+      "LocaleProvider",
       "formatDateTime",
       "useCan",
       "useCanWrite",

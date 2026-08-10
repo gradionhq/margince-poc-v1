@@ -141,6 +141,14 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		if hasGo {
 			return extensionUnit{}, fmt.Errorf("extensions/%s: *.go present but no go.mod — a Go-bearing extension is its own module", name)
 		}
+		// The removal case, named rather than left to the reader. `git rm -r`
+		// takes a unit's tracked files and leaves its INSTALLED ones, because
+		// node_modules is ignored — so the directory survives holding nothing
+		// but a dependency tree, and "no Go module" sends whoever removed the
+		// unit looking for a go.mod they deliberately deleted.
+		if empty, err := holdsOnlyInstalledOutput(dir); err == nil && empty {
+			return extensionUnit{}, fmt.Errorf("extensions/%s holds nothing but installed dependencies — its source is gone but the directory is not, and presence under extensions/ IS enablement; remove the directory (`rm -rf extensions/%s`) and re-run `pnpm install` to prune the workspace member", name, name)
+		}
 		return extensionUnit{}, fmt.Errorf("extensions/%s: nothing to compose (no Go module)", name)
 	case err != nil:
 		return extensionUnit{}, err
@@ -176,6 +184,28 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		Fragments:     fragments,
 		Frontend:      frontend,
 	}, nil
+}
+
+// holdsOnlyInstalledOutput reports whether a unit directory contains nothing a
+// human wrote — only the node_modules a package manager put there. It is how
+// the scan tells "half-removed unit" from "unit missing its go.mod", which
+// otherwise look identical and want opposite advice.
+func holdsOnlyInstalledOutput(dir string) (bool, error) {
+	found := false
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == nodeModulesDir {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		found = true
+		return filepath.SkipAll
+	})
+	return !found, err
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other

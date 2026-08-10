@@ -130,35 +130,6 @@ export const vi = {
     "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
   "ext.operations": "Các thao tác đã công bố",
 
-  "extDemo.title": "Sổ tay demo",
-  "extDemo.sub": "Tiện ích mở rộng tham chiếu, từ đầu đến cuối.",
-  "extDemo.signing.title": "Khóa ký",
-  "extDemo.signing.sub":
-    "Do bộ giữ khóa của bản cài đặt lưu giữ. Khóa không bao giờ được hiển thị ở đâu cả.",
-  "extDemo.signing.connected": "Đã kết nối",
-  "extDemo.signing.notConnected": "Chưa lưu khóa nào",
-  "extDemo.signing.keyLabel": "Khóa ký",
-  "extDemo.signing.store": "Lưu khóa",
-  "extDemo.signing.payloadLabel": "Nội dung cần ký",
-  "extDemo.signing.sign": "Ký",
-  "extDemo.signing.signFailed":
-    "Không có gì được ký. Hãy lưu khóa ký trước đã.",
-  "extDemo.signing.noGrant":
-    "Bạn không có quyền truy cập khóa ký của tiện ích mở rộng này.",
-  "extDemo.notes.title": "Ghi chú",
-  "extDemo.notes.bodyLabel": "Ghi chú mới",
-  "extDemo.notes.add": "Thêm",
-  "extDemo.notes.remove": "Xóa",
-  "extDemo.notes.empty": "Chưa có ghi chú nào.",
-  "extDemo.notes.noGrant":
-    "Bạn không có quyền đọc ghi chú của tiện ích mở rộng này.",
-  "extDemo.signing.storeFailed":
-    "Lưu khóa thất bại. Chưa rõ khóa đã được lưu hay chưa — hãy kiểm tra trạng thái ở trên trước khi dán lại.",
-  "extDemo.notes.addFailed":
-    "Thêm ghi chú thất bại. Chưa rõ ghi chú đã được lưu hay chưa — hãy kiểm tra danh sách bên dưới trước khi thêm lại.",
-  "extDemo.notes.removeFailed":
-    "Xóa ghi chú thất bại. Hãy kiểm tra danh sách bên dưới.",
-
   "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
   "search.empty": "Không có kết quả cho “{q}”.",

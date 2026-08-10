@@ -1,0 +1,23 @@
+{
+  "extCrmDemo.notes.add": "Thêm",
+  "extCrmDemo.notes.addFailed": "Thêm ghi chú thất bại. Chưa rõ ghi chú đã được lưu hay chưa — hãy kiểm tra danh sách bên dưới trước khi thêm lại.",
+  "extCrmDemo.notes.bodyLabel": "Ghi chú mới",
+  "extCrmDemo.notes.empty": "Chưa có ghi chú nào.",
+  "extCrmDemo.notes.noGrant": "Bạn không có quyền đọc ghi chú của tiện ích mở rộng này.",
+  "extCrmDemo.notes.remove": "Xóa",
+  "extCrmDemo.notes.removeFailed": "Xóa ghi chú thất bại. Hãy kiểm tra danh sách bên dưới.",
+  "extCrmDemo.notes.title": "Ghi chú",
+  "extCrmDemo.signing.connected": "Đã kết nối",
+  "extCrmDemo.signing.keyLabel": "Khóa ký",
+  "extCrmDemo.signing.noGrant": "Bạn không có quyền truy cập khóa ký của tiện ích mở rộng này.",
+  "extCrmDemo.signing.notConnected": "Chưa lưu khóa nào",
+  "extCrmDemo.signing.payloadLabel": "Nội dung cần ký",
+  "extCrmDemo.signing.sign": "Ký",
+  "extCrmDemo.signing.signFailed": "Không có gì được ký. Hãy lưu khóa ký trước đã.",
+  "extCrmDemo.signing.store": "Lưu khóa",
+  "extCrmDemo.signing.storeFailed": "Lưu khóa thất bại. Chưa rõ khóa đã được lưu hay chưa — hãy kiểm tra trạng thái ở trên trước khi dán lại.",
+  "extCrmDemo.signing.sub": "Do bộ giữ khóa của bản cài đặt lưu giữ. Khóa không bao giờ được hiển thị ở đâu cả.",
+  "extCrmDemo.signing.title": "Khóa ký",
+  "extCrmDemo.sub": "Tiện ích mở rộng tham chiếu, từ đầu đến cuối.",
+  "extCrmDemo.title": "Sổ tay demo"
+}

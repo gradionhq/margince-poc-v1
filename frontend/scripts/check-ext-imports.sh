@@ -59,9 +59,12 @@ for layer in "$EXT_DIR"/*/frontend; do
   manifest="$layer/package.json"
   [[ -f "$manifest" ]] || continue
 
-  # What this unit is allowed to reach on npm: its own declared dependencies,
-  # plus the core surface. Read per unit, because one unit's dependency is not
-  # another's.
+  # What this unit may reach on npm, read per unit because one unit's
+  # dependency is not another's — and split, because the answer differs by file.
+  #
+  # SHIPPED code may reach dependencies and peers. A screen importing a DEV
+  # dependency would pull a test runner into the bundle, so devDependencies are
+  # deliberately absent from this set.
   DECLARED=()
   while IFS= read -r line; do DECLARED+=("$line"); done < <(
     node -e '
@@ -72,9 +75,22 @@ for layer in "$EXT_DIR"/*/frontend; do
       ]) console.log(name);
     ' "$manifest"
   )
+  # A TEST may reach dev dependencies too — that is what they are for.
+  DECLARED_TEST=("${DECLARED[@]}")
+  while IFS= read -r line; do DECLARED_TEST+=("$line"); done < <(
+    node -e '
+      const pkg = require(process.argv[1]);
+      for (const name of Object.keys(pkg.devDependencies ?? {})) console.log(name);
+    ' "$manifest"
+  )
 
   while IFS= read -r -d '' file; do
     CHECKED=$((CHECKED + 1))
+    # A test file may reach the dev dependencies; shipped code may not.
+    case "$file" in
+    *.test.ts | *.test.tsx) ALLOWED_PKGS=("${DECLARED_TEST[@]}") ;;
+    *) ALLOWED_PKGS=("${DECLARED[@]}") ;;
+    esac
     # Every static specifier in the file: `from "x"`, `import "x"`, and
     # `import("x")`. Comments are not stripped — a commented-out bad import is
     # a bad import somebody is about to uncomment.
@@ -107,11 +123,11 @@ for layer in "$EXT_DIR"/*/frontend; do
         *) pkgname="${spec%%/*}" ;;
         esac
         declared=0
-        for d in "${DECLARED[@]}"; do
+        for d in "${ALLOWED_PKGS[@]}"; do
           [[ "$pkgname" == "$d" ]] && declared=1 && break
         done
         if [[ "$declared" -eq 0 ]]; then
-          echo "FAIL: ${file#"$ROOT"/}: '$spec' is not declared by extensions/$unit/frontend/package.json — a unit imports what it declares, or it works only by accident of hoisting" >&2
+          echo "FAIL: ${file#"$ROOT"/}: '$spec' is not declared by extensions/$unit/frontend/package.json — a unit imports what it declares, or it works only by accident of hoisting (shipped code may not reach a devDependency)" >&2
           EXIT=1
         fi
         ;;

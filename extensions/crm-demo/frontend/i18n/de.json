@@ -1,0 +1,23 @@
+{
+  "extCrmDemo.notes.add": "Hinzufügen",
+  "extCrmDemo.notes.addFailed": "Das Hinzufügen der Notiz ist fehlgeschlagen. Ob sie gespeichert wurde, ist offen — prüfen Sie die Liste unten, bevor Sie sie erneut hinzufügen.",
+  "extCrmDemo.notes.bodyLabel": "Neue Notiz",
+  "extCrmDemo.notes.empty": "Noch keine Notizen.",
+  "extCrmDemo.notes.noGrant": "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
+  "extCrmDemo.notes.remove": "Entfernen",
+  "extCrmDemo.notes.removeFailed": "Das Entfernen der Notiz ist fehlgeschlagen. Prüfen Sie die Liste unten.",
+  "extCrmDemo.notes.title": "Notizen",
+  "extCrmDemo.signing.connected": "Verbunden",
+  "extCrmDemo.signing.keyLabel": "Signaturschlüssel",
+  "extCrmDemo.signing.noGrant": "Sie haben keinen Zugriff auf den Signaturschlüssel dieser Erweiterung.",
+  "extCrmDemo.signing.notConnected": "Kein Schlüssel hinterlegt",
+  "extCrmDemo.signing.payloadLabel": "Zu signierende Nutzdaten",
+  "extCrmDemo.signing.sign": "Signieren",
+  "extCrmDemo.signing.signFailed": "Es wurde nichts signiert. Hinterlegen Sie zuerst einen Signaturschlüssel.",
+  "extCrmDemo.signing.store": "Schlüssel hinterlegen",
+  "extCrmDemo.signing.storeFailed": "Das Hinterlegen des Schlüssels ist fehlgeschlagen. Ob er gespeichert wurde, ist offen — prüfen Sie den Status oben, bevor Sie ihn erneut einfügen.",
+  "extCrmDemo.signing.sub": "Vom Schlüsseldienst der Installation verwahrt. Er wird nirgends angezeigt.",
+  "extCrmDemo.signing.title": "Signaturschlüssel",
+  "extCrmDemo.sub": "Die Referenzerweiterung, von Anfang bis Ende.",
+  "extCrmDemo.title": "Demo-Notizblock"
+}

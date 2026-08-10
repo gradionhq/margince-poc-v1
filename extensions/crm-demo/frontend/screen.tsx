@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../../api/client";
-import { useCan, useCanWrite } from "../../app/capability";
+import { api, QueryStates, throwProblem } from "@margince/frontend/api";
+import {
+  formatDateTime,
+  useCan,
+  useCanWrite,
+  useLocale,
+  useT,
+} from "@margince/frontend/app";
 import {
   Badge,
   Button,
@@ -10,10 +16,7 @@ import {
   Field,
   SectionHeader,
   TextInput,
-} from "../../design-system/atoms";
-import { formatDateTime } from "../../format/format";
-import { useLocale, useT } from "../../i18n";
-import { QueryStates, throwProblem } from "../common";
+} from "@margince/frontend/design-system";
 
 // #/ext/crm-demo — "Demo Notepad", the reference extension's one screen.
 //
@@ -65,11 +68,11 @@ const SIGNING_KEY_OBJECT = "ext_crm_demo_signing_key";
 /** One poll interval for the heartbeat, in milliseconds. */
 const HEARTBEAT_POLL_MS = 15_000;
 
-export function CrmDemoScreen() {
+export default function CrmDemoScreen() {
   const t = useT();
   return (
     <div className="wrap narrow">
-      <SectionHeader title={t("extDemo.title")} sub={t("extDemo.sub")} />
+      <SectionHeader title={t("extCrmDemo.title")} sub={t("extCrmDemo.sub")} />
       <SigningCard />
       <NotesCard />
     </div>
@@ -171,15 +174,15 @@ function SigningCard() {
   if (!canRead) {
     return (
       <Card>
-        <EmptyState>{t("extDemo.signing.noGrant")}</EmptyState>
+        <EmptyState>{t("extCrmDemo.signing.noGrant")}</EmptyState>
       </Card>
     );
   }
   return (
     <Card>
       <SectionHeader
-        title={t("extDemo.signing.title")}
-        sub={t("extDemo.signing.sub")}
+        title={t("extCrmDemo.signing.title")}
+        sub={t("extCrmDemo.signing.sub")}
       />
       {/*
         Through the query gate, not off `status.data` directly. `data` is
@@ -192,15 +195,15 @@ function SigningCard() {
       <QueryStates query={status}>
         <p>
           {status.data ? (
-            <Badge tone="success">{t("extDemo.signing.connected")}</Badge>
+            <Badge tone="success">{t("extCrmDemo.signing.connected")}</Badge>
           ) : (
-            <Badge tone="warn">{t("extDemo.signing.notConnected")}</Badge>
+            <Badge tone="warn">{t("extCrmDemo.signing.notConnected")}</Badge>
           )}
         </p>
       </QueryStates>
       {canStore ? (
         <>
-          <Field label={t("extDemo.signing.keyLabel")}>
+          <Field label={t("extCrmDemo.signing.keyLabel")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -214,12 +217,12 @@ function SigningCard() {
             disabled={key.trim() === "" || store.isPending}
             onClick={() => store.mutate(key)}
           >
-            {t("extDemo.signing.store")}
+            {t("extCrmDemo.signing.store")}
           </Button>
-          {store.isError ? <p>{t("extDemo.signing.storeFailed")}</p> : null}
+          {store.isError ? <p>{t("extCrmDemo.signing.storeFailed")}</p> : null}
         </>
       ) : null}
-      <Field label={t("extDemo.signing.payloadLabel")}>
+      <Field label={t("extCrmDemo.signing.payloadLabel")}>
         {(control) => (
           <TextInput
             {...control}
@@ -232,10 +235,10 @@ function SigningCard() {
         disabled={payload === "" || sign.isPending}
         onClick={() => sign.mutate(payload)}
       >
-        {t("extDemo.signing.sign")}
+        {t("extCrmDemo.signing.sign")}
       </Button>
       {signature === "" ? null : <p>{signature}</p>}
-      {sign.isError ? <p>{t("extDemo.signing.signFailed")}</p> : null}
+      {sign.isError ? <p>{t("extCrmDemo.signing.signFailed")}</p> : null}
     </Card>
   );
 }
@@ -353,16 +356,16 @@ function NotesCard() {
   if (!canRead) {
     return (
       <Card>
-        <EmptyState>{t("extDemo.notes.noGrant")}</EmptyState>
+        <EmptyState>{t("extCrmDemo.notes.noGrant")}</EmptyState>
       </Card>
     );
   }
   return (
     <Card>
-      <SectionHeader title={t("extDemo.notes.title")} />
+      <SectionHeader title={t("extCrmDemo.notes.title")} />
       {canAdd ? (
         <>
-          <Field label={t("extDemo.notes.bodyLabel")}>
+          <Field label={t("extCrmDemo.notes.bodyLabel")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -375,14 +378,14 @@ function NotesCard() {
             disabled={body.trim() === "" || add.isPending}
             onClick={() => add.mutate(body)}
           >
-            {t("extDemo.notes.add")}
+            {t("extCrmDemo.notes.add")}
           </Button>
-          {add.isError ? <p>{t("extDemo.notes.addFailed")}</p> : null}
+          {add.isError ? <p>{t("extCrmDemo.notes.addFailed")}</p> : null}
         </>
       ) : null}
       <QueryStates query={notes}>
         {notes.data?.length === 0 ? (
-          <EmptyState>{t("extDemo.notes.empty")}</EmptyState>
+          <EmptyState>{t("extCrmDemo.notes.empty")}</EmptyState>
         ) : (
           <ul>
             {notes.data?.map((item) => (
@@ -394,7 +397,7 @@ function NotesCard() {
                     disabled={remove.isPending}
                     onClick={() => remove.mutate(item.id)}
                   >
-                    {t("extDemo.notes.remove")}
+                    {t("extCrmDemo.notes.remove")}
                   </Button>
                 ) : null}
               </li>
@@ -408,7 +411,7 @@ function NotesCard() {
         happened" is that nothing happened. The signing card already said so
         for `sign`; these are the other three writes.
       */}
-      {remove.isError ? <p>{t("extDemo.notes.removeFailed")}</p> : null}
+      {remove.isError ? <p>{t("extCrmDemo.notes.removeFailed")}</p> : null}
     </Card>
   );
 }

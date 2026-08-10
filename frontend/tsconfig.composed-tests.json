@@ -2,12 +2,13 @@
   // The COMPOSED lane's TESTS — the fourth project, and the one that closes
   // the tree's last typecheck gap.
   //
-  // src/screens/ext/ is excluded from both vanilla projects (its screens call
-  // routes only a composed installation serves, which is correctly a type
-  // error there) and tsconfig.composed.json excludes *.test.* like every other
-  // project. Between them a unit screen's test file was compiled by nothing:
-  // vitest transpiles without typechecking, so a fixture whose shape had
-  // drifted from the contract would run green forever.
+  // A unit's screen lives in its own package, outside src entirely, so neither
+  // vanilla project sees it (its calls reach routes only a composed
+  // installation serves, which is correctly a type error there). And
+  // tsconfig.composed.json excludes *.test.* like every other project. Between
+  // them a unit screen's test file was compiled by nothing: vitest transpiles
+  // without typechecking, so a fixture whose shape had drifted from the
+  // contract would run green forever.
   //
   // A fourth project rather than dropping the test exclusion from
   // tsconfig.composed.json: that project's job is to prove the SHIPPED sources
@@ -21,10 +22,13 @@
     // Tests reach for expect/describe and the jsdom globals the app does not.
     "types": ["vite/client", "node"]
   },
-  // Only the composed-lane screens and their tests. Everything else in src is
-  // already covered by the app and node projects; re-including it here would
-  // typecheck the whole tree a third time for nothing.
-  "include": ["src/screens/ext/**/*"],
+  // The unit packages and their tests. Everything under src is already covered
+  // by the app and node projects; re-including it here would typecheck the
+  // whole tree a third time for nothing.
+  //
+  // A glob rather than a list, so a unit joins this gate by existing — the same
+  // property presence-is-enablement gives every other layer.
+  "include": ["../extensions/*/frontend/**/*"],
   // The inherited exclusion, undone. This project exists FOR the test files.
   "exclude": []
 }

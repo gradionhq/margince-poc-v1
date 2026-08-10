@@ -26,11 +26,21 @@ const frontendLayer = "frontend"
 const extPackagePrefix = "@margince-ext/"
 
 // hostedFrameworkDeps are the packages a unit must declare as PEERS rather than
-// as its own. React is stateful per instance: two copies in one bundle give a
-// screen a hook dispatcher its host never rendered through, and every hook it
-// calls throws with a message naming neither the unit nor the cause. As peers
-// they resolve to the host's copy.
-var hostedFrameworkDeps = []string{"react", "react-dom"}
+// as its own, because each keeps state the HOST owns and a second copy is a
+// second, empty one:
+//
+//   - react/react-dom hold the hook dispatcher. A unit rendering through its
+//     own copy calls hooks the host never dispatched, and every one of them
+//     throws with a message naming neither the unit nor the cause.
+//   - @tanstack/react-query holds the QueryClient in a React context. A unit
+//     with its own copy reads a DIFFERENT context than the provider the app
+//     mounted, so its first useQuery throws "No QueryClient set" on a page
+//     where one is plainly set.
+//
+// As peers they all resolve to the host's copy. resolve.dedupe in
+// vite.config.ts is the other half, for the case where one of a unit's own
+// dependencies pulls a second copy in transitively.
+var hostedFrameworkDeps = []string{"react", "react-dom", "@tanstack/react-query"}
 
 // unitFrontend is one unit's screen package, as the workspace sees it.
 type unitFrontend struct {
@@ -58,7 +68,7 @@ type unitPackageJSON struct {
 // Each refusal below is a failure that would otherwise happen somewhere worse:
 // a name collision resolves to whichever member pnpm saw last, a missing entry
 // point fails in the generated registry rather than at its cause, and a direct
-// React dependency fails at RUN TIME in the browser.
+// dependency on a hosted framework fails at RUN TIME in the browser.
 func collectUnitFrontend(name, dir string) (*unitFrontend, error) {
 	manifest := filepath.Join(dir, frontendLayer, "package.json")
 	raw, err := os.ReadFile(manifest) // #nosec G304 -- the unit tree this composer was pointed at
@@ -87,7 +97,7 @@ func collectUnitFrontend(name, dir string) (*unitFrontend, error) {
 	}
 	for _, dep := range hostedFrameworkDeps {
 		if _, direct := pkg.Dependencies[dep]; direct {
-			return nil, fmt.Errorf("extensions/%s: %s/package.json lists %s as a dependency — it must be a peerDependency, or the unit ships a second copy and every hook in its screen throws at run time, with an error naming neither the unit nor the cause",
+			return nil, fmt.Errorf("extensions/%s: %s/package.json lists %s as a dependency — it must be a peerDependency, or the unit ships a second copy of state the host owns and its screen fails at RUN TIME, with an error naming neither the unit nor the cause",
 				name, frontendLayer, dep)
 		}
 	}

@@ -155,6 +155,12 @@ export function useLocale(): LocaleContextValue {
 
 export function useT() {
   const { locale } = useContext(LocaleContext);
+  // NARROW on purpose: a core key, and a typo in one is a compile error. The
+  // union a unit needs is added at the published surface (src/surface/index.ts)
+  // rather than here, because `ReturnType<typeof useT>` is the parameter type
+  // some two dozen core helpers take a translator as — and widening the RETURN
+  // makes every core-only test fake stop being assignable to it, for a
+  // capability no core helper has any use for.
   return (key: MessageKey, params?: Record<string, string | number>) =>
     translate(locale, key, params);
 }

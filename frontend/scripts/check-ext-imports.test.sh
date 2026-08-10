@@ -25,10 +25,18 @@ scaffold() {
   "name": "@margince-ext/probe",
   "private": true,
   "main": "screen.tsx",
-  "peerDependencies": { "react": "^19.0.0" }
+  "peerDependencies": { "react": "^19.0.0" },
+  "devDependencies": { "vitest": "^3.0.0" }
 }
 JSON
   printf '%s\n' "$body" >"$layer/screen.tsx"
+}
+
+# The same unit, with the body written to a TEST file instead of the screen.
+scaffold_test() {
+  local body="$1"
+  scaffold probe 'export default function S() { return null }'
+  printf '%s\n' "$body" >"$TMP/extensions/probe/frontend/screen.test.tsx"
 }
 
 run_gate() {
@@ -87,6 +95,20 @@ expect_accepted "a declared peer, the surface, and an internal relative import" 
   'import { useState } from "react";
 import { Button } from "@margince/frontend/design-system";
 import { helper } from "./helper";'
+
+# A devDependency is for tests, and only for tests: shipped code importing one
+# would pull a test runner into the bundle.
+rm -rf "${TMP:?}/extensions"
+scaffold_test 'import { it } from "vitest";'
+if ! out="$(run_gate)"; then
+  echo "FAIL: the gate refused a test importing a declared devDependency:" >&2
+  echo "$out" >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+expect_refusal "shipped code importing a devDependency" \
+  'import { it } from "vitest";' \
+  "is not declared by"
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "$FAILURES case(s) failed" >&2
