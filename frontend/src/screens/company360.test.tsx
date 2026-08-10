@@ -1840,8 +1840,10 @@ describe("a customer's KPI row reports what the account is worth", () => {
 
     expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
     expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
-    expect(within(region).getByText(/428,000/)).toBeTruthy();
-    expect(within(region).getByText(/186,420/)).toBeTruthy();
+    // Abbreviated: six slots share the strip's width, and a full euro amount
+    // wraps mid-number there. The finance card renders the exact figure.
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
   });
 
   it("gives what is overdue its own slot", async () => {
@@ -1861,8 +1863,8 @@ describe("a customer's KPI row reports what the account is worth", () => {
     await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
 
     expect(within(region).getByText("Overdue")).toBeTruthy();
-    expect(within(region).getByText(/12,430/)).toBeTruthy();
-    expect(within(region).getByText(/34,180/)).toBeTruthy();
+    expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/34(\.2)?K/i)).toBeTruthy();
   });
 
   // "-4 days after due" is a puzzle. Paying four days EARLY is the reading,

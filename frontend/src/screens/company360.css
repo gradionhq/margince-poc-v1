@@ -169,10 +169,23 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: var(--space-1);
-  font-size: 12.5px;
+  gap: var(--space-2);
+  font-size: 13px;
   color: var(--textMeta);
   white-space: nowrap;
+}
+
+/* Where the account STANDS is the header's one prominent control, drawn in
+   both mockups as a filled button rather than as another grey reading beside
+   Owner. The badge inside it carries that weight: solid accent, and a target
+   big enough to read as something you press. */
+.co-standing .badge {
+  font-size: 14px;
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
 }
 
 /* The header's description line and its row of attribute chips. */
@@ -534,6 +547,32 @@
   border-radius: 0;
   background: var(--bgCard);
   margin: 0;
+}
+
+/* The money is the headline. Both mockups draw these figures at roughly twice
+   the size of the label above them — it is the reading the page is opened for,
+   and at a form label's size it competes with the label instead of leading it.
+   Scoped to the strip: StatCard is shared, and a dashboard tile is not a
+   record page's headline number. */
+.co-strip .stat-card-value {
+  /* Sized to the SLOT, not to the mockup's absolute pixels. Six slots share
+     roughly 830px here — the mockup's strip is wider because its page has no
+     left nav at this width — so a figure set at the mockup's ~30px either
+     wraps mid-number or clips. Both are worse readings than a smaller one:
+     "€201,099.0" is a different number.
+     The clamp lets the figure shrink with the column instead. */
+  font-size: clamp(20px, 1.55vw, 24px);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+/* The last two slots carry WORDS rather than a figure — how they pay, and
+   where the relationship stands. A sentence set at the figures' size takes
+   three lines in a 137px column, which makes the whole strip twice as tall to
+   say what the mockup fits on one. The number leads; the sentence explains. */
+.co-strip > *:nth-last-child(-n + 2) .stat-card-value {
+  font-size: clamp(14px, 1.05vw, 17px);
+  line-height: 1.3;
 }
 
 /* A strip slot is narrower than a free-standing stat card, so the source badge

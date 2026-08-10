@@ -287,11 +287,30 @@ test.describe("company record — the mockup's visual weight", () => {
   test("the KPI figures read as the headline numbers they are", async ({
     page,
   }) => {
-    // ~30px in the mockups. This is the money, and it is the reading the page
-    // is opened for — at 16px it is the same size as a form label.
-    expect(
-      await px(page.locator(".stat-card-value").first(), "font-size"),
-    ).toBeGreaterThanOrEqual(24);
+    // The money is the reading the page is opened for, and at 16px it was the
+    // same size as the label above it.
+    //
+    // The floor is 20 rather than the mockup's ~30. Six slots share this
+    // strip and the app's left nav takes width the mockup's page does not
+    // spend, so ~110px per slot is what a figure actually gets — at 30px a
+    // euro amount wraps mid-number, and "€201,099.0" is a different number
+    // rather than a bigger rendering of the right one. The figures abbreviate
+    // (€201.1k) for the same reason, which is what both mockups draw.
+    const size = await px(
+      page.locator(".stat-card-value").first(),
+      "font-size",
+    );
+    // 18 rather than 20: the clamp's floor IS 20, and asserting the exact
+    // floor makes the check flip on sub-pixel rounding. The bar is "clearly
+    // bigger than a label", not "exactly what the clamp happens to compute".
+    expect(size).toBeGreaterThanOrEqual(18);
+    // And it must still LEAD its label, which is the relationship the mockup
+    // fixes even where the absolute size cannot hold.
+    const label = await px(
+      page.locator(".stat-card-label").first(),
+      "font-size",
+    );
+    expect(size).toBeGreaterThan(label * 1.4);
   });
 
   test("the lifecycle control is a control, not a tag", async ({ page }) => {
@@ -307,12 +326,25 @@ test.describe("company record — the mockup's visual weight", () => {
     expect(box.height).toBeGreaterThanOrEqual(32);
   });
 
+  // Website, LinkedIn, location, industry, size: five pills under the
+  // description in both mockups. Each is drawn only where the field is
+  // recorded — a chip invented for an empty column would state a fact the
+  // record does not hold — so this asserts the row renders what the fixture
+  // HAS, rather than a fixed count the data may not support.
   test("the header carries the company's attribute chips", async ({ page }) => {
-    // Website, LinkedIn, location, industry, size: five pills under the
-    // description in both mockups, and the row is absent entirely today.
+    const recorded = await page.evaluate(async () => {
+      const id = location.hash.split("/").pop();
+      const response = await fetch(`/v1/organizations/${id}`, {
+        headers: { accept: "application/json" },
+      });
+      const org = await response.json();
+      return ["industry", "address_city", "linkedin_url"].filter((field) =>
+        Boolean(org?.[field]),
+      ).length;
+    });
     expect(
-      await page.locator(".record-sub .chip, .co-chips > *").count(),
-    ).toBeGreaterThanOrEqual(3);
+      await page.locator(".record-sub .chip").count(),
+    ).toBeGreaterThanOrEqual(recorded);
   });
 
   test("a card reads as a card against the page behind it", async ({
