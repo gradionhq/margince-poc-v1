@@ -26,6 +26,9 @@ import (
 	"testing"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -35,7 +38,25 @@ import (
 const requiredApprovalFieldFloor = 5
 
 func TestEveryRequiredApprovalFieldIsAnswered(t *testing.T) {
-	wired := reflect.ValueOf(wire(fullyPopulatedRow(t), time.Now().UTC()))
+	// A fixed instant, through the fixture and the mapper alike: nothing here
+	// asks what time it is, and a test that reads the wall clock can only
+	// answer differently on a slow machine.
+	now := time.Date(2026, time.January, 2, 12, 0, 0, 0, time.UTC)
+	source := fullyPopulatedRow(t, now)
+	wired := reflect.ValueOf(wire(source, now))
+
+	// Non-zero is not enough for the two uuid-valued required fields, because
+	// they are the pair a mapper can confuse: WorkspaceId taken from the
+	// approval's own id would satisfy every zero-check here and name the wrong
+	// thing everywhere. So these two are checked by VALUE, against the row they
+	// came from.
+	if got, want := wired.Interface().(crmcontracts.Approval).WorkspaceId, openapi_types.UUID(source.WorkspaceID); got != want {
+		t.Errorf("Approval.WorkspaceId = %s, want the row's own workspace %s", got, want)
+	}
+	if got, want := wired.Interface().(crmcontracts.Approval).Id, openapi_types.UUID(source.ID.UUID); got != want {
+		t.Errorf("Approval.Id = %s, want the row's own id %s", got, want)
+	}
+
 	required := 0
 	for i := range wired.NumField() {
 		field := wired.Type().Field(i)
@@ -64,15 +85,15 @@ func TestEveryRequiredApprovalFieldIsAnswered(t *testing.T) {
 // fullyPopulatedRow is a store row with every field set to something a real one
 // could carry, so a zero on the OTHER side of wire() can only mean the mapper
 // dropped it.
-func fullyPopulatedRow(t *testing.T) row {
+func fullyPopulatedRow(t *testing.T, now time.Time) row {
 	t.Helper()
 	targetType, summary, version := tableOrganization, "Rename Acme GmbH", int64(7)
 	targetID, bundleID := ids.NewV7(), ids.NewV7()
 	onBehalfOf := ids.New[ids.UserKind]()
 	passportID := ids.New[ids.PassportKind]()
 	decidedBy := ids.New[ids.UserKind]()
-	decidedAt := time.Now().UTC().Add(-time.Minute)
-	consumedAt := time.Now().UTC()
+	decidedAt := now.Add(-time.Minute)
+	consumedAt := now
 	change, err := json.Marshal(map[string]string{"display_name": "Acme GmbH"})
 	if err != nil {
 		t.Fatalf("building the proposed change: %v", err)
@@ -91,11 +112,11 @@ func fullyPopulatedRow(t *testing.T) row {
 		Summary:        &summary,
 		ProposedChange: change,
 		DiffHash:       "a-diff-hash",
-		ExpiresAt:      time.Now().UTC().Add(time.Hour),
+		ExpiresAt:      now.Add(time.Hour),
 		DecidedBy:      &decidedBy,
 		DecidedAt:      &decidedAt,
 		ConsumedAt:     &consumedAt,
-		CreatedAt:      time.Now().UTC().Add(-time.Hour),
+		CreatedAt:      now.Add(-time.Hour),
 		BundleID:       &bundleID,
 	}
 }
