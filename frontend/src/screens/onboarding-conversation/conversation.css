@@ -10,6 +10,9 @@
   min-height: 0;
   gap: var(--space-4);
   overflow-y: auto;
+  /* Ends at its own last turn rather than handing the leftover gesture to the
+     document, which has no scroll to give and bounces the whole app instead. */
+  overscroll-behavior: contain;
   padding: var(--space-2) 0;
   /* The transcript is the conversation column's scroller, and it scrolls without
      drawing a bar across the turns. The bar is what is hidden, never the
@@ -21,10 +24,22 @@
   display: none;
 }
 
+/*
+ * One avatar size for the whole transcript, and it is the design system's own
+ * `.avatar` chip: 28px. The thread used to run three — a 24px speaker circle,
+ * a bare 16px glyph for the reader, and a 28px monogram at the rail's foot for
+ * the same reader — so the column read as three unrelated components stacked.
+ * `--mw-avatar` is the one knob; the speaker below and the reader's `.avatar`
+ * both answer to it.
+ */
+.ob-conv-thread {
+  --mw-avatar: 28px;
+}
+
 .ob-conv-narration {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-3);
   max-width: 80%;
   width: fit-content;
 }
@@ -32,27 +47,30 @@
 /* The asymmetric corner is what tells you who spoke, and it survives a
  * greyscale screenshot in a way a fill colour does not: the AI's bubble is
  * notched at the top LEFT, towards its speaker mark, and the reader's is
- * notched at the bottom right. Nothing about who said what rests on colour. */
+ * notched at the bottom right. Nothing about who said what rests on colour.
+ *
+ * A solid fill and no hairline: the bubble is a shape, and an outline around a
+ * filled shape draws the same edge twice. --bgCard rather than --bgElevated
+ * because the column it sits in is already elevated — a bubble the same colour
+ * as its surface has to borrow the border back to exist at all. */
 .ob-conv-narration p {
   margin: 0;
-  padding: 13px var(--space-4);
-  border: 1px solid var(--borderSubtle);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--space-1) var(--r-lg) var(--r-lg) var(--r-lg);
-  background: var(--bgElevated);
+  background: var(--bgCard);
   color: var(--textContent);
-  font: 400 0.875rem / 1.55 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-relaxed) var(--f-body);
 }
 
 .ob-conv-speaker {
   flex: none;
   display: grid;
   place-items: center;
-  inline-size: var(--space-6);
-  block-size: var(--space-6);
+  inline-size: var(--mw-avatar);
+  block-size: var(--mw-avatar);
   border-radius: var(--r-full);
   background: var(--aiLight);
   color: var(--aiText);
-  font: 600 0.75rem / 1 var(--f-display);
 }
 
 /* Live narration reveals word by word. The animated copy is aria-hidden
@@ -86,7 +104,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--space-3);
   align-self: flex-end;
   max-width: 80%;
   width: fit-content;
@@ -95,18 +113,19 @@
 
 .ob-conv-user p {
   margin: 0;
-  padding: 11px 15px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--r-md) var(--r-lg) var(--space-1) var(--r-lg);
   background: var(--accent);
   color: var(--textOnAccentControl);
-  font: 500 0.875rem / 1.55 var(--f-body);
+  font: var(--fw-medium) var(--fs-body) / var(--lh-relaxed) var(--f-body);
 }
 
-.ob-conv-user svg {
-  flex: none;
-  inline-size: var(--space-4);
-  block-size: var(--space-4);
-  margin-block-start: var(--space-2);
+/* The reader's own chip, on the same rung as the speaker's. `.avatar` carries
+   its own 28px, so this only has to hold it against the shared knob when that
+   knob changes. */
+.ob-conv-user .avatar {
+  inline-size: var(--mw-avatar);
+  block-size: var(--mw-avatar);
 }
 
 .ob-conv-outcome {
@@ -123,7 +142,7 @@
 
 .ob-conv-outcome p {
   margin: 0;
-  font: 500 0.9375rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-lead) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-outcome svg {
@@ -145,7 +164,7 @@
 .ob-conv-question legend {
   padding-inline: var(--space-1);
   color: var(--textPrimary);
-  font: 500 0.9375rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-lead) / var(--lh-normal) var(--f-body);
 }
 
 /* A stacked choice list, not a wrapped chip row: each answer reads its full
@@ -180,14 +199,14 @@
 
 .ob-conv-option span {
   color: var(--textPrimary);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
 }
 
 .ob-conv-option small {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 10.5px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   overflow-wrap: anywhere;
 }
 
@@ -218,7 +237,7 @@
 .ob-conv-confirm-skipped p {
   margin: 0;
   color: var(--textSecondary);
-  font: 400 0.875rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-outcome[data-tone="deferred"] {
@@ -261,7 +280,7 @@
 .ob-conv-attention-heading {
   margin: 0;
   color: var(--textPrimary);
-  font: 600 0.8125rem / 1.4 var(--f-display);
+  font: var(--fw-semibold) var(--fs-sm) / var(--lh-normal) var(--f-display);
 }
 
 .ob-conv-attention-group {
@@ -276,9 +295,9 @@
 .ob-conv-attention-group-label {
   margin: 0;
   color: var(--textSecondary);
-  font: 600 0.6875rem / 1.4 var(--f-body);
+  font: var(--fw-semibold) var(--fs-eyebrow) / var(--lh-normal) var(--f-body);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-eyebrow);
 }
 
 .ob-conv-attention-list {
@@ -301,7 +320,7 @@
   background: var(--bgElevated);
   color: var(--textPrimary);
   cursor: pointer;
-  font: 500 0.8125rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-sm) / var(--lh-normal) var(--f-body);
   text-align: start;
 }
 
@@ -374,7 +393,7 @@
 .ob-conv-confirm h2 {
   margin: 0;
   color: var(--textPrimary);
-  font: 600 1rem / 1.3 var(--f-display);
+  font: var(--fw-semibold) var(--fs-h3) / var(--lh-snug) var(--f-display);
 }
 
 .ob-conv-confirm-fields {
@@ -395,7 +414,7 @@
 
 .ob-conv-confirm-fields strong {
   color: var(--textPrimary);
-  font: 500 0.9375rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-lead) / var(--lh-normal) var(--f-body);
   overflow-wrap: anywhere;
 }
 
@@ -417,10 +436,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--textPrimary);
-  font: 500 0.9375rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-lead) / var(--lh-normal) var(--f-body);
 }
 
-@media (max-width: 30rem) {
+/* The width that decides whether a label/value row can keep its columns is
+   the BOARD's, not the window's: these rows render inside the artifact pane,
+   a fraction of the shell, so a wide window still hands them a narrow column.
+   `ob-board` is that column (see .ob-triage-groups). The same 30rem threshold
+   stacks the collapsed summary row further down the file, so a value stops
+   being one ellipsized track at exactly the moment it gains a line of its
+   own. */
+@container ob-board (max-width: 30rem) {
   .ob-conv-confirm-fields-grid > li {
     grid-template-columns: 1fr;
     row-gap: var(--space-1);
@@ -450,7 +476,7 @@
 .ob-conv-field-row-prose p {
   margin: 0;
   color: var(--textPrimary);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-lead) / var(--lh-normal) var(--f-body);
   overflow-wrap: anywhere;
 }
 
@@ -460,7 +486,7 @@
   border: none;
   background: none;
   color: var(--textMeta);
-  font: 500 0.75rem / 1.2 var(--f-body);
+  font: var(--fw-medium) var(--fs-meta) / var(--lh-snug) var(--f-body);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -492,7 +518,7 @@
   outline: 0;
   background: var(--bgHover);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
 }
 
 .ob-conv-confirm-missing-row textarea {
@@ -506,71 +532,134 @@
   box-shadow: 0 0 0 3px var(--aiMed);
 }
 
+/* The work surface itself. The pane it fills already has its own gutter, but
+   the surface's first line is a headline and a headline sitting on the pane's
+   very first pixel reads as content that was cut off above. */
+.ob-conv-artifact {
+  padding-block-start: var(--space-4);
+}
+
+/*
+ * A surface fills the pane even when its content does not.
+ *
+ * The foot bar is STICKY, which only pins it while there is more surface below
+ * it to pin against. On a short act — the voice corpus with nothing attached
+ * yet, an empty section — the surface ended a few hundred pixels down and the
+ * bar came to rest there, a full-bleed rule with its fill drawn straight across
+ * the middle of an otherwise empty column, and the pane's ground below it
+ * reading as a screen that had failed to finish rendering.
+ *
+ * Three links in one chain, because the bar is three levels down and an `auto`
+ * margin only pushes inside a flex column: the pane's surface fills the pane,
+ * the scene fills the surface, the board fills the scene. Where the content is
+ * already taller than the pane none of this binds — `min-block-size` and
+ * `flex: 1` are both floors, not sizes.
+ */
+.mw-artifact > .ob-conv-artifact {
+  display: flex;
+  min-block-size: 100%;
+  flex-direction: column;
+}
+
+.mw-artifact > .ob-conv-artifact > .ob-scene,
+.ob-scene > .ob-conv-confirm.ob-triage {
+  flex: 1;
+}
+
+.ob-triage-continue {
+  margin-block-start: auto;
+}
+
+/* A one-line artifact is a real state, not a half-drawn one — before a read
+   there is nothing sourced, and that has to look deliberate in a pane sized
+   for a sixteen-row review. Given the pane's width, a stated recess and room
+   to sit in the middle of, it reads as an answer; left as a bare sentence at
+   the top edge it reads as a render that stopped early. */
 .ob-conv-artifact-empty {
+  display: grid;
+  place-items: center;
+  min-block-size: 11rem;
   margin: 0;
+  padding: var(--space-8) var(--space-6);
+  border: 1px dashed var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
   color: var(--textSecondary);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-lead) / var(--lh-normal) var(--f-body);
+  text-align: center;
 }
 
 /* ---- scenes ---- */
 /* One scene owns the surface at a time. The eyebrow says where the journey
    stands; the scene's own headline does the talking. */
 
+/* Every pane-local layout below measures THIS box, not the window: a scene
+   renders inside the artifact pane, roughly two fifths of the shell, so at a
+   1280px window the pane is under 500px wide while a viewport query still
+   reads 1280 and leaves the widest layout in place. Naming the container
+   (`ob-scene`) rather than relying on "nearest" keeps a scene-level query
+   scene-level even where a tighter container sits between — the board's own
+   column is its own container, `ob-board`. Same reasoning, and the same fix,
+   as onboarding-payoff.css. */
 .ob-scene {
+  container: ob-scene / inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
   /* The scene owns the pane's full width, centred as a reading column: the
      prototype's move — generous gutters, no dead half-pane. */
   width: 100%;
   max-width: 74rem;
   margin-inline: auto;
+  padding-block-start: var(--space-4);
 }
 
 .ob-scene-eyebrow {
   margin: 0;
   color: var(--accent);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
+/* The header block below owns the distance to the headline above; a margin
+   here would fight it, and the pair used to sit almost on one baseline
+   because this one pulled the sub back up into the headline. */
 .ob-scene-sub {
-  margin: calc(-1 * var(--space-1)) 0 0;
+  margin: 0;
   max-width: 38rem;
   color: var(--textSecondary);
-  font-size: 0.875rem;
-  line-height: 1.5;
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
 }
 
 /* A decision as the scene: headline, candidate cards, one confirm. A
    choice list reads best at prose width even when the pane is wider. */
 .ob-decision {
   max-width: 58rem;
-  padding-top: var(--space-4);
 }
 
 .ob-decision h2 {
   margin: 0;
   color: var(--textPrimary);
-  font: 620 1.5rem / 1.15 var(--f-display);
-  letter-spacing: -0.02em;
+  font: var(--fw-semibold) var(--fs-h1) / var(--lh-tight) var(--f-display);
+  letter-spacing: var(--tracking-display);
 }
 
 .ob-decision-options {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin-top: var(--space-2);
 }
 
 .ob-decision-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
@@ -612,8 +701,8 @@
   background: none;
   color: var(--textMeta);
   cursor: pointer;
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   text-decoration: underline;
   text-decoration-color: var(--borderStrong);
   text-underline-offset: 3px;
@@ -630,21 +719,34 @@
   gap: var(--space-4);
 }
 
-.ob-decision-head > div {
+/* Eyebrow, headline and sub are one block, and the scenes assemble it
+   differently — the decision and voice scenes hang a count beside it, the
+   connect scene does not — so its internal rhythm is set once here rather
+   than three times over. */
+.ob-decision-head > div,
+.ob-scene > div:has(> .ob-scene-eyebrow) {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+/* A headline is not a peer of the rows beneath it: the block claims more than
+   the scene's own child gap, so the eye reads a title and then content rather
+   than a list of equal parts. */
+.ob-decision-head,
+.ob-scene > div:has(> .ob-scene-eyebrow) {
+  margin-block-end: var(--space-4);
 }
 
 .ob-decision-count {
   flex: none;
-  padding: 4px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--warnBorder);
   border-radius: var(--r-full);
   background: var(--warnBg);
   color: var(--warn);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
 }
 
 /* The native radio stays for keyboard and AT; the disc is what shows. */
@@ -687,20 +789,20 @@
 .ob-decision-body {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .ob-decision-body b {
   color: var(--textPrimary);
-  font-size: 0.9375rem;
-  font-weight: 560;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-decision-body small {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   overflow-wrap: anywhere;
 }
 
@@ -711,7 +813,7 @@
   flex-direction: column;
   gap: var(--space-1);
   margin-left: calc(20px + var(--space-3));
-  padding: var(--space-3);
+  padding: var(--space-4);
   border-radius: var(--r-sm);
   background: var(--bgCard);
 }
@@ -719,10 +821,10 @@
 .ob-decision-proof-head {
   margin: 0;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -730,8 +832,8 @@
   margin: 0 0 var(--space-2);
   overflow-wrap: anywhere;
   color: var(--textContent);
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
 
 .ob-decision-path {
@@ -742,7 +844,7 @@
   background: var(--bgElevated);
   color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-size: var(--fs-meta);
 }
 
 /* The escape at the list's foot: present, dashed, never competing. */
@@ -750,13 +852,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border: 1px dashed var(--borderStrong);
   border-radius: var(--r-md);
   background: none;
   color: var(--textSecondary);
   cursor: pointer;
-  font: 400 0.875rem / 1.4 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
   text-align: start;
 }
 
@@ -773,7 +875,7 @@
   flex: none;
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-sm);
-  font-family: var(--f-mono);
+  font-family: var(--f-body);
 }
 
 .ob-decision-acts {
@@ -788,61 +890,24 @@
 
 .ob-voice-scene {
   max-width: 58rem;
-  padding-top: var(--space-4);
 }
 
 .ob-voice-scene h2,
 .ob-voice-building h2 {
   margin: 0;
   color: var(--textPrimary);
-  font: 620 1.5rem / 1.15 var(--f-display);
-  letter-spacing: -0.02em;
+  font: var(--fw-semibold) var(--fs-h1) / var(--lh-tight) var(--f-display);
+  letter-spacing: var(--tracking-display);
 }
 
-/* The payoff band: why this step is worth doing, read beside the Core rather
-   than inside it — the drop zone below is the action, this is only context,
-   so it stays one compact row and never grows to compete with it. */
-.ob-voice-hero {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  background: var(--bgElevated);
-}
-
-.ob-voice-hero-core {
-  /* Sizing through the Core's documented custom properties (WDS-CORE-1): a
-     `width` here would fight `width: var(--coreSize)` inside it. */
-  --coreSize: 56px;
-  --coreGlass: 46px;
-  flex: none;
-}
-
-.ob-voice-hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.ob-voice-hero-kicker {
-  margin: 0;
-  color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
+/* Why the step is worth doing, inside the fold that offers it — the band that
+   used to carry its own Core, kicker and card chrome is a disclosure now, and
+   the disclosure draws the row. */
 .ob-voice-hero-body {
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
 
 /* The drop target: the whole window accepts a file, this says where. */
@@ -861,16 +926,16 @@
 .ob-voice-drop-title {
   margin: 0;
   color: var(--textPrimary);
-  font-size: 0.9375rem;
-  font-weight: 560;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-voice-drop-sub {
   margin: 0;
   max-width: 32rem;
   color: var(--textMeta);
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
 
 .ob-voice-drop-acts {
@@ -898,7 +963,7 @@
   background: var(--bgElevated);
   color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   resize: vertical;
 }
 /* Keyboard focus has to be visible on this field as on every other one. The
@@ -916,7 +981,7 @@
 .ob-voice-meter {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   margin-top: var(--space-3);
 }
 
@@ -929,7 +994,7 @@
 .ob-voice-meter-line {
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 /* What the server actually kept, one row per source. */
@@ -940,10 +1005,10 @@
   gap: var(--space-3);
   margin: var(--space-4) 0 var(--space-2);
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -961,7 +1026,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
@@ -970,21 +1035,21 @@
 .ob-voice-source-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .ob-voice-source-body b {
   color: var(--textPrimary);
-  font-size: 0.875rem;
-  font-weight: 560;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
   overflow-wrap: anywhere;
 }
 
 .ob-voice-source-body small {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
 }
 
 .ob-voice-source-check {
@@ -1009,7 +1074,7 @@
 .ob-voice-foot p {
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-foot-acts {
@@ -1025,7 +1090,7 @@
 .ob-voice-speakers {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin-top: var(--space-2);
 }
 
@@ -1033,7 +1098,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
@@ -1087,21 +1152,21 @@
 .ob-voice-speaker-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .ob-voice-speaker-body b {
   color: var(--textPrimary);
-  font-size: 0.875rem;
-  font-weight: 560;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
   overflow-wrap: anywhere;
 }
 
 .ob-voice-speaker-body small {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
 }
 
 /* The continue/retry actions inside a shared `.ob-triage-continue` bar
@@ -1116,8 +1181,7 @@
 
 /* The result scene: the sample on the left, the reading on the right — two
    columns of bordered cards, each column its own vertical stack. Narrow
-   folds to one column, sample first (it is the payoff), same breakpoint the
-   triage board already collapses at. */
+   folds to one column, sample first (it is the payoff). */
 .ob-voice-board {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1133,7 +1197,11 @@
   min-width: 0;
 }
 
-@media (max-width: 56rem) {
+/* Two columns of prose need roughly 20rem each before the cards start
+   breaking their own lines mid-phrase; below that the board is one column.
+   Asked of the scene rather than the window because the scene is what the
+   pane actually hands it. */
+@container ob-scene (max-width: 44rem) {
   .ob-voice-board {
     grid-template-columns: 1fr;
   }
@@ -1147,7 +1215,7 @@
 }
 
 .ob-voice-result-card {
-  padding: var(--space-4);
+  padding: var(--space-5);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-lg);
   background: var(--bgElevated);
@@ -1156,13 +1224,13 @@
 .ob-voice-result-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 var(--space-2);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -1179,7 +1247,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .ob-voice-sample-head .ob-voice-result-label {
@@ -1189,48 +1257,48 @@
 .ob-voice-sample-subject {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin: 0 0 var(--space-3);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--borderSubtle);
   color: var(--textPrimary);
-  font-size: 0.9375rem;
+  font-size: var(--fs-lead);
 }
 
 .ob-voice-sample-field {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
 .ob-voice-sample-body {
   margin: 0;
   color: var(--textPrimary);
-  font-size: 0.875rem;
-  line-height: 1.6;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
   white-space: pre-wrap;
 }
 
 .ob-voice-sample-why {
   display: flex;
-  gap: 6px;
-  margin: var(--space-3) 0 0;
-  padding-top: var(--space-2);
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--borderSubtle);
   color: var(--textMeta);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-sample-why-tag {
   flex: none;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -1247,17 +1315,17 @@
 
 .ob-voice-dims-count {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
 .ob-voice-dims-meta {
   margin: 0 0 var(--space-3);
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-dims-list {
@@ -1271,18 +1339,18 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
 }
 
 .ob-voice-dim-name {
   color: var(--textPrimary);
-  font-size: 0.875rem;
-  font-weight: 560;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-voice-dim-value {
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-dim-track {
@@ -1307,22 +1375,22 @@
 .ob-voice-dim-poles {
   display: flex;
   justify-content: space-between;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--textMeta);
-  font-size: 0.6875rem;
+  font-size: var(--fs-meta);
 }
 
 .ob-voice-dim-evidence {
-  margin: 6px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--textMeta);
-  font-size: 0.75rem;
+  font-size: var(--fs-meta);
 }
 
 .ob-voice-result-identity {
   margin: 0;
   color: var(--textPrimary);
-  font-size: 0.9375rem;
-  line-height: 1.5;
+  font-size: var(--fs-lead);
+  line-height: var(--lh-normal);
 }
 
 .ob-voice-moves {
@@ -1336,16 +1404,16 @@
 
 .ob-voice-moves b {
   color: var(--textPrimary);
-  font-size: 0.875rem;
-  font-weight: 560;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-voice-moves blockquote {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   padding-left: var(--space-3);
   border-left: 2px solid var(--borderStrong);
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   font-style: italic;
 }
 
@@ -1357,16 +1425,16 @@
   padding: 0;
   list-style: none;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-result-next {
   margin: 0;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border-radius: var(--r-md);
   background: var(--bgElevated);
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-result-next b {
@@ -1396,32 +1464,32 @@
   justify-content: center;
   color: var(--textOnAccent);
   font-family: var(--f-display);
-  font-size: 2.25rem;
+  font-size: var(--fs-display);
   font-variant-numeric: tabular-nums;
-  font-weight: 620;
-  letter-spacing: -0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
 }
 
 .ob-voice-orb-pct small {
   color: var(--textOnAccent);
   opacity: 0.7;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-voice-building-meta {
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
 }
 
 .ob-voice-building-model {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   margin: 0;
   color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-size: var(--fs-meta);
 }
 
 .ob-voice-building-model i {
@@ -1440,37 +1508,20 @@
 
 .ob-connect {
   max-width: 62rem;
-  padding-top: var(--space-4);
 }
 
 .ob-connect h2 {
   margin: 0;
   color: var(--textPrimary);
-  font: 620 1.5rem / 1.15 var(--f-display);
-  letter-spacing: -0.02em;
+  font: var(--fw-semibold) var(--fs-h1) / var(--lh-tight) var(--f-display);
+  letter-spacing: var(--tracking-display);
 }
 
 /* The four step-level promises: a real two-column grid on this wide surface,
    the shape the same four sentences could never hold in the rail's ~250px
-   column (T7 — the honest hard case here is width, not content). */
-.ob-connect-guarantees {
-  margin-top: var(--space-4);
-  padding: var(--space-4);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-}
-
-.ob-connect-guarantees-head {
-  margin: 0 0 var(--space-3);
-  color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
+   column (T7 — the honest hard case here is width, not content). The card and
+   its own kicker are gone with the band: the disclosure that offers them names
+   them and draws the row. */
 .ob-connect-guarantees-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
@@ -1485,7 +1536,7 @@
   align-items: flex-start;
   gap: var(--space-2);
   color: var(--textContent);
-  font: 400 0.875rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-connect-guarantee-check {
@@ -1507,22 +1558,22 @@
   gap: var(--space-2);
   margin: 0;
   color: var(--textPrimary);
-  font: 560 0.9375rem / 1.3 var(--f-display);
+  font: var(--fw-semibold) var(--fs-lead) / var(--lh-snug) var(--f-display);
 }
 
 .ob-connect-section-head p {
   margin: var(--space-1) 0 0;
   color: var(--textMeta);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-connect-pill {
   padding: 2px 6px;
   border-radius: var(--r-sm);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -1541,8 +1592,8 @@
 .ob-connect-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+  gap: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 /* LinkedIn's own grid holds one card — still a grid, so its card matches the
@@ -1554,8 +1605,8 @@
 .ob-connect-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-5);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
@@ -1626,14 +1677,14 @@
 
 .ob-connect-card b {
   color: var(--textPrimary);
-  font-size: 0.9375rem;
-  font-weight: 560;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-connect-card small {
   color: var(--textMeta);
-  font-size: 0.8125rem;
-  line-height: 1.45;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
 
 .ob-connect-card-foot {
@@ -1642,20 +1693,20 @@
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: auto;
-  padding-top: var(--space-2);
+  padding-top: var(--space-3);
 }
 
 .ob-connect-card-auth {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
 }
 
 .ob-connect-card-cta {
   color: var(--accent);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
-  font-weight: 650;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
 }
 
 /* Sits at the foot of the scene now, after both sections — the same
@@ -1684,8 +1735,8 @@
   background: var(--bgPage);
   color: var(--textMeta);
   cursor: pointer;
-  font-size: 1.25rem;
-  line-height: 1;
+  font-size: var(--fs-h2);
+  line-height: var(--lh-tight);
 }
 
 .ob-connect-dialog-close:hover {
@@ -1729,15 +1780,15 @@
 .ob-connect-dialog-title {
   margin: 0;
   color: var(--textPrimary);
-  font: 620 1.25rem / 1.25 var(--f-display);
+  font: var(--fw-semibold) var(--fs-h2) / var(--lh-snug) var(--f-display);
   text-align: center;
 }
 
 .ob-connect-dialog-intro {
   margin: var(--space-2) 0 0;
   color: var(--textSecondary);
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
   text-align: center;
 }
 
@@ -1757,16 +1808,29 @@
   width: 100%;
 }
 
+/* The panel spaces its own children with a flex gap, so the actions row asks
+   only for the DIFFERENCE between that gap and the beat it gets in the
+   block-flow dialogs — adding its full margin on top of the gap put 28px above
+   this one row and 16px above the identical row in every other dialog. */
+.ob-connect-linkedin-panel .ob-connect-dialog-actions {
+  margin-top: var(--space-1);
+}
+
+/* Same shape as the primary above it, one weight quieter: a bare label with no
+   padding sat in a row with a 44px-tall button and gave the reader a two-line
+   hit area for the choice that undoes the whole dialog. */
 .ob-connect-dialog-notnow {
-  padding: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
   border: 0;
   background: none;
   color: var(--textMeta);
   cursor: pointer;
-  font: 400 0.8125rem / 1.4 var(--f-body);
+  font: var(--fw-regular) var(--fs-sm) / var(--lh-normal) var(--f-body);
 }
 
 .ob-connect-dialog-notnow:hover {
+  background: var(--bgHover);
   color: var(--textSecondary);
 }
 
@@ -1794,13 +1858,13 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: 6px var(--space-2);
+  padding: var(--space-2);
   border: 0;
   border-radius: var(--r-sm);
   background: none;
   color: var(--textSecondary);
   cursor: pointer;
-  font: 400 0.75rem / 1.4 var(--f-body);
+  font: var(--fw-regular) var(--fs-meta) / var(--lh-normal) var(--f-body);
   text-align: start;
 }
 
@@ -1827,9 +1891,9 @@
   flex: none;
   margin-left: auto;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 500;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1848,7 +1912,7 @@
 .ob-conv-activity > ul {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   margin: 0;
   padding: 0 0 0 var(--space-4);
   list-style: none;
@@ -1856,8 +1920,8 @@
 
 .ob-conv-activity > ul > li {
   color: var(--textMeta);
-  font-size: 0.71875rem;
-  line-height: 1.45;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
 }
 
 .ob-conv-activity > ul > li > button {
@@ -1886,7 +1950,7 @@
   background: none;
   color: var(--accent);
   cursor: pointer;
-  font: 500 0.8125rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-sm) / var(--lh-normal) var(--f-body);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -1900,10 +1964,10 @@
   padding-top: var(--space-3);
   border-top: 1px solid var(--borderSubtle);
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -1940,7 +2004,11 @@
    the card chrome goes. The pane already draws the surface. */
 
 .ob-conv-confirm.ob-triage {
-  max-width: 72rem;
+  /* The scene above already sets the reading measure. A second one 2rem apart
+     did not narrow the board so much as un-centre it: the scene centred itself
+     in the pane and the board then sat flush left inside that, leaving a strip
+     of dead pane on one side only. */
+  max-width: none;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1950,25 +2018,10 @@
 /* The card's own headline carries the surface: display face, editorial
    scale, tight tracking — the pane's eyebrow above it stays the whisper. */
 .ob-conv-confirm.ob-triage h2 {
-  font-size: 1.5rem;
-  font-weight: 620;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-
-/* Clears the pinned continue bar's own height before it arrives: without
-   this, the bar's sticky window spends its last stretch of travel floating
-   OVER whatever content precedes it instead of after it, and that content
-   becomes unreachable right when the bar is closest to it. Targets whichever
-   child ends up second-to-last — the bar itself is always the last, but
-   what sits before it varies (the coverage tail, the failed-confirm alert,
-   or nothing past the board itself) — so this survives all of them rather
-   than naming one. Sized generously against the bar's own rendered height
-   (progress + status + button, one padded row) rather than pixel-exact,
-   since a little extra empty scroll is harmless and a little too little
-   hides content. */
-.ob-conv-confirm.ob-triage > :nth-last-child(2) {
-  margin-bottom: calc(var(--space-6) * 3);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--lh-tight);
 }
 
 /* The identity summary that leads the review: a brand mark and the name,
@@ -1977,8 +2030,8 @@
 .ob-company-card {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-lg);
   background: var(--bgElevated);
@@ -1988,54 +2041,69 @@
    the body would refuse to shrink below its own content's intrinsic width
    — a registered address is read verbatim off the page and can run long. */
 .ob-company-card-body {
+  flex: 1;
   min-width: 0;
 }
 
 .ob-company-card-body h3 {
-  margin: 0 0 var(--space-1);
+  margin: 0 0 var(--space-2);
   color: var(--textPrimary);
   font-family: var(--f-display);
-  font-size: 1.0625rem;
-  font-weight: 620;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
 }
 
+/* Each fact is its own tile: label over value, one to a card, the row sized in
+   equal columns that reflow rather than wrap mid-pair. Read as a run of inline
+   label-value pairs the three of them ran together into one grey sentence, and
+   the identity of the company — the one thing this whole surface is about —
+   was the hardest line on the board to scan. */
 .ob-company-card-facts {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: var(--space-4);
-  row-gap: 2px;
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-1) 0 0;
 }
 
 .ob-company-card-facts > div {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
 }
 
 .ob-company-card-facts dt {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-eyebrow);
 }
 
 .ob-company-card-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-  color: var(--textSecondary);
+  color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: 0.8125rem;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
 }
 
 .ob-company-card-facts dd button {
+  padding: 0;
   border: 0;
   background: none;
-  color: var(--textSecondary);
+  color: inherit;
   cursor: pointer;
   font: inherit;
+  text-align: start;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
@@ -2086,10 +2154,10 @@
 .ob-triage-score {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2098,7 +2166,7 @@
    rather than assumed. */
 .ob-triage-source {
   color: var(--textMeta);
-  font-size: 0.625rem;
+  font-size: var(--fs-meta);
 }
 
 /* The one action left on the surface, pinned to its foot: a real <progress>
@@ -2109,8 +2177,25 @@
    own bounds and only ever floats over ITS OWN content. */
 .ob-triage-continue {
   position: sticky;
-  bottom: 0;
-  z-index: 1;
+  /* Flush with the pane's own foot, not floating a gutter above it.
+
+     A sticky element is held inside the scroller's CONTENT box, so a bar with
+     `bottom: 0` in a pane that pads its content came to rest exactly one
+     bottom-padding above the pane's edge — a strip of daylight under a pinned
+     bar, which reads as a card that came loose rather than a foot the surface
+     is standing on. Offsetting the stick line by that same padding puts the bar
+     on the edge. Sideways it stays exactly where it is; the fill that spans the
+     pane is drawn by the ::before below. */
+  bottom: calc(-1 * var(--ob-pane-pad-block, 0px));
+  /* The same distance again, taken back out of flow. Offsetting the stick line
+     alone only settles the bar while it is PINNED; scrolled to the very end it
+     returns to its flow position, which is one bottom-padding up, so the gap
+     the reader was chasing reappeared exactly where they stopped. Eating that
+     padding puts the resting position on the pane's edge too. */
+  margin-block-end: calc(-1 * var(--ob-pane-pad-block, 0px));
+  /* Above the section map (z-index 1), which is itself above the rows. The
+     pinned action is the last thing on this surface that may be obscured. */
+  z-index: 3;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2118,7 +2203,42 @@
   padding: var(--space-3) 0;
   border-top: 1px solid var(--borderSubtle);
   background: var(--bgElevated);
+  /*
+   * The fill runs the width of the pane while the bar's own box does not — the
+   * progress, the sentence and the button stay on exactly the measure every row
+   * above them uses, and only the surface under them reaches the edges.
+   *
+   * Drawn with shadows rather than a bled-out element because the bar pins
+   * inside a centred reading column inside a padded pane: the distance to the
+   * pane's edge is two unknowns deep and moves with the window. A box that
+   * simply overshot would have to be clipped by the pane, and a pane that clips
+   * horizontally while scrolling vertically is a horizontal scroll container
+   * whatever it is asked to be — a sideways scroll into empty space, one
+   * trackpad flick away. A shadow never joins the scrollable region at all.
+   *
+   * Two of them, and the ORDER of the two is the whole trick. The hairline is
+   * spread across the pane like the fill, so on its own the fill would bury it:
+   * a spread reaches in every direction at once, and there is no way to ask for
+   * a wide one that is not also a tall one. So the fill is pushed down by its
+   * own spread plus a pixel — its rect then begins one pixel below the bar's
+   * top edge, and the hairline behind it survives in exactly that pixel and
+   * nowhere else. `clip-path` cuts both back to the bar's own box, or the
+   * spread would paint over the rows the bar is pinned in front of.
+   */
+  box-shadow:
+    0 calc(100vw + 1px) 0 100vw var(--bgElevated),
+    0 0 0 100vw var(--borderSubtle);
+  clip-path: inset(0 -100vw 0);
 }
+
+/* No clearance is reserved above the bar, and none is needed: the bar is
+   STICKY, so it holds its own height in normal flow at the foot of the
+   surface. Scrolled to the end it is simply the last row, with everything
+   above it clear; on the way there it floats over content that is still below
+   the fold and that the same scroll is about to bring out from under it. The
+   reserved block that used to sit here was therefore pure surplus — a screen's
+   worth of empty surface that the reader hit after the last row and had to
+   scroll through to reach nothing. */
 
 .ob-triage-continue-bar {
   inline-size: 8rem;
@@ -2132,12 +2252,14 @@
   min-width: 0;
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 /* Narrow: the three pieces stack rather than wrap mid-sentence — a status
-   line broken across two rows reads worse than three short rows in order. */
-@media (max-width: 30rem) {
+   line broken across two rows reads worse than three short rows in order.
+   The bar spans the scene, so the scene is what decides; the window is the
+   wrong ruler for a pane that is a fraction of it. */
+@container ob-scene (max-width: 30rem) {
   .ob-triage-continue {
     flex-direction: column;
     align-items: stretch;
@@ -2157,72 +2279,114 @@
   align-items: start;
 }
 
+/* The rows' own column, and the ruler every row-level layout below measures.
+   The scene is the wrong one for them: the map takes up to 13rem of it, so a
+   scene wide enough for four tracks can still hand a row barely half that.
+   `min-width: 0` keeps the track free to shrink under a long unbroken value
+   instead of pushing the grid wider than the surface. */
+.ob-triage-groups {
+  container: ob-board / inline-size;
+  min-width: 0;
+}
+
+/* The map and the pinned continue bar are both sticky and both span this
+   surface, so on a short board — or a narrow window, where the map's own
+   column runs the height of the pane — the bar's float reaches the map's
+   stuck position and the two meet.
+
+   The bar wins that meeting, and it has to: it carries the action, it is
+   opaque, and a pinned action a map can print through is unreadable exactly
+   when it matters. The map is given a layer of its own only so it outranks
+   the SCROLLING rows it is a map of; the bar (z-index 3) stays above both. */
 .ob-triage-nav {
   position: sticky;
   top: var(--space-3);
+  z-index: 1;
 }
 
+/*
+ * The map reads as an inline menu: full-width rows of one height, a fill that
+ * follows the pointer, and a marked row for where you are. It used to be a
+ * column of bare text with a tint behind the WHOLE section — sublist and all —
+ * which made the section you are in look like a selected block rather than a
+ * selected row, and left the rows themselves with no hit area a reader could
+ * see before committing to a click.
+ */
 .ob-triage-nav-list {
   display: flex;
   flex-direction: column;
-  /* The rhythm that carries hierarchy where no second colour or heading
-     rule will: a full section-to-section gap here, a tight one (on
-     .ob-triage-nav-sublist below) between a section and its own fields.
-     The eye reads the wide gap as "new section" without being told. */
-  gap: var(--space-3);
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* The section name is the jump to it — the nav navigates, it does not
-   merely label. It reads as a heading over its own fields: full-strength
-   text colour and a heavier weight than the field list below it carries,
-   rather than the muted, same-weight text that made a section and a field
-   indistinguishable before. The one status it carries is whether work
-   remains; a settled section shows no badge at all. Horizontal padding is
-   permanent, not something the active state adds — so the tint below never
-   shifts the row's own layout when it appears or drops. */
+/* Menu rhythm rather than card rhythm: rows sit close enough to read as one
+   list, and the extra step between sections is what still says "new section"
+   now that the tint no longer wraps a whole one. */
+.ob-triage-nav-list > li + li {
+  margin-block-start: var(--space-1);
+}
+
+/* The section name is the jump to it — the map navigates, it does not merely
+   label. Horizontal padding is permanent, not something the active state adds,
+   so the tint below never shifts the row's own layout when it appears or
+   drops. */
 .ob-triage-nav-link {
+  position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: 4px var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 0;
   border-radius: var(--r-sm);
   background: none;
-  color: var(--textPrimary);
+  color: var(--textContent);
   cursor: pointer;
   font-family: var(--f-body);
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-normal);
   text-align: start;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .ob-triage-nav-link:hover {
+  background: var(--bgHover);
   color: var(--textPrimary);
 }
 
+/* Inset, so the ring is drawn inside a row that already fills its column
+   rather than outside it, where it would collide with the row above. */
 .ob-triage-nav-link:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-sm);
+  outline-offset: -2px;
 }
 
-/* "You are here" is a tint across the whole section entry — its jump
-   button AND the named list under it — rather than a rule against the
-   button alone, which reads as a stray mark once a sub-list sits below it
-   with no rule of its own. One signal, quieter than the outstanding marks
-   above it (the danger icon, the count pill): orientation, not a call to
-   action. Targeting the `<li>` through `:has()` means a settled section
-   (no pill, just the check) and the first/last entries all get the exact
-   same treatment — nothing here depends on what else the row carries. */
-.ob-triage-nav-list > li:has(> .ob-triage-nav-link[aria-current="true"]) {
-  border-radius: var(--r-sm);
+/* Where you are, said three ways so none of them carries it alone: the fill,
+   the weight, and a bar on the leading edge that survives both a greyscale
+   screenshot and a reader who cannot separate a 9%-alpha tint from the surface
+   under it. Orientation, not a call to action — which is why it stays quieter
+   than the outstanding marks on the same row (the danger icon, the count
+   pill). */
+.ob-triage-nav-link[aria-current="true"] {
   background: var(--accentLight);
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+.ob-triage-nav-link[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-1);
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-radius: var(--r-full);
+  background: var(--accent);
 }
 
 .ob-triage-group {
@@ -2242,9 +2406,9 @@
   border-radius: var(--r-full);
   background: var(--dangerBg);
   color: var(--danger);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2259,8 +2423,8 @@
   align-items: center;
   flex: none;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2283,8 +2447,8 @@
    would say a find is an obstacle, which it never is. */
 .ob-triage-nav-quantity {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2298,14 +2462,8 @@
 .ob-triage-nav-sublist {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin: 3px 0 0;
-  padding-block: 0;
-  /* The button's own inset (space-2) plus a further indent (space-4), so a
-     named field reads as nested under its section rather than merely below
-     it — the same left edge the active tint's padding respects on the
-     other side. */
-  padding-inline: calc(var(--space-2) + var(--space-4)) var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding: 0;
   list-style: none;
 }
 
@@ -2315,17 +2473,26 @@
 .ob-triage-nav-item {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   width: 100%;
-  padding: 2px 0;
+  /* The indent is the row's own padding, not the list's: the fill has to run
+     the full width of the menu the way the section rows above it do, and a
+     list that inset its children would have cut a channel down one side of
+     every hover. */
+  padding: var(--space-1) var(--space-3) var(--space-1)
+    calc(var(--space-3) + var(--space-5));
   border: 0;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--textMeta);
   cursor: pointer;
   font-family: var(--f-body);
-  font-size: 0.75rem;
-  font-weight: 400;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
   text-align: start;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .ob-triage-nav-item svg {
@@ -2335,13 +2502,13 @@
 }
 
 .ob-triage-nav-item:hover {
+  background: var(--bgHover);
   color: var(--textPrimary);
 }
 
 .ob-triage-nav-item:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-sm);
+  outline-offset: -2px;
 }
 
 /* The blocking shape only: required AND empty is the one case red is for,
@@ -2353,10 +2520,13 @@
 /* Past the named limit, a plain count rather than a taller list — the nav
    must not grow past the section it navigates. */
 .ob-triage-nav-more {
-  padding: 2px 0;
+  /* The same indent its clickable siblings carry, so the overflow count lines
+     up with the fields it is counting rather than with the section above. */
+  padding: var(--space-1) var(--space-3) var(--space-1)
+    calc(var(--space-3) + var(--space-5));
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
 }
 
 /* The rows keep the short/prose tiers of the in-thread card; a row's own
@@ -2373,8 +2543,8 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
-  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--borderSubtle);
 }
 
@@ -2382,22 +2552,22 @@
   margin: 0;
   color: var(--textPrimary);
   font-family: var(--f-display);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
 }
 
 .ob-triage-group-head span {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
 /* Cards in a stack, not lines sharing a hairline: the gap between rows IS
    the separator now, so a row needs no bottom border of its own. */
 .ob-triage-rows {
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 /* Every row — collapsed or open — is the same plain card: a uniform border
@@ -2429,13 +2599,37 @@
   align-items: center;
   column-gap: var(--space-3);
   width: 100%;
-  min-height: 36px;
-  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  padding: var(--space-3);
   border: 0;
   background: none;
   cursor: pointer;
   text-align: start;
   font: inherit;
+}
+
+/* Four tracks need roughly 30rem of column before the value track — the only
+   flexible one — is squeezed to a handful of characters and its ellipsis
+   becomes the whole preview. Below that the row folds: the caret keeps the
+   label company on the first line, and the value and the meta cluster each
+   take a line of their own under them, indented to the label's edge. The
+   value unclips at this exact width (see the @container block near
+   .ob-conv-field-value) because a line of its own is what makes wrapping
+   possible in the first place. */
+@container ob-board (max-width: 30rem) {
+  .ob-triage-row-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--space-1);
+  }
+
+  .ob-triage-row-summary > .ob-conv-field-value,
+  .ob-triage-row-summary > .ob-triage-row-meta {
+    grid-column: 2;
+  }
+
+  .ob-triage-row-summary > .ob-triage-row-meta {
+    justify-self: start;
+  }
 }
 
 .ob-triage-rows > li:has(.ob-triage-row-summary):hover {
@@ -2487,8 +2681,8 @@
   border-radius: var(--r-full);
   background: var(--bgCard);
   color: var(--textMeta);
-  font-size: 0.71875rem;
-  font-weight: 600;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
 }
 
 /* The expanded weight: the same card, taller — the value editable in
@@ -2499,8 +2693,8 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  gap: var(--space-3);
+  padding: var(--space-4);
 }
 
 .ob-triage-row-head {
@@ -2532,9 +2726,9 @@
    filling it. */
 .ob-triage-omitted {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border: 1px dashed var(--borderStrong);
   border-radius: var(--r-sm);
   background: var(--bgCard);
@@ -2557,16 +2751,16 @@
 .ob-triage-omitted p {
   margin: 0;
   color: var(--textSecondary);
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
 }
 
 .ob-triage-omitted .ob-triage-omitted-label {
   color: var(--textSecondary);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -2595,7 +2789,7 @@
   border: 0;
   border-radius: 0;
   background: none;
-  padding: var(--space-2) var(--space-3) 2px;
+  padding: var(--space-4) var(--space-3) var(--space-1);
 }
 
 .ob-triage-solid-divider:hover {
@@ -2605,10 +2799,10 @@
 .ob-triage-solid-divider span {
   flex: none;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -2629,7 +2823,7 @@
 .ob-triage-rows .ob-conv-confirm-missing-row label em {
   margin-left: var(--space-2);
   color: var(--textMeta);
-  font-size: 0.6875rem;
+  font-size: var(--fs-meta);
   font-style: normal;
 }
 
@@ -2645,15 +2839,15 @@
    confidence band, because there is nothing here for a human to grade. */
 .ob-triage-people-empty {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-triage-people-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2670,7 +2864,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
@@ -2679,52 +2873,115 @@
 .ob-triage-person-name {
   color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .ob-triage-person-role {
   color: var(--textSecondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .ob-triage-person-meta {
   color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  font-size: var(--fs-meta);
 }
 
 /* The facts section: grouped by type, each group a quiet sub-heading over
    its own dense list — visible content now, not a disclosure a reader has
    to know to open. */
+/*
+ * A fact type is an accordion item, and it now looks like one before it is
+ * clicked. It used to be an uppercase eyebrow with a small triangle glued to
+ * the front of the word — the whole row was a control, and nothing about it
+ * said so, so a folded type read as a heading whose list had gone missing.
+ *
+ * What makes it legible: a bordered row with a surface of its own, a caret in
+ * a fixed slot at the leading edge, a count pill at the trailing edge, and a
+ * hover fill over the whole strip so the hit area is the strip.
+ */
 .ob-triage-fact-type {
   margin-top: var(--space-3);
+  /* The atom's own top rule and padding belong to a disclosure standing at the
+     foot of a card; an accordion item in a stack of them is a bordered box. */
+  padding-top: 0;
+  margin-bottom: 0;
+  border: 1px solid var(--borderSubtle);
+  border-top: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  overflow: hidden;
 }
 
-.ob-triage-fact-type:first-of-type {
-  margin-top: var(--space-2);
+.ob-triage-fact-type > .disclosure-summary {
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--textPrimary);
+  transition: background 0.12s ease;
 }
 
-.ob-triage-fact-type-head {
+.ob-triage-fact-type > .disclosure-summary:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+.ob-triage-fact-type > .disclosure-summary:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+/* The atom's chevron is the caret, turned where a caret turns. The item used
+   to draw a second one of its own — two disclosures on one screen, disagreeing
+   about their own arrow, which is exactly what the shared atom prevents. */
+.ob-triage-fact-type[open] > .disclosure-summary .disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+/* The summary's label carries the row, so it stretches rather than shrink-
+   wrapping the type's name: the count below rides to the far end on its own
+   auto margin, and a shrink-wrapped label would strand it mid-row. */
+.ob-triage-fact-type > .disclosure-summary > .t-label {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0 0 6px;
-  color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.6875rem;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  color: var(--textPrimary);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
+/* The count is the part that has to survive the fold: it is what tells the
+   reader how much is behind a shut item, so it sits in a chip of its own at
+   the row's far end rather than trailing the name as plain text. */
+.ob-triage-fact-type-count {
+  margin-inline-start: auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+}
+
+/* The atom wraps its children; the rows are the panel, so the wrapper adds
+   nothing of its own between the head's rule and them. */
+.ob-triage-fact-type > .disclosure-body {
+  margin-top: 0;
+}
+
+/* The panel the head opens, inset from the head's own edges so the rows read
+   as contents of the item rather than a second list that happens to follow
+   it. The rule at the top is the seam between the two. */
 .ob-triage-fact-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin: 0;
-  padding: 0;
+  padding: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
   list-style: none;
 }
 
@@ -2738,8 +2995,8 @@
 .ob-triage-fact {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 6px var(--space-2);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
   background: var(--bgElevated);
@@ -2775,7 +3032,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--textPrimary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2799,8 +3056,12 @@
 }
 
 /* Narrow pane: the map folds above the rows and stops being sticky; two
-   sticky columns in a stack would shadow the rows they map. */
-@media (max-width: 56rem) {
+   sticky columns in a stack would shadow the rows they map. The threshold is
+   the map's own 11rem plus the gap plus a column the rows can still be read
+   in — and it is asked of the SCENE, because the pane hands the scene well
+   under half the window's width and a viewport query would leave the two
+   columns standing in 27rem of pane. */
+@container ob-scene (max-width: 42rem) {
   .ob-triage-body {
     grid-template-columns: 1fr;
   }
@@ -2812,7 +3073,7 @@
   .ob-triage-nav-list {
     flex-direction: row;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-1);
   }
 
   /* Each section's named list stays under its own button rather than
@@ -2861,7 +3122,7 @@
 
 .ob-conv-manifest strong {
   color: var(--textPrimary);
-  font: 500 0.875rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-body) / var(--lh-normal) var(--f-body);
   overflow-wrap: anywhere;
 }
 
@@ -2881,7 +3142,7 @@
   justify-content: space-between;
   gap: var(--space-2);
   color: var(--textPrimary);
-  font: 500 0.875rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-meter-bar {
@@ -2916,7 +3177,7 @@
   align-items: center;
   gap: var(--space-2);
   color: var(--textSecondary);
-  font: 400 0.875rem / 1.4 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-stages li svg {
@@ -2931,7 +3192,7 @@
 
 .ob-conv-stages li[data-state="current"] {
   color: var(--textPrimary);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2960,13 +3221,13 @@
 .ob-conv-voice-result h2 {
   margin: 0;
   color: var(--textPrimary);
-  font: 600 1rem / 1.3 var(--f-display);
+  font: var(--fw-semibold) var(--fs-h3) / var(--lh-snug) var(--f-display);
 }
 
 .ob-conv-voice-result p {
   margin: 0;
   color: var(--textContent);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-lead) / var(--lh-normal) var(--f-body);
 }
 
 /* The pinned next-step line between the thread and the composer: one slim
@@ -2983,7 +3244,7 @@
   background: var(--aiLight);
   color: var(--aiText);
   padding: var(--space-1) var(--space-3);
-  font: 500 0.8125rem / 1.4 var(--f-body);
+  font: var(--fw-medium) var(--fs-sm) / var(--lh-normal) var(--f-body);
   cursor: pointer;
 }
 
@@ -3013,7 +3274,7 @@
 .ob-conv-scopes {
   display: grid;
   gap: var(--space-2);
-  margin: 0 var(--space-4);
+  margin: 0;
 }
 
 .ob-conv-scopes p {
@@ -3022,7 +3283,7 @@
   gap: var(--space-2);
   margin: 0;
   color: var(--textContent);
-  font: 400 0.875rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-scopes svg {
@@ -3077,12 +3338,19 @@
 /* The LinkedIn act's one input: the profile the imported network is
    attributed to. Matches the scope list beside it rather than the form
    modules, because it sits in the artifact panel and not in a form. */
+/* No margin of its own: every column this label sits in already sets a gap,
+   and the two used to add up — 12px of gap plus 12px of margin above one field
+   in a stack where everything else was 12px apart. Two of its siblings were
+   inset 16px from each side while the rest were not, so the panel showed four
+   different left edges in one column. */
 .ob-conv-field {
   display: grid;
   gap: var(--space-1);
-  margin: var(--space-3) var(--space-4) 0;
-  color: var(--textMuted);
-  font: 500 0.8125rem / 1.4 var(--f-body);
+  margin: 0;
+  /* Secondary, not Muted: this is the name of the field under it, and at 13px
+     Muted was quieter than the placeholder it labels. */
+  color: var(--textSecondary);
+  font: var(--fw-medium) var(--fs-sm) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-field input {
@@ -3092,7 +3360,7 @@
   border-radius: var(--radius-2);
   background: var(--surfaceRaised);
   color: var(--textContent);
-  font: 400 0.875rem / 1.5 var(--f-body);
+  font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-field input:focus-visible {

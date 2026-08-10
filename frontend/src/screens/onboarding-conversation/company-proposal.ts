@@ -26,6 +26,12 @@ export type ClarifyAnswer = {
   /** The human declined the question (humans outrank the reader): nothing
    * is written to the field, and it stops counting as an open decision. */
   dismissed?: boolean;
+  /** The dismissal was NOT the human's — another answer of theirs already
+   * settled this question, so it was retired rather than declined. Both
+   * resolve identically on the wire; they read differently to a person, and
+   * a surface that tells someone they skipped a question they never saw is
+   * wrong about the only part they can check. */
+  autoResolved?: boolean;
 };
 
 // Whether a clarify sits over a human_conflict comparison: dismissing one of
@@ -190,6 +196,16 @@ function collapseWhitespace(value: string): string {
 // company's identity, the mixture this block exists to prevent. The
 // confirmation refuses the same case for the same reason: it grounds a legal
 // block only when the details match one and only one stored entity.
+// The fields one legal-entity pick settles as a block. Shared vocabulary
+// rather than one screen's private set: the pick's own authorization decides
+// which sibling questions it retires, and the surface that draws the retired
+// tail has to mean the same three fields by it.
+export const LEGAL_BLOCK: ReadonlySet<string> = new Set([
+  "legal_name",
+  "registered_address",
+  "register_vat",
+]);
+
 export function legalEntityForOption(
   entities: readonly LegalEntity[],
   optionValue: string,

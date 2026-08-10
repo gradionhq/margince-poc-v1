@@ -33,10 +33,10 @@
 /* Prose, not a heading — the step owning this screen holds the h1. */
 .ob-payoff-lead {
   font-family: var(--f-display);
-  font-size: 22px;
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: -0.022em;
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-display);
   text-wrap: balance;
   color: var(--textPrimary);
 }
@@ -46,7 +46,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   /* The gap the cells' rings meet in — see the file header for why the colour
      is not here. */
-  gap: 1px;
+  gap: 1px; /* ds:ignore a hairline seam is 1px by definition, not a rhythm step */
   background: var(--accentSurface);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--borderSubtle));
   border-radius: var(--r-sm);
@@ -74,14 +74,14 @@
 
 .ob-payoff-value {
   margin: 0;
-  font-family: var(--f-mono);
+  font-family: var(--f-body);
   /* Every one of these is a number that differs per installation, so the
      columns line up on the digits rather than on the glyph widths. */
   font-variant-numeric: tabular-nums;
-  font-size: 27px;
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display);
   color: var(--textPrimary);
 }
 
@@ -92,14 +92,14 @@
    small on purpose: enough to say which fact leads, not enough to make the
    supporting counts look like fine print. */
 .ob-payoff-cell.is-argument .ob-payoff-value {
-  font-size: 30px;
+  font-size: var(--fs-display);
 }
 
 .ob-payoff-label {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   /* --textMeta is the AA floor role for anything under 13px. */
   color: var(--textMeta);
@@ -110,20 +110,32 @@
    type would make an absence look like a measurement. */
 .ob-payoff-note {
   margin: 0;
-  align-self: center;
+  /* Left, like every label in the grid: a centred sentence in a row of
+     left-set tiles reads as a caption about the grid rather than as one of
+     its entries. */
+  align-self: start;
   font-family: var(--f-body);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.35;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
   color: var(--textMeta);
 }
+
+/* An absence takes the whole row rather than a tile. In a third of the row a
+   sentence sets to three ragged lines beside numbers that take one, and the
+   cell reads as a figure that failed to arrive instead of as the statement it
+   is. It can only ever land at the foot of the grid: the voice corpus is the
+   last cell and the only one with something true to say when its count is
+   missing, so the full-width row never leaves a hole above it. */
 .ob-payoff-cell.is-absent {
+  grid-column: 1 / -1;
   justify-content: center;
+  padding-block: var(--space-3);
 }
 
 .ob-payoff-body {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
   color: var(--textContent);
 }
 
@@ -141,8 +153,8 @@
 }
 .ob-payoff-next li {
   min-width: 0;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-relaxed);
   color: var(--textContent);
 }
 
@@ -159,17 +171,17 @@
    needs there. */
 @container (max-width: 380px) {
   .ob-payoff-lead {
-    font-size: 19px;
+    font-size: var(--fs-h2);
   }
   .ob-payoff-cell {
     padding: var(--space-3);
   }
   .ob-payoff-value {
-    font-size: 23px;
+    font-size: var(--fs-h1);
   }
   .ob-payoff-cell.is-argument .ob-payoff-value {
     /* The same lead-to-support step, one notch down the scale. */
-    font-size: 25px;
+    font-size: var(--fs-h1);
   }
 }
 

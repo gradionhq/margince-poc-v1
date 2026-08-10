@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { Button, Field } from "../design-system/atoms";
+import { Button, Disclosure, Field } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -36,7 +36,11 @@ const PERMANENT_FAILURE_BODY: Record<string, MessageKey | undefined> = {
 // The honest-failure banner the connect panels share.
 function ConnectWarn({ title, body }: { title: string; body: string }) {
   return (
-    <div className="readfail warn" style={{ maxWidth: 460, margin: "0 auto" }}>
+    // The measure and the centring belong to the stylesheet with the rest of
+    // the banner: as an inline `margin` shorthand they also reset the top
+    // margin the banner declares for itself, so the one block on the surface
+    // that says something went wrong was the one with nothing above it.
+    <div className="readfail warn ob-connect-warn">
       <span className="rfi">
         <Circle aria-hidden />
       </span>
@@ -184,12 +188,18 @@ export function OAuthConnectPanel({
           body={problemMessageOf(connect.error, t)}
         />
       )}
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "4px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t(copy.hint)}
-      </p>
+      {/* What the grant covers is background: true, and not what the reader is
+          deciding at this moment, which is whether to press Connect. */}
+      <Disclosure summary={t("ob.s4.accessToggle")}>
+        <p className="spoken-hint">
+          <ShieldCheck aria-hidden /> {t(copy.hint)}
+        </p>
+      </Disclosure>
+      {/* The warning stays on the surface. It describes the NEXT screen — the
+          provider calls a self-hosted app unverified — so a reader who meets
+          that screen without having been told reasonably concludes something
+          is wrong with the thing they just pressed. A caution about what a
+          button does belongs beside the button, never behind a fold. */}
       <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
       <div className="ob-connect-dialog-actions">
         <Button
@@ -327,17 +337,13 @@ export function OAuthReturnPanel({
       <div className="cr-h">
         <CheckCircle2 aria-hidden /> {t("ob.s4.connectOkTitle")}
       </div>
-      <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
-        {t("ob.s4.connectOkBody")}
-      </p>
+      <p className="ob-sub">{t("ob.s4.connectOkBody")}</p>
       {connections.isPending && (
-        <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
-          {t("ob.s4.connectVerifying")}
-        </p>
+        <p className="t-small">{t("ob.s4.connectVerifying")}</p>
       )}
       {live && (
         <>
-          <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+          <span className="trustpill">
             <ShieldCheck aria-hidden /> {t("ob.s4.connectLive")}
           </span>
           {/* The mailbox is live, so the step is not finished yet: how far back
@@ -358,11 +364,7 @@ export function OAuthReturnPanel({
         />
       )}
       {!connections.isPending && live === undefined && (
-        <Button
-          variant="primary"
-          style={{ marginTop: "var(--space-4)" }}
-          onClick={() => void onComplete(false)}
-        >
+        <Button variant="primary" onClick={() => void onComplete(false)}>
           {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
         </Button>
       )}
@@ -459,14 +461,8 @@ export function ImapConnectPanel({
         <div className="cr-h">
           <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
         </div>
-        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
-          {t("ob.s4.capturedBody")}
-        </p>
-        <Button
-          variant="primary"
-          style={{ marginTop: "var(--space-4)" }}
-          onClick={() => void onComplete(false)}
-        >
+        <p className="ob-sub">{t("ob.s4.capturedBody")}</p>
+        <Button variant="primary" onClick={() => void onComplete(false)}>
           {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
         </Button>
       </div>
@@ -549,12 +545,11 @@ export function ImapConnectPanel({
         </Field>
       </div>
 
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "12px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
-      </p>
+      <Disclosure summary={t("ob.s4.accessToggle")}>
+        <p className="spoken-hint">
+          <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
+        </p>
+      </Disclosure>
 
       {connect.isError && (
         <ConnectWarn

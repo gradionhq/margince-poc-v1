@@ -498,7 +498,7 @@ describe("the conversational company act", () => {
     // A deferral is scheduled work, not a failure: it arrives as a status and
     // carries the server's own explanation of when it resumes.
     const paused = await screen.findByRole("status");
-    expect(paused.textContent).toContain("That read is paused for now.");
+    expect(paused.textContent).toContain("That read is paused.");
     expect(paused.textContent).toContain(
       "This website read will resume automatically.",
     );

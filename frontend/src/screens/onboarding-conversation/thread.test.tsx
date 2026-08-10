@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,20 +55,30 @@ function Harness({
   onAnswer = () => {},
   onDismiss,
 }: ThreadProps) {
+  // A reader's own turn wears their monogram, read from the ["me"] cache the
+  // rest of the app already fills, so the thread needs a query client even
+  // where this suite never resolves an identity — an unresolved one is a state
+  // the turn has to render anyway.
   return (
-    <LocaleProvider initial="en">
-      <section className="ob-workbench-panel">
-        <ConversationThread
-          entries={entries}
-          pendingQuestionId={pendingQuestionId}
-          onAnswer={onAnswer}
-          onDismiss={onDismiss}
-        />
-        <div className="mw-composer">
-          <textarea aria-label="composer" defaultValue={composerValue} />
-        </div>
-      </section>
-    </LocaleProvider>
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <LocaleProvider initial="en">
+        <section className="ob-workbench-panel">
+          <ConversationThread
+            entries={entries}
+            pendingQuestionId={pendingQuestionId}
+            onAnswer={onAnswer}
+            onDismiss={onDismiss}
+          />
+          <div className="mw-composer">
+            <textarea aria-label="composer" defaultValue={composerValue} />
+          </div>
+        </section>
+      </LocaleProvider>
+    </QueryClientProvider>
   );
 }
 

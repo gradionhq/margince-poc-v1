@@ -29,6 +29,12 @@
   transition: 0.15s;
   display: inline-flex;
   align-items: center;
+  /* A button shrink-wraps its label, so this changes nothing until something
+     gives it a width — and several callers do (a dialog's primary action is
+     full-width by design). Without it those buttons packed icon and label
+     against the left edge of a wide control, which reads as a row of text that
+     happens to be inside a button rather than as the button's own label. */
+  justify-content: center;
   gap: 7px;
   white-space: nowrap;
   text-decoration: none;
@@ -74,6 +80,23 @@
 .t-small {
   font-size: 12px;
   color: var(--textMeta);
+}
+
+/* The quiet aside and the spoken failure. Five screens ask for these two —
+   the LinkedIn dialogs, the reach panel, the import screen — and no stylesheet
+   answered, so every "this is only background" line rendered at full body
+   weight and every `role="alert"` rendered as if nothing were wrong. Declared
+   once, here, because they are vocabulary rather than one screen's layout. */
+.co-muted {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.co-error {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-normal);
 }
 
 /* Conservative type-scale realizing the hierarchy already implied by usage
