@@ -348,7 +348,15 @@ func paramsHandlersIn(file gatekit.ParsedFile, declared map[string][]declaredFil
 // it carries. A signature naming no declared params type answers "".
 func paramsArgument(fn *ast.FuncDecl, declared map[string][]declaredFilter) (ident, paramsType string) {
 	for _, field := range fn.Type.Params.List {
-		selector, ok := field.Type.(*ast.SelectorExpr)
+		// Through the pointer a handler MIGHT take it by, and past a group
+		// binding two names at once: a signature this walk does not recognise
+		// is a handler it silently never judges, and the floors below count
+		// handlers rather than missing ones.
+		expr := field.Type
+		if pointer, isPointer := expr.(*ast.StarExpr); isPointer {
+			expr = pointer.X
+		}
+		selector, ok := expr.(*ast.SelectorExpr)
 		if !ok {
 			continue
 		}
@@ -356,8 +364,10 @@ func paramsArgument(fn *ast.FuncDecl, declared map[string][]declaredFilter) (ide
 		if !ok || pkg.Name != contractsPackageAlias || len(declared[selector.Sel.Name]) == 0 {
 			continue
 		}
-		if len(field.Names) == 1 && field.Names[0].Name != "_" {
-			return field.Names[0].Name, selector.Sel.Name
+		for _, name := range field.Names {
+			if name.Name != "_" {
+				return name.Name, selector.Sel.Name
+			}
 		}
 		return "", selector.Sel.Name
 	}

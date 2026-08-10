@@ -117,9 +117,9 @@ func TestThePipelineListAnswersIncludeArchivedOnTheWire(t *testing.T) {
 	e.BootstrapWorkspace(t)
 
 	retired := createdRecord(t, e, "/v1/pipelines", apptest.AnyMap{"name": "Retired"})
-	// Aged through the database because no wire operation archives a pipeline
-	// (#835). The parameter is about rows in this state, and the state is
-	// reachable in a deployment's data whether or not an endpoint mints it.
+	// Aged through the database because no wire operation archives a pipeline.
+	// The parameter is about rows in this state, and the state is reachable in
+	// a deployment's data whether or not an endpoint mints it.
 	if _, err := e.Owner.Exec(t.Context(),
 		`UPDATE pipeline SET archived_at = now() WHERE id = $1`, retired); err != nil {
 		t.Fatalf("archiving the pipeline: %v", err)

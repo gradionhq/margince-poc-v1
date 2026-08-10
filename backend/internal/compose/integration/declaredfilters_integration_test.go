@@ -95,9 +95,10 @@ func TestTheOrganizationListNarrowsByDomain(t *testing.T) {
 		t.Fatalf("seeding the account that does not: %v", err)
 	}
 
-	// Folded the way the column stores it, so the lookup answers the same for
-	// a caller who typed the domain out of an email signature.
-	for _, asked := range []string{"acme.example", "ACME.example"} {
+	// Folded by the SAME parse the write path applies, so the lookup answers
+	// for a caller who typed the domain out of an email signature and for one
+	// who pasted the link out of a browser.
+	for _, asked := range []string{"acme.example", "ACME.example", "https://www.acme.example/careers"} {
 		page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Domain: &asked})
 		if err != nil {
 			t.Fatalf("listing organizations by domain %q: %v", asked, err)
@@ -156,7 +157,10 @@ func TestTheDomainFilterFindsAnArchivedAccountWhenAskedForOne(t *testing.T) {
 
 func TestTheActivityListNarrowsToTheOpenTasksOneAssigneeHolds(t *testing.T) {
 	e := Setup(t)
-	due := time.Now().Add(24 * time.Hour)
+	// A fixed instant rather than the host clock: the assertion is about which
+	// tasks the filter returns, and a due date that moves with the wall clock
+	// makes a validation rule the test never meant to exercise part of it.
+	due := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
 	mine := e.logTask(t, "Call the buyer", e.Rep1, due)
 	closed := e.logTask(t, "Already handled", e.Rep1, due)
 	e.logTask(t, "Someone else's", e.Rep3, due)
