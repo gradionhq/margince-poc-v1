@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package jobfanout
 
 // What these prove: the tenant's scheduling pass closes a run that was stranded
 // in 'running', leaves every run that is still going anywhere, and cannot reach
@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -125,16 +126,13 @@ func TestTheSweepCannotReachAnotherTenantsRuns(t *testing.T) {
 	}
 }
 
-// otherWorkspace mints a second tenant to sweep against.
+// otherWorkspace mints a second tenant to sweep against. One spelling of the
+// workspace INSERT, shared with the fan-out suites next door: a tenant seeded a
+// second way is a tenant whose shape a cross-tenant refusal was never really
+// tested against.
 func (re *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
 	t.Helper()
-	id := ids.NewV7()
-	if _, err := re.Owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
-		id, "reap-other-"+id.String()); err != nil {
-		t.Fatalf("seeding the second workspace: %v", err)
-	}
-	return id
+	return integration.SeedExtraWorkspace(t, re.Owner, "reap-other", false)
 }
 
 // seedRunIn writes an abandoned run into an arbitrary workspace, which seedRun

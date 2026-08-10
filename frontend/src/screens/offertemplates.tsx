@@ -145,17 +145,20 @@ export function OfferTemplatesScreen() {
           {
             key: "name",
             header: t("template.name"),
+            sort: "name",
             cell: (tpl: OfferTemplate) => tpl.name,
             fixed: true,
           },
           {
             key: "locale",
             header: t("template.locale"),
+            sort: "locale",
             cell: (tpl: OfferTemplate) => tpl.locale,
           },
           {
             key: "is_default",
             header: t("template.isDefault"),
+            sort: "is_default",
             cell: (tpl: OfferTemplate) =>
               tpl.is_default ? (
                 <Badge tone="success">{t("template.isDefault")}</Badge>

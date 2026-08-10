@@ -302,15 +302,23 @@ export function StatCard({
   value,
   detail,
   tone,
+  source,
 }: Readonly<{
   label: string;
   value: string;
   detail?: string;
   tone?: "warn" | "danger";
+  // Where the figure came from, named on the card that shows it. A money
+  // reading a reader cannot trace is one they have to go and verify
+  // elsewhere, which is the trip the badge saves them.
+  source?: ReactNode;
 }>) {
   return (
     <section className="stat-card">
-      <span className="stat-card-label t-caption">{label}</span>
+      <span className="stat-card-label t-caption">
+        {label}
+        {source && <span className="stat-card-source">{source}</span>}
+      </span>
       <span
         className={
           tone

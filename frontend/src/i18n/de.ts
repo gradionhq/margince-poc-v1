@@ -334,6 +334,7 @@ export const de = {
   "list.sortScore": "Score",
   "list.viewAll": "Alle",
   "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Höchster Score",
   "list.viewHot": "Heiß",
   "list.overlayReadOnly":
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
@@ -583,7 +584,18 @@ export const de = {
   "co.strip.netInvoiced": "Netto fakturiert · 12 Monate",
   "co.strip.openInvoices": "Offene Rechnungen",
   "co.strip.financeUnknown": "—",
-  "co.strip.connectFinance": "Finanzquelle verbinden",
+  "co.strip.fin.noConnection": "Buchhaltung verbinden",
+  "co.strip.fin.unmapped": "Noch keinem Kunden zugeordnet",
+  "co.strip.fin.syncing": "Wird synchronisiert…",
+  "co.strip.fin.withheld":
+    "Du darfst die Finanzdaten dieses Accounts nicht sehen",
+  "co.strip.fin.staleFigure":
+    "Zuletzt vor längerer Zeit synchronisiert — Datum prüfen",
+  "co.strip.fin.errorFigure":
+    "Letzte Synchronisierung fehlgeschlagen — evtl. nicht aktuell",
+  "co.strip.fin.nothingBilled": "Noch nichts in Rechnung gestellt",
+  "co.strip.fin.error": "Konnte nicht gelesen werden",
+  "co.strip.fin.loading": "Wird geladen…",
   "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",
   "co.strip.pricedPartly": "{priced} von {total} Deals mit Betrag",
   "co.strip.expectedClose": "Erwarteter Abschluss",
@@ -1460,8 +1472,6 @@ export const de = {
   "today.deal.count": "{count} offene Deals",
   "today.deal.mixedCurrency": "In unterschiedlichen Währungen — siehe Pipeline",
   "today.draft.to": "Follow-up an {name} entwerfen",
-  "today.draft.notYet":
-    "Entwürfe aus dem Account gibt es noch nicht — nutze E-Mail schreiben",
   "evidence.confirm": "Bestätigen",
   "evidence.correct": "Korrigieren",
   "evidence.save": "Speichern",

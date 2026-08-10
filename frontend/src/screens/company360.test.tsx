@@ -103,7 +103,13 @@ let briefBody: unknown = EMPTY_BRIEF;
 // with no programme is the thing the tab gate removed.
 const partnerOrg = { ...org, relationship_types: ["partner"] };
 
-function stub(three60: unknown, status = 200, account: unknown = org) {
+function stub(
+  three60: unknown,
+  status = 200,
+  account: unknown = org,
+  finance: unknown = { organization_id: "o-1", state: "no_connection" },
+  financeStatus = 200,
+) {
   // The paths actually requested. A test proves the page did NOT refetch by
   // counting these rather than by trusting that it did not.
   const fetched: string[] = [];
@@ -114,6 +120,9 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
       fetched.push(pathname);
       if (pathname.endsWith("/360")) {
         return jsonResponse(three60, status);
+      }
+      if (pathname.endsWith("/finance-summary")) {
+        return jsonResponse(finance, financeStatus);
       }
       if (pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
@@ -1706,5 +1715,148 @@ describe("company view — the account's primary actions", () => {
     // only open a form that fails on save.
     expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
+  });
+});
+
+// The KPI row's money slot has six reasons it can hold no figure, and they do
+// not share a fix. Telling a reader to connect an accounting system they have
+// already connected sends them to a settings page to change nothing.
+describe("the money slot says WHY it has no figure", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  it("names the setup step only when there is no source", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "no_connection",
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText("Connect your accounting")).toBeTruthy();
+  });
+
+  it("says the source is not matched rather than not connected", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(
+      await screen.findByText("Not matched to a customer yet"),
+    ).toBeTruthy();
+    // The wrong advice, specifically: this reader HAS connected a source.
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("says a first sync is running rather than that nothing is connected", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "syncing",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(await screen.findByText("Syncing…")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  // A denial and a setup gap are opposite problems. Sending a reader whose
+  // role cannot see finance to a settings page asks them to fix the one thing
+  // they have no way to fix from there.
+  it("says the reading is withheld rather than telling them to set it up", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      {
+        type: "about:blank",
+        title: "Forbidden",
+        status: 403,
+        code: "permission_denied",
+      },
+      403,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(
+      await screen.findByText("You may not see this account's finance"),
+    ).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("says the read failed rather than that nothing is connected", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      { type: "about:blank", title: "Server error", status: 500 },
+      500,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(await screen.findByText("Could not be read")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  // `stale` and `error` are opposite claims about whether anything is broken.
+  // The contract: stale is a sync that SUCCEEDED long enough ago that the date
+  // matters; error is the last good answer after an attempt that FAILED.
+  it("calls a stale figure old, not failed", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "stale",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText(/186,420/)).toBeTruthy();
+    expect(await screen.findByText(/Last synced a while ago/)).toBeTruthy();
+    expect(screen.queryByText(/sync failed/)).toBeNull();
+  });
+
+  // Without this the last good figure renders bare, reading as current.
+  it("marks a figure from a failed sync as possibly not current", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "error",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText(/186,420/)).toBeTruthy();
+    expect(await screen.findByText(/Last sync failed/)).toBeTruthy();
+  });
+
+  // A live, mapped source that produced no figure is not a missing setup.
+  it("says nothing was invoiced rather than telling them to connect", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(await screen.findByText("Nothing invoiced yet")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("names the source beside a real figure", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "datev",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText(/186,420/)).toBeTruthy();
+    expect(await screen.findByText("datev")).toBeTruthy();
   });
 });

@@ -101,6 +101,29 @@ func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityTy
 	}
 }
 
+// SeedExtraWorkspace mints an additional tenant. archived names a workspace
+// nobody looks at any more, which still holds everything it held the day it was
+// archived — some passes are owed on it and some deliberately skip it, so a
+// fan-out suite states which by seeding one.
+//
+// Exported because the fan-out suites in sibling packages need a second tenant
+// too, and a workspace row is the one thing none of them can mint any other way:
+// workspace is outside RLS and no endpoint creates one.
+func SeedExtraWorkspace(t *testing.T, owner *pgx.Conn, name string, archived bool) ids.UUID {
+	t.Helper()
+	ws := ids.NewV7()
+	archivedAt := "NULL"
+	if archived {
+		archivedAt = "now()"
+	}
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO workspace (id, name, slug, base_currency, archived_at)
+		VALUES ($1, $2, $3, 'EUR', `+archivedAt+`)`, ws, name, name+"-"+ws.String()); err != nil {
+		t.Fatalf("seeding the %s workspace: %v", name, err)
+	}
+	return ws
+}
+
 // SeedRow inserts one row through the owner connection and returns its id.
 func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID) ids.UUID {
 	t.Helper()

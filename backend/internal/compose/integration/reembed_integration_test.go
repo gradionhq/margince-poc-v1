@@ -154,7 +154,7 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	healthy := seedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
+	healthy := SeedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
 	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
 	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Tenant Person', 'manual', 'human:x')`,
@@ -247,7 +247,7 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 	if err := e.Store.SeedBinding(ctx, populated); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	second := seedExtraWorkspace(t, e.Owner, "reembed-marker", false)
+	second := SeedExtraWorkspace(t, e.Owner, "reembed-marker", false)
 
 	run := claimOf(target)
 	if err := e.Store.ClaimAndEnqueueReembedding(ctx, run, func(pgx.Tx) error { return nil }); err != nil {
