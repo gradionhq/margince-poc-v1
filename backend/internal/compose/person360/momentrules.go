@@ -14,6 +14,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -222,19 +224,24 @@ func findActivityAt(page *crmcontracts.Person360, at time.Time) (crmcontracts.Ac
 // prose this build may reword without the underlying fact having moved. A
 // reworded headline must not silently un-dismiss a moment the reader put away.
 func fingerprintOf(evidence []crmcontracts.PersonMomentEvidence) string {
-	h := sha256.New()
+	// Built as one string and hashed once. sha256's Write never returns an
+	// error, but writing through it would still spread unchecked returns
+	// across four calls to say something a single Sum says here.
+	var b strings.Builder
 	for _, e := range evidence {
-		fmt.Fprintf(h, "%s\x00", e.Type)
+		b.WriteString(string(e.Type))
+		b.WriteByte(0)
 		if e.Id != nil {
-			fmt.Fprintf(h, "%s", *e.Id)
+			b.WriteString(e.Id.String())
 		}
-		h.Write([]byte{0})
+		b.WriteByte(0)
 		if e.ObservedAt != nil {
-			fmt.Fprintf(h, "%d", e.ObservedAt.UTC().UnixNano())
+			b.WriteString(strconv.FormatInt(e.ObservedAt.UTC().UnixNano(), 10))
 		}
-		h.Write([]byte{0})
+		b.WriteByte(0)
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
 }
 
 // entityType lifts a destination's entity type, which the contract models as a

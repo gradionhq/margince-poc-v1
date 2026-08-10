@@ -57,7 +57,7 @@ func (s *Service) nextMeetingSection(ctx context.Context, tx pgx.Tx, personID id
 		return err
 	}
 	if participantScope == "" {
-		participantScope = "true"
+		participantScope = scopeAll
 	}
 
 	var meeting crmcontracts.Person360NextMeeting
@@ -112,19 +112,25 @@ func (s *Service) nextMeetingSection(ctx context.Context, tx pgx.Tx, personID id
 	return nil
 }
 
+// attendee is one name in the room.
+//
+// It is a type ALIAS, not a definition: the contract types Participants as an
+// anonymous struct, so the decode has to land in exactly that shape and the
+// field spelling is the generator's rather than this package's.
+//
+//nolint:staticcheck // ST1003: PersonId is the generated contract's spelling; renaming it here would not compile against the wire type
+type attendee = struct {
+	FullName string             `json:"full_name"`
+	PersonId openapi_types.UUID `json:"person_id"`
+}
+
 // decodeParticipants reads the lateral sub-select's JSON into the wire shape.
 //
 // It is capped here rather than in SQL so the cap is visible beside the type it
 // bounds; the sub-select already carries the row-scope predicate that decides
 // WHICH names may appear at all.
-func decodeParticipants(raw []byte) ([]struct {
-	FullName string             `json:"full_name"`
-	PersonId openapi_types.UUID `json:"person_id"`
-}, error) {
-	var decoded []struct {
-		FullName string             `json:"full_name"`
-		PersonId openapi_types.UUID `json:"person_id"`
-	}
+func decodeParticipants(raw []byte) ([]attendee, error) {
+	var decoded []attendee
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("decode the meeting participants: %w", err)
 	}

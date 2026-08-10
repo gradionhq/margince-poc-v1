@@ -59,10 +59,7 @@ func TestTheLadderSelectsExactlyOneMoment(t *testing.T) {
 			SourceQuote:      "I'll get you the model by Friday",
 		}},
 	}
-	got, ok := deriveMoment(now, page)
-	if !ok {
-		t.Fatal("the ladder returned nothing; rung 10 must always answer")
-	}
+	got := deriveMoment(now, page)
 	if got.Rule != crmcontracts.PersonMomentRuleMeetingPrep {
 		t.Fatalf("meeting prep outranks every rung below it, got %q", got.Rule)
 	}
@@ -77,7 +74,7 @@ func TestAMeetingBeyondSeventyTwoHoursDoesNotWin(t *testing.T) {
 		LastInboundAt:  &replied,
 		LastOutboundAt: ptr(at(40)),
 	}
-	got, _ := deriveMoment(now, page)
+	got := deriveMoment(now, page)
 	if got.Rule != crmcontracts.PersonMomentRuleReEngaged {
 		t.Fatalf("a meeting four days out should not beat a fresh reply, got %q", got.Rule)
 	}
@@ -94,7 +91,7 @@ func TestAnAnsweredConversationIsNotGoneQuiet(t *testing.T) {
 			Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
 		}{},
 	}
-	got, _ := deriveMoment(now, page)
+	got := deriveMoment(now, page)
 	if got.Rule == crmcontracts.PersonMomentRuleGoneQuiet {
 		t.Fatal("they answered after our last message; silence is not the story")
 	}
@@ -108,7 +105,7 @@ func TestGoneQuietNamesTheRuleItFiredOn(t *testing.T) {
 		LastOutboundAt: ptr(at(9)),
 		LastInboundAt:  ptr(at(16)),
 	}
-	got, _ := deriveMoment(now, page)
+	got := deriveMoment(now, page)
 	if got.Rule != crmcontracts.PersonMomentRuleGoneQuiet {
 		t.Fatalf("nine days unanswered past a seven-day rule is gone quiet, got %q", got.Rule)
 	}
@@ -129,8 +126,8 @@ func TestAQuietRecordStillGetsAnAnswer(t *testing.T) {
 			Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
 		}{Colleagues: []crmcontracts.PersonNetworkColleague{{}}},
 	}
-	got, ok := deriveMoment(now, page)
-	if !ok || got.Rule != crmcontracts.PersonMomentRuleNothingNeeded {
+	got := deriveMoment(now, page)
+	if got.Rule != crmcontracts.PersonMomentRuleNothingNeeded {
 		t.Fatalf("a record with nothing pending gets the quiet success state, got %q", got.Rule)
 	}
 }
@@ -139,7 +136,7 @@ func TestAQuietRecordStillGetsAnAnswer(t *testing.T) {
 // same as empty, and only one of them is a fact about the relationship.
 func TestAWithheldSectionDoesNotProduceAThinRelationshipClaim(t *testing.T) {
 	page := &crmcontracts.Person360{}
-	got, _ := deriveMoment(now, page)
+	got := deriveMoment(now, page)
 	if got.Rule == crmcontracts.PersonMomentRuleThinRelationship {
 		t.Fatal("activities and network were withheld, not empty; the page must not call the relationship thin")
 	}

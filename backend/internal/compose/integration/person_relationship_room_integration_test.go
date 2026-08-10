@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
@@ -354,35 +355,35 @@ func TestPerson360AssemblesEverySectionFromRealRows(t *testing.T) {
 	if page.RelationshipChanges == nil {
 		t.Error("the derived changes section is absent entirely, which is different from empty")
 	}
-	if page.Moments == nil {
-		t.Fatal("the moments section is absent entirely")
+	if page.Moment == nil {
+		t.Fatal("the page assembled without the one moment it opens on")
 	}
-	// An unanswered inbound and an overdue task are both true here, and the
-	// order is the editorial judgment: owing a reply outranks late work.
-	kinds := make([]string, 0, len(*page.Moments))
-	for _, m := range *page.Moments {
-		kinds = append(kinds, string(m.Kind))
-	}
-	if len(kinds) < 2 || kinds[0] != "unanswered_inbound" || kinds[1] != "task_overdue" {
-		t.Errorf("moments = %v, want unanswered_inbound before task_overdue", kinds)
+	// The ladder selects ONE. A page offering several reasons has handed the
+	// choosing back to the reader, which is the work the ladder exists to do.
+	if page.Moment.Rule == "" || page.Moment.EvidenceFingerprint == "" {
+		t.Error("a moment must name the rule that selected it and the evidence it fired on")
 	}
 	if page.SinceLastVisit == nil {
 		t.Error("since-last-visit is absent for a caller who has never visited")
 	}
 }
 
-// A dismissed moment stays dismissed across a re-derivation. The verdict is
-// keyed on the moment's PATH, so this has to survive the evidence changing —
-// a key derived from the evidence would resurface it on the next mail.
-func TestDismissedMomentDoesNotComeBack(t *testing.T) {
+// A dismissal holds while the evidence stands, and lifts when it moves.
+//
+// Both halves are the point. Keyed on the moment's PATH alone, a dismissal
+// survives the world changing underneath it: the reader puts "they went quiet"
+// away, a reply arrives, and the page stays silent about the thing that just
+// changed. Keyed on the evidence, it re-arms.
+func TestADismissalHoldsUntilTheEvidenceMoves(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
-	inbound := SeedRow(t, owner, `INSERT INTO activity
+	// We wrote and they never answered: the gone-quiet rung.
+	outbound := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Re: pricing', 'body', '2026-07-30T09:00:00Z',
-		        'inbound', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, inbound, "person", mine)
+		VALUES ($1, $2, 'email', 'Following up', 'body', now() - interval '20 days',
+		        'outbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, outbound, "person", mine)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	svc := personRoomService(e)
@@ -392,14 +393,14 @@ func TestDismissedMomentDoesNotComeBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
-	if page.Moments == nil || len(*page.Moments) == 0 {
-		t.Fatal("an unanswered inbound message produced no moment")
+	if page.Moment == nil {
+		t.Fatal("an unanswered outbound message produced no moment")
 	}
-	claim := (*page.Moments)[0].ClaimKey
+	dismissed := *page.Moment
 
-	if err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
-		SubjectType: "person", SubjectID: mine, ClaimKind: ai.ClaimSignal,
-		ClaimPath: claim, Verdict: ai.VerdictSuppressed,
+	if err := svc.DismissMoment(rep, personID, crmcontracts.DismissPersonMomentRequest{
+		ClaimKey:            dismissed.ClaimKey,
+		EvidenceFingerprint: dismissed.EvidenceFingerprint,
 	}); err != nil {
 		t.Fatalf("dismissing: %v", err)
 	}
@@ -408,10 +409,24 @@ func TestDismissedMomentDoesNotComeBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Assemble after the dismissal: %v", err)
 	}
-	for _, m := range *after.Moments {
-		if m.ClaimKey == claim {
-			t.Fatalf("the dismissed moment %q came back", claim)
-		}
+	if after.Moment == nil || after.Moment.ClaimKey == dismissed.ClaimKey {
+		t.Fatalf("the dismissed moment %q came back against unchanged evidence", dismissed.ClaimKey)
+	}
+
+	// Now they reply. The evidence the dismissal was held against has moved,
+	// so the page must speak again rather than stay quiet about the new fact.
+	inbound := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'email', 'Re: Following up', 'body', now() - interval '1 hour',
+		        'inbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, inbound, "person", mine)
+
+	reArmed, err := svc.Assemble(rep, personID)
+	if err != nil {
+		t.Fatalf("Assemble after the reply: %v", err)
+	}
+	if reArmed.Moment == nil || reArmed.Moment.Rule == crmcontracts.PersonMomentRuleNothingNeeded {
+		t.Fatal("a reply arrived after the dismissal and the page still says nothing needs you")
 	}
 }
 

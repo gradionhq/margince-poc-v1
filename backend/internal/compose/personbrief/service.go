@@ -36,10 +36,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// Sentence and Evidence are the claim vocabulary both briefs share, so a
-// grounding rule proved on one holds on the other.
+// Both briefs share one claim vocabulary, so a grounding rule proved on the
+// company side holds on this one.
 type (
+	// Sentence is one written claim with the records it was written from.
 	Sentence = claims.Sentence
+	// Evidence is one record a sentence cites.
 	Evidence = claims.Evidence
 )
 

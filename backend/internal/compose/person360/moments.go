@@ -39,6 +39,7 @@ package person360
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,6 +47,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ruleVersion stamps the ladder that selected a moment. It changes whenever a
@@ -69,15 +71,16 @@ const reEngagedQuietDays = 14
 // text, so the reader can see what verdict they are being shown.
 const goneQuietAfterDays = 7
 
+// prefillIntent is the prefill key a composer reads to know what it is opening
+// for. One spelling, because a typo here is a silently empty drawer.
+const prefillIntent = "intent"
+
 // momentsSection selects the one moment this page opens on, and honours a
 // dismissal the viewer has already made against the same evidence.
 //
 // It runs LAST among the sections so it can read what the others gathered.
 func (s *Service) momentsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *crmcontracts.Person360) error {
-	moment, ok := deriveMoment(now, out)
-	if !ok {
-		return nil
-	}
+	moment := deriveMoment(now, out)
 	dismissed, err := s.momentDismissed(ctx, tx, personID, moment)
 	if err != nil {
 		return err
@@ -102,22 +105,24 @@ func (s *Service) momentsSection(ctx context.Context, tx pgx.Tx, personID ids.Pe
 // dismisses "she went quiet", a reply arrives, and the page stays silent about
 // the thing that just changed. Keyed on the evidence, the dismissal re-arms.
 func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.PersonID, moment crmcontracts.PersonMoment) (bool, error) {
-	userID, err := actingUser(ctx)
-	if err != nil {
-		// An agent reading through a passport has no dismissals of its own and
-		// must not consume the granting human's. It sees every moment.
+	// A dismissal belongs to a person's screen, so a call carrying no user has
+	// none to honour. An agent reading through a passport must not consume the
+	// granting human's: it sees every moment. This is a fact about the caller,
+	// not a failure to read.
+	viewer, ok := principal.Actor(ctx)
+	if !ok || viewer.UserID == (ids.UUID{}) {
 		return false, nil
 	}
 	var stored string
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT evidence_fingerprint
 		FROM person_moment_dismissal
 		WHERE user_id = $1 AND person_id = $2 AND claim_key = $3`,
-		userID, personID, moment.ClaimKey).Scan(&stored)
+		viewer.UserID, personID, moment.ClaimKey).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return false, nil
-		}
 		return false, fmt.Errorf("read moment dismissal: %w", err)
 	}
 	return stored == moment.EvidenceFingerprint, nil
@@ -133,7 +138,7 @@ func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.P
 // Rungs 3 (job change) and 7 (public signal) are absent by design — both need
 // inputs this build does not have, and a rule that cannot fire belongs nowhere
 // on the page.
-func deriveMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+func deriveMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
 	ladder := []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
 		meetingPrepMoment,      // 1. a meeting within 72 hours
 		reEngagedMoment,        // 2. new inbound after a material quiet period
@@ -145,12 +150,12 @@ func deriveMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.Per
 	}
 	for _, rule := range ladder {
 		if moment, ok := rule(now, page); ok {
-			return moment, true
+			return moment
 		}
 	}
 	// 10. Nothing needs you today. A quiet success state, not a blank card:
 	// "there is nothing here" is an answer, and the reader came for an answer.
-	return nothingNeededMoment(now), true
+	return nothingNeededMoment(now)
 }
 
 // meetingPrepMoment: a meeting is close enough that preparing for it is the
@@ -200,7 +205,7 @@ func meetingPrepMoment(now time.Time, page *crmcontracts.Person360) (crmcontract
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
 			Destination: &crmcontracts.PersonMomentDestination{
 				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
-				Prefill: prefill(map[string]string{"intent": "agenda"}),
+				Prefill: prefill(map[string]string{prefillIntent: "agenda"}),
 			},
 		}},
 	}, true
@@ -244,7 +249,7 @@ func reEngagedMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
 			Destination: &crmcontracts.PersonMomentDestination{
 				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
-				Prefill: prefill(map[string]string{"intent": "reply"}),
+				Prefill: prefill(map[string]string{prefillIntent: "reply"}),
 			},
 		},
 	}, true
@@ -284,7 +289,7 @@ func overduePromiseMoment(now time.Time, page *crmcontracts.Person360) (crmcontr
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
 			Destination: &crmcontracts.PersonMomentDestination{
 				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
-				Prefill: prefill(map[string]string{"intent": "deliver_commitment", "subject": claim.Body}),
+				Prefill: prefill(map[string]string{prefillIntent: "deliver_commitment", "subject": claim.Body}),
 			},
 		},
 	}, true
@@ -330,7 +335,7 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
 			Destination: &crmcontracts.PersonMomentDestination{
 				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
-				Prefill: prefill(map[string]string{"intent": "follow_up"}),
+				Prefill: prefill(map[string]string{prefillIntent: "follow_up"}),
 			},
 		},
 		SecondaryActions: &[]crmcontracts.PersonMomentAction{{

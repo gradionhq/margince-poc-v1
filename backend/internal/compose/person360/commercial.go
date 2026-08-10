@@ -31,6 +31,11 @@ import (
 // and the question the card answers is "who else do I have to convince".
 const committeeCap = 8
 
+// scopeAll is the permissive predicate a row-scope clause reduces to when the
+// caller's grants add no restriction of their own. Spelled once so a reader
+// grepping for the scope seam finds every site.
+const scopeAll = "true"
+
 // commercialSection reads the one open deal that matters and the committee
 // around it.
 //
@@ -90,7 +95,7 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 		return dealSeat{}, false, err
 	}
 	if dealScope == "" {
-		dealScope = "true"
+		dealScope = scopeAll
 	}
 	var seat dealSeat
 	var stage, currency *string
@@ -135,7 +140,7 @@ func (s *Service) committeeFor(ctx context.Context, tx pgx.Tx, personID ids.Pers
 		return nil, err
 	}
 	if personScope == "" {
-		personScope = "true"
+		personScope = scopeAll
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT p.id, p.full_name, r.role, p.photo_object_key
