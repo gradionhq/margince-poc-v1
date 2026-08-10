@@ -54,9 +54,17 @@ var _ datasource.SystemOfRecordProvider = (*Provider)(nil)
 // searchable is the entity set Search sweeps when the query names none.
 // Activities are deliberately absent: the timeline is reached through
 // read_record/list on a named entity, not blind full-text sweep.
-// defaultSearchPageSize is the page a caller that named no limit gets — the
-// size this seam has always answered when asked for none.
-const defaultSearchPageSize = 20
+// defaultSearchPageSize is the page a caller who named no limit gets: the
+// shared Limit parameter's own declared default (crm.yaml
+// components.parameters.Limit, `default: 50`), which /search refs like every
+// other paged operation.
+//
+// It is ONE number for both seams. This one answered 20 while the overlay
+// route answered the declared 50, so a query with no limit came back a
+// different size depending on which system of record served it — the same
+// divergence this file's sweep exists to close, in the parameter rather than
+// the page.
+const defaultSearchPageSize = 50
 
 var searchable = []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityLead, datasource.EntityProject}
 
@@ -114,7 +122,7 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 	if err != nil {
 		return datasource.SearchResult{}, err
 	}
-	position, err := storekit.DecodeSweepCursor(q.Cursor)
+	position, err := resumeStream(q.Cursor)
 	if err != nil {
 		return datasource.SearchResult{}, err
 	}
@@ -216,12 +224,35 @@ func sweepOrder(named []datasource.EntityType) ([]datasource.EntityType, error) 
 	return walk, nil
 }
 
+// resumeStream reads the position a cursor names, refusing one this seam could
+// not have minted: a token whose stream is not a type this provider searches
+// at all — an overlay mirror's `activity` position presented here after a
+// cutover, say. Resuming "past" a stream this provider does not know would
+// answer a complete empty page to a caller holding a real token, which is the
+// confident-wrong-answer shape a resumable walk exists to remove.
+//
+// Whether THIS request still walks a stream it does know is a different
+// question with a different answer — see resumeIndex.
+func resumeStream(cursor string) (storekit.SweepCursor, error) {
+	position, err := storekit.DecodeSweepCursor(cursor)
+	if err != nil {
+		return storekit.SweepCursor{}, err
+	}
+	if position.Stream == "" {
+		return position, nil
+	}
+	if !slices.Contains(searchable, datasource.EntityType(position.Stream)) {
+		return storekit.SweepCursor{}, &storekit.MalformedCursorError{}
+	}
+	return position, nil
+}
+
 // resumeIndex is where in this walk the cursor's stream resumes.
 //
 // The token names a stream, not an index into one request's slice, so it still
 // means the same place when the request presenting it is not the one that
 // minted it — a narrowed type list, or a grant lost between pages. A stream
-// this walk no longer covers resumes at the next type PAST it: the records
+// this request no longer walks resumes at the next type PAST it: the records
 // between belong to a stream this request is not reading, and the contract
 // already says changing a filter mid-walk changes what the remaining pages
 // see.
@@ -230,9 +261,6 @@ func resumeIndex(walk []datasource.EntityType, stream string) int {
 		return 0
 	}
 	at := slices.Index(searchable, datasource.EntityType(stream))
-	if at < 0 {
-		return len(walk)
-	}
 	for i, et := range walk {
 		if slices.Index(searchable, et) >= at {
 			return i

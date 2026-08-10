@@ -19,9 +19,12 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -148,11 +151,38 @@ func TestTheNativeSweepAnswersTheTypesASeatMayReadRatherThanRefusingAll(t *testi
 	}
 
 	// A caller who NAMES one type still hears the denial: they asked about
-	// that type, and an empty page would say it holds nothing.
-	if _, err := provider.Search(orgOnly, datasource.SearchQuery{
+	// that type, and an empty page would say it holds nothing. The DENIAL
+	// specifically — any-error would also accept a pool failure or a missing
+	// fixture, which would prove nothing about the path under test.
+	_, err = provider.Search(orgOnly, datasource.SearchQuery{
 		Text: "Sweepable", EntityTypes: []datasource.EntityType{datasource.EntityPerson},
-	}); err == nil {
-		t.Error("naming a single denied type answered a page — a caller who asked about people must not be " +
-			"told there are none")
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("naming a single denied type answered %v, want the denial — a caller who asked about people "+
+			"must not be told there are none", err)
+	}
+}
+
+// A cursor naming a stream this seam does not search is a fault, not a
+// finished walk. The mirror sweeps `activity` and this one does not, so a
+// token minted over there and presented here — after a cutover, say — would
+// otherwise resume "past" a position this provider cannot place and answer a
+// complete empty page to a caller holding a real token.
+func TestTheNativeSweepRefusesACursorFromAStreamItDoesNotSearch(t *testing.T) {
+	e := SetupSearch(t)
+	seedSweepable(t, e)
+
+	foreign, err := storekit.EncodeSweepCursor(storekit.SweepCursor{
+		Stream: string(datasource.EntityActivity), Inner: "whatever-the-mirror-minted",
+	})
+	if err != nil {
+		t.Fatalf("minting the foreign position: %v", err)
+	}
+	res, err := sweepingProvider(e).Search(e.Admin(), datasource.SearchQuery{Text: "Sweepable", Cursor: foreign})
+	var malformed *storekit.MalformedCursorError
+	if !errors.As(err, &malformed) {
+		t.Fatalf("a cursor from a stream this seam does not search answered %d records / %v, want the "+
+			"malformed-cursor fault — a complete empty page tells a caller mid-walk that there is nothing "+
+			"left, which is the answer they cannot check", len(res.Records), err)
 	}
 }
