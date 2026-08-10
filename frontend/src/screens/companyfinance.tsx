@@ -85,13 +85,18 @@ export function CompanyFinanceCard({
   if (lifecycle && NEVER_INVOICED.has(lifecycle)) {
     return null;
   }
+  // Resolved ONCE, above the branches. A former customer's money is history in
+  // every state the card can be in, and the `error` state is where the mislabel
+  // would mislead most: it keeps showing the last good figures, so a title
+  // saying "Finance" there puts real money from a finished relationship under a
+  // heading that reads as current.
+  const title =
+    lifecycle === "former_customer"
+      ? t("finance.titleHistorical")
+      : t("finance.title");
   if (query.isPending) {
     return (
-      <SectionCard
-        title={t("finance.title")}
-        state="loading"
-        emptyLabel={t("finance.none")}
-      >
+      <SectionCard title={title} state="loading" emptyLabel={t("finance.none")}>
         {null}
       </SectionCard>
     );
@@ -103,7 +108,7 @@ export function CompanyFinanceCard({
     const withheld = problemCodeOf(query.error) === "permission_denied";
     return (
       <SectionCard
-        title={t("finance.title")}
+        title={title}
         state={withheld ? "withheld" : "failed"}
         emptyLabel={t("finance.none")}
         detail={withheld ? {} : { onRetry: () => void query.refetch() }}
@@ -115,17 +120,7 @@ export function CompanyFinanceCard({
   const summary = query.data;
   return (
     <SectionCard
-      // A former customer's money is HISTORY, and the title says so rather
-      // than letting figures from a finished relationship read as current
-      // (FIN-AC-3). The coverage period the criterion also asks for is not on
-      // the wire — `OrganizationFinanceSummary` carries `last_synced_at` and
-      // no coverage start or end — so the label states what it can stand
-      // behind and omits what it cannot.
-      title={
-        lifecycle === "former_customer"
-          ? t("finance.titleHistorical")
-          : t("finance.title")
-      }
+      title={title}
       state={CARD_STATE[summary.state]}
       emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
       detail={{
