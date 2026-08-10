@@ -165,12 +165,107 @@ func TestTheAdmissionVocabularyIsNotEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decoding the embedded vocabulary: %v", err)
 	}
-	for name, tokens := range map[string][]string{
-		"offOrigin": rules.OffOrigin, "toolCall": rules.ToolCall,
-		"credential": rules.Credential, "markupSink": rules.MarkupSink,
-	} {
+	// Every class the FILE declares, not a list of classes named here: a fifth
+	// category added upstream must be enforced rather than silently ignored,
+	// and a Go-side list would be exactly the thing that ignores it.
+	for _, name := range []string{"offOrigin", "toolCall", "credential", "markupSink"} {
+		if len(rules[name]) == 0 {
+			t.Errorf("the %s list is empty, so that whole class is admitted unchecked", name)
+		}
+	}
+	for name, tokens := range rules {
 		if len(tokens) == 0 {
 			t.Errorf("the %s list is empty, so that whole class is admitted unchecked", name)
+		}
+	}
+}
+
+// A class the shared file grows must be enforced by BOTH validators. The
+// frontend iterates every list in the file; if this side named its classes in a
+// struct, a fifth one would be enforced on one side of the boundary and ignored
+// on the other — while the byte-equality test kept passing, because the bytes
+// really are identical.
+func TestAdmitEnforcesEveryClassTheVocabularyDeclares(t *testing.T) {
+	rules, err := admissionVocabulary()
+	if err != nil {
+		t.Fatalf("decoding the embedded vocabulary: %v", err)
+	}
+	for name, tokens := range rules {
+		doc := cleanDocument + "<!-- " + tokens[0] + " -->"
+		if findings, _ := admit(doc, "Morning brief"); len(findings) == 0 {
+			t.Errorf("a document carrying %q from the %s class was admitted", tokens[0], name)
+		}
+	}
+}
+
+// HTML element and attribute names are case-insensitive, so a substituted
+// document is free to shout — and every HTML-shaped token would miss.
+func TestAdmitRefusesAnUppercasedHTMLConstruct(t *testing.T) {
+	for _, doc := range []string{
+		`<LINK REL="stylesheet" HREF="/a.css">`,
+		`<IFRAME></IFRAME>`,
+		`<IMG SRC="/track">`,
+		`<BASE HREF="//elsewhere/">`,
+	} {
+		if findings, _ := admit(cleanDocument+doc, "Morning brief"); len(findings) == 0 {
+			t.Errorf("admit accepted the uppercased construct %q", doc)
+		}
+	}
+}
+
+// And the case-folding is NARROW: a JavaScript identifier matched loosely would
+// fire on prose that merely reads like it, and this check false-positives
+// readily enough already.
+func TestAdmitDoesNotCaseFoldAJavaScriptIdentifier(t *testing.T) {
+	if findings, _ := admit(cleanDocument+"<!-- the xmlhttprequest era is over -->", "Morning brief"); len(findings) != 0 {
+		t.Errorf("admit refused prose that merely resembles an identifier: %v", findings)
+	}
+}
+
+// Every view the Go catalog names has a source directory the frontend build
+// produces a document for.
+//
+// The basename is spelled in three uncoordinated places — this catalog's URI,
+// the directory under frontend/src/mcp-apps, and the file nginx serves — and a
+// rename on one side degraded honestly but only at RUN time: the view simply
+// stopped being held, in a deployment, with the reason in a log line. This
+// turns that into a build failure, which is the shape review-loop rule 2 asks
+// for: derive the obligation from the tree rather than maintain a list.
+func TestEveryCatalogViewHasASourceTheFrontendBuilds(t *testing.T) {
+	for _, v := range catalog {
+		name := strings.TrimSuffix(filepath.Base(v.uri), ".html")
+		entry := filepath.Join("..", "..", "..", "..", "..",
+			"frontend", "src", "mcp-apps", name, "index.html")
+		if _, err := os.Stat(entry); err != nil {
+			t.Errorf("the catalog publishes %s, so the api will fetch /mcp-apps/%s.html — but %s does not exist, "+
+				"so the build produces no such document and the view is never served: %v", v.uri, name, entry, err)
+		}
+	}
+}
+
+// And the inverse: a view directory nobody publishes builds a document the web
+// tier serves and nothing ever reads — the shape a half-finished or
+// half-removed view leaves behind.
+func TestEveryBuiltViewIsNamedByTheCatalog(t *testing.T) {
+	sources := filepath.Join("..", "..", "..", "..", "..", "frontend", "src", "mcp-apps")
+	entries, err := os.ReadDir(sources)
+	if err != nil {
+		t.Fatalf("reading the view sources: %v", err)
+	}
+	published := map[string]bool{}
+	for _, v := range catalog {
+		published[strings.TrimSuffix(filepath.Base(v.uri), ".html")] = true
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(sources, entry.Name(), "index.html")); err != nil {
+			continue
+		}
+		if !published[entry.Name()] {
+			t.Errorf("frontend/src/mcp-apps/%s builds a document no catalog entry names, so the web tier "+
+				"serves it and nothing ever reads it", entry.Name())
 		}
 	}
 }

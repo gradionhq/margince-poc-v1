@@ -30,6 +30,7 @@ package apps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -50,8 +51,10 @@ const (
 	// retry below exists for a tier that is still starting, not one that is
 	// absent, and `make dev` now starts the web tier first.
 	primeDeadline = 10 * time.Second
-	// primeRetryInterval is how often the startup fetch re-attempts a view that
-	// has not answered YET.
+	// primeRetryInterval is how often the startup fetch re-attempts a view whose
+	// origin has not answered YET. Only a RETRYABLE failure is re-asked — see
+	// ErrPermanent, because retrying a refusal that cannot change would delay
+	// every boot by the whole deadline and inflate the counters an alert reads.
 	//
 	// Retrying inside the deadline is not the background recovery the design
 	// rules out — the advertised set is still frozen the moment Prime returns,
@@ -78,6 +81,11 @@ type Provider struct {
 	fetcher *Fetcher
 	log     *slog.Logger
 	now     func() time.Time
+	// retryEvery paces the startup re-attempt. Injected rather than read from
+	// the constant so a spec can drive the loop without sleeping: a real clock
+	// in a unit test is flake waiting to happen, and the rest of this file
+	// injects `now` for the same reason.
+	retryEvery time.Duration
 
 	// held is the whole availability answer: URI → document. It is REPLACED, never
 	// mutated — resources/list, resources/read and the tool listing read it
@@ -102,7 +110,10 @@ type Provider struct {
 // happens at package init any more, and a process role that serves no views
 // simply never calls this.
 func NewProvider(fetcher *Fetcher, log *slog.Logger) *Provider {
-	p := &Provider{fetcher: fetcher, log: log, now: time.Now, quiet: map[string]time.Time{}}
+	p := &Provider{
+		fetcher: fetcher, log: log, now: time.Now,
+		retryEvery: primeRetryInterval, quiet: map[string]time.Time{},
+	}
 	empty := map[string]string{}
 	p.held.Store(&empty)
 	return p
@@ -167,26 +178,34 @@ func (p *Provider) Prime(ctx context.Context) error {
 func (p *Provider) primeUntilDeadline(ctx context.Context) (map[string]string, map[string]error) {
 	admitted := make(map[string]string, len(catalog))
 	refused := map[string]error{}
+	permanent := map[string]bool{}
 	for {
 		for _, v := range catalog {
 			if _, have := admitted[v.uri]; have {
 				continue
 			}
+			if permanent[v.uri] {
+				continue
+			}
 			doc, err := p.read(ctx, v)
 			if err != nil {
 				refused[v.uri] = err
+				if errors.Is(err, ErrPermanent) {
+					permanent[v.uri] = true
+				}
 				continue
 			}
 			delete(refused, v.uri)
 			admitted[v.uri] = doc
 		}
-		if len(admitted) == len(catalog) {
+		if len(admitted)+len(permanent) == len(catalog) {
+			// Nothing left that another attempt could change.
 			return admitted, refused
 		}
 		select {
 		case <-ctx.Done():
 			return admitted, refused
-		case <-time.After(primeRetryInterval):
+		case <-time.After(p.retryEvery):
 		}
 	}
 }
@@ -208,14 +227,15 @@ func (p *Provider) Refresh(ctx context.Context) {
 		}
 		doc, err := p.read(ctx, v)
 		if err != nil {
-			p.report(v.uri, err)
+			p.reportRefresh(ctx, v.uri, err)
 			continue
 		}
 		next[v.uri] = doc
 	}
-	// ONE store of a whole new map. The refresh loop is the only writer, so this
-	// needs no compare-and-swap; what it needs is that a reader sees either the
-	// old set or the new one and never a mixture.
+	// ONE store of a whole new map. Prime and this loop are the only writers and
+	// the api's boot sequences them — Prime returns before RunRefresh starts — so
+	// this needs no compare-and-swap; what it needs is that a reader sees either
+	// the old set or the new one and never a mixture.
 	p.held.Store(&next)
 }
 
@@ -247,7 +267,7 @@ func (p *Provider) read(ctx context.Context, v view) (string, error) {
 	findings, titleMismatch := admit(doc, v.title)
 	if len(findings) > 0 {
 		p.admissionFailures.Add(1)
-		return "", fmt.Errorf("the document reaches beyond what a view may: %v", findings)
+		return "", fmt.Errorf("%w: the document reaches beyond what a view may: %v", ErrPermanent, findings)
 	}
 	// REPORTED, never a refusal: two hand-spellings across a language boundary,
 	// and a copy edit must not take a view down.
@@ -296,8 +316,32 @@ func documentRevision(doc string) string {
 	return found[1]
 }
 
+// reportRefresh logs a REFRESH failure, which is a different fact from a view
+// that is not served: the last known-good document is still being handed out.
+// Saying "not being served" here would send an operator looking for an outage
+// that is not happening.
+//
+// A cancelled context is not reported at all — that is this process shutting
+// down, and an error line on the way out reads as a fault.
+func (p *Provider) reportRefresh(ctx context.Context, uri string, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	p.logQuietly(uri, func() {
+		p.log.Warn("mcp apps: a view could not be re-read; the last known-good document is still being served",
+			"uri", uri, "err", err)
+	})
+}
+
 // report logs one view's failure at most once per logInterval.
 func (p *Provider) report(uri string, err error) {
+	p.logQuietly(uri, func() {
+		p.log.Error("mcp apps: a view document is not being served", "uri", uri, "err", err)
+	})
+}
+
+// logQuietly runs one line at most once per logInterval per view.
+func (p *Provider) logQuietly(uri string, write func()) {
 	p.quietMu.Lock()
 	last, seen := p.quiet[uri]
 	now := p.now()
@@ -307,7 +351,7 @@ func (p *Provider) report(uri string, err error) {
 	}
 	p.quiet[uri] = now
 	p.quietMu.Unlock()
-	p.log.Error("mcp apps: a view document is not being served", "uri", uri, "err", err)
+	write()
 }
 
 func (p *Provider) originForLog() string {

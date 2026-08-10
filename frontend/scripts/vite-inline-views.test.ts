@@ -52,6 +52,19 @@ describe("the built document is validated, not trusted", () => {
     ).toContain("Authorization");
   });
 
+  it("refuses an uppercased HTML construct, because element names are case-insensitive", () => {
+    expect(validateDocument('<LINK REL="stylesheet" HREF="/a.css">')).toContain(
+      "<link",
+    );
+    expect(validateDocument('<IMG SRC="/track">')).toContain("src=");
+  });
+
+  it("does not case-fold a JavaScript identifier, which would fire on prose", () => {
+    expect(validateDocument("<!-- the xmlhttprequest era is over -->")).toEqual(
+      [],
+    );
+  });
+
   it("names every token it found, not just the first", () => {
     const found = validateDocument('<link href="https://cdn.example/a.css">');
     expect(found).toContain("<link");
@@ -111,6 +124,14 @@ describe("the parsed pass sees what a substring sweep cannot", () => {
     ).not.toEqual([]);
   });
 
+  it("rejects a namespaced URL attribute, which no plain lookup sees", () => {
+    // <svg><image xlink:href="//evil/x"> reaches the network while carrying no
+    // attribute literally called href, and a protocol-relative URL needs
+    // neither "http://" nor "//cdn." — so the token list misses it too.
+    const svg = `<body><svg><image xlink:href="//evil.example/x"></image></svg></body>`;
+    expect(inspectDocument(svg)).not.toEqual([]);
+  });
+
   it("rejects a form, which posts wherever its action names", () => {
     expect(inspectDocument("<body><form></form></body>")).not.toEqual([]);
   });
@@ -142,6 +163,19 @@ describe("inlining folds the entry chunk and the stylesheet into the document", 
     );
     expect(validateDocument(doc)).toEqual([]);
     expect(doc).not.toContain("example.test");
+  });
+
+  it("strips a CSS comment without reaching inside a string literal", () => {
+    // A regex would rewrite this declaration to content:"" — a silent change to
+    // what the reader sees, made by the step that only meant to drop prose.
+    const doc = inlineDocument(
+      SHELL,
+      "",
+      `/* drop me */ .a::before{content:"/* keep me */"} .b{color:red}`,
+    );
+    expect(doc).not.toContain("drop me");
+    expect(doc).toContain(`content:"/* keep me */"`);
+    expect(doc).toContain(".b{color:red}");
   });
 
   it("keeps the title the shell declared", () => {

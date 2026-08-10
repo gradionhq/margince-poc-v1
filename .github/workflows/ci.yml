@@ -65,6 +65,14 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # The MCP App admission vocabulary is AUTHORED under frontend/ and
+              # copied into the Go package, where a byte-equality test gates the
+              # copy. Without this line a PR editing only the authored file is
+              # classified frontend-only, the backend lane never runs, and the
+              # api ships enforcing the previous rules — which is exactly the
+              # "two validators that disagree" outage the shared file exists to
+              # make impossible.
+              - 'frontend/src/mcp-apps/forbidden.json'
               - 'infra/**'
               - 'go.work'
               - 'go.work.sum'

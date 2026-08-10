@@ -27,7 +27,13 @@ package buildinfo
 var Revision string
 
 // Unknown is the value a comparison must not be made against — either side
-// absent, or the literal "dev" a local build stamps.
+// absent, or the literal "dev".
+//
+// `make dev` deliberately does NOT stamp this: it passes the real commit to both
+// halves of the stack so a local run exercises the same comparison a deployment
+// does, and an operator can force a mismatch by exporting
+// MARGINCE_BUILD_REVISION before it. "dev" is what dev.sh falls back to outside
+// a git checkout, and what any build that declines to stamp can use.
 const Unknown = "dev"
 
 // Comparable reports whether a revision is one worth comparing. Empty and "dev"

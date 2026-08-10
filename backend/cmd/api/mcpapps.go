@@ -64,6 +64,13 @@ func mcpAppsOrigin(cfg apiConfig, connectorEnabled bool) (*url.URL, error) {
 		// handled rather than discarded so it cannot become one silently.
 		return nil, fmt.Errorf("api: %s %q is not a URL: %w", flagName, raw, err)
 	}
+	// The SAME rule the fetch applies, asked here so it is a boot error rather
+	// than two views that silently never appear. Two components judging one
+	// value by different rules is how a deployment starts cleanly and serves
+	// nothing.
+	if err := apps.ValidateOrigin(parsed); err != nil {
+		return nil, fmt.Errorf("api: %s %q cannot be fetched from: %w", flagName, raw, err)
+	}
 	return parsed, nil
 }
 

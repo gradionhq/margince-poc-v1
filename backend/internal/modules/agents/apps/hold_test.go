@@ -65,7 +65,11 @@ func newWebTier(t *testing.T) (*webTier, *Provider) {
 		}
 		answer(w)
 	})
-	return tier, NewProvider(NewFetcher(base), quietLogger())
+	p := NewProvider(NewFetcher(base), quietLogger())
+	// No real clock in the loop: the startup re-attempt is driven as fast as the
+	// scheduler allows, so a spec exercises the retry without waiting on one.
+	p.retryEvery = time.Millisecond
+	return tier, p
 }
 
 func (tier *webTier) answer(uri string, with func(http.ResponseWriter)) {
@@ -77,11 +81,11 @@ func (tier *webTier) answer(uri string, with func(http.ResponseWriter)) {
 }
 
 // primeBriefly primes with a deadline of its own, for the tests whose origin is
-// meant to STAY broken. Prime re-attempts an unanswered view until its deadline,
-// so those would otherwise each wait the full production one.
+// meant to STAY broken with a RETRYABLE failure. A permanent refusal needs no
+// such help — Prime stops re-asking it immediately.
 func primeBriefly(t *testing.T, p *Provider) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	if err := p.Prime(ctx); err != nil {
 		t.Fatalf("priming: %v", err)
@@ -354,7 +358,7 @@ func TestTheFailureLineIsRateLimitedButTheCounterIsNot(t *testing.T) {
 	// is what a human reads.
 	tier, p := newWebTier(t)
 	var lines atomic.Int64
-	p.log = slog.New(slog.NewTextHandler(countingWriter{&lines}, &slog.HandlerOptions{Level: slog.LevelError}))
+	p.log = slog.New(slog.NewTextHandler(countingWriter{&lines}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	frozen := time.Now()
 	p.now = func() time.Time { return frozen }
 	// Primed HEALTHY first and broken after: an unheld view is never re-read at
@@ -368,7 +372,7 @@ func TestTheFailureLineIsRateLimitedButTheCounterIsNot(t *testing.T) {
 		p.Refresh(t.Context())
 	}
 	if got := lines.Load(); got != 1 {
-		t.Errorf("five failures of one view logged %d error line(s), want 1 inside the quiet window", got)
+		t.Errorf("five failures of one view logged %d line(s), want 1 inside the quiet window", got)
 	}
 	// Past the window, the same failure is reported again rather than going
 	// permanently silent.
@@ -507,23 +511,32 @@ func TestAnUnknownStampOnEitherSideSkipsTheComparison(t *testing.T) {
 }
 
 func TestPrimeWaitsForAnOriginThatIsStillStarting(t *testing.T) {
-	// MEASURED, not predicted: `make dev` starts the api before vite, and the
+	// MEASURED, not predicted: `make dev` started the api before vite, and the
 	// first live run of this branch found both views permanently unadvertised
 	// in every dev stack because a single attempt met a cold origin. A rolling
 	// deploy can bring an api up ahead of the tier it reads from for the same
 	// reason.
+	//
+	// Driven by ATTEMPT COUNT rather than by a clock: the tier answers 503 twice
+	// and then serves, which is the condition being described — "not listening
+	// yet" — without a sleep anywhere.
 	tier, p := newWebTier(t)
-	tier.answer(AccountBriefURI, broken(http.StatusServiceUnavailable))
-	go func() {
-		// The tier comes up shortly after the api does.
-		time.Sleep(2 * primeRetryInterval)
-		tier.answer(AccountBriefURI, ok(documentFor(AccountBriefURI)))
-	}()
+	var attempts atomic.Int64
+	tier.answer(AccountBriefURI, func(w http.ResponseWriter) {
+		if attempts.Add(1) <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		ok(documentFor(AccountBriefURI))(w)
+	})
 	if err := p.Prime(t.Context()); err != nil {
 		t.Fatalf("priming: %v", err)
 	}
 	if !p.Holds(AccountBriefURI) {
 		t.Fatal("a view whose origin was merely still starting was left permanently unadvertised")
+	}
+	if attempts.Load() < 3 {
+		t.Errorf("the startup fetch made %d attempt(s); it must re-ask a tier that is still coming up", attempts.Load())
 	}
 }
 
@@ -532,22 +545,75 @@ func TestPrimeGivesUpAtItsDeadlineRatherThanBlockingBoot(t *testing.T) {
 	// than one that starts with a view missing and says so.
 	tier, p := newWebTier(t)
 	tier.answer(AccountBriefURI, broken(http.StatusServiceUnavailable))
-	deadline, cancel := context.WithTimeout(t.Context(), 2*primeRetryInterval)
+	deadline, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- p.Prime(deadline) }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("priming against a down origin answered an error; only an operator-fixable condition should: %v", err)
-		}
-	case <-time.After(primeDeadline):
-		t.Fatal("Prime did not return when its context was cancelled; boot would hang on a down web tier")
+	if err := p.Prime(deadline); err != nil {
+		t.Fatalf("priming against a down origin answered an error; only an operator-fixable condition should: %v", err)
 	}
 	if p.Holds(AccountBriefURI) {
 		t.Error("a view the origin never served is being served")
 	}
 	if !p.Holds(RelationshipMapURI) {
 		t.Error("the view that WAS served is not held; one down view took the other with it")
+	}
+}
+
+func TestPrimeDoesNotReAskARefusalThatCannotChange(t *testing.T) {
+	// Retrying a deterministic refusal delays every boot by the whole deadline —
+	// during which nothing is served, because Prime runs before the listener
+	// opens — and inflates the very counters an alert is set against. The case
+	// that matters is the one the design names as primary: an ingress serving
+	// the app shell at the view's path, 200 and text/html, refused by admission.
+	tier, p := newWebTier(t)
+	var attempts atomic.Int64
+	tier.answer(AccountBriefURI, func(w http.ResponseWriter) {
+		attempts.Add(1)
+		ok(documentFor(AccountBriefURI) + `<script src="/assets/app.js"></script>`)(w)
+	})
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	if p.Holds(AccountBriefURI) {
+		t.Fatal("a refused document is being served")
+	}
+	if attempts.Load() != 1 {
+		t.Errorf("a refusal that cannot change was re-asked %d times", attempts.Load())
+	}
+}
+
+func TestAFailedRefreshSaysTheViewIsStillBeingServed(t *testing.T) {
+	// "not being served" would send an operator looking for an outage that is
+	// not happening: the last known-good document is still going out.
+	tier, p := newWebTier(t)
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	var logged strings.Builder
+	p.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	tier.answer(AccountBriefURI, broken(http.StatusBadGateway))
+	p.Refresh(t.Context())
+	if strings.Contains(logged.String(), "is not being served") {
+		t.Errorf("a refresh failure was reported as an outage:\n%s", logged.String())
+	}
+	if !strings.Contains(logged.String(), "still being served") {
+		t.Errorf("a refresh failure went unreported:\n%s", logged.String())
+	}
+}
+
+func TestAShutdownIsNotReportedAsAFailure(t *testing.T) {
+	// A refresh in flight when the process is stopping must not log an error on
+	// the way out; that reads as a fault in the logs of every clean shutdown.
+	tier, p := newWebTier(t)
+	if err := p.Prime(t.Context()); err != nil {
+		t.Fatalf("priming: %v", err)
+	}
+	var logged strings.Builder
+	p.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	tier.answer(AccountBriefURI, broken(http.StatusBadGateway))
+	stopping, cancel := context.WithCancel(t.Context())
+	cancel()
+	p.Refresh(stopping)
+	if logged.Len() != 0 {
+		t.Errorf("a cancelled refresh logged on the way down:\n%s", logged.String())
 	}
 }

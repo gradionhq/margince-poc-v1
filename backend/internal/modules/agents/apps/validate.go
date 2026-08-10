@@ -28,6 +28,7 @@ package apps
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"regexp"
@@ -44,38 +45,28 @@ import (
 //go:embed forbidden.json
 var forbiddenJSON []byte
 
-// vocabulary is the four classes of token a view document must not contain,
-// each named for the promise it would break.
+// admissionVocabulary decodes the embedded list once.
 //
-// The member names are camelCase because this struct decodes a file AUTHORED in
-// frontend/src/mcp-apps/forbidden.json, where camelCase is the local convention;
-// renaming them here would rename the shared vocabulary and break the one
-// property that makes two validators safe.
+// It decodes into a MAP rather than a struct with one member per class, and that
+// is not laziness. The frontend validator iterates every list in the file; a Go
+// struct enforces only the classes someone remembered to declare, so a fifth
+// category added to the shared file would be enforced on one side of the
+// boundary and silently ignored on the other — while the byte-equality test kept
+// passing, because the bytes ARE identical. The names of the classes are
+// documentation (offOrigin, toolCall, credential, markupSink); what this code
+// needs is all of them.
 //
-//nolint:tagliatelle // the wire member names belong to the frontend file this decodes, not to Go
-type vocabulary struct {
-	// OffOrigin: the document declares an empty origin allowlist, so anything
-	// naming a place to fetch from contradicts the declaration a host builds its
-	// content-security policy from.
-	OffOrigin []string `json:"offOrigin"`
-	// ToolCall: a view is a second renderer for an answer a tool already gave.
-	// One that calls a tool has become a second door onto a record.
-	ToolCall []string `json:"toolCall"`
-	// Credential: a view is given an answer, never the means to ask again.
-	Credential []string `json:"credential"`
-	// MarkupSink: customer text assigned as markup is the one privilege the
-	// sandbox cannot take back.
-	MarkupSink []string `json:"markupSink"`
-}
-
-// admissionVocabulary decodes the embedded list once. It returns the error
-// rather than panicking at package init: a malformed vocabulary is a bad build,
-// and admit turns it into a refusal so the failure is loud where it matters —
-// on the document — instead of at a process start nobody is watching.
-var admissionVocabulary = sync.OnceValues(func() (vocabulary, error) {
-	var rules vocabulary
+// It returns the error rather than panicking at package init: a malformed
+// vocabulary is a bad build, and admit turns it into a refusal so the failure is
+// loud where it matters — on the document — instead of at a process start
+// nobody is watching.
+var admissionVocabulary = sync.OnceValues(func() (map[string][]string, error) {
+	var rules map[string][]string
 	if err := json.Unmarshal(forbiddenJSON, &rules); err != nil {
-		return vocabulary{}, fmt.Errorf("crmapps: decoding the admission vocabulary: %w", err)
+		return nil, fmt.Errorf("crmapps: decoding the admission vocabulary: %w", err)
+	}
+	if len(rules) == 0 {
+		return nil, errors.New("crmapps: the admission vocabulary is empty, so every document would be admitted")
 	}
 	return rules, nil
 })
@@ -103,14 +94,33 @@ func admit(doc string, wantTitle string) (findings []string, titleMismatch bool)
 		// check that cannot run has not passed.
 		return []string{err.Error()}, false
 	}
-	for _, tokens := range [][]string{rules.OffOrigin, rules.ToolCall, rules.Credential, rules.MarkupSink} {
+	lowered := strings.ToLower(doc)
+	for _, tokens := range rules {
 		for _, token := range tokens {
-			if strings.Contains(doc, token) {
+			if contains(doc, lowered, token) {
 				findings = append(findings, token)
 			}
 		}
 	}
 	return findings, wantTitle != "" && documentTitle(doc) != wantTitle
+}
+
+// contains matches a token against the document, case-INSENSITIVELY for the
+// HTML-shaped ones.
+//
+// HTML element and attribute names are case-insensitive, so `<LINK` and `SRC=`
+// are the same document as `<link` and `src=` — and a substituted document is
+// free to shout. JavaScript identifiers are not: `XMLHttpRequest` matched
+// loosely would also match text that merely reads like it, and this check
+// already false-positives readily enough on prose.
+//
+// The rule is derived from the token's own shape rather than from a second list
+// somebody keeps in step, and the frontend validator applies the same one.
+func contains(doc, lowered, token string) bool {
+	if strings.HasPrefix(token, "<") || strings.HasSuffix(token, "=") {
+		return strings.Contains(lowered, strings.ToLower(token))
+	}
+	return strings.Contains(doc, token)
 }
 
 // documentTitle answers the document's declared title, unescaped, or the empty

@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { builtDocument, DocumentHost } from "../story-hosts";
 import { relationshipMapFixture } from "./fixture";
 
-// LAZY, via import.meta.glob — see document-host.tsx.
+// import.meta.glob, NOT a static `?raw` import — see the account brief's
+// document story for why, and why `eager` is beside the point.
 const built = import.meta.glob("/dist/mcp-apps/*.html", {
   query: "?raw",
   import: "default",

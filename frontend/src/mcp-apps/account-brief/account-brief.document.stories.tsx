@@ -2,8 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { builtDocument, DocumentHost } from "../story-hosts";
 import { accountBriefFixture } from "./fixture";
 
-// LAZY, via import.meta.glob — see document-host.tsx for why a static `?raw`
-// import of an absent file would fail the whole Storybook build.
+// import.meta.glob, NOT a static `?raw` import. A static import of an absent
+// file is a module-resolution error: Storybook would fail to BUILD when the
+// documents have not been produced, taking the CI frontend job down for
+// unrelated changes — and it could never render the "run pnpm build" panel this
+// story promises. `eager` is fine and is not the point: a glob that matches
+// nothing is an empty object, which is exactly the case being handled.
 const built = import.meta.glob("/dist/mcp-apps/*.html", {
   query: "?raw",
   import: "default",

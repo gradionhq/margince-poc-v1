@@ -56,6 +56,15 @@ const (
 // would be retried against nothing forever and report only timeouts.
 var ErrNoViewsOrigin = errors.New("crmapps: no views origin is configured")
 
+// ErrPermanent marks a refusal that re-asking cannot change: a policy decision,
+// a body that is the wrong shape, a URI nobody publishes.
+//
+// It exists so the startup fetch can tell "the web tier is not listening YET"
+// from "this document will never be acceptable". Retrying the second for the
+// length of the prime deadline delays every boot by that much, inflates the
+// failure counters an alert is set against, and cannot succeed.
+var ErrPermanent = errors.New("crmapps: refused for a reason re-asking cannot change")
+
 // Fetcher reads view documents from the configured origin.
 type Fetcher struct {
 	base   *url.URL
@@ -108,7 +117,7 @@ func (f *Fetcher) documentURL(uri string) (*url.URL, error) {
 		return nil, ErrNoViewsOrigin
 	}
 	if !published(uri) {
-		return nil, fmt.Errorf("crmapps: %q is not a view this server publishes", uri)
+		return nil, fmt.Errorf("%w: %q is not a view this server publishes", ErrPermanent, uri)
 	}
 	return f.base.JoinPath(documentPrefix, path.Base(uri)), nil
 }
@@ -143,8 +152,11 @@ func (f *Fetcher) Fetch(ctx context.Context, uri string) (string, error) {
 		return "", fmt.Errorf("crmapps: fetching %s: %w", target.Redacted(), err)
 	}
 	defer func() {
-		// Drained and closed so the connection is reusable; the read is already
-		// capped above, so this cannot be made to consume an unbounded body.
+		// Drained up to the cap and closed. The drain is what lets a connection
+		// be reused, and it is BOUNDED on purpose: an origin answering more than
+		// the cap costs this process a fresh connection next time rather than an
+		// unbounded read, which is the right way round. Neither result is worth
+		// reporting — the body has already been judged, or refused.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDocumentBytes))
 		_ = resp.Body.Close()
 	}()
@@ -152,6 +164,21 @@ func (f *Fetcher) Fetch(ctx context.Context, uri string) (string, error) {
 		return "", err
 	}
 	return readCapped(resp.Body, target)
+}
+
+// ValidateOrigin holds a configured origin to the SAME transport rule every
+// fetch applies, so an operator learns at boot rather than from two views that
+// silently never appear.
+//
+// It exists because the two readings were drifting apart: flag parsing admitted
+// any well-formed bare origin while the fetcher refused cleartext to anything
+// but a literal local address, and the gap was a deployment that started
+// cleanly and served nothing.
+func ValidateOrigin(origin *url.URL) error {
+	if origin == nil {
+		return ErrNoViewsOrigin
+	}
+	return requireSecureTransport(origin)
 }
 
 // requireSecureTransport refuses cleartext to anywhere but a development
@@ -164,9 +191,9 @@ func requireSecureTransport(target *url.URL) error {
 	if local(target.Hostname()) {
 		return nil
 	}
-	return fmt.Errorf("crmapps: the views origin %s is cleartext and not a local address; "+
-		"a view is fetched over https unless the api and the web tier share a private network",
-		target.Redacted())
+	return fmt.Errorf("%w: the views origin %s is cleartext and its host is not a literal loopback "+
+		"or private address; use https, or name the address rather than a hostname",
+		ErrPermanent, target.Redacted())
 }
 
 // local reports whether a host is one a development or single-network
@@ -191,20 +218,28 @@ func local(host string) bool {
 // them answers 200 — so the media type is checked as well as the status.
 func requireHTMLDocument(resp *http.Response, target *url.URL) error {
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("crmapps: %s answered status %d %s, want 200",
-			target.Redacted(), resp.StatusCode, http.StatusText(resp.StatusCode))
+		// A 5xx is left RETRYABLE: it is what a tier answers while it is coming
+		// up, or mid-rollout. Everything else — a 404 for a document that was
+		// not deployed, a 403 — will answer the same way for as long as this
+		// boot lasts.
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return fmt.Errorf("crmapps: %s answered status %d %s, want 200",
+				target.Redacted(), resp.StatusCode, http.StatusText(resp.StatusCode))
+		}
+		return fmt.Errorf("%w: %s answered status %d %s, want 200",
+			ErrPermanent, target.Redacted(), resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 	declared := resp.Header.Get("Content-Type")
 	// Parsed, not compared: a correct server is entitled to add a charset, and a
 	// string comparison would refuse every answer nginx actually gives.
 	mediaType, _, err := mime.ParseMediaType(declared)
 	if err != nil {
-		return fmt.Errorf("crmapps: %s declared the unreadable content type %q: %w",
-			target.Redacted(), declared, err)
+		return fmt.Errorf("%w: %s declared the unreadable content type %q: %v",
+			ErrPermanent, target.Redacted(), declared, err)
 	}
 	if !strings.EqualFold(mediaType, "text/html") {
-		return fmt.Errorf("crmapps: %s answered %q, want text/html — an error page or an app "+
-			"shell served here would otherwise enter validation as a view", target.Redacted(), mediaType)
+		return fmt.Errorf("%w: %s answered %q, want text/html — an error page or an app "+
+			"shell served here would otherwise enter validation as a view", ErrPermanent, target.Redacted(), mediaType)
 	}
 	return nil
 }
@@ -219,8 +254,8 @@ func readCapped(body io.Reader, target *url.URL) (string, error) {
 		return "", fmt.Errorf("crmapps: reading %s: %w", target.Redacted(), err)
 	}
 	if len(read) > maxDocumentBytes {
-		return "", fmt.Errorf("crmapps: %s answered more than %d bytes; a view is one small "+
-			"self-contained document", target.Redacted(), maxDocumentBytes)
+		return "", fmt.Errorf("%w: %s answered more than %d bytes; a view is one small "+
+			"self-contained document", ErrPermanent, target.Redacted(), maxDocumentBytes)
 	}
 	return string(read), nil
 }

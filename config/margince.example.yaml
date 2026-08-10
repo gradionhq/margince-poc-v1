@@ -84,7 +84,10 @@ mcp:
 # ingress hairpin routing, external DNS or egress. The value has to be
 # API-reachable, which is not the same as publicly reachable. A CDN origin works
 # and is recommended — it trades the dependency on the web tier for a better
-# one rather than removing it. See docs/reference/configuration.md.
+# one rather than removing it. The scheme must be https unless the host is a
+# literal loopback or private address (or localhost): a cleartext hostname like
+# http://web.internal is a boot error, not a silent one. See
+# docs/reference/configuration.md.
 
 # Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
 # moving backward disables reads/injection/surfaces but never deletes confirmed

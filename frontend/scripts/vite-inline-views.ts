@@ -74,12 +74,30 @@ const URL_ATTRIBUTES = [
  */
 export function validateDocument(html: string): string[] {
   const found: string[] = [];
+  const lowered = html.toLowerCase();
   for (const tokens of Object.values(VOCABULARY)) {
     for (const token of tokens) {
-      if (html.includes(token)) found.push(token);
+      if (matches(html, lowered, token)) found.push(token);
     }
   }
   return found;
+}
+
+/**
+ * matches applies the token, case-INSENSITIVELY for the HTML-shaped ones.
+ *
+ * HTML element and attribute names are case-insensitive, so `<LINK` and `SRC=`
+ * are the same document as their lowercase spellings. JavaScript identifiers are
+ * not: `XMLHttpRequest` matched loosely would fire on text that merely reads
+ * like it. The rule is derived from the token's own shape rather than from a
+ * second list, and validate.go applies the identical one — the whole value of a
+ * shared vocabulary is that neither side can be stricter than the other.
+ */
+function matches(html: string, lowered: string, token: string): boolean {
+  if (token.startsWith("<") || token.endsWith("=")) {
+    return lowered.includes(token.toLowerCase());
+  }
+  return html.includes(token);
 }
 
 /**
@@ -116,8 +134,14 @@ function inspectNode(node: HTMLElement): string[] {
   ) {
     found.push("<script type=importmap>");
   }
-  for (const attribute of URL_ATTRIBUTES) {
-    if (node.hasAttribute(attribute)) {
+  // Matched on the LOCAL name, so a namespaced spelling cannot slip past:
+  // `<svg><image xlink:href="/pixel">` carries no attribute literally called
+  // `href`, reaches the network, and neither the token list (no `http://`, no
+  // `href` — a protocol-relative URL needs neither) nor a plain hasAttribute
+  // sees it.
+  for (const attribute of Object.keys(node.attributes)) {
+    const local = attribute.toLowerCase().split(":").pop() ?? "";
+    if (URL_ATTRIBUTES.includes(local)) {
       found.push(`${tag}[${attribute}]`);
     }
   }
@@ -247,8 +271,47 @@ function spliceBefore(shell: string, marker: string, insert: string): string {
   return shell.slice(0, at) + insert + shell.slice(at);
 }
 
+/**
+ * stripCSSComments removes CSS comments WITHOUT reaching inside string literals.
+ *
+ * A regex would: `content: "/* label *​/"` is a legal declaration whose value
+ * contains the delimiters, and stripping it silently rewrites the rule to
+ * `content: ""`. The comments have to go — tokens.css and brand.css carry prose,
+ * including URLs, that the raw-read admission check would otherwise read as code
+ * — so this scans instead, tracking quote state, which is the smallest thing
+ * that is actually correct.
+ */
 function stripCSSComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < css.length; i++) {
+    const c = css[i];
+    if (quote !== "") {
+      out += c;
+      if (c === "\\") {
+        // An escaped character cannot close the string, whatever it is.
+        i++;
+        if (i < css.length) out += css[i];
+      } else if (c === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      out += c;
+      continue;
+    }
+    if (c === "/" && css[i + 1] === "*") {
+      const end = css.indexOf("*/", i + 2);
+      // An unterminated comment swallows the rest, which is what a browser does
+      // with it too.
+      i = end < 0 ? css.length : end + 1;
+      continue;
+    }
+    out += c;
+  }
+  return out.trim();
 }
 
 /**

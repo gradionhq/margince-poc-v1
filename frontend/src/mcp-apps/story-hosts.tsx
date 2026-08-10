@@ -52,10 +52,12 @@ export function ViewHost({
  *   STRING "null", which is not a usable postMessage target, so the usual
  *   `event.source.postMessage(res, event.origin)` reply pattern fails here.
  *
- *   The built document is read LAZILY through import.meta.glob. A static
- *   `import … from "…?raw"` of an absent file is a module-resolution error:
- *   Storybook would fail to build, taking the CI frontend job down for unrelated
- *   changes — and it could never render the "run pnpm build" panel below.
+ *   The built document is read through import.meta.glob rather than a static
+ *   `import … from "…?raw"`. A static import of an absent file is a
+ *   module-resolution error: Storybook would fail to BUILD, taking the CI
+ *   frontend job down for unrelated changes — and it could never render the
+ *   "run pnpm build" panel below. A glob that matches nothing is an empty
+ *   object, which is what that panel exists for.
  */
 export function DocumentHost({
   html,

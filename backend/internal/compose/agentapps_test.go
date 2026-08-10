@@ -134,8 +134,13 @@ func readerCtx() context.Context {
 // called, so a URI nobody publishes is not a render that fails — it is a host
 // fetching a 404 and a panel that silently never appears.
 func TestEveryToolsViewIsAServedDocument(t *testing.T) {
+	// ONE surface, listed and then read. Building a second provider for the
+	// read-back would ask a different object whether it serves what the first
+	// one advertised — and a regression where listing invalidates the very
+	// document it named would pass, because the fresh one would answer.
+	surface := composedResources(t)
 	published := map[string]mcp.Resource{}
-	for _, r := range composedResources(t).Resources(readerCtx()) {
+	for _, r := range surface.Resources(readerCtx()) {
 		published[r.URI] = r
 	}
 	named := 0
@@ -154,7 +159,7 @@ func TestEveryToolsViewIsAServedDocument(t *testing.T) {
 		// And the document has to be readable, not merely advertised. A
 		// descriptor with no content behind it fails at exactly the same point
 		// as a missing descriptor, one step later.
-		if _, err := composedResources(t).ReadResource(readerCtx(), spec.UI.ResourceURI); err != nil {
+		if _, err := surface.ReadResource(readerCtx(), spec.UI.ResourceURI); err != nil {
 			t.Errorf("%s names the view %q, which is advertised but cannot be read: %v", spec.Name, view.URI, err)
 		}
 	}
