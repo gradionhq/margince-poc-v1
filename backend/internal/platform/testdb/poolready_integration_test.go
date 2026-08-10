@@ -22,8 +22,8 @@ import (
 // and nothing here calls t.Parallel — and Pool returns before it touches the pool
 // map, so the process keeps whatever pools it already had.
 //
-// Without this, deleting the check leaves every suite green while a shared
-// connection is free to outlive the schema it was planned against.
+// Without this, deleting the check leaves every suite green while a pool handed
+// out too early queries a schema the migration is about to drop.
 func TestPoolRefusesBeforeTheSchemaIsMigrated(t *testing.T) {
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	if appDSN == "" {
