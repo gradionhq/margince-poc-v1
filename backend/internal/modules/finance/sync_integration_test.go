@@ -120,8 +120,48 @@ func setupFinance(t *testing.T) *financeEnv {
 	return e
 }
 
+// ledgerSeed is the workspace the GENERATOR is seeded from, and it is a
+// constant rather than this env's workspace on purpose.
+//
+// The generator's seed is sha256(workspace | customer), so passing a freshly
+// minted workspace would draw a different archetype — a different ledger, a
+// different sample, a different open balance — on every run. That is a lottery,
+// not a fixture: the assertions below would be about which archetype came up
+// rather than about what the sync and the formulas do.
+//
+// The workspace the ROWS live in is still e.ws, minted per run so parallel runs
+// do not share a tenant. Nothing but the seed reads this string.
+const ledgerSeed = "finance-integration-ledger"
+
 func (e *financeEnv) provider() Provider {
-	return NewOfflineProvider(e.ws.String(), []SourceCustomer{{ExternalID: e.external}})
+	return NewOfflineProvider(ledgerSeed, []SourceCustomer{{ExternalID: e.external}})
+}
+
+// summaryAtEpoch reads the card at a clock pinned to the ledger's own epoch.
+//
+// Every FIGURE on the card is folded over a window measured back from the
+// store's clock, and the generated ledger is anchored to a fixed date rather
+// than to today (see offlineEpoch). Read at wall-clock time, the assertions
+// over those figures measure how far the calendar has travelled since that
+// epoch: they thin out as the window slides off the ledger and eventually
+// report an empty card. Pinned, they measure the formulas, which is what they
+// are for.
+//
+// The STATE is deliberately not read through here. Staleness is a real
+// comparison between the connection's last_success_at — stamped by the
+// database's clock — and now; pinning one side of it would make the assertion
+// pass for the wrong reason.
+func (e *financeEnv) summaryAtEpoch(
+	t *testing.T, orgID ids.OrganizationID,
+) crmcontracts.OrganizationFinanceSummary {
+	t.Helper()
+	at := NewStore(e.store.pool, e.store.baseCurrency).
+		WithClock(func() time.Time { return offlineEpoch })
+	out, err := at.SummaryFor(e.ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // THE claim. An invoice's status depends on today, so a hash that covered it
@@ -239,23 +279,27 @@ func TestAfterASyncTheCardHasFiguresToShow(t *testing.T) {
 	if after.State != crmcontracts.FinanceSummaryStateConnected {
 		t.Fatalf("state after the sync = %q, want connected", after.State)
 	}
-	if after.NetInvoiced == nil || after.NetInvoiced.AmountMinor == nil {
+
+	// The figures, as of the ledger's epoch — see summaryAtEpoch for why they
+	// are not read off the summary above.
+	figures := e.summaryAtEpoch(t, orgID)
+	if figures.NetInvoiced == nil || figures.NetInvoiced.AmountMinor == nil {
 		t.Fatal("no net invoiced after a sync that mirrored a ledger")
 	}
-	if *after.NetInvoiced.AmountMinor <= 0 {
-		t.Fatalf("net invoiced = %d, want a positive figure", *after.NetInvoiced.AmountMinor)
+	if *figures.NetInvoiced.AmountMinor <= 0 {
+		t.Fatalf("net invoiced = %d, want a positive figure", *figures.NetInvoiced.AmountMinor)
 	}
 	// The generator leaves an open tail on purpose, because "what do they owe
 	// us" is the reading the card leads with.
-	if after.OpenBalance == nil || *after.OpenBalance.AmountMinor <= 0 {
+	if figures.OpenBalance == nil || *figures.OpenBalance.AmountMinor <= 0 {
 		t.Fatal("no open balance after a sync; the card's lead reading is empty")
 	}
-	if after.RecentInvoices == nil || len(*after.RecentInvoices) == 0 {
+	if figures.RecentInvoices == nil || len(*figures.RecentInvoices) == 0 {
 		t.Fatal("no recent invoices after a sync")
 	}
 	// The generator clears the timeliness sample floor, so the payment reading
 	// is a figure rather than a refusal.
-	if after.MedianDaysAfterDue == nil {
+	if figures.MedianDaysAfterDue == nil {
 		t.Fatal("no payment-behaviour median after a sync over eighteen months")
 	}
 }
@@ -344,10 +388,7 @@ func TestASyncRepairsAnInvoiceThatIsMissingItsRate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := e.store.SummaryFor(ctx, orgID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := e.summaryAtEpoch(t, orgID)
 	if before.NetInvoiced != nil {
 		t.Fatal("a ledger with no rates reported a total; the rest of this test proves nothing")
 	}
@@ -359,11 +400,8 @@ func TestASyncRepairsAnInvoiceThatIsMissingItsRate(t *testing.T) {
 	if repair.InvoicesUpdate == 0 {
 		t.Fatal("the pass skipped every invoice, so the rates were never repaired")
 	}
-	after, err := e.store.SummaryFor(ctx, orgID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.NetInvoiced == nil || after.NetInvoiced.AmountMinor == nil {
+	if after := e.summaryAtEpoch(t, orgID); after.NetInvoiced == nil ||
+		after.NetInvoiced.AmountMinor == nil {
 		t.Fatal("still no total after a repair pass")
 	}
 

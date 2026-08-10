@@ -8,6 +8,7 @@ package finance
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,12 +17,37 @@ import (
 
 func ledgerFor(t *testing.T, customer string) SourceLedger {
 	t.Helper()
-	provider := NewOfflineProvider("ws-1", []SourceCustomer{{ExternalID: customer}})
+	return ledgerIn(t, "ws-1", customer)
+}
+
+func ledgerIn(t *testing.T, workspace, customer string) SourceLedger {
+	t.Helper()
+	provider := NewOfflineProvider(workspace, []SourceCustomer{{ExternalID: customer}})
 	ledger, err := provider.InvoicesFor(context.Background(), customer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return ledger
+}
+
+// The seed is sha256(workspace | customer), so any claim about "every
+// generated customer" is a claim about that whole space. A handful of fixed
+// names proves it for a handful of ledgers while production draws a fresh
+// archetype for every workspace it runs in — which is exactly how a generator
+// that cleared the timeliness floor only on most seeds went unnoticed.
+func eachGeneratedLedger(t *testing.T, check func(t *testing.T, ledger SourceLedger)) {
+	t.Helper()
+	for w := range 8 {
+		for _, customer := range []string{
+			"ACME-01", "BRANDT-02", "VOLTAQ-03", "GLAZED-04",
+			"NORDHAUS-05", "PELICAN-06", "QUILL-07", "SABATIER-08",
+		} {
+			workspace := fmt.Sprintf("ws-%d", w)
+			t.Run(workspace+"/"+customer, func(t *testing.T) {
+				check(t, ledgerIn(t, workspace, customer))
+			})
+		}
+	}
 }
 
 // The same customer must produce the same ledger everywhere — on a colleague's
@@ -57,26 +83,55 @@ func TestTwoCustomersGetDifferentLedgers(t *testing.T) {
 	}
 }
 
+// generatorSampleMargin is how far past FIN-PARAM-3's floor the generated
+// ledger is required to land, and it is the MEASURED worst case over the seed
+// space rather than a wish: the thinnest ledger the generator produces carries
+// eight settled invoices inside the window.
+//
+// Asserted as a margin rather than as the floor itself because a ledger that
+// clears the floor by nothing is one dispute away from demonstrating the
+// refusal — which is the state this suite found the generator in. A change to
+// the cadence, the terms or an archetype that eats the margin fails here,
+// where the arithmetic is, rather than in the integration lane months later.
+const generatorSampleMargin = 3
+
 // FIN-FORM-3 refuses a median below five settled invoices. A generated
 // customer that fell short would demonstrate the refusal rather than the
 // figure, which is the opposite of what a demo ledger is for.
+//
+// It reads the REAL formula, at a clock pinned to the epoch the ledger is
+// generated back from. The spelling this replaces counted every payment after
+// the window opened — no upper bound, no dispute exclusion, no floor — so it
+// passed while production answered insufficient-sample over the same ledger.
 func TestEveryGeneratedCustomerClearsTheTimelinessSampleFloor(t *testing.T) {
-	for _, customer := range []string{"ACME-01", "BRANDT-02", "VOLTAQ-03", "GLAZED-04"} {
-		t.Run(customer, func(t *testing.T) {
-			ledger := ledgerFor(t, customer)
-			window := offlineEpoch.AddDate(0, 0, -TimelinessWindowDays)
-			settled := 0
-			for _, inv := range ledger.Invoices {
-				if inv.FullyPaidAt != nil && inv.FullyPaidAt.After(window) {
-					settled++
-				}
-			}
-			if settled < MinTimelinessSample {
-				t.Fatalf("%d invoices settled inside the window, want at least %d",
-					settled, MinTimelinessSample)
-			}
+	eachGeneratedLedger(t, func(t *testing.T, ledger SourceLedger) {
+		got := timelinessSample(ledger)
+		if got.InsufficientSample {
+			t.Fatalf("%d settled invoices inside the window; FIN-FORM-3 wants %d",
+				got.SampleSize, MinTimelinessSample)
+		}
+		if want := MinTimelinessSample + generatorSampleMargin; got.SampleSize < want {
+			t.Fatalf("sample of %d clears the floor by %d, want a margin of %d",
+				got.SampleSize, got.SampleSize-MinTimelinessSample, generatorSampleMargin)
+		}
+	})
+}
+
+// timelinessSample runs FIN-FORM-3's own fold over a generated ledger, as of
+// the epoch every generated date is measured back from.
+//
+// The three fields are projected rather than round-tripped through the mirror
+// because the claim here is about the GENERATOR — whether the ledger it hands
+// over carries a sample at all. Whether the mirror stores it faithfully is the
+// integration suite's question, and it asks it against a real database.
+func timelinessSample(ledger SourceLedger) Timeliness {
+	invoices := make([]Invoice, 0, len(ledger.Invoices))
+	for _, inv := range ledger.Invoices {
+		invoices = append(invoices, Invoice{
+			DueOn: inv.DueOn, FullyPaidAt: inv.FullyPaidAt, Disputed: inv.Disputed,
 		})
 	}
+	return TimelinessOver(invoices, offlineEpoch)
 }
 
 // Every account carries an open balance, because "what do they owe us" is the
@@ -145,14 +200,21 @@ func TestTheHashIgnoresEverythingDerivedFromToday(t *testing.T) {
 // The generator must not key on the clock either, for the same reason: a
 // ledger regenerated tomorrow must hash the same as today's, or the sync
 // rewrites everything every day.
+//
+// Every row, on every seed. The credit note is dated FORWARD from the invoice
+// it reduces, so it is the one row that can cross the epoch — and it did, on
+// the seeds that happened to target a recent invoice, while a check over one
+// fixed ledger reported the property held.
 func TestTheGeneratorDoesNotMoveWithTheClock(t *testing.T) {
-	ledger := ledgerFor(t, "ACME-01")
-	for _, inv := range ledger.Invoices {
-		if inv.IssuedOn.After(offlineEpoch) {
-			t.Fatalf("invoice %s is issued after the fixed epoch, so the ledger tracks the clock",
-				inv.ExternalID)
+	eachGeneratedLedger(t, func(t *testing.T, ledger SourceLedger) {
+		for _, inv := range ledger.Invoices {
+			if inv.IssuedOn.After(offlineEpoch) {
+				t.Fatalf("row %s is dated %s, after the fixed epoch %s: the ledger tracks the clock",
+					inv.ExternalID, inv.IssuedOn.Format(time.DateOnly),
+					offlineEpoch.Format(time.DateOnly))
+			}
 		}
-	}
+	})
 }
 
 // FIN-FORM-1 reads `credited_minor` off the invoice being REDUCED — its term
