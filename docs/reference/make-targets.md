@@ -94,7 +94,7 @@ root gates (each is a small script; all merge-blocking):
 
 | Target | What it does |
 |---|---|
-| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing/native-control script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm) |
+| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing/native-control script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm). `FE_CHECK=check:ci` swaps the last leg for the coverage-emitting one, so the single vitest run also writes `frontend/coverage/lcov.info` for the `sonarcloud` job — what CI passes, and about a third slower, which is why it is not the default a developer pays |
 | `fe-install` / `fe-lint` / `fe-test` / `fe-build` / `fe-format` / `fe-preview` | The individual frontend steps (`pnpm` wrappers) |
 | `ds-purity` / `font-lock` / `icon-lint` / `ds-spacing` / `native-controls` | The design-system script gates, runnable alone. `native-controls` is the no-browser-drawn-dropdown gate: `<select>`, `<option>` or `<optgroup>` anywhere under `frontend/src` outside `design-system/select.tsx` |
 | `gen-types` / `gen-types-check` | Aliases for backend `gen` / `drift` |
