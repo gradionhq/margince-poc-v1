@@ -28,7 +28,17 @@
   //
   // A glob rather than a list, so a unit joins this gate by existing — the same
   // property presence-is-enablement gives every other layer.
-  "include": ["../extensions/*/frontend/**/*"],
+  //
+  // The committed screen stub is included beside it for one reason: TypeScript
+  // treats a project whose include matches NOTHING as an error (TS18003), and
+  // on a tree with no frontend-bearing unit the glob matches nothing. Without
+  // an always-present input, removing the last such unit would fail this gate —
+  // and "the tier works until you use none of it" is not a property worth
+  // shipping. The stub is a real module and costs a few milliseconds to check.
+  "include": [
+    "../extensions/*/frontend/**/*",
+    "src/composition/extscreens.gen.ts"
+  ],
   // The inherited exclusion, undone. This project exists FOR the test files.
   "exclude": []
 }
