@@ -34,9 +34,9 @@ import (
 // re-spelled — a rename upstream then fails to compile here instead of
 // leaving a question nobody can ask.
 var (
-	askWhatsOpen    = crmcontracts.WhatsOpen
-	askMeetingPrep  = crmcontracts.MeetingPrep
-	askWhatsChanged = crmcontracts.WhatsChanged
+	askWhatsOpen    = crmcontracts.OrganizationQuestionWhatsOpen
+	askMeetingPrep  = crmcontracts.OrganizationQuestionMeetingPrep
+	askWhatsChanged = crmcontracts.OrganizationQuestionWhatsChanged
 )
 
 // askInstruction is what each question asks the writer to do. It is the whole
