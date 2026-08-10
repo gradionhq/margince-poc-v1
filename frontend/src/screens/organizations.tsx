@@ -2013,6 +2013,7 @@ function CompanyPage({
           nobody could scale. */}
       {tab === "overview" && view && (
         <StateStrip
+          orgId={org.id}
           view={view}
           lifecycleLabel={(value) =>
             t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])

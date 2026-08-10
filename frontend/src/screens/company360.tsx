@@ -18,7 +18,11 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, throwProblem } from "./common";
+import {
+  problemMessageOf,
+  throwProblem,
+  useFinanceSummary,
+} from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -2039,10 +2043,12 @@ const ENGAGEMENT_TONE: Partial<
 // cross-currency sum without its conversion source, and nothing called
 // "revenue" that is only a count of open deals.
 export function StateStrip({
+  orgId,
   view,
   lifecycleLabel,
   relationshipLabels,
 }: Readonly<{
+  orgId: string;
   view?: Organization360;
   lifecycleLabel: (value: string) => string;
   relationshipLabels: (values: readonly string[]) => string;
@@ -2079,7 +2085,12 @@ export function StateStrip({
           State D gives to net invoiced. On everyone else there are no invoices
           to ask about and the question is when the next deal lands. */}
       {customer ? (
-        <FinanceStat reading="netInvoiced" t={t} />
+        <FinanceStat
+          orgId={orgId}
+          reading="netInvoiced"
+          locale={locale}
+          t={t}
+        />
       ) : (
         <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
       )}
@@ -2119,17 +2130,37 @@ export function StateStrip({
  * tells them what to connect.
  */
 function FinanceStat({
+  orgId,
   reading,
+  locale,
   t,
 }: Readonly<{
+  orgId: string;
   reading: "netInvoiced" | "openInvoices";
+  locale: Locale;
   t: ReturnType<typeof useT>;
 }>) {
+  // The SAME query the finance card runs, so the two readings on one page
+  // agree and the second one costs no request.
+  const { data } = useFinanceSummary(orgId);
+  const amount =
+    reading === "netInvoiced" ? data?.net_invoiced : data?.open_balance;
+  // No figure is not €0. Until a source is connected and synced the strip says
+  // so and names the fix, which is what "connect your accounting" is for.
+  if (!amount || amount.amount_minor == null || !amount.currency) {
+    return (
+      <StatCard
+        label={t(`co.strip.${reading}`)}
+        value={t("co.strip.financeUnknown")}
+        detail={t("co.strip.connectFinance")}
+      />
+    );
+  }
   return (
     <StatCard
       label={t(`co.strip.${reading}`)}
-      value={t("co.strip.financeUnknown")}
-      detail={t("co.strip.connectFinance")}
+      value={formatMoney(amount.amount_minor, amount.currency, locale)}
+      source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
 }

@@ -1,13 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
 import { Landmark } from "lucide-react";
-import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { Sparkline } from "../design-system/readings";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemCodeOf, throwProblem } from "./common";
+import { problemCodeOf, useFinanceSummary } from "./common";
 import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
@@ -25,22 +23,6 @@ import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
 type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 type FinanceState = components["schemas"]["FinanceSummaryState"];
 type FinanceInvoice = components["schemas"]["FinanceInvoice"];
-
-function useFinanceSummary(orgId: string) {
-  return useQuery<FinanceSummary>({
-    queryKey: ["finance-summary", orgId],
-    queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/organizations/{id}/finance-summary",
-        { params: { path: { id: orgId } } },
-      );
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-  });
-}
 
 // Which §7 card state each finance state renders as. The mapping is explicit
 // rather than derived, because two of them are NOT what they look like:
