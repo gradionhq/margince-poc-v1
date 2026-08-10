@@ -46,6 +46,13 @@ var forbiddenJSON []byte
 
 // vocabulary is the four classes of token a view document must not contain,
 // each named for the promise it would break.
+//
+// The member names are camelCase because this struct decodes a file AUTHORED in
+// frontend/src/mcp-apps/forbidden.json, where camelCase is the local convention;
+// renaming them here would rename the shared vocabulary and break the one
+// property that makes two validators safe.
+//
+//nolint:tagliatelle // the wire member names belong to the frontend file this decodes, not to Go
 type vocabulary struct {
 	// OffOrigin: the document declares an empty origin allowlist, so anything
 	// naming a place to fetch from contradicts the declaration a host builds its

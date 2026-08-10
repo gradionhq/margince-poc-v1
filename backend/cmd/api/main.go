@@ -154,6 +154,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
+//
+// It is validateBareOrigin under the one flag name that has always used it; the
+// rule is shared with --mcp-apps-base-url, which needs exactly the same shape for
+// a different reason (a path there would make the derived document URL
+// unreachable rather than the advertised resource).
 // Presence alone is not enough: every value here is copied verbatim into the
 // OAuth audience, the RFC 9728 protected-resource document and the advertised
 // MCP URL, and a client dereferences all three exactly as given. A malformed
@@ -167,33 +172,40 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // normalized, because guessing what an operator meant is how the wrong origin
 // ends up published.
 func validatePublicBaseURL(raw string) error {
+	return validateBareOrigin("--public-base-url", raw)
+}
+
+// validateBareOrigin holds one operator-supplied origin to scheme+host and
+// nothing else. The flag name is a parameter so the refusal names the setting
+// the operator actually typed.
+func validateBareOrigin(flagName, raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", raw, err)
+		return fmt.Errorf("api: %s %q is not a URL: %w", flagName, raw, err)
 	}
 	// Userinfo is refused BEFORE any error that quotes the value, because that
 	// is where a password would be: an origin carrying credentials would put
 	// them in this boot error and every log line that copies it.
 	if parsed.User != nil {
-		return errors.New("api: --public-base-url carries userinfo; it must be a bare origin " +
-			"(value withheld: it may contain a credential)")
+		return fmt.Errorf("api: %s carries userinfo; it must be a bare origin "+
+			"(value withheld: it may contain a credential)", flagName)
 	}
 	switch {
 	case parsed.Scheme != "http" && parsed.Scheme != "https":
-		return fmt.Errorf("api: --public-base-url %q needs an http or https scheme, got %q", raw, parsed.Scheme)
+		return fmt.Errorf("api: %s %q needs an http or https scheme, got %q", flagName, raw, parsed.Scheme)
 	// Hostname(), not Host: Host keeps the port, so ":8080" is a non-empty
 	// authority that names no host at all.
 	case parsed.Hostname() == "":
-		return fmt.Errorf("api: --public-base-url %q names no host", raw)
+		return fmt.Errorf("api: %s %q names no host", flagName, raw)
 	// Exactly "" or "/" — NOT a trimmed comparison. url.Parse decodes as it
 	// goes, so "//" and "/%2F" both arrive as a path that trims to empty while
 	// the RAW value is what gets published: appending "/mcp" to either yields a
 	// URL with a doubled or encoded separator that no client resolves.
 	case parsed.Path != "" && parsed.Path != "/":
-		return fmt.Errorf("api: --public-base-url %q must be a bare origin: the MCP resource is "+
-			"derived by appending /mcp, so a path here publishes an unreachable URL", raw)
+		return fmt.Errorf("api: %s %q must be a bare origin: a URL is derived by appending "+
+			"a path to it, so a path here produces one nothing resolves", flagName, raw)
 	case parsed.RawQuery != "" || parsed.Fragment != "":
-		return fmt.Errorf("api: --public-base-url %q must be a bare origin, with no query or fragment", raw)
+		return fmt.Errorf("api: %s %q must be a bare origin, with no query or fragment", flagName, raw)
 	}
 	return nil
 }
