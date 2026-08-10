@@ -900,45 +900,9 @@
   letter-spacing: var(--tracking-display);
 }
 
-/* The payoff band: why this step is worth doing, read beside the Core rather
-   than inside it — the drop zone below is the action, this is only context,
-   so it stays one compact row and never grows to compete with it. */
-.ob-voice-hero {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  margin-top: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  background: var(--bgElevated);
-}
-
-.ob-voice-hero-core {
-  /* Sizing through the Core's documented custom properties (WDS-CORE-1): a
-     `width` here would fight `width: var(--coreSize)` inside it. */
-  --coreSize: 56px;
-  --coreGlass: 46px;
-  flex: none;
-}
-
-.ob-voice-hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.ob-voice-hero-kicker {
-  margin: 0;
-  color: var(--textMeta);
-  font-family: var(--f-body);
-  font-size: var(--fs-eyebrow);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-}
-
+/* Why the step is worth doing, inside the fold that offers it — the band that
+   used to carry its own Core, kicker and card chrome is a disclosure now, and
+   the disclosure draws the row. */
 .ob-voice-hero-body {
   margin: 0;
   color: var(--textSecondary);
@@ -1555,25 +1519,9 @@
 
 /* The four step-level promises: a real two-column grid on this wide surface,
    the shape the same four sentences could never hold in the rail's ~250px
-   column (T7 — the honest hard case here is width, not content). */
-.ob-connect-guarantees {
-  margin-top: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-}
-
-.ob-connect-guarantees-head {
-  margin: 0 0 var(--space-3);
-  color: var(--textMeta);
-  font-family: var(--f-body);
-  font-size: var(--fs-eyebrow);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-}
-
+   column (T7 — the honest hard case here is width, not content). The card and
+   its own kicker are gone with the band: the disclosure that offers them names
+   them and draws the row. */
 .ob-connect-guarantees-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
