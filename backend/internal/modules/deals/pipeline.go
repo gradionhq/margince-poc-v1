@@ -119,7 +119,7 @@ func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontract
 // caller asks for the archived ones too (the contract's include_archived).
 //
 // No operation on this contract archives a pipeline, so the dial changes
-// nothing a deployment's own endpoints can produce (#829 carries the choice:
+// nothing a deployment's own endpoints can produce (#835 carries the choice:
 // give the state a writer, or retire the parameter). It is bound rather than
 // dropped because the column and this read's filter on it are what decide the
 // answer, and a row in that state — from a fork's migration, from an ops
