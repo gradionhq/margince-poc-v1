@@ -164,11 +164,28 @@ test.describe("company record — the mockup's page shape", () => {
     }
   });
 
-  // State A's right column: next best actions, health, contacts, signals,
-  // recent activity.
-  test("the right rail renders five cards", async ({ page }) => {
+  // State A's right column: next best actions, health, contacts, signals and
+  // recent activity. Only four are asserted, because the advice card draws
+  // nothing when the rules found nothing to advise — an empty "next best
+  // actions" is a card that says a rule did not fire.
+  //
+  // The rail's existence and its ORDER are what the mockup fixes, and both are
+  // asserted: it sits to the RIGHT of the work column, which is what makes it
+  // a rail rather than more page.
+  test("the right rail carries the account's context beside the work", async ({
+    page,
+  }) => {
     await openCompany(page, POPULATED_ORG as string);
-    await expect(page.locator(".co-rail > section")).toHaveCount(5);
+    const rail = page.locator(".co-rail");
+    await expect(rail).toBeVisible();
+    expect(await rail.locator("> section").count()).toBeGreaterThanOrEqual(4);
+
+    const railBox = await rail.boundingBox();
+    const bodyBox = await page.locator(".co-grid").boundingBox();
+    if (!railBox || !bodyBox) {
+      throw new Error("rail and grid are visible but one has no box");
+    }
+    expect(railBox.x).toBeGreaterThan(bodyBox.x);
   });
 
   // A freshly imported company is lifecycle `unknown` and has nothing on it.

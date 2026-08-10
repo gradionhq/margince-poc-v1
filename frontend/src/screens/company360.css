@@ -21,6 +21,22 @@
    `auto-fit` with a minimum rather than a fixed count: a card narrower than
    ~300px stops being able to hold a two-column table or a labelled figure, and
    below that the row should become shorter, not tighter. */
+/* The right rail: the account's context beside the work (mockup State A).
+   One column of stacked cards — it never becomes a grid, because a rail that
+   re-columns is a second body rather than a margin. */
+.co-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+/* Each card owns the rail's width and its own height, so a short one does not
+   stretch to match a tall neighbour. */
+.co-rail > .card {
+  margin-bottom: 0;
+  width: 100%;
+}
+
 .co-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -471,11 +487,68 @@
 
 /* The three readings, side by side above everything else. They wrap rather
    than shrink: a reading squeezed to two words stops being one. */
+/* ONE strip of six equal slots divided by rules, not six free-standing cards
+   (mockup States A and D). `1fr` rather than a min width: six slots at a
+   readable minimum would wrap to two rows on a laptop, and a KPI row that
+   wraps stops reading as one comparison.
+   Below the point where six slots stop being legible it becomes two rows of
+   three, which is a deliberate fold rather than an accidental one. */
 .co-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
   margin-block-end: 0.9rem;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
+  overflow: hidden;
+}
+
+@media (max-width: 68rem) {
+  .co-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 40rem) {
+  .co-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* The dividers ARE the strip: each slot draws its own left rule except the
+   first in a row, so the shape follows the column count above without a rule
+   hanging off the edge. */
+.co-strip > * {
+  border: 0;
+  border-radius: 0;
+  border-inline-start: 1px solid var(--borderSubtle);
+  background: transparent;
+  margin: 0;
+}
+
+.co-strip > *:first-child {
+  border-inline-start: 0;
+}
+
+/* A strip slot is narrower than a free-standing stat card, so the source badge
+   wraps to its own line instead of squeezing the label beside it into two
+   lines that then collide with the figure. */
+.co-strip .stat-card-label {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+@media (max-width: 68rem) {
+  .co-strip > *:nth-child(3n + 1) {
+    border-inline-start: 0;
+  }
+}
+
+@media (max-width: 40rem) {
+  .co-strip > *:nth-child(odd) {
+    border-inline-start: 0;
+  }
 }
 
 /* The brief under the questions it answers. Sections are separated by space

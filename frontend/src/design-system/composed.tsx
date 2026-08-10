@@ -476,7 +476,7 @@ export function RecordView({
           )}
         </div>
         {aside && (
-          <aside className="record-aside" aria-label={t("record.business")}>
+          <aside className="record-aside" aria-label={t("record.context")}>
             {aside}
           </aside>
         )}

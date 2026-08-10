@@ -2092,6 +2092,7 @@ export function StateStrip({
           <FinanceStat
             orgId={orgId}
             reading="netInvoiced"
+            namesSource
             locale={locale}
             t={t}
           />
@@ -2167,11 +2168,15 @@ const FINANCE_READINGS = {
 function FinanceStat({
   orgId,
   reading,
+  namesSource,
   locale,
   t,
 }: Readonly<{
   orgId: string;
   reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
+  // Whether this slot carries the provider badge. True on exactly one slot per
+  // row; see the note beside `source` below.
+  namesSource?: boolean;
   locale: Locale;
   t: ReturnType<typeof useT>;
 }>) {
@@ -2208,6 +2213,17 @@ function FinanceStat({
     <StatCard
       label={t(`co.strip.${reading}`)}
       value={formatMoney(amount.amount_minor, amount.currency, locale)}
+      source={
+        namesSource && data?.provider ? (
+          <Badge>{data.provider}</Badge>
+        ) : undefined
+      }
+      // The source is named ONCE, on the trailing-year slot — the row's
+      // primary money reading, and the one a connected account always has. Which
+      // accounting system a figure came from is a fact about the CONNECTION,
+      // not about each figure, and five slots reading one query would repeat
+      // it five times across a strip that has to stay one line.
+      //
       // A figure that is not current is shown WITH its caveat rather than
       // withheld: the last known number is usually the right one, and hiding
       // it tells the reader less than showing it qualified would.
@@ -2218,7 +2234,6 @@ function FinanceStat({
       // that failed. Calling either one the other is a wrong claim about
       // whether anything is broken.
       detail={caveat && t(caveat)}
-      source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
 }
@@ -2274,7 +2289,6 @@ function PaidAfterDueStat({
       label={t("co.strip.paidAfterDue")}
       value={medianDaysLabel(median, t)}
       detail={caveat && t(caveat)}
-      source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
 }
