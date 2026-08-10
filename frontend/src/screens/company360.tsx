@@ -1952,11 +1952,127 @@ type Health = NonNullable<Organization360["health"]>;
  * A part the server could not compute is ABSENT, never zero. Zero is a claim
  * about the account; absence is a fact about the reading.
  */
-export function HealthCard({ health }: Readonly<{ health?: Health }>) {
+// The rating vocabulary, worst first. The ORDER is the worst-of rule: a
+// verdict is the lowest-ranked rating among the dimensions that have one
+// (PO-AC-N-11).
+const HEALTH_RANK = ["at_risk", "good", "strong"] as const;
+type HealthRating = (typeof HEALTH_RANK)[number];
+
+const HEALTH_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
+  at_risk: "danger",
+  good: "warn",
+  strong: "success",
+};
+
+const HEALTH_DIMENSION_LABEL: Record<
+  "relationship" | "commercial" | "payment",
+  MessageKey
+> = {
+  relationship: "co.health.dim.relationship",
+  commercial: "co.health.dim.commercial",
+  payment: "co.health.dim.payment",
+};
+
+/**
+ * Payment health, read from the finance summary the page already fetches.
+ *
+ * Rated from the median days after due, which is the reading that says how they
+ * PAY rather than what they owe: one late invoice is an exception, a habit is a
+ * habit. Below the sample floor the server sends no median, and this returns
+ * nothing — "pays on time" concluded from four invoices is a claim about a
+ * habit nobody has observed yet.
+ *
+ * Overdue money outranks the median. An account that pays promptly and has
+ * money outstanding right now is at risk today, whatever its habit.
+ */
+function usePaymentHealth(orgId?: string) {
   const t = useT();
+  const { data } = useFinanceSummary(orgId ?? "");
+  if (!orgId || !data) {
+    return undefined;
+  }
+  const overdue = data.overdue?.amount_minor ?? 0;
+  if (overdue > 0) {
+    return {
+      rating: "at_risk" as const,
+      reason: t("co.health.payment.overdue"),
+    };
+  }
+  const median = data.median_days_after_due;
+  if (median == null) {
+    return undefined;
+  }
+  if (median > paymentLateDays) {
+    return {
+      rating: "good" as const,
+      reason: t("co.health.payment.late", { days: median }),
+    };
+  }
+  return {
+    rating: "strong" as const,
+    reason:
+      median < 0
+        ? t("finance.medianEarly", { days: Math.abs(median) })
+        : t("co.health.payment.onTime"),
+  };
+}
+
+// How many days past due a median has to run before it reads as a habit worth
+// naming. Named rather than inlined so the threshold is one number a reader can
+// find and argue with.
+const paymentLateDays = 5;
+
+const HEALTH_RATING_LABEL: Record<HealthRating, MessageKey> = {
+  at_risk: "co.health.rating.atRisk",
+  good: "co.health.rating.good",
+  strong: "co.health.rating.strong",
+};
+
+/**
+ * The account's health as its named dimensions and one verdict over them.
+ *
+ * `overall` is the WORST rating present, never an average: an average lets a
+ * strong relationship hide a payment problem, and payment problems are the ones
+ * a rep must not miss. It is also a sentence a reader can check — "at risk,
+ * because payment is at risk" — where a composite number is not.
+ *
+ * A dimension with no rating is not in the verdict, and the card says how many
+ * it was computed from. Three-of-three and one-of-three are different claims.
+ */
+export function worstOf(
+  dimensions: ReadonlyArray<{ rating?: string } | undefined>,
+): { overall?: HealthRating; rated: number } {
+  const present = dimensions
+    .map((dimension) => dimension?.rating)
+    .filter((rating): rating is HealthRating =>
+      HEALTH_RANK.includes(rating as HealthRating),
+    );
+  if (present.length === 0) {
+    return { rated: 0 };
+  }
+  const worst = HEALTH_RANK.find((rating) => present.includes(rating));
+  return { overall: worst, rated: present.length };
+}
+
+export function HealthCard({
+  health,
+  orgId,
+}: Readonly<{ health?: Health; orgId?: string }>) {
+  const t = useT();
+  // PAYMENT is composed here rather than served with the other two. The finance
+  // mirror is another module's, and a module never imports a sibling — so the
+  // 360 carries relationship and commercial, and the surface that already reads
+  // the finance summary folds in the third. Same query the KPI strip and the
+  // finance card run, so it costs no request and the three cannot disagree.
+  const payment = usePaymentHealth(orgId);
   if (!health) {
     return null;
   }
+  const { overall, rated } = worstOf([
+    health.relationship,
+    health.commercial,
+    payment,
+  ]);
   const lines: string[] = [];
   if (health.days_since_last_inbound != null) {
     lines.push(
@@ -1980,7 +2096,7 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       t("co.health.openCommitments", { count: health.open_commitments }),
     );
   }
-  if (lines.length === 0) {
+  if (lines.length === 0 && rated === 0) {
     return null;
   }
   return (
@@ -1991,6 +2107,42 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       // because "how it stands: nothing" is not a reading of an account.
       emptyLabel={t("co.health.title")}
     >
+      {/* The dimensions lead, each with its rating. A dimension with no rating
+          is absent rather than shown as unknown — absence is a fact about the
+          reading, and a permanently unknown row teaches a reader to skip the
+          card (ADR-0095/A146). */}
+      <ul className="co-health-rows">
+        {(
+          [
+            ["relationship", health.relationship],
+            ["commercial", health.commercial],
+            ["payment", payment],
+          ] as const
+        ).map(([name, dimension]) =>
+          dimension?.rating ? (
+            <li key={name} className="co-health-row">
+              <span>{t(HEALTH_DIMENSION_LABEL[name])}</span>
+              <Badge tone={HEALTH_TONE[dimension.rating as HealthRating]}>
+                {t(HEALTH_RATING_LABEL[dimension.rating as HealthRating])}
+              </Badge>
+              <span className="co-row-meta">{dimension.reason}</span>
+            </li>
+          ) : null,
+        )}
+        {overall && (
+          <li className="co-health-row co-health-overall">
+            <span>{t("co.health.overall")}</span>
+            <Badge tone={HEALTH_TONE[overall]}>
+              {t(HEALTH_RATING_LABEL[overall])}
+            </Badge>
+            {/* How many dimensions the verdict was read from. Three-of-three
+                and one-of-three are different claims. */}
+            <span className="co-row-meta">
+              {t("co.health.ratedOf", { rated })}
+            </span>
+          </li>
+        )}
+      </ul>
       <ul className="co-list">
         {lines.map((line) => (
           <li key={line} className="co-row">

@@ -3510,6 +3510,27 @@ func (e GrowthFitBand) Valid() bool {
 	}
 }
 
+// Defines values for HealthDimensionRating.
+const (
+	HealthDimensionRatingAtRisk HealthDimensionRating = "at_risk"
+	HealthDimensionRatingGood   HealthDimensionRating = "good"
+	HealthDimensionRatingStrong HealthDimensionRating = "strong"
+)
+
+// Valid indicates whether the value is a known member of the HealthDimensionRating enum.
+func (e HealthDimensionRating) Valid() bool {
+	switch e {
+	case HealthDimensionRatingAtRisk:
+		return true
+	case HealthDimensionRatingGood:
+		return true
+	case HealthDimensionRatingStrong:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
 	IngestVoiceCorpusSourceRequestFormatText       IngestVoiceCorpusSourceRequestFormat = "text"
@@ -7382,16 +7403,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	Text       VoiceCorpusPreviewRequestFormat = "text"
-	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case Text:
+	case VoiceCorpusPreviewRequestFormatText:
 		return true
-	case Transcript:
+	case VoiceCorpusPreviewRequestFormatTranscript:
 		return true
 	default:
 		return false
@@ -11817,6 +11838,21 @@ type FxRateListResponse struct {
 // "we could not tell" — those are opposite conclusions.
 type GrowthFitBand string
 
+// HealthDimension One named part of the relationship's health, with the reason for its rating.
+//
+// The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+// this model replaced — a reader must be able to see what it was read from and disagree.
+type HealthDimension struct {
+	// Rating Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+	Rating HealthDimensionRating `json:"rating"`
+
+	// Reason One sentence naming what this rating was read from.
+	Reason string `json:"reason"`
+}
+
+// HealthDimensionRating Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+type HealthDimensionRating string
+
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
 	Content *string `json:"content,omitempty"`
@@ -13002,12 +13038,21 @@ type Organization360Health struct {
 	// ActiveContacts How many people here have interacted at all — the account's real surface.
 	ActiveContacts *int `json:"active_contacts,omitempty"`
 
+	// Commercial Whether work is moving — open pipeline and whether it is stalling.
+	Commercial *HealthDimension `json:"commercial,omitempty"`
+
 	// DaysSinceLastInbound Null when they have never written, which is different from writing long ago.
 	DaysSinceLastInbound *int       `json:"days_since_last_inbound,omitempty"`
 	LastMeetingAt        *time.Time `json:"last_meeting_at,omitempty"`
 
 	// OpenCommitments Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals.
 	OpenCommitments *int `json:"open_commitments,omitempty"`
+
+	// Payment Whether they pay, and on time. Absent on an account with no finance connection or too few settled invoices to say — which is different from paying badly.
+	Payment *HealthDimension `json:"payment,omitempty"`
+
+	// Relationship Whether we are in contact and both sides are talking. Read from the strength roll-up and the reply balance below (PO-AC-N-10).
+	Relationship *HealthDimension `json:"relationship,omitempty"`
 
 	// ReplyBalance Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured.
 	ReplyBalance *float32 `json:"reply_balance,omitempty"`

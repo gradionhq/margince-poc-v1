@@ -70,7 +70,7 @@ export function CompanyRail({
         view={view}
         onOpenRecord={onOpenRecord}
       />
-      <HealthCard health={view?.health} />
+      <HealthCard health={view?.health} orgId={orgId} />
       {withPeople && (
         <PeopleCard view={view} writable={writable} orgId={orgId} />
       )}
