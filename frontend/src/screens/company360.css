@@ -821,3 +821,52 @@
 .com-block + .com-block {
   margin-top: var(--space-3);
 }
+
+/* The health card's rated rows: name, rating, and the sentence it was read
+   from. A grid rather than a flex row so the ratings line up down the card —
+   three dimensions a reader scans vertically, not three sentences. */
+.co-health-rows {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.co-health-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+/* The reason runs under its rating, across both columns: it qualifies the
+   badge rather than competing with it for the row. */
+.co-health-row > .co-row-meta {
+  grid-column: 1 / -1;
+}
+
+/* The verdict is separated from what it was read from, because it is a
+   different KIND of statement — a conclusion, not an input. */
+.co-health-overall {
+  margin-block-start: var(--space-1);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--borderSubtle);
+  font-weight: 600;
+}
+
+/* The growth-fit bars: the band taken apart, one row per dimension. The reason
+   sits under its bar rather than beside it — at this width a sentence and a
+   meter side by side leave neither enough room to read. */
+.co-growth-fit-scores {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-growth-fit-score {
+  display: grid;
+  gap: var(--space-1);
+}

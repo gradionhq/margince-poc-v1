@@ -12107,6 +12107,21 @@ components:
             missing inputs to go and find. When the band was capped it names the other
             fix — confirming our own offering. Always a concrete action, never a
             restatement that data is missing.
+        sub_scores:
+          type: array
+          description: |
+            The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+            same evidence the band is assessed from, each with a 0-100 score and the reason for
+            it, so a reader who disagrees with the verdict can see which input carried it.
+
+            ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+            zeroes and never a partial set, because a dimension scored 0 is a claim about the
+            company where an absent one is a fact about the reading (DOSS-AC-18).
+
+            This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+            composite that survives its own missing inputs; nothing here sums or averages these
+            four into one figure (DOSS-AC-19), and the band remains the verdict.
+          items: { $ref: '#/components/schemas/GrowthFitSubScore' }
         positive_factors:
           type: array
           description: What argues for this company being a fit.
@@ -12207,6 +12222,38 @@ components:
             question nothing to answer from — an honest "nothing here I can show you"
             rather than a sentence written around the gap.
           items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+
+    GrowthFitSubScore:
+      type: object
+      description: |
+        One dimension of the growth-fit assessment, with the reason for its score.
+
+        The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+        this model was built to replace, and a reader must be able to see what it was read from.
+      required: [dimension, score, reason]
+      properties:
+        dimension:
+          type: string
+          enum: [industry_fit, company_size, transformation_need, access]
+          description: >-
+            The four the assessment decomposes into. A closed enum rather than free text, so a
+            surface can label and order them and a model cannot invent a fifth.
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19)
+            — the band is the verdict, and these are what it was read from.
+        reason:
+          type: string
+          description: One sentence saying what this score was read from.
+        evidence:
+          type: array
+          description: >-
+            The records behind the reason, on the same footing as every other claim. A sub-score
+            citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20).
+          items: { $ref: '#/components/schemas/OrganizationBriefEvidence' }
 
     OrganizationBriefSentence:
       type: object
@@ -12377,6 +12424,26 @@ components:
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
+    HealthDimension:
+      type: object
+      description: |
+        One named part of the relationship's health, with the reason for its rating.
+
+        The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+        this model replaced — a reader must be able to see what it was read from and disagree.
+      required: [rating, reason]
+      properties:
+        rating:
+          type: string
+          enum: [strong, good, at_risk]
+          description: >-
+            Three values, not a scale. A dimension that cannot be computed is ABSENT rather than
+            rated `unknown`: absence is a fact about the reading, where a rating is a claim about
+            the account.
+        reason:
+          type: string
+          description: One sentence naming what this rating was read from.
+
     Organization360Health:
       type: object
       description: |
@@ -12390,6 +12457,32 @@ components:
         Every part is nullable and absent when it cannot be computed — never zero, which would
         be a claim about the account rather than about what was readable.
       properties:
+        relationship:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether we are in contact and both sides are talking. Read from the strength roll-up
+            and the reply balance below (PO-AC-N-10).
+        commercial:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: Whether work is moving — open pipeline and whether it is stalling.
+        payment:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether they pay, and on time. Absent on an account with no finance connection or
+            too few settled invoices to say — which is different from paying badly.
+        # There is deliberately no `overall` here, and no `adoption` dimension.
+        #
+        # The VERDICT is the worst of the three dimensions (PO-AC-N-11), and this
+        # payload can only carry two of them: payment comes from the finance
+        # mirror, which is another module and which a module never imports. A
+        # verdict computed here would be a worst-of that had never seen payment —
+        # exactly the "a strong relationship hides a payment problem" failure the
+        # rule exists to prevent — so it is composed on the surface that reads
+        # both, and this section does not pretend to it.
+        #
+        # `adoption` is absent for a different reason: nothing measures whether a
+        # customer uses what they bought, and a permanently unknown row teaches a
+        # reader that unknown is a normal reading (ADR-0095/A146).
         days_since_last_inbound:
           type: [integer, 'null']
           description: Null when they have never written, which is different from writing long ago.
@@ -12711,6 +12804,30 @@ components:
             filed under: a `contract_ended` signal stands while the record still reads as a live
             customer or an open opportunity. The page states the conflict rather than resolving
             it, because which of the two is wrong is a judgment only the reader can make.
+        title:
+          type: [string, 'null']
+          description: |
+            What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+
+            Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+            the system has no basis for and no way to complete; a title here says only what the
+            rule that fired already knows.
+
+            It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+            suggestion every reader has ever dismissed the moment the wording changed.
+        due_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+
+            Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+            a due date would turn it into an obligation nobody agreed to. Null where the rule
+            fired on something with no date of its own.
+
+            Excluded from the fingerprint for the same reason as the title, and more sharply: a
+            date moves on its own, so a dismissal keyed on one would expire without anything
+            about the account changing.
         fingerprint:
           type: string
           description: |
