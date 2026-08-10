@@ -1310,7 +1310,7 @@ describe("company view — the KPI row never invents a figure", () => {
   });
 
   // Two cards saying "in conversation" in different words is one card's worth
-  // of information taking two of the four slots. On a live account the health
+  // of information taking two slots of six. On a live account the health
   // card reports the BALANCE of the exchange, which the engagement card does
   // not answer: they write and we do not reply, and we write into silence,
   // are both recent and are opposite problems.
@@ -1786,6 +1786,134 @@ describe("company view — the account's primary actions", () => {
     // only open a form that fails on save.
     expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
+  });
+});
+
+// The three readings the six-slot row added: a lifetime total beside the
+// trailing one, what is overdue, and how late they usually pay.
+describe("a customer's KPI row reports what the account is worth", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const connected = (extra: Record<string, unknown>) => ({
+    organization_id: "o-1",
+    state: "connected",
+    provider: "offline_demo",
+    ...extra,
+  });
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  // The two windows are different figures and must not be collapsed into one.
+  // A lifetime total equal to the trailing one on an account with older
+  // invoices would mean the wider window silently used the narrow bound.
+  it("draws the lifetime total beside the trailing year", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText(/428,000/)).toBeTruthy();
+    expect(within(region).getByText(/186,420/)).toBeTruthy();
+  });
+
+  it("gives what is overdue its own slot", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        open_balance: { amount_minor: 3418000, currency: "EUR" },
+        overdue: { amount_minor: 1243000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(within(region).getByText(/12,430/)).toBeTruthy();
+    expect(within(region).getByText(/34,180/)).toBeTruthy();
+  });
+
+  // "-4 days after due" is a puzzle. Paying four days EARLY is the reading,
+  // and it is the opposite fact.
+  it("reads a negative median as paying early, never as a minus sign", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({ median_days_after_due: -4 }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Typically 4 days early")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/-4/);
+  });
+
+  it("reads a positive median as paying late", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({ median_days_after_due: 12 }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(
+      within(region).getByText("Typically 12 days after due"),
+    ).toBeTruthy();
+  });
+
+  // The sample floor is not "nothing invoiced". Saying so beside a lifetime
+  // total puts two slots of one row in contradiction, and the wrong one states
+  // a fact about the account.
+  it("says too few settled invoices rather than nothing invoiced", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    // Scoped to the median's own slot: the money slots beside it carry no
+    // figure either, and "Nothing invoiced yet" is the RIGHT reason for those.
+    // The defect this pins is the median borrowing their wording.
+    const slot = within(region)
+      .getByText("Median paid after due")
+      .closest("section");
+    expect(slot).not.toBeNull();
+    expect(slot?.textContent).toMatch(/Too few settled invoices to say/);
+    expect(slot?.textContent).not.toMatch(/Nothing invoiced yet/);
   });
 });
 

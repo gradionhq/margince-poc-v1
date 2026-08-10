@@ -591,6 +591,7 @@ export const vi = {
   "co.strip.fin.errorFigure":
     "Đồng bộ gần nhất thất bại — có thể không còn đúng",
   "co.strip.fin.nothingBilled": "Chưa xuất hóa đơn nào",
+  "co.strip.fin.tooFewSettled": "Quá ít hóa đơn đã thanh toán để kết luận",
   "co.strip.fin.error": "Không đọc được",
   "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",

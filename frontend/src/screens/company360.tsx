@@ -2027,18 +2027,16 @@ const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the three readings the overview leads with (AC-company-13):
- * where the account stands, whose move it is, and what commercial work is open.
+ * StateStrip is the KPI row directly under the header: SIX slots, and which
+ * six depends on where the account stands. A customer is asked about money and
+ * health; everyone else about pipeline, timing and engagement. Showing one set
+ * to both makes half of them noise.
  *
- * Each half is drawn only when the server answered it. A null engagement means
+ * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
  * from that would state a business conclusion the page has no basis for — the
  * one a rep would act on.
  */
-// The compact KPI row (plan §4.2): at most four cards, and WHICH four depends
-// on where the account stands. A customer is asked about money and health; a
-// prospect is asked about pipeline, timing and fit. Showing one set to both
-// makes half of them noise.
 //
 // What it must never render is the harder half of the rule, and every omission
 // below is one of its bullets: no €0 when the figure is unavailable, no
@@ -2233,9 +2231,12 @@ function FinanceStat({
  * BEFORE the due date, so it is rendered as "typically N days early" — the
  * literal "-4 days after due" is a puzzle rather than a reading.
  *
- * Below the sample floor the server sends no median at all, and the slot says
- * so instead of showing 0: "pays on time" concluded from four invoices is a
- * claim about a habit nobody has observed yet.
+ * A missing median has one reason the money slots do not share: the server
+ * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
+ * payment habit read off four invoices is an anecdote. That case says so.
+ * Delegating it to the money slots' reason would put "Nothing invoiced yet"
+ * beside a lifetime total of €186,420 — two slots on one row contradicting
+ * each other, and the wrong one stating a fact about the account.
  */
 function PaidAfterDueStat({
   orgId,
@@ -2245,17 +2246,24 @@ function PaidAfterDueStat({
   const withheld = isError && problemCodeOf(error) === "permission_denied";
   const median = data?.median_days_after_due;
   if (median == null) {
+    // A read that SUCCEEDED against a live connection and still carries no
+    // median is the sample floor. Every other reason — no source, unmapped,
+    // syncing, denied, failed — means the same for this slot as for the money
+    // beside it, so those keep the shared wording.
+    const settled = data?.state === "connected" || data?.state === "stale";
     return (
       <StatCard
         label={t("co.strip.paidAfterDue")}
         value={t("co.strip.financeUnknown")}
         detail={t(
-          financeDetailKey({
-            pending: isPending,
-            withheld,
-            failed: isError && !withheld,
-            state: data?.state,
-          }),
+          settled && !isPending && !isError
+            ? "co.strip.fin.tooFewSettled"
+            : financeDetailKey({
+                pending: isPending,
+                withheld,
+                failed: isError && !withheld,
+                state: data?.state,
+              }),
         )}
       />
     );
@@ -2264,15 +2272,28 @@ function PaidAfterDueStat({
   return (
     <StatCard
       label={t("co.strip.paidAfterDue")}
-      value={
-        median < 0
-          ? t("finance.medianEarly", { days: Math.abs(median) })
-          : t("finance.medianAfterDue", { days: median })
-      }
+      value={medianDaysLabel(median, t)}
       detail={caveat && t(caveat)}
       source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
+}
+
+/**
+ * A median days-after-due as a sentence (FIN-FORM-3).
+ *
+ * Negative days mean they pay BEFORE the due date. "-4 days after due" is a
+ * puzzle; "typically 4 days early" is the reading. Shared by the KPI slot and
+ * the finance card so the two cannot come to describe earliness differently —
+ * spelled twice, only one of the copies would be changed.
+ */
+export function medianDaysLabel(
+  median: number,
+  t: ReturnType<typeof useT>,
+): string {
+  return median < 0
+    ? t("finance.medianEarly", { days: Math.abs(median) })
+    : t("finance.medianAfterDue", { days: median });
 }
 
 // The caveat on a figure that IS shown but is not current. Undefined when the
@@ -2458,7 +2479,7 @@ function CloseDateStat({
 // It reports the BALANCE of the exchange rather than its recency, because the
 // engagement card beside it already answers "whose move is it" — two cards
 // saying "in conversation" in different words is one card's worth of
-// information taking two of the four slots. A relationship where they write
+// information taking two slots of six. A relationship where they write
 // and we do not answer, and one where we write into silence, are both
 // "in conversation" by recency and are opposite problems.
 function HealthStat({

@@ -6,7 +6,12 @@ import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemCodeOf, useFinanceSummary } from "./common";
-import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
+import {
+  medianDaysLabel,
+  RECORD_ZONE,
+  SectionCard,
+  type SectionState,
+} from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
 //
@@ -190,16 +195,8 @@ function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
     <div className="fin-behaviour">
       <span className="t-caption">{t("finance.behaviour")}</span>
       <Sparkline points={series} label={t("finance.behaviour")} />
-      {/* Negative days mean they pay BEFORE the due date. "-4 days after
-          due" is a puzzle; "typically 4 days early" is the reading. */}
       <span className="t-caption">
-        {summary.median_days_after_due < 0
-          ? t("finance.medianEarly", {
-              days: Math.abs(summary.median_days_after_due),
-            })
-          : t("finance.medianAfterDue", {
-              days: summary.median_days_after_due,
-            })}
+        {medianDaysLabel(summary.median_days_after_due, t)}
       </span>
     </div>
   );

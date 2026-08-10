@@ -93,14 +93,20 @@ func NetInvoicedOver(invoices []Invoice, asOf time.Time) NetInvoiced {
 // whole total when any row lacks a conversion rate (FIN-AC-6). Lifetime is
 // per current CONNECTION — what the mirror holds, not what the customer has
 // ever been billed — so a re-connected source restates it.
+// asOf is still the UPPER bound: an invoice issued after it is a forecast, and
+// a lifetime figure that counted next month's billing would not be a total.
 func NetInvoicedLifetime(invoices []Invoice, asOf time.Time) NetInvoiced {
 	// The zero time as the lower bound: every issued row is at or after it,
 	// so `issuedInWindow` keeps its single spelling of the status rules.
+	// WindowDays comes back 0, which reads as "no lower bound" rather than as
+	// a zero-day window. Nothing outside this package's tests reads the field
+	// today; a surface that ever labels the window will need the two cases
+	// told apart in the type rather than by that convention.
 	return netInvoicedBetween(invoices, time.Time{}, asOf, 0)
 }
 
-// netInvoicedBetween is FIN-FORM-1's fold over one date range. windowDays is
-// carried onto the result for the surface to label; 0 means "no lower bound".
+// netInvoicedBetween is FIN-FORM-1's fold over one date range, inclusive at
+// both ends. windowDays is carried onto the result for a surface to label.
 func netInvoicedBetween(
 	invoices []Invoice,
 	from, to time.Time,

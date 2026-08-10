@@ -589,6 +589,7 @@ export const en = {
   "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
   "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
   "co.strip.fin.nothingBilled": "Nothing invoiced yet",
+  "co.strip.fin.tooFewSettled": "Too few settled invoices to say",
   "co.strip.fin.error": "Could not be read",
   "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",
