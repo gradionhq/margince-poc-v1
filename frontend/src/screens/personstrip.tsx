@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
+import { useT } from "../i18n";
 
 // The relationship state strip (concept §5.3): six facts that change how a
 // reader interprets everything below them.
@@ -25,49 +26,50 @@ type Person360 = components["schemas"]["Person360"];
 
 export function PersonStrip({
   view,
-  consent,
+  consentVerdict,
 }: Readonly<{
   view: Person360;
-  consent: string | null;
+  consentVerdict: string | undefined;
 }>) {
+  const t = useT();
   const omitted = new Set(view.sections_omitted ?? []);
   return (
     <div className="pe-strip" data-testid="person-strip">
       <Slot
         icon={<TrendingDown size={18} aria-hidden="true" />}
-        label="Last inbound"
-        value={relativeDays(view.last_inbound_at)}
+        label={t("person.strip.lastInbound")}
+        value={relativeDays(view.last_inbound_at, t)}
         withheld={omitted.has("last_touch")}
       />
       <Slot
         icon={<ArrowUpRight size={18} aria-hidden="true" />}
-        label="Last outbound"
-        value={relativeDays(view.last_outbound_at)}
+        label={t("person.strip.lastOutbound")}
+        value={relativeDays(view.last_outbound_at, t)}
         withheld={omitted.has("last_touch")}
       />
       <Slot
         icon={<MoveHorizontal size={18} aria-hidden="true" />}
-        label="Reciprocity"
-        value={reciprocity(view)}
+        label={t("person.strip.reciprocity")}
+        value={reciprocity(view, t)}
         withheld={omitted.has("activities")}
       />
       <Slot
         icon={<CircleDollarSign size={18} aria-hidden="true" />}
-        label="Open deal"
-        value={openDeal(view)}
+        label={t("person.strip.openDeal")}
+        value={openDeal(view, t)}
         withheld={omitted.has("commercial")}
       />
       <Slot
         icon={<CalendarDays size={18} aria-hidden="true" />}
-        label="Next meeting"
-        value={nextMeeting(view)}
+        label={t("person.strip.nextMeeting")}
+        value={nextMeeting(view, t)}
         withheld={omitted.has("next_meeting")}
       />
       <Slot
         icon={<ShieldCheck size={18} aria-hidden="true" />}
-        label="Consent"
-        value={consent ?? "Unknown"}
-        tone={consentTone(consent)}
+        label={t("person.strip.consent")}
+        value={consentWord(consentVerdict, t)}
+        tone={consentTone(consentVerdict)}
         withheld={omitted.has("consent")}
       />
     </div>
@@ -87,9 +89,10 @@ function Slot({
   tone?: "good" | "muted";
   withheld?: boolean;
 }>) {
+  const t = useT();
   // A withheld slot says so. Rendering it empty would read as "there is none",
   // which is a claim about the record rather than about the reader's grants.
-  const shown = withheld ? "Not shown" : value;
+  const shown = withheld ? t("person.strip.notShown") : value;
   const toneClass = withheld ? "muted" : tone;
   return (
     <div className="pe-slot">
@@ -98,7 +101,9 @@ function Slot({
         <span className="pe-slot-label">{label}</span>
         <span
           className={
-            toneClass ? `pe-slot-value pe-slot-value-${toneClass}` : "pe-slot-value"
+            toneClass
+              ? `pe-slot-value pe-slot-value-${toneClass}`
+              : "pe-slot-value"
           }
           title={shown}
         >
@@ -112,23 +117,26 @@ function Slot({
 // relativeDays reads a timestamp the way a person says it. "Never" is reserved
 // for a read that HAPPENED and found nothing — the caller decides that by
 // passing null only when the section was readable.
-function relativeDays(at: string | null | undefined): string {
+function relativeDays(
+  at: string | null | undefined,
+  t: ReturnType<typeof useT>,
+): string {
   if (!at) {
-    return "Never";
+    return t("person.strip.never");
   }
   const days = Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000);
   if (days <= 0) {
-    return "Today";
+    return t("person.strip.today");
   }
   if (days === 1) {
-    return "Yesterday";
+    return t("person.strip.yesterday");
   }
-  return `${days} days`;
+  return t("person.strip.days", { count: days });
 }
 
 // Counts, not a score. A standalone number here would be the composite verdict
 // the face deliberately does not carry (ADR-0096 D1).
-function reciprocity(view: Person360): string {
+function reciprocity(view: Person360, t: ReturnType<typeof useT>): string {
   const rows = view.activities?.data ?? [];
   let inbound = 0;
   let outbound = 0;
@@ -140,13 +148,13 @@ function reciprocity(view: Person360): string {
       outbound += 1;
     }
   }
-  return `${inbound} in · ${outbound} out`;
+  return t("person.strip.inOut", { inbound, outbound });
 }
 
-function openDeal(view: Person360): string {
+function openDeal(view: Person360, t: ReturnType<typeof useT>): string {
   const deal = view.commercial?.deal;
   if (!deal) {
-    return "No open deal";
+    return t("person.strip.noOpenDeal");
   }
   if (deal.amount_minor == null || !deal.currency) {
     return deal.title;
@@ -154,10 +162,10 @@ function openDeal(view: Person360): string {
   return money(deal.amount_minor, deal.currency);
 }
 
-function nextMeeting(view: Person360): string {
+function nextMeeting(view: Person360, t: ReturnType<typeof useT>): string {
   const meeting = view.next_meeting;
   if (!meeting) {
-    return "None";
+    return t("person.strip.noMeeting");
   }
   return new Date(meeting.starts_at).toLocaleDateString(undefined, {
     day: "numeric",
@@ -165,11 +173,30 @@ function nextMeeting(view: Person360): string {
   });
 }
 
-function consentTone(consent: string | null): "good" | "muted" | undefined {
-  if (consent === "Allowed") {
+// The verdict word and its tone are read from the SERVER's verdict key, never
+// from the rendered word: a translated label must not change how the slot is
+// coloured.
+export function consentWord(
+  verdict: string | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  switch (verdict) {
+    case "allowed":
+      return t("person.consent.allowedWord");
+    case "blocked":
+      return t("person.consent.blockedWord");
+    default:
+      return t("person.consent.unknownWord");
+  }
+}
+
+function consentTone(
+  verdict: string | undefined,
+): "good" | "muted" | undefined {
+  if (verdict === "allowed") {
     return "good";
   }
-  return consent ? undefined : "muted";
+  return verdict ? undefined : "muted";
 }
 
 // Money arrives in MINOR units and is rendered whole: the strip shows €95k,

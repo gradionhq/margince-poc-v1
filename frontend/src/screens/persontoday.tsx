@@ -8,6 +8,7 @@ import {
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
+import { useT } from "../i18n";
 
 // "Today with {first name}" (concept §5.5, ADR-0096 D2).
 //
@@ -33,6 +34,7 @@ export function PersonToday({
   firstName: string;
   onAction: (action: PersonMomentAction) => void;
 }>) {
+  const t = useT();
   // The amber treatment is the finding itself — a relationship that stopped,
   // or a promise that is late — so it colours the card rather than a badge
   // inside it.
@@ -52,7 +54,7 @@ export function PersonToday({
           ) : (
             <Sparkles size={16} aria-hidden="true" />
           )}
-          <span>Today with {firstName}</span>
+          <span>{t("person.today.heading", { name: firstName })}</span>
         </div>
         <h2 className="pe-today-headline">{moment.headline}</h2>
 
@@ -72,13 +74,21 @@ export function PersonToday({
 
         <div className="pe-today-foot">
           <span>
-            {moment.evidence.length}{" "}
-            {moment.evidence.length === 1 ? "source" : "sources"}
+            {t(
+              moment.evidence.length === 1
+                ? "person.today.source"
+                : "person.today.sources",
+              { count: moment.evidence.length },
+            )}
           </span>
           {moment.freshness_at && (
             <>
               <span aria-hidden="true">·</span>
-              <span>Updated {freshness(moment.freshness_at)}</span>
+              <span>
+                {t("person.today.updated", {
+                  when: freshness(moment.freshness_at, t),
+                })}
+              </span>
             </>
           )}
         </div>
@@ -121,15 +131,15 @@ function evidenceIcon(type: string): ReactNode {
 
 // The reader judges the age themselves, so this says when rather than how
 // confident anything is. A deterministic rule shows no confidence meter.
-function freshness(at: string): string {
+function freshness(at: string, t: ReturnType<typeof useT>): string {
   const days = Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000);
   if (days <= 0) {
-    return "today";
+    return t("person.today.freshToday");
   }
   if (days === 1) {
-    return "yesterday";
+    return t("person.today.freshYesterday");
   }
-  return `${days} days ago`;
+  return t("person.today.freshDaysAgo", { count: days });
 }
 
 // The quiet-success state renders through the same component: rung 10 is a

@@ -11,7 +11,7 @@
 .record-aside {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 /* ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@
 .pe-slot-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 2px; /* ds:ignore optical, below the 4px scale's floor */
   min-width: 0;
 }
 
@@ -305,6 +305,11 @@
   color: var(--textContent);
 }
 
+/* The header's contact pills sit clear of the line above them. */
+.pe-chiprow-spaced {
+  margin-top: var(--space-2);
+}
+
 /* The source chips under the brief — where each sentence was read from. */
 .pe-chiprow {
   display: flex;
@@ -433,7 +438,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 2px var(--space-2);
+  padding: 2px var(--space-2); /* ds:ignore a pill's optical vertical padding */
   border: 1px solid var(--borderSubtle);
   border-radius: 999px;
   font-size: 12px;
@@ -448,7 +453,7 @@
 }
 
 .pe-memory-summary {
-  margin-top: 2px;
+  margin-top: 2px; /* ds:ignore optical, below the 4px scale's floor */
   font-size: 13px;
   line-height: 1.5;
   color: var(--textSecondary);
@@ -575,7 +580,7 @@
 .pe-dot {
   width: 8px;
   height: 8px;
-  margin-top: 5px;
+  margin-top: 5px; /* ds:ignore optical centring of an 8px dot on a 13px line */
   border-radius: 50%;
   background: var(--textTertiary);
 }
@@ -585,7 +590,7 @@
 }
 
 .pe-dot-warn {
-  background: #d97706;
+  background: var(--warn);
 }
 
 .pe-dot-bad {

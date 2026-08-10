@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type { components } from "../api/schema";
 import { Badge, SegmentedControl } from "../design-system/atoms";
+import { useT } from "../i18n";
 
 // Conversation memory (concept §5.10, ADR-0097 D3).
 //
@@ -17,37 +18,39 @@ type Activity = components["schemas"]["Activity"];
 const FILTERS = ["all", "email", "meetings", "calls", "notes"] as const;
 type Filter = (typeof FILTERS)[number];
 
-const FILTER_LABELS: Readonly<Record<Filter, string>> = {
-  all: "All",
-  email: "Email",
-  meetings: "Meetings",
-  calls: "Calls",
-  notes: "Notes",
-};
-
 export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
+  const t = useT();
   const [filter, setFilter] = useState<Filter>("all");
   const entries = view.conversation_memory ?? [];
   // Until the thread projection is filled, the timeline the page already read
   // IS the memory: same rows, condensed the same way. It reads from what the
   // 360 assembled rather than fetching, so it cannot show a record the page
   // beside it is withholding.
-  const rows = entries.length > 0 ? entries.map(fromEntry) : foldActivities(view);
+  const rows =
+    entries.length > 0
+      ? entries.map((entry) => fromEntry(entry, t))
+      : foldActivities(view, t);
   const shown = rows.filter((row) => matches(row, filter));
 
   return (
     <section className="pe-card pe-memory" data-testid="person-memory">
-      <h3 className="pe-card-title">Conversation memory</h3>
+      <h3 className="pe-card-title">{t("person.memory.title")}</h3>
       <div className="pe-memory-filters">
         <SegmentedControl
           options={FILTERS}
           value={filter}
           onChange={setFilter}
-          labels={FILTER_LABELS}
+          labels={{
+            all: t("person.memory.all"),
+            email: t("person.memory.email"),
+            meetings: t("person.memory.meetings"),
+            calls: t("person.memory.calls"),
+            notes: t("person.memory.notes"),
+          }}
         />
       </div>
       {shown.length === 0 && (
-        <p className="pe-prose">Nothing captured on this channel yet.</p>
+        <p className="pe-prose">{t("person.memory.empty")}</p>
       )}
       {shown.map((row) => (
         <div className="pe-memory-row" key={row.key}>
@@ -60,7 +63,11 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
             <span className="pe-memory-title">{row.title}</span>
             <span className="pe-memory-summary">{row.summary}</span>
           </span>
-          {row.status ? <Badge tone={row.tone}>{row.status}</Badge> : <span />}
+          {row.status ? (
+            <Badge tone={row.tone}>{row.statusLabel}</Badge>
+          ) : (
+            <span />
+          )}
           <span className="pe-memory-time">{row.time}</span>
         </div>
       ))}
@@ -76,44 +83,55 @@ type Row = {
   channelLabel: string;
   title: string;
   summary: string;
+  // `status` stays the STORED key and `statusLabel` is what the reader sees.
+  // Folding them into one field would make the badge's tone depend on the
+  // active locale, since tone is chosen by the same word.
   status: string | null;
+  statusLabel: string;
   tone: "success" | "warn" | "accent" | undefined;
 };
 
 function fromEntry(
   entry: NonNullable<Person360["conversation_memory"]>[number],
+  t: ReturnType<typeof useT>,
 ): Row {
+  const status = entry.status ?? null;
   return {
     key: entry.key,
     date: dayMonth(entry.occurred_at),
     time: clock(entry.occurred_at),
     channel: entry.channel,
-    channelLabel: labelFor(entry.channel),
+    channelLabel: labelFor(entry.channel, t),
     title: entry.title,
     summary: entry.summary,
-    status: entry.status ?? null,
-    tone: toneFor(entry.status ?? null),
+    status,
+    statusLabel: statusLabel(status, t),
+    tone: toneFor(status),
   };
 }
 
 // The deterministic floor: one captured activity is one entry, its subject the
 // title and its body the summary. It is what the card shows when no thread
 // summary has been generated — plainer, never blank.
-function foldActivities(view: Person360): Row[] {
+function foldActivities(view: Person360, t: ReturnType<typeof useT>): Row[] {
   const rows = view.activities?.data ?? [];
   return rows
     .filter((row) => !isFuture(row))
-    .map((row) => ({
-      key: row.id,
-      date: dayMonth(row.occurred_at),
-      time: clock(row.occurred_at),
-      channel: row.kind,
-      channelLabel: labelFor(row.kind),
-      title: row.subject ?? labelFor(row.kind),
-      summary: row.body ?? "",
-      status: statusOf(row, view),
-      tone: toneFor(statusOf(row, view)),
-    }));
+    .map((row) => {
+      const status = statusOf(row, view);
+      return {
+        key: row.id,
+        date: dayMonth(row.occurred_at),
+        time: clock(row.occurred_at),
+        channel: row.kind,
+        channelLabel: labelFor(row.kind, t),
+        title: row.subject ?? labelFor(row.kind, t),
+        summary: row.body ?? "",
+        status,
+        statusLabel: statusLabel(status, t),
+        tone: toneFor(status),
+      };
+    });
 }
 
 // A meeting that has not happened is not memory. It is on the strip and in the
@@ -129,19 +147,34 @@ function statusOf(row: Activity, view: Person360): string | null {
     const answered =
       view.last_outbound_at != null &&
       new Date(view.last_outbound_at) > new Date(row.occurred_at);
-    return answered ? "Replied" : "Unanswered";
+    return answered ? "replied" : "unanswered";
   }
   return null;
+}
+
+// A status the server sends but this client has no word for is shown as it was
+// stored rather than dropped: an unlabelled badge is still evidence, an absent
+// one is a claim that the exchange has no status.
+function statusLabel(
+  status: string | null,
+  t: ReturnType<typeof useT>,
+): string {
+  switch (status) {
+    case "replied":
+      return t("person.memory.replied");
+    case "unanswered":
+      return t("person.memory.unanswered");
+    default:
+      return status ?? "";
+  }
 }
 
 function toneFor(
   status: string | null,
 ): "success" | "warn" | "accent" | undefined {
   switch (status) {
-    case "Replied":
     case "replied":
       return "success";
-    case "Unanswered":
     case "unanswered":
       return "warn";
     case "awaiting_them":
@@ -168,16 +201,16 @@ function matches(row: Row, filter: Filter): boolean {
   }
 }
 
-function labelFor(kind: string): string {
+function labelFor(kind: string, t: ReturnType<typeof useT>): string {
   switch (kind) {
     case "email":
-      return "Email";
+      return t("person.memory.channelEmail");
     case "meeting":
-      return "Meeting";
+      return t("person.memory.channelMeeting");
     case "call":
-      return "Call";
+      return t("person.memory.channelCall");
     case "note":
-      return "Note";
+      return t("person.memory.channelNote");
     default:
       return kind;
   }

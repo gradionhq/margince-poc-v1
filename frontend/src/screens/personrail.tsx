@@ -2,6 +2,8 @@ import { ChevronRight, Mail, Phone, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Avatar, Button } from "../design-system/atoms";
+import { useT } from "../i18n";
+import { consentWord } from "./personstrip";
 
 // The right rail (concept §5.11): six cards of context beside the work.
 //
@@ -49,6 +51,7 @@ function NextBestActions({
   view: Person360;
   onAction: (action: PersonMomentAction) => void;
 }>) {
+  const t = useT();
   const moment = view.moment;
   if (!moment) {
     return null;
@@ -59,7 +62,7 @@ function NextBestActions({
   ].slice(0, 3);
   return (
     <section className="pe-card">
-      <h3 className="pe-card-title">Next best actions</h3>
+      <h3 className="pe-card-title">{t("person.rail.nextActions")}</h3>
       {actions.map((action) => (
         <button
           key={action.label}
@@ -72,7 +75,7 @@ function NextBestActions({
             {actionIcon(action.kind)}
             {action.label}
           </span>
-          <span className="pe-rail-value-muted">{whenFor(action)}</span>
+          <span className="pe-rail-value-muted">{whenFor(action, t)}</span>
         </button>
       ))}
     </section>
@@ -93,14 +96,17 @@ function actionIcon(kind: string): ReactNode {
 
 // A 🟡 action says it will stage rather than send. The tier is the promise the
 // reader is making when they click, so it is on the row and not in a tooltip.
-function whenFor(action: PersonMomentAction): string {
+function whenFor(
+  action: PersonMomentAction,
+  t: ReturnType<typeof useT>,
+): string {
   if (action.state === "will_confirm") {
-    return "Review first";
+    return t("person.rail.reviewFirst");
   }
   if (action.state === "blocked") {
-    return "Blocked";
+    return t("person.rail.blocked");
   }
-  return "Ready";
+  return t("person.rail.ready");
 }
 
 // --- Relationship pulse ----------------------------------------------------
@@ -111,6 +117,7 @@ function RelationshipPulse({
   view,
   onExplain,
 }: Readonly<{ view: Person360; onExplain: () => void }>) {
+  const t = useT();
   const inbound = view.last_inbound_at;
   const outbound = view.last_outbound_at;
   const twoWay = Boolean(inbound && outbound);
@@ -119,49 +126,58 @@ function RelationshipPulse({
     <section className="pe-card">
       <div className="pe-rail-head">
         <h3 className="pe-card-title" style={{ margin: 0 }}>
-          Relationship pulse
+          {t("person.rail.pulseTitle")}
         </h3>
         <Button small onClick={onExplain}>
-          Explain
+          {t("person.rail.explain")}
         </Button>
       </div>
-      <Row label="Direction" value={twoWay ? "Two-way" : "One-sided"} />
-      <Row label="Last reply" value={sinceWords(inbound)} />
       <Row
-        label="Coverage"
+        label={t("person.rail.direction")}
+        value={twoWay ? t("person.rail.twoWay") : t("person.rail.oneSided")}
+      />
+      <Row label={t("person.rail.lastReply")} value={sinceWords(inbound, t)} />
+      <Row
+        label={t("person.rail.coverage")}
         value={
-          colleagues === 1 ? "1 colleague" : `${colleagues} colleagues`
+          colleagues === 1
+            ? t("person.rail.colleagueOne")
+            : t("person.rail.colleagues", { count: colleagues })
         }
       />
-      <Row label="Trend" value={trendWord(view)} />
+      <Row label={t("person.rail.trend")} value={trendWord(view, t)} />
       <div className="pe-pulse-overall">
-        <Row label="Overall" value={overallWord(view)} strong />
+        <Row
+          label={t("person.rail.overall")}
+          value={overallWord(view, t)}
+          strong
+        />
       </div>
     </section>
   );
 }
 
-function trendWord(view: Person360): string {
+function trendWord(view: Person360, t: ReturnType<typeof useT>): string {
   const inbound = view.last_inbound_at;
   const outbound = view.last_outbound_at;
   if (!inbound) {
-    return "No inbound";
+    return t("person.rail.noInbound");
   }
   if (outbound && new Date(outbound) > new Date(inbound)) {
-    return "Cooling";
+    return t("person.rail.cooling");
   }
-  return "Warming";
+  return t("person.rail.warming");
 }
 
-function overallWord(view: Person360): string {
+function overallWord(view: Person360, t: ReturnType<typeof useT>): string {
   const days = daysSince(view.last_inbound_at);
   if (days == null) {
-    return "Thin";
+    return t("person.rail.thin");
   }
   if (days > 14) {
-    return "At risk";
+    return t("person.rail.atRisk");
   }
-  return "Strong";
+  return t("person.rail.strong");
 }
 
 // --- Who knows them --------------------------------------------------------
@@ -170,12 +186,15 @@ function WhoKnows({
   view,
   firstName,
 }: Readonly<{ view: Person360; firstName: string }>) {
+  const t = useT();
   const colleagues = view.network?.colleagues ?? [];
   return (
     <section className="pe-card">
-      <h3 className="pe-card-title">Who knows {firstName}</h3>
+      <h3 className="pe-card-title">
+        {t("person.rail.whoKnows", { name: firstName })}
+      </h3>
       {colleagues.length === 0 && (
-        <p className="pe-prose">Nobody here has corresponded with them yet.</p>
+        <p className="pe-prose">{t("person.rail.nobodyYet")}</p>
       )}
       {colleagues.slice(0, 3).map((colleague) => (
         <div className="pe-colleague" key={colleague.user_id}>
@@ -185,7 +204,7 @@ function WhoKnows({
             <span className="pe-colleague-proof">
               {/* The PROOF, never a ranking nobody can check: six unanswered
                   sends must not read as stronger than two real exchanges. */}
-              {colleague.interactions} exchanges
+              {t("person.rail.exchanges", { count: colleague.interactions })}
             </span>
           </span>
         </div>
@@ -197,12 +216,13 @@ function WhoKnows({
 // --- Signals and risks -----------------------------------------------------
 
 function SignalsAndRisks({ view }: Readonly<{ view: Person360 }>) {
-  const signals = derivedSignals(view);
+  const t = useT();
+  const signals = derivedSignals(view, t);
   return (
     <section className="pe-card">
-      <h3 className="pe-card-title">Signals &amp; risks</h3>
+      <h3 className="pe-card-title">{t("person.rail.signals")}</h3>
       {signals.length === 0 && (
-        <p className="pe-prose">Nothing stands out on this relationship.</p>
+        <p className="pe-prose">{t("person.rail.noSignals")}</p>
       )}
       {signals.map((signal) => (
         <div className="pe-signal" key={signal.text}>
@@ -218,20 +238,27 @@ function SignalsAndRisks({ view }: Readonly<{ view: Person360 }>) {
 // reader can check against the cards beside it rather than an assessment.
 function derivedSignals(
   view: Person360,
+  t: ReturnType<typeof useT>,
 ): ReadonlyArray<{ text: string; tone: "good" | "warn" | "bad" }> {
   const out: Array<{ text: string; tone: "good" | "warn" | "bad" }> = [];
   const quiet = daysSince(view.last_inbound_at);
   if (quiet != null && quiet > 14) {
-    out.push({ text: `No reply for ${quiet} days`, tone: "bad" });
+    out.push({
+      text: t("person.rail.noReplyDays", { count: quiet }),
+      tone: "bad",
+    });
   } else if (quiet != null) {
-    out.push({ text: `Replied ${quiet} days ago`, tone: "good" });
+    out.push({
+      text: t("person.rail.repliedDaysAgo", { count: quiet }),
+      tone: "good",
+    });
   }
   const committee = view.commercial?.committee?.length ?? 0;
   if (view.commercial?.deal && committee === 0) {
-    out.push({ text: "Single-threaded on this deal", tone: "warn" });
+    out.push({ text: t("person.rail.singleThreaded"), tone: "warn" });
   }
   if (!view.next_meeting && view.commercial?.deal) {
-    out.push({ text: "No next meeting booked", tone: "warn" });
+    out.push({ text: t("person.rail.noMeetingBooked"), tone: "warn" });
   }
   return out;
 }
@@ -244,28 +271,29 @@ function derivedSignals(
 function ConsentAndChannels({
   guard,
 }: Readonly<{ guard: PersonConsentGuard | undefined }>) {
+  const t = useT();
   const entries = guard?.entries ?? [];
   const email = entries.find((entry) => entry.channel === "email");
   const phone = entries.find((entry) => entry.channel === "phone");
   return (
     <section className="pe-card" data-testid="person-consent">
-      <h3 className="pe-card-title">Consent &amp; channels</h3>
+      <h3 className="pe-card-title">{t("person.rail.consentTitle")}</h3>
       <div className="pe-rail-row">
         <span className="pe-rail-label">
           <Mail size={15} aria-hidden="true" />
-          Email
+          {t("person.rail.email")}
         </span>
         <span className={verdictClass(email?.verdict)}>
-          {verdictWord(email?.verdict)}
+          {consentWord(email?.verdict, t)}
         </span>
       </div>
       <div className="pe-rail-row">
         <span className="pe-rail-label">
           <Phone size={15} aria-hidden="true" />
-          Phone
+          {t("person.rail.phone")}
         </span>
         <span className={verdictClass(phone?.verdict)}>
-          {verdictWord(phone?.verdict)}
+          {consentWord(phone?.verdict, t)}
         </span>
       </div>
       {/* The REASON, in the reader's words. A verdict a rep cannot explain to
@@ -273,17 +301,6 @@ function ConsentAndChannels({
       {email?.reason && <p className="pe-colleague-proof">{email.reason}</p>}
     </section>
   );
-}
-
-function verdictWord(verdict: string | undefined): string {
-  switch (verdict) {
-    case "allowed":
-      return "Allowed";
-    case "blocked":
-      return "Blocked";
-    default:
-      return "Unknown";
-  }
 }
 
 function verdictClass(verdict: string | undefined): string {
@@ -302,21 +319,25 @@ function verdictClass(verdict: string | undefined): string {
 // Three condensed items. It never duplicates the raw timeline visible beside
 // it — this is the glance, the Activity tab is the ledger.
 function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
+  const t = useT();
   const rows = (view.activities?.data ?? []).slice(0, 3);
   return (
     <section className="pe-card">
-      <h3 className="pe-card-title">Recent activity</h3>
-      {rows.length === 0 && <p className="pe-prose">Nothing captured yet.</p>}
+      <h3 className="pe-card-title">{t("person.rail.recentActivity")}</h3>
+      {rows.length === 0 && (
+        <p className="pe-prose">{t("person.rail.nothingCaptured")}</p>
+      )}
       {rows.map((row) => (
         <div className="pe-rail-row" key={row.id}>
           <span className="pe-rail-label">{row.subject ?? row.kind}</span>
           <span className="pe-rail-value-muted">
-            {sinceWords(row.occurred_at)}
+            {sinceWords(row.occurred_at, t)}
           </span>
         </div>
       ))}
       <span className="pe-rail-more">
-        View all activity <ChevronRight size={13} aria-hidden="true" />
+        {t("person.rail.viewAllActivity")}{" "}
+        <ChevronRight size={13} aria-hidden="true" />
       </span>
     </section>
   );
@@ -346,16 +367,19 @@ function daysSince(at: string | null | undefined): number | null {
   return Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000);
 }
 
-function sinceWords(at: string | null | undefined): string {
+function sinceWords(
+  at: string | null | undefined,
+  t: ReturnType<typeof useT>,
+): string {
   const days = daysSince(at);
   if (days == null) {
-    return "Never";
+    return t("person.strip.never");
   }
   if (days <= 0) {
-    return "Today";
+    return t("person.strip.today");
   }
   if (days === 1) {
-    return "Yesterday";
+    return t("person.strip.yesterday");
   }
-  return `${days} days`;
+  return t("person.strip.days", { count: days });
 }

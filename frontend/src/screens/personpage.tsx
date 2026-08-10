@@ -15,6 +15,9 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
+import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
+import { throwProblem } from "./common";
 import {
   PersonBriefCard,
   PersonCommercialCard,
@@ -25,7 +28,6 @@ import { PersonMemory } from "./personmemory";
 import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
 import { PersonToday } from "./persontoday";
-import { throwProblem } from "./common";
 import "./person360.css";
 
 // The person record page V2 (ADR-0096, concept person-record-page-v2).
@@ -50,14 +52,27 @@ export const PERSON_TABS = [
 ] as const;
 export type PersonTab = (typeof PERSON_TABS)[number];
 
-const TAB_LABELS: Readonly<Record<PersonTab, string>> = {
-  overview: "Overview",
-  activity: "Activity",
-  deals: "Deals",
-  meetings: "Meetings",
-  research: "Research",
-  files: "Files",
-  history: "History",
+const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
+  overview: "person.tab.overview",
+  activity: "person.tab.activity",
+  deals: "person.tab.deals",
+  meetings: "person.tab.meetings",
+  research: "person.tab.research",
+  files: "person.tab.files",
+  history: "person.tab.history",
+};
+
+// The placeholder sentence names the tab mid-sentence, where English wants the
+// label lowercased and German does not. Lowercasing at the call site would
+// mangle every German noun, so each locale carries its own mid-sentence form.
+const TAB_TOPIC_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
+  overview: "person.topic.overview",
+  activity: "person.topic.activity",
+  deals: "person.topic.deals",
+  meetings: "person.topic.meetings",
+  research: "person.topic.research",
+  files: "person.topic.files",
+  history: "person.topic.history",
 };
 
 export function isPersonTab(value: string | undefined): value is PersonTab {
@@ -68,6 +83,7 @@ export function PersonPageV2({
   id,
   tab,
 }: Readonly<{ id: string; tab: PersonTab }>) {
+  const t = useT();
   const view = useQuery({
     queryKey: ["person360", id],
     queryFn: async () => {
@@ -108,10 +124,10 @@ export function PersonPageV2({
   });
 
   if (view.isLoading) {
-    return <div className="wrap">Loading…</div>;
+    return <div className="wrap">{t("person.page.loading")}</div>;
   }
   if (view.isError || !view.data) {
-    return <div className="wrap">This contact could not be opened.</div>;
+    return <div className="wrap">{t("person.page.notOpened")}</div>;
   }
 
   const person = view.data.person;
@@ -139,9 +155,11 @@ export function PersonPageV2({
         avatarSrc={null}
         subtitle={<PersonSubtitle view={view.data} />}
         controls={<PersonOwner view={view.data} />}
-        actions={<PersonActions guardAllows={emailVerdict?.verdict === "allowed"} />}
+        actions={
+          <PersonActions guardAllows={emailVerdict?.verdict === "allowed"} />
+        }
         zone="Europe/Berlin"
-        asideLabel="Relationship context"
+        asideLabel={t("person.page.asideLabel")}
         aside={
           <PersonRail
             view={view.data}
@@ -152,17 +170,22 @@ export function PersonPageV2({
           />
         }
       >
-        <PersonStrip
-          view={view.data}
-          consent={consentWord(emailVerdict?.verdict)}
-        />
+        <PersonStrip view={view.data} consentVerdict={emailVerdict?.verdict} />
 
         <div className="pe-tabs">
           <SegmentedControl
             options={PERSON_TABS}
             value={tab}
             onChange={(next) => navigate({ screen: "contacts", id, id2: next })}
-            labels={TAB_LABELS}
+            labels={{
+              overview: t(TAB_LABEL_KEYS.overview),
+              activity: t(TAB_LABEL_KEYS.activity),
+              deals: t(TAB_LABEL_KEYS.deals),
+              meetings: t(TAB_LABEL_KEYS.meetings),
+              research: t(TAB_LABEL_KEYS.research),
+              files: t(TAB_LABEL_KEYS.files),
+              history: t(TAB_LABEL_KEYS.history),
+            }}
           />
         </div>
 
@@ -183,10 +206,7 @@ export function PersonPageV2({
               </div>
               <div className="pe-col">
                 <PersonCommercialCard view={view.data} />
-                <PersonCommitmentsCard
-                  view={view.data}
-                  firstName={firstName}
-                />
+                <PersonCommitmentsCard view={view.data} firstName={firstName} />
               </div>
             </div>
 
@@ -199,10 +219,11 @@ export function PersonPageV2({
           // it will hold. An empty panel that looked like a rendering failure
           // would be worse than one that says what is coming.
           <section className="pe-card">
-            <h3 className="pe-card-title">{TAB_LABELS[tab]}</h3>
+            <h3 className="pe-card-title">{t(TAB_LABEL_KEYS[tab])}</h3>
             <p className="pe-prose">
-              This tab is not built yet. The overview carries the relationship;
-              this will carry {TAB_LABELS[tab].toLowerCase()}.
+              {t("person.page.tabPlaceholder", {
+                topic: t(TAB_TOPIC_KEYS[tab]),
+              })}
             </p>
           </section>
         )}
@@ -214,6 +235,7 @@ export function PersonPageV2({
 // The header's second line: title · company, then the contact methods as
 // compact pills (§5.2).
 function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
+  const t = useT();
   const person = view.person;
   const employment = view.employments?.data?.[0];
   const email = person.emails?.[0]?.email;
@@ -240,7 +262,7 @@ function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
           </>
         )}
       </div>
-      <div className="pe-chiprow" style={{ marginTop: 8 }}>
+      <div className="pe-chiprow pe-chiprow-spaced">
         {email && (
           <span className="pe-memory-channel">
             <Mail size={13} aria-hidden="true" />
@@ -262,7 +284,7 @@ function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
         {person.social?.linkedin && (
           <span className="pe-memory-channel">
             <LinkIcon size={13} aria-hidden="true" />
-            LinkedIn
+            {t("person.page.linkedin")}
           </span>
         )}
       </div>
@@ -273,19 +295,22 @@ function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
 // Buying role and owner, top right. The role is what the relationship edge
 // records — never inferred from a job title.
 function PersonOwner({ view }: Readonly<{ view: Person360 }>): ReactNode {
+  const t = useT();
   const role = view.commercial?.role;
   return (
     <div>
       {role && (
         <div className="pe-rail-row">
-          <span className="pe-rail-label">Buying role</span>
+          <span className="pe-rail-label">{t("person.page.buyingRole")}</span>
           <span className="pe-rail-value">{role.replace(/_/g, " ")}</span>
         </div>
       )}
       <div className="pe-rail-row">
-        <span className="pe-rail-label">Owner</span>
+        <span className="pe-rail-label">{t("person.page.owner")}</span>
         <span className="pe-rail-value">
-          {view.person.owner_id ? "Assigned" : "Unassigned"}
+          {view.person.owner_id
+            ? t("person.page.ownerAssigned")
+            : t("person.page.ownerUnassigned")}
         </span>
       </div>
     </div>
@@ -297,39 +322,28 @@ function PersonOwner({ view }: Readonly<{ view: Person360 }>): ReactNode {
 function PersonActions({
   guardAllows,
 }: Readonly<{ guardAllows: boolean }>): ReactNode {
+  const t = useT();
   return (
     <>
       <Button variant="primary" disabled={!guardAllows}>
-        <Mail size={15} aria-hidden="true" /> Email
+        <Mail size={15} aria-hidden="true" /> {t("person.action.email")}
       </Button>
       <Button>
-        <Phone size={15} aria-hidden="true" /> Call
+        <Phone size={15} aria-hidden="true" /> {t("person.action.call")}
       </Button>
       <Button>
-        <CalendarPlus size={15} aria-hidden="true" /> Book
+        <CalendarPlus size={15} aria-hidden="true" /> {t("person.action.book")}
       </Button>
       <Button>
-        <CheckSquare size={15} aria-hidden="true" /> Add task
+        <CheckSquare size={15} aria-hidden="true" />{" "}
+        {t("person.action.addTask")}
       </Button>
       <Button>
-        <Search size={15} aria-hidden="true" /> Research
+        <Search size={15} aria-hidden="true" /> {t("person.action.research")}
       </Button>
-      <Button aria-label="More actions">
+      <Button aria-label={t("person.action.more")}>
         <MoreHorizontal size={15} aria-hidden="true" />
       </Button>
     </>
   );
-}
-
-function consentWord(verdict: string | undefined): string | null {
-  switch (verdict) {
-    case "allowed":
-      return "Allowed";
-    case "blocked":
-      return "Blocked";
-    case "unknown":
-      return "Unknown";
-    default:
-      return null;
-  }
 }
