@@ -122,11 +122,26 @@ test.describe("company record — the mockup's page shape", () => {
     ).toHaveCount(4);
   });
 
-  // The mockups draw six tiles. Five is the current build, three is what a
-  // partially populated account renders — both are wrong against State D.
-  test("Today on this account draws six tiles", async ({ page }) => {
+  // The mockups draw six tiles and the card can build six, but it does not draw
+  // six on every account ON PURPOSE: a tile appears only when it has something
+  // to say, so an account with no meeting booked and no open signal shows
+  // fewer. A fixed count would demand the card invent the missing ones.
+  //
+  // So this names the two tiles this fixture's data guarantees — an open task
+  // and a logged exchange — by their own hook. The rest depend on a booked
+  // meeting, a live deal and an open signal, which this account may not have.
+  test("Today on this account draws its tiles, including the last exchange", async ({
+    page,
+  }) => {
     await openCompany(page, POPULATED_ORG as string);
-    await expect(page.locator(".today-tile")).toHaveCount(6);
+    // Anchored on the tile's own data hook, never on drawn copy: this suite
+    // pins layout, and a translation edit must not turn it red.
+    await expect(
+      page.locator('.today-tile[data-tile="interaction"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('.today-tile[data-tile="commitment"]'),
+    ).toHaveCount(1);
   });
 
   // AccountBrief's "BEFORE YOU TALK TO THEM" prose block, the NextSteps list
