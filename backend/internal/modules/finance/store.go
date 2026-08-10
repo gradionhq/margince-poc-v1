@@ -26,11 +26,22 @@ type Store struct {
 	// now is injected so a summary's staleness and its trailing window are
 	// testable without waiting for the clock to move.
 	now func() time.Time
+	// baseCurrency resolves the installation's reporting currency
+	// (ADR-0090/A135). REQUIRED by the constructor: the mirror converts and
+	// then FREEZES a rate onto rows it will not revisit, so a store that only
+	// looked constructed would write a mistake it cannot take back.
+	baseCurrency BaseCurrencyFunc
 }
 
+// BaseCurrencyFunc resolves the installation's reporting currency inside a
+// transaction the caller already holds. Compose supplies the one real
+// implementation; a function rather than a settings handle keeps finance free
+// of a registry it has no other use for.
+type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
+
 // NewStore binds the store to the pool every tenant read runs through.
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, now: time.Now}
+func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
+	return &Store{pool: pool, now: time.Now, baseCurrency: baseCurrency}
 }
 
 // WithClock replaces the store's clock. Tests only: a summary that reads
