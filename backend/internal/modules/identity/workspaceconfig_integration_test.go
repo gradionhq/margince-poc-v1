@@ -352,6 +352,10 @@ func readWorkspaceRow(t *testing.T, owner *pgx.Conn, ws ids.UUID) map[string]any
 // rolled back, so the real schema is untouched and the assertion runs against
 // the real function rather than a stand-in. That is the only way to see a
 // core-only workspace row on a database the overlay pack has already migrated.
+//
+// It runs on the OWNER connection rather than through WithWorkspaceTx: ALTER
+// TABLE needs table ownership, and the app role the helper uses deliberately
+// does not have it.
 func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
 	ctx := context.Background()
@@ -363,24 +367,39 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 		t.Fatalf("reading the workspace: %v", err)
 	}
 
+	// On the OWNER connection, not the app pool WithWorkspaceTx uses: ALTER
+	// TABLE needs table ownership, and the app role deliberately does not have
+	// it. The GUC is set by hand for the same reason — ResetWorkspaceConfig
+	// scopes its UPDATE with current_setting('app.workspace_id'), which the
+	// helper would normally have bound.
+	tx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("opening the probe transaction: %v", err)
+	}
+	// Rolled back unconditionally: the columns come back whatever happens
+	// below, including a t.Fatal that leaves this function early.
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("rolling the probe back: %v — the fork columns may not have been restored", err)
+		}
+	}()
+
+	if _, err := tx.Exec(ctx,
+		`SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
+		t.Fatalf("binding the workspace for the probe: %v", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`ALTER TABLE workspace DROP COLUMN x_sor_mode, DROP COLUMN x_incumbent`); err != nil {
+		t.Fatalf("dropping the fork columns inside the probe: %v", err)
+	}
+
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
-	err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
-		// Inside the transaction only: the rollback below puts them back.
-		if _, err := tx.Exec(ctx,
-			`ALTER TABLE workspace DROP COLUMN x_sor_mode, DROP COLUMN x_incumbent`); err != nil {
-			return err
-		}
-		if err := ResetWorkspaceConfig(wsCtx, tx); err != nil {
-			return err
-		}
-		// Deliberately fail the transaction so the columns come back. The
-		// assertion that matters already happened: ResetWorkspaceConfig
-		// returned nil rather than building an UPDATE with no assignments,
-		// which is what an empty column list would otherwise produce.
-		return errRollbackCoreOnlyProbe
-	})
-	if !errors.Is(err, errRollbackCoreOnlyProbe) {
+	if err := ResetWorkspaceConfig(wsCtx, tx); err != nil {
 		t.Fatalf("ResetWorkspaceConfig on an identity-only row: %v — want it to do nothing and succeed", err)
+	}
+
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("restoring the fork columns: %v", err)
 	}
 
 	// The schema is intact and the row untouched: the probe left no trace.
@@ -394,8 +413,3 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 		t.Errorf("name = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
 	}
 }
-
-// errRollbackCoreOnlyProbe unwinds the schema probe above. A sentinel rather
-// than any error, so a REAL failure inside the transaction is not mistaken for
-// the intended rollback.
-var errRollbackCoreOnlyProbe = errors.New("identity: rolling back the core-only column probe")
