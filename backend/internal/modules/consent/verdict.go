@@ -107,10 +107,7 @@ func VerdictForPerson(ctx context.Context, tx pgx.Tx, personID string, purpose P
 		return Verdict{}, err
 	}
 	if suppressed {
-		return Verdict{
-			State:  VerdictBlocked,
-			Reason: fmt.Sprintf("they objected on %s, and an objection overrides every other basis", at.Format("2 Jan 2006")),
-		}, nil
+		return Verdict{State: VerdictBlocked, Reason: objectionReason(at)}, nil
 	}
 
 	switch purpose.Class {
@@ -183,6 +180,18 @@ func marketingVerdict(ctx context.Context, tx pgx.Tx, personID string, purpose P
 	return Verdict{State: VerdictUnknown, Reason: "no consent recorded"}, nil
 }
 
+// objectionReason states the refusal, with the date when the proof ledger
+// carries one. A zero time means the state row stands without a proof row
+// behind it, and inventing "1 Jan 0001" for a rep to read out is worse than
+// saying plainly that the objection is recorded.
+func objectionReason(at time.Time) string {
+	if at.IsZero() {
+		return "they objected, and an objection overrides every other basis"
+	}
+	return fmt.Sprintf("they objected on %s, and an objection overrides every other basis",
+		at.Format("2 Jan 2006"))
+}
+
 func qualifyingReason(event QualifyingEvent) string {
 	when := event.OccurredAt.Format("2 Jan")
 	switch event.Kind {
@@ -198,26 +207,69 @@ func qualifyingReason(event QualifyingEvent) string {
 }
 
 // objectionStands asks whether an opt-out, unsubscribe or Art 21 objection is
-// on the record — for this purpose or globally.
+// on the record for this purpose.
+//
+// The state row says THAT they objected; the append-only proof ledger says
+// when. The date is read from the ledger's newest withdrawal rather than from
+// the state row, which carries only the capture time of whatever decision is
+// current — on a person who granted after withdrawing, that timestamp names
+// the grant, and a refusal quoting it would cite the wrong day back to a rep
+// standing in front of the customer.
+//
+// A missing ledger row does not soften the answer: the state is the authority
+// for the verdict, and a zero time renders as an objection whose date this
+// installation cannot evidence.
 func objectionStands(ctx context.Context, tx pgx.Tx, personID, purposeID string) (bool, time.Time, error) {
-	var at time.Time
+	var state string
 	err := tx.QueryRow(ctx, `
-		SELECT pc.updated_at
-		FROM person_consent pc
-		WHERE pc.person_id = $1 AND pc.purpose_id = $2 AND pc.state = 'withdrawn'
-		LIMIT 1`, personID, purposeID).Scan(&at)
+		SELECT pc.state FROM person_consent pc
+		WHERE pc.person_id = $1 AND pc.purpose_id = $2`, personID, purposeID).Scan(&state)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, time.Time{}, nil
 	}
 	if err != nil {
 		return false, time.Time{}, fmt.Errorf("read the objection state: %w", err)
 	}
+	if state != string(StateWithdrawn) {
+		return false, time.Time{}, nil
+	}
+	var at time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT ce.captured_at FROM consent_event ce
+		WHERE ce.person_id = $1 AND ce.purpose_id = $2 AND ce.new_state = 'withdrawn'
+		ORDER BY ce.captured_at DESC
+		LIMIT 1`, personID, purposeID).Scan(&at)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, time.Time{}, fmt.Errorf("read the objection's proof: %w", err)
+	}
 	return true, at, nil
 }
 
-// latestQualifyingEvent reads the most recent recorded event that makes
+// latestQualifyingEvent finds the most recent thing on the record that makes
 // correspondence lawful.
+//
+// It looks in two places, and the order is the point. A TYPED row wins: an
+// in-person exchange or an inquiry is something a named human recorded, and it
+// carries the note or the reference a dispute asks for. Failing that the
+// captured timeline answers for itself — an inbound message from this person IS
+// the qualifying event, which is what "deterministic and derivable from
+// captured data" means (ADR-0098 D2).
+//
+// Deriving rather than requiring a written row is what keeps the rule honest on
+// day one: every mailbox this product has ever captured already contains the
+// evidence, and a model that only recognised events recorded after this build
+// shipped would tell a rep they may not answer somebody who wrote to them last
+// week.
 func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, error) {
+	event, found, err := recordedQualifyingEvent(ctx, tx, personID)
+	if err != nil || found {
+		return event, found, err
+	}
+	return inboundQualifyingEvent(ctx, tx, personID)
+}
+
+// recordedQualifyingEvent reads a row a human or an integration wrote.
+func recordedQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, error) {
 	var event QualifyingEvent
 	var sourceType, sourceID, note *string
 	err := tx.QueryRow(ctx, `
@@ -241,6 +293,34 @@ func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (Qua
 	if note != nil {
 		event.Note = *note
 	}
+	return event, true, nil
+}
+
+// inboundQualifyingEvent derives the event from the captured timeline: they
+// wrote to us, and the message itself is the proof.
+//
+// The activity is reached through activity_link, the same table every
+// person-scoped timeline read walks, so this cannot count a message the record
+// does not show.
+func inboundQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, error) {
+	var event QualifyingEvent
+	var activityID string
+	err := tx.QueryRow(ctx, `
+		SELECT a.id, a.occurred_at
+		FROM activity a
+		JOIN activity_link l ON l.activity_id = a.id AND l.person_id = $1
+		WHERE a.direction = 'inbound' AND a.archived_at IS NULL
+		ORDER BY a.occurred_at DESC
+		LIMIT 1`, personID).Scan(&activityID, &event.OccurredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return QualifyingEvent{}, false, nil
+	}
+	if err != nil {
+		return QualifyingEvent{}, false, fmt.Errorf("read the inbound qualifying message: %w", err)
+	}
+	event.Kind = "inbound_message"
+	event.SourceEntityType = "activity"
+	event.SourceEntityID = activityID
 	return event, true, nil
 }
 

@@ -31,6 +31,19 @@ import (
 
 func boolPtr(v bool) *bool { return &v }
 
+// assertPurposeClass reads back the gate a seeded purpose answers to.
+func assertPurposeClass(ctx context.Context, t *testing.T, e *apptest.AppEnv, key, want string) {
+	t.Helper()
+	var got string
+	if err := e.Owner.QueryRow(ctx,
+		`SELECT class FROM consent_purpose WHERE key = $1`, key).Scan(&got); err != nil {
+		t.Fatalf("reading the %q class: %v", key, err)
+	}
+	if got != want {
+		t.Errorf("purpose %q seeded with class %q, want %q", key, got, want)
+	}
+}
+
 func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 	e := apptest.SetupApp(t)
 	pwFile := filepath.Join(t.TempDir(), "admin-password")
@@ -93,20 +106,33 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 		}
 	}
 
-	// The consent catalog: the module-invariant transactional lane plus
-	// exactly the configured purpose.
+	// The consent catalog: the two module-invariant lanes — transactional and
+	// business correspondence, neither of which is consent-gated (ADR-0098 D1)
+	// — plus exactly the configured purpose.
 	var purposes int
 	if err := e.Owner.QueryRow(ctx,
-		`SELECT count(*) FROM consent_purpose WHERE key IN ('transactional','newsletter')`).Scan(&purposes); err != nil {
+		`SELECT count(*) FROM consent_purpose
+		 WHERE key IN ('transactional','business_correspondence','newsletter')`).Scan(&purposes); err != nil {
 		t.Fatal(err)
 	}
 	var total, automations, bookingPages int
 	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM consent_purpose`).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if purposes != 2 || total != 2 {
-		t.Fatalf("consent catalog holds %d/%d rows, want exactly transactional + newsletter", purposes, total)
+	if purposes != 3 || total != 3 {
+		t.Fatalf("consent catalog holds %d/%d rows, want transactional + business_correspondence + newsletter", purposes, total)
 	}
+
+	// A fresh install must seed the CLASSES, not just the keys. The column
+	// defaults to marketing, so a seed that never names a class produces an
+	// installation where transactional mail is consent-gated and answering an
+	// inbound message is impossible — the strictness reads as correct right up
+	// until a rep cannot reply to a customer.
+	assertPurposeClass(ctx, t, e, "transactional", "transactional")
+	assertPurposeClass(ctx, t, e, "business_correspondence", "business_correspondence")
+	// A configured purpose that names no class is marketing: the safe
+	// direction for an unclassified lane is the one that asks for consent.
+	assertPurposeClass(ctx, t, e, "newsletter", "marketing")
 
 	// The toggles: no starter automations, no booking page.
 	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM automation`).Scan(&automations); err != nil {

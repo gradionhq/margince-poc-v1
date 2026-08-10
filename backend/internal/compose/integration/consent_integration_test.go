@@ -65,7 +65,8 @@ func setupConsent(t *testing.T) *consentEnv {
 	for _, p := range purposeList.Data {
 		purposes[p.Key] = p.ID
 	}
-	if purposes["transactional"] == "" || purposes["marketing_email"] == "" {
+	if purposes["transactional"] == "" || purposes["marketing_email"] == "" ||
+		purposes["business_correspondence"] == "" {
 		t.Fatalf("bootstrap did not seed the purpose catalog: %+v", purposeList.Data)
 	}
 	return &consentEnv{AppEnv: e, personID: person.ID, activityID: activity.ID, purposes: purposes}
@@ -98,8 +99,11 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 		t.Fatalf("draft subject = %q", draft.Subject)
 	}
 
-	// unknown state → suppressed.
-	if status, code := c.send(t, "transactional"); status != http.StatusConflict || code != "consent_not_granted" {
+	// A consent-CLASS purpose with no recorded decision is suppressed. The
+	// purpose under test is marketing rather than transactional: ADR-0098
+	// classes transactional and business correspondence as never
+	// consent-gated, so neither can carry the default-deny claim any more.
+	if status, code := c.send(t, "marketing_email"); status != http.StatusConflict || code != "consent_not_granted" {
 		t.Fatalf("send with unknown consent → %d %q, want 409 consent_not_granted", status, code)
 	}
 	// An undefined purpose can authorize nothing.
@@ -107,28 +111,69 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 		t.Fatalf("send under unknown purpose → %d %q", status, code)
 	}
 
-	// Grant transactional; the send under THAT purpose flows.
+	// Grant marketing through the round-trip its purpose demands; the send
+	// under THAT purpose then flows.
+	token := c.issueDOIToken(t, c.purposes["marketing_email"])
 	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
-		"purpose_id": c.purposes["transactional"], "new_state": "granted", "lawful_basis": "consent",
+		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
+		"lawful_basis": "consent", "double_opt_in_token": token,
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
 	}
-	if status, code := c.send(t, "transactional"); status != http.StatusAccepted {
+	if status, code := c.send(t, "marketing_email"); status != http.StatusAccepted {
 		t.Fatalf("granted send → %d %q, want 202", status, code)
 	}
-	// …but the grant is per PURPOSE: marketing stays suppressed.
-	if status, code := c.send(t, "marketing_email"); status != http.StatusConflict || code != "consent_not_granted" {
-		t.Fatalf("foreign-purpose send → %d %q, want 409", status, code)
-	}
 
-	// Withdrawal re-blocks.
+	// Withdrawal re-blocks, and it does so through the objection rule that
+	// overrides every other basis.
 	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
-		"purpose_id": c.purposes["transactional"], "new_state": "withdrawn",
+		"purpose_id": c.purposes["marketing_email"], "new_state": "withdrawn",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("withdraw → %d", status)
 	}
-	if status, code := c.send(t, "transactional"); status != http.StatusConflict || code != "consent_not_granted" {
+	if status, code := c.send(t, "marketing_email"); status != http.StatusConflict || code != "consent_not_granted" {
 		t.Fatalf("post-withdrawal send → %d %q, want 409", status, code)
+	}
+}
+
+// Answering somebody is not advertising to them (ADR-0098 D1/D2).
+//
+// This is the rule that ADR-0011's blanket default-deny got wrong: under it a
+// rep answering an inbound question was formally a consent violation until
+// somebody recorded a grant, which is legally wrong and which every rep
+// correctly ignored. Correspondence is allowed on a recorded qualifying event
+// and needs no consent object at all — while transactional mail, whose basis is
+// the contract itself, needs neither.
+func TestCorrespondenceAndTransactionalAreNotConsentGated(t *testing.T) {
+	c := setupConsent(t)
+
+	// The fixture's person wrote to us: setupConsent captures an INBOUND
+	// activity from them, which is the qualifying event correspondence needs.
+	if status, code := c.send(t, "transactional"); status != http.StatusAccepted {
+		t.Fatalf("transactional send → %d %q, want 202 — the contract is the basis, not consent", status, code)
+	}
+	if status, code := c.send(t, "business_correspondence"); status != http.StatusAccepted {
+		t.Fatalf("correspondence send → %d %q, want 202 — they wrote to us first", status, code)
+	}
+}
+
+// An objection is absolute: Art 21(2)-(3) admits no balancing, so a withdrawal
+// on the correspondence purpose outranks the qualifying event that would
+// otherwise allow it. There is no override toggle, and there must be no path
+// through the class model that reaches past a suppression.
+func TestAnObjectionOverridesAQualifyingEvent(t *testing.T) {
+	c := setupConsent(t)
+
+	if status, _ := c.send(t, "business_correspondence"); status != http.StatusAccepted {
+		t.Fatal("the fixture's inbound message should allow correspondence before the objection")
+	}
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
+		"purpose_id": c.purposes["business_correspondence"], "new_state": "withdrawn",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("record the objection → %d", status)
+	}
+	if status, code := c.send(t, "business_correspondence"); status != http.StatusConflict || code != "consent_not_granted" {
+		t.Fatalf("post-objection correspondence → %d %q, want 409 — an objection overrides the qualifying event", status, code)
 	}
 }
 

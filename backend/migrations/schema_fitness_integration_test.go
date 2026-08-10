@@ -244,22 +244,36 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // the map's completeness is the invariant.
 var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// Client-supplied references — visibility-gated at the store:
-	"site_read.organization_id":            "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
-	"deal.organization_id":                 "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
-	"project.organization_id":              "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
-	"deal.partner_org_id":                  "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
-	"organization.parent_org_id":           "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
-	"activity_link.person_id":              "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.organization_id":        "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.deal_id":                "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.lead_id":                "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.project_id":             "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
-	"deal.project_id":                      "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
-	"lead.project_id":                      "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
-	"suggestion_dismissal.organization_id": "gated: auth.EnsureVisible in org360.Service.DismissSuggestion, inside the same transaction as the insert — dismissing advice about an account the caller cannot read would confirm it exists",
-	"org_dossier.organization_id":          "gated: the dossier is assembled only after orgdossier.Service.Get runs the caller's OWN sidecar reads, and people.ListOrganizationProfileFields opens with auth.Require + ensureOrgReadable — a company the caller cannot read has no dossier written for it, and the row is keyed on that same caller",
-	"org_growth_fit.organization_id":       "gated: same path as org_dossier — the assessment is written only after the caller's own gated sidecar reads succeed, and the row is keyed on that caller",
-	"org_brief.organization_id":            "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
+	"site_read.organization_id":                "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
+	"deal.organization_id":                     "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
+	"project.organization_id":                  "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
+	"deal.partner_org_id":                      "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
+	"organization.parent_org_id":               "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
+	"activity_link.person_id":                  "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.organization_id":            "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.deal_id":                    "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.lead_id":                    "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.project_id":                 "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
+	"deal.project_id":                          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"lead.project_id":                          "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
+	"suggestion_dismissal.organization_id":     "gated: auth.EnsureVisible in org360.Service.DismissSuggestion, inside the same transaction as the insert — dismissing advice about an account the caller cannot read would confirm it exists",
+	"org_dossier.organization_id":              "gated: the dossier is assembled only after orgdossier.Service.Get runs the caller's OWN sidecar reads, and people.ListOrganizationProfileFields opens with auth.Require + ensureOrgReadable — a company the caller cannot read has no dossier written for it, and the row is keyed on that same caller",
+	"org_growth_fit.organization_id":           "gated: same path as org_dossier — the assessment is written only after the caller's own gated sidecar reads succeed, and the row is keyed on that caller",
+	"org_brief.organization_id":                "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
+	"person_brief.person_id":                   "gated: the person-side twin of org_brief — the brief is written only after personbrief.Service.Get runs the caller's own person360 Assemble, whose GetPersonTx does auth.Require + auth.EnsureVisible, and the row is keyed on that same caller",
+	"person_moment_dismissal.person_id":        "gated: auth.RequireHuman + auth.Require + auth.EnsureVisibleLive in person360.Service.DismissMoment, inside the same transaction as the insert — dismissing a card about a contact the caller cannot read would confirm they exist",
+	"consent_qualifying_event.person_id":       "gated: the event is recorded only on a path that already holds the person — a captured inbound activity, an inquiry, or a named human typing an exchange on the record's own surface, each of which took the person read before it could name them",
+	"consent_existing_customer_flag.person_id": "gated: the §7(3) flag is set only from the person's own consent surface, whose handler resolves the person through the consent store's gated read before any row is written",
+	// conversation_claim's table shipped ahead of its writer (ADR-0097 D1):
+	// the DDL exists so the page's reads and the demo seed have a shape to
+	// bind to, and the extraction task that fills it is still to come. These
+	// three entries record that the gate has judged NOTHING yet — the claim
+	// writer must take the person read and the activity read when it lands,
+	// and this classification is what makes that obligation impossible to
+	// forget rather than a decision already taken.
+	"conversation_claim.person_id":          "PENDING WRITER: no code writes this table yet. The production writer must open with auth.Require(person, read) + auth.EnsureVisibleLive before it may name a person, and this entry is replaced with the gate it actually takes",
+	"conversation_claim.source_activity_id": "PENDING WRITER: no code writes this table yet. A claim cites the activity it was read from, so the writer must gate that activity read (auth.EnsureLinkTarget or the activity scope clause) — citing a message the caller cannot open would disclose it",
+	"conversation_claim.task_activity_id":   "PENDING WRITER: no code writes this table yet. The task an extracted commitment creates is written through the tasks substrate's own gated path, and this entry is replaced with that gate when the routing edge lands",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
 	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",
