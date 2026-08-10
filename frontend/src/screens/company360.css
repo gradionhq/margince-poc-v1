@@ -874,3 +874,18 @@
   display: grid;
   gap: var(--space-1);
 }
+
+/* The dimension and its figure share a line above the bar, the figure
+   right-aligned so a column of them reads down. */
+.co-growth-fit-score-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.co-growth-fit-score-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

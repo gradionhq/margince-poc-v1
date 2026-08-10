@@ -114,14 +114,18 @@ export function DossierPanel({
               five fields, and the headings said less than the sentences under
               them. The sections still ORDER the prose — the server decides
               what comes first — they just no longer announce themselves. */}
-          {readable.sections.map((section) => (
-            <SentenceList
-              key={section.kind}
-              sentences={section.sentences}
-              onOpenRecord={onOpenRecord}
-              citations="collected"
-            />
-          ))}
+          {/* ONE list over every section. Per-section lists would each collect
+              their own sources, so a one-sentence section still drew a chip
+              directly under its line — the wall of "fact" relocated rather
+              than removed. The sections still ORDER the prose; the receipts
+              gather once, under all of it. */}
+          <SentenceList
+            sentences={readable.sections.flatMap(
+              (section) => section.sentences,
+            )}
+            onOpenRecord={onOpenRecord}
+            citations="collected"
+          />
           <p className="co-part-foot">
             <WrittenBy by={readable.generated_by} />{" "}
             {readable.needs_refresh && (
