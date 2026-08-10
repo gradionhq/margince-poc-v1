@@ -579,7 +579,15 @@ export const en = {
   "co.strip.netInvoiced": "Net invoiced · 12 months",
   "co.strip.openInvoices": "Open invoices",
   "co.strip.financeUnknown": "—",
-  "co.strip.connectFinance": "Connect finance",
+  "co.strip.fin.noConnection": "Connect your accounting",
+  "co.strip.fin.unmapped": "Not matched to a customer yet",
+  "co.strip.fin.syncing": "Syncing…",
+  "co.strip.fin.withheld": "You may not see this account's finance",
+  "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
+  "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
+  "co.strip.fin.nothingBilled": "Nothing invoiced yet",
+  "co.strip.fin.error": "Could not be read",
+  "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",
   "co.strip.pricedPartly": "{priced} of {total} deals priced",
   "co.strip.expectedClose": "Expected close",
@@ -629,6 +637,7 @@ export const en = {
   "timeline.period.thisWeek": "This week",
   "timeline.period.lastWeek": "Last week",
   "timeline.period.upcoming": "Upcoming",
+  "tab.documents": "Documents",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
@@ -1471,8 +1480,6 @@ export const en = {
   "today.deal.count": "{count} open deals",
   "today.deal.mixedCurrency": "In different currencies — see the pipeline",
   "today.draft.to": "Draft follow-up to {name}",
-  "today.draft.notYet":
-    "Drafting from the account is not built yet — use Write email",
   "evidence.confirm": "Confirm",
   "evidence.correct": "Correct",
   "evidence.save": "Save",

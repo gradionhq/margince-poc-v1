@@ -634,3 +634,22 @@ export function namedSiteReadKind(
   }
   return KIND_LABELS_BY_NAME[kind];
 }
+
+// The account's finance summary. It lives here rather than beside the finance
+// card because the KPI row reads the SAME figure: one query key, so the two
+// readings on a page agree and the second costs no request.
+export function useFinanceSummary(orgId: string) {
+  return useQuery<components["schemas"]["OrganizationFinanceSummary"]>({
+    queryKey: ["finance-summary", orgId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/organizations/{id}/finance-summary",
+        { params: { path: { id: orgId } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+}

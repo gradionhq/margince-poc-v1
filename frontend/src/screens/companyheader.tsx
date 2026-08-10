@@ -37,6 +37,12 @@ import { ShareAction } from "./share";
 // The account header: the verbs a rep reaches for, the two values they change
 // in place, and the line of facts that says where the relationship stands.
 //
+// Lifecycle and owner sit in their OWN block at the top right rather than in
+// the pulse line (mockup State D). They are the two things a reader SETS about
+// an account; the pulse states what happened to it. Mixed into one line the
+// two controls read as more facts, and the reader has no cue that they can be
+// changed.
+//
 // Split out of organizations.tsx because that file had grown past 2,700 lines
 // carrying the list screen, the enrichment tools, the evidence cards and this
 // at once — and the V2 work adds to every one of them.
@@ -569,6 +575,19 @@ function displayHost(url: string): string {
 // who carries it, when it was last touched, and who owns it. Each part is
 // omitted when the 360 could not answer it, so the line never implies a
 // number the reader was not allowed to see.
+// The account's standing: the two values a reader changes in place, stacked
+// at the top right of the header where the mockup puts them.
+export function CompanyStanding({
+  org,
+}: Readonly<{ org: Organization }>): ReactElement {
+  return (
+    <div className="co-standing">
+      <CompanyLifecycleControl org={org} />
+      <CompanyOwnerControl org={org} />
+    </div>
+  );
+}
+
 export function CompanyPulse({
   org,
   view,
@@ -618,16 +637,6 @@ export function CompanyPulse({
           </span>
         </>
       )}
-      {/* Where the account stands, changeable here. It was reachable only
-          through the edit modal, next to legal names and size bands — so the
-          one field a rep moves DURING a call took a form that asks about six
-          things they were not thinking about. */}
-      <CompanyLifecycleControl org={org} />
-      {/* The owner, named as the owner and reassignable in place. Unlabelled it
-          read as one more person in a row of people, and the reader had no way
-          to tell the one accountable for this account from whoever last touched
-          it. */}
-      <CompanyOwnerControl org={org} />
       {/* Where the RECORD came from — a different question from who owns it,
           and the reason both now carry a word saying which is which. */}
       <ProvenanceTag

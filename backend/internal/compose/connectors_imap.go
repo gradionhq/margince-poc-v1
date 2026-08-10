@@ -9,7 +9,6 @@ package compose
 // connect flow in connectors.go.
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -147,15 +146,15 @@ func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.
 	}
 	for _, v := range views {
 		if v.Provider == providerIMAP {
-			w.Header().Set("Content-Type", "application/json")
 			conn := toContractConnection(v)
-			if err := json.NewEncoder(w).Encode(crmcontracts.ConnectConnectorResponse{
+			// Through the shared writer, like every other record this surface
+			// answers with. That is the one place a record becomes a REST
+			// response, which is what lets the agent read bound count what
+			// leaves; a private encode here is a second spelling the meter
+			// cannot see.
+			httperr.WriteJSON(w, http.StatusOK, crmcontracts.ConnectConnectorResponse{
 				Connection: &conn,
-			}); err != nil {
-				// The status line is already gone; the log is the only place
-				// a truncated success can still be seen.
-				slog.ErrorContext(r.Context(), "imap connector: encoding connect response", "err", err)
-			}
+			})
 			return
 		}
 	}

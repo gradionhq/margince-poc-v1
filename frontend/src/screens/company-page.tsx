@@ -77,6 +77,7 @@ import {
   CompanyDescription,
   CompanyPrimaryActions,
   CompanyPulse,
+  CompanyStanding,
 } from "./companyheader";
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
@@ -1505,10 +1506,15 @@ function useCitedReceipt() {
 // all when it answered with nothing. Its own component because the labels it
 // needs — the lifecycle and relationship vocabularies — are the list screen's,
 // and threading two label maps through the page's render only obscured it.
-function CompanyStanding({
+function AccountStandingStrip({
+  orgId,
   view,
   loading,
-}: Readonly<{ view?: Organization360View; loading: boolean }>) {
+}: Readonly<{
+  orgId: string;
+  view?: Organization360View;
+  loading: boolean;
+}>) {
   const t = useT();
   if (loading) {
     return <StateStripSkeleton />;
@@ -1518,6 +1524,7 @@ function CompanyStanding({
   }
   return (
     <StateStrip
+      orgId={orgId}
       view={view}
       lifecycleLabel={(value) =>
         t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
@@ -1743,7 +1750,11 @@ function CompanyTabBody({
   onOpenTask: (step: { activity_id: string }) => void;
   onCompose: (activityId: string) => void;
   onLogTask: () => void;
-  onOpenRecord: (cited: CitedRecord) => void;
+  onOpenRecord: (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedRecord[],
+  ) => void;
   // An evidence mark asks where a value came from; the answer is the record's
   // change history, on the tab that holds it.
   onOpenHistory: () => void;
@@ -1809,6 +1820,10 @@ function CompanyTabBody({
             enabled
             onOpenRecord={onOpenCitation}
           />
+          {/* The account's files, in full. They are held about the account
+              the same way its profile and its facts are, so they read here
+              rather than on a tab of their own. */}
+          <CompanyDocumentsCard orgId={org.id} />
           <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
         </div>
       )}
@@ -1916,6 +1931,9 @@ function CompanyPage({
       // screen as the context the answer is about. Overlay has no grounded
       // answer to give, so the verb is absent there rather than refusing once
       // pressed.
+      // Lifecycle and owner sit beside the verbs: values a reader changes in
+      // place, not things they act on.
+      controls={<CompanyStanding org={org} />}
       actions={
         <>
           <CompanyPrimaryActions org={org} />
@@ -1953,7 +1971,9 @@ function CompanyPage({
       // while there is no view: an overlay refusal or a failed read also
       // leaves `view` undefined, and both are settled answers, not a strip
       // still loading.
-      strip={<CompanyStanding view={view} loading={loading} />}
+      strip={
+        <AccountStandingStrip orgId={org.id} view={view} loading={loading} />
+      }
       tabs={tabs}
       {...slots}
     >
@@ -2193,7 +2213,6 @@ function CompanyBusinessColumn({
       <SignalsCard orgId={org.id} />
       {/* Who carries the account, and the paperwork behind it. */}
       <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
-      <CompanyDocumentsCard orgId={org.id} />
       {/* How the account is FILED. It stays folded — this is our own
           bookkeeping rather than anything about the company — but it stays in
           the business grid, because tags and lists are governed sections of

@@ -230,3 +230,28 @@ func stampOf(at *time.Time) string {
 	}
 	return at.UTC().Format(time.RFC3339Nano)
 }
+
+// RecordSyncFailure marks the connection as failed, so the card can say "the
+// last refresh failed" beside the figures it still shows.
+//
+// `last_success_at` is deliberately untouched: the reader keeps the date of
+// the last figures they can trust, which is the difference between a stale
+// card and an empty one.
+//
+// The original error is returned whatever happens here. A bookkeeping write
+// that fails must not replace the failure it was trying to record — the caller
+// would then report the wrong reason for the wrong thing.
+func (s *Store) RecordSyncFailure(ctx context.Context, cause error) error {
+	writeErr := s.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE finance_connection
+			   SET status = 'error', last_attempt_at = now(),
+			       last_error_code = 'sync_failed'
+			 WHERE archived_at IS NULL AND status <> 'disconnected'`)
+		return err
+	})
+	if writeErr != nil {
+		return fmt.Errorf("%w (and recording the failure also failed: %w)", cause, writeErr)
+	}
+	return cause
+}

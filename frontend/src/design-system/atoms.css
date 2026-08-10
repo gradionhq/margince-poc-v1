@@ -799,6 +799,19 @@
   color: var(--textMuted);
 }
 
+/* The label owns the row, and the source badge sits at its far end — beside
+ * the name of the reading rather than under the figure, so it qualifies the
+ * label without competing with the number. */
+.stat-card-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.stat-card-source {
+  flex-shrink: 0;
+}
+
 .stat-card-value {
   overflow-wrap: anywhere;
 }

@@ -353,6 +353,59 @@ const TIMELINE_ICON = {
   change: PencilLine,
 } as const;
 
+// The record's identity band: who it is, what it is, the values a reader
+// changes in place and the verbs they act with. Its own component so
+// RecordView reads as the page's zones rather than as one long header.
+function RecordMasthead({
+  name,
+  avatarSrc,
+  subtitle,
+  pulse,
+  badges,
+  actions,
+  controls,
+}: Readonly<{
+  name: string;
+  avatarSrc?: string | null;
+  subtitle?: ReactNode;
+  pulse?: ReactNode;
+  badges?: ReactNode;
+  actions?: ReactNode;
+  controls?: ReactNode;
+}>) {
+  const verbs = actions ? (
+    <div className="record-actions">{actions}</div>
+  ) : null;
+  return (
+    <header
+      className={controls ? "record-head record-head-wide" : "record-head"}
+    >
+      <Avatar name={name} src={avatarSrc} size="lg" />
+      <div className="record-id">
+        <h1>{name}</h1>
+        {/* A div, not a p: a caller passing structure — the company page's
+            description line plus its chip row — would otherwise nest block
+            elements inside a paragraph, which the browser silently un-nests,
+            leaving the chips outside the header they belong to. */}
+        {subtitle && <div className="record-sub">{subtitle}</div>}
+        {pulse && <div className="record-pulse">{pulse}</div>}
+      </div>
+      {badges && <div className="record-badges">{badges}</div>}
+      {/* The values a reader changes in place, stacked over the verbs they are
+          read beside. Only a caller that passes `controls` gets the column;
+          every other record keeps its verbs alone. */}
+      {controls ? (
+        <div className="record-controls">
+          {controls}
+          {verbs}
+        </div>
+      ) : (
+        verbs
+      )}
+    </header>
+  );
+}
+
 export function RecordView({
   name,
   avatarSrc,
@@ -363,6 +416,7 @@ export function RecordView({
   strip,
   tabs,
   lead,
+  controls,
   rail,
   aside,
   asideFirst,
@@ -405,6 +459,10 @@ export function RecordView({
   // plate. It spans the page because it is what they act on before they
   // choose a column to read.
   lead?: ReactNode;
+  // The values a reader changes in place rather than acts on: lifecycle,
+  // owner. Passing it seats them beside the record's verbs; a record that
+  // passes none keeps the verbs alone.
+  controls?: ReactNode;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
@@ -455,20 +513,15 @@ export function RecordView({
   return (
     <div>
       <div className={sheet ? "record-sheet" : undefined}>
-        <header className="record-head">
-          <Avatar name={name} src={avatarSrc} size="lg" />
-          <div className="record-id">
-            <h1>{name}</h1>
-            {/* A div, not a p: a caller passing structure — the company page's
-                description line plus its chip row — would otherwise nest block
-                elements inside a paragraph, which the browser silently
-                un-nests, leaving the chips outside the header they belong to. */}
-            {subtitle && <div className="record-sub">{subtitle}</div>}
-            {pulse && <div className="record-pulse">{pulse}</div>}
-          </div>
-          {badges && <div className="record-badges">{badges}</div>}
-          {actions && <div className="record-actions">{actions}</div>}
-        </header>
+        <RecordMasthead
+          name={name}
+          avatarSrc={avatarSrc}
+          subtitle={subtitle}
+          pulse={pulse}
+          badges={badges}
+          actions={actions}
+          controls={controls}
+        />
         {strip}
         {tabs && <div className="record-tabs">{tabs}</div>}
       </div>

@@ -155,8 +155,18 @@ func bodyProbe(single json.RawMessage, probe any) error {
 
 // WriteJSON writes a JSON response with the given status.
 //
+// It is the one place a record becomes a REST response, which is what makes it
+// the place to count them: a writer carrying a ServedMeter is told what this
+// body hands over BEFORE any of it is written, so a door bounding an agent's
+// reads can still withhold an answer it cannot charge for. An unmetered writer —
+// every human request, and every composition with no volume meter — takes the
+// path it always did.
+//
 //craft:ignore naked-any the JSON serialization seam: body is whichever contract response struct the handler produced
 func WriteJSON(w http.ResponseWriter, status int, body any) {
+	if meter, metered := w.(ServedMeter); metered && !meter.NoteServed(recordsIn(body)) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	//craft:ignore swallowed-errors WriteHeader already committed the response — nothing can report an encode failure to the client anymore

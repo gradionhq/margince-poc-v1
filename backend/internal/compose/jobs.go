@@ -295,6 +295,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addWebhookRetryJobs(reg, pool, cfg),
 		addAgentSchedulerJobs(reg, pool, cfg),
 		addSignalJobs(reg, pool, cfg, log),
+		addFinanceJobs(reg, pool, cfg, log),
 		registerTelegramPoll(reg, pool, cfg, log),
 
 		// The schedules this file places. Each carries its own gate — the
