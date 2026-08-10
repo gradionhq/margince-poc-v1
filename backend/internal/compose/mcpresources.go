@@ -22,15 +22,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// appViews is the interactive-view provider, assembled once for the process.
-//
-// A package-level value rather than a Server field, because that is what it is:
-// the documents are embedded in this binary and identical for every process,
-// server and caller, so there is nothing per-Server to hold. Assembling it here
-// also means a build with a renamed asset fails on the first construction rather
-// than on the first host that tries to render.
-var appViews = apps.MustProvider()
-
 // mcpResourceProviders is the list of document providers a hosted request
 // reaches, in composition order.
 //
@@ -42,8 +33,14 @@ var appViews = apps.MustProvider()
 //
 // The vocabulary comes FIRST, so a collision resolves to it — see composeResources
 // for why the order is stated rather than incidental.
-func mcpResourceProviders(vocabulary mcp.ResourceProvider) []mcp.ResourceProvider {
-	return []mcp.ResourceProvider{vocabulary, appViews}
+func mcpResourceProviders(vocabulary mcp.ResourceProvider, views *apps.Provider) []mcp.ResourceProvider {
+	// views is nil for a role that composes none — a worker, or an api whose
+	// connector gate is off. composeResources drops it, which is the same
+	// conditional wiring every other injected capability takes.
+	if views == nil {
+		return []mcp.ResourceProvider{vocabulary}
+	}
+	return []mcp.ResourceProvider{vocabulary, views}
 }
 
 // resourceFanout serves the documents of several providers as one catalogue.

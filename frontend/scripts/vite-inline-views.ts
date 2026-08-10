@@ -121,6 +121,20 @@ function inspectNode(node: HTMLElement): string[] {
       found.push(`${tag}[${attribute}]`);
     }
   }
+  // An inline event handler binds behaviour where nothing analysing the script
+  // can see it. Enumerated rather than listed: `onclick`, `onload`, `onerror`
+  // and the ninety others are one RULE to a parser and an endless list to a
+  // substring sweep — which is precisely what this pass is here to buy.
+  //
+  // Deliberately BLUNT: any attribute beginning with `on` is refused, so a
+  // hypothetical `one="1"` would be refused too. That trade is the right way
+  // round — a false positive costs a rename, and a miss is executable markup in
+  // a sandboxed frame that no later check looks at.
+  for (const attribute of Object.keys(node.attributes)) {
+    if (/^on[a-z]/i.test(attribute)) {
+      found.push(`${tag}[${attribute}]`);
+    }
+  }
   return found;
 }
 

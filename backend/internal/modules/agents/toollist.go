@@ -141,7 +141,7 @@ func (s *Dispatcher) toolList(ctx context.Context, fr framing) []map[string]any 
 		// missing and the member is absent rather than empty — a client reads
 		// `_meta.ui` as "there is a view to fetch", so an entry pointing at a
 		// document this deployment does not publish is worse than none.
-		if s.appsOffered(fr) {
+		if s.appsOffered(fr) && s.viewIsHeld(spec) {
 			if ui := toolUIMeta(spec); ui != nil {
 				tool[fieldMeta] = map[string]any{metaUIKey: ui}
 			}

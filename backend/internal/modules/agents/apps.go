@@ -133,27 +133,39 @@ func assertViewDeclaration(spec mcp.ToolSpec) error {
 	return nil
 }
 
-// appsServed reports whether this server has any view to offer, DERIVED from
-// the registry rather than from a flag someone sets.
+// appsServed reports whether this server has any view to offer — a tool that
+// declares one AND a document that is actually being served for it.
 //
-// It answers the capability claim, and a claim has to be true of the surface
-// that is actually assembled: a deployment whose tools carry no view must not
-// advertise the extension, because a host that saw it advertised is entitled to
-// expect a document to prefetch. Reading the registry means a unit added or
-// withdrawn moves this answer in the same commit, with nothing to keep current.
+// BOTH HALVES, and the second one is the whole point. A tool's UI.ResourceURI is
+// a constant baked at registration, so a registry-only answer says "yes" for a
+// view whose document never arrived. The protocol makes it a MUST that a `ui://`
+// URI a tool names exists on the server, and a host is entitled to prefetch one
+// before the tool is ever called — so advertising the extension on the strength
+// of a declaration alone sends every such host to a not-found.
 //
-// It does NOT check that the resource provider publishes each URI, and neither
-// does Register: that cross-reference is held by the composed-surface sweep in
-// compose, where the registry and the providers are both known. Asking it here
-// would mean calling a per-caller Resources(ctx) with no caller, which answers a
-// different question than the one being asked.
+// A deployment with no view provider wired answers false and serves the surface
+// exactly as it did before any view existed, which is the same conditional
+// wiring every other injected capability takes.
 func (s *Dispatcher) appsServed() bool {
 	for _, spec := range s.registry.Specs() {
-		if spec.UI != nil {
+		if s.viewIsHeld(spec) {
 			return true
 		}
 	}
 	return false
+}
+
+// viewIsHeld reports whether THIS tool's view is one the server is serving.
+//
+// It is the per-tool question `_meta.ui` turns on, and it is asked per tool
+// rather than once per request because partial availability is a real state: one
+// view missing must suppress ONE tool's entry, not both, and must never withdraw
+// the tool itself.
+func (s *Dispatcher) viewIsHeld(spec mcp.ToolSpec) bool {
+	if spec.UI == nil || s.viewHeld == nil {
+		return false
+	}
+	return s.viewHeld(spec.UI.ResourceURI)
 }
 
 // appsOffered reports whether THIS request is served the App extension's

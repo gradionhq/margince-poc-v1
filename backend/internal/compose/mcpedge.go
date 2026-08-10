@@ -117,8 +117,14 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// it moot — which is the one that reaches BOTH of these, unlike the
 		// duplicate sweep, which only sees the view catalogue.
 		agents.WithResourceProvider(composeResources(
-			mcpResourceProviders(search.NewQuerySchemaResource(queryVocabulary(pool)))...,
+			mcpResourceProviders(search.NewQuerySchemaResource(queryVocabulary(pool)), s.appViews)...,
 		)),
+		// And the OTHER half of the same promise. A tool's UI.ResourceURI is a
+		// constant baked at registration; whether that document arrived is a
+		// runtime fact only the view provider knows. Wiring both from one value
+		// is what makes "a tool never names a view the server does not serve"
+		// true per request rather than only at build time.
+		agents.WithHeldViews(s.heldView()),
 		// The Tasks extension, which is why a confirm-first call no longer dead-ends
 		// for a client that can hold a handle. The store is composed here for the
 		// same reason the claim store is: agent_task rows are this transport's own

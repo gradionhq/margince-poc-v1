@@ -99,6 +99,18 @@ describe("the parsed pass sees what a substring sweep cannot", () => {
     ).not.toEqual([]);
   });
 
+  it("rejects an inline event handler, whatever it is called", () => {
+    // A view binds behaviour in its script, where analysis can see it. The
+    // parser enumerates attributes, so an event name nobody listed is caught
+    // by the same rule as onclick.
+    expect(
+      inspectDocument('<body><main onclick="x()"></main></body>'),
+    ).not.toEqual([]);
+    expect(
+      inspectDocument('<body><main onanimationiteration="x()"></main></body>'),
+    ).not.toEqual([]);
+  });
+
   it("rejects a form, which posts wherever its action names", () => {
     expect(inspectDocument("<body><form></form></body>")).not.toEqual([]);
   });

@@ -22,8 +22,14 @@ package main
 // | disabled  | anything    | NO fetch at all — nothing composes a view    |
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 )
 
 // mcpAppsOrigin answers the origin to read view documents from, or nil when this
@@ -59,4 +65,43 @@ func mcpAppsOrigin(cfg apiConfig, connectorEnabled bool) (*url.URL, error) {
 		return nil, fmt.Errorf("api: %s %q is not a URL: %w", flagName, raw, err)
 	}
 	return parsed, nil
+}
+
+// mcpAppViewsLane builds the view provider, makes the one bounded startup fetch
+// and starts the refresh loop, answering the compose options and the stop func.
+//
+// It is a LANE in this file rather than an Option because a bounded fetch needs
+// a context and a background loop needs cancelling, and an Option carries
+// neither — the same reason inlineRelayLane is built here. It also puts the
+// lifecycle where the process role is decided: the worker never calls this, and
+// two processes refreshing one snapshot would be two answers to a question that
+// has one.
+//
+// Priming happens BEFORE compose.New returns a handler anyone can reach, so the
+// first client to list is told about the views this process is actually holding
+// rather than a set still being assembled.
+//
+// A view that did not answer is NOT an error here: the api starts, serves what
+// it has, and says in the log which views it is without. Only a condition an
+// operator must fix — an origin configured but unusable — comes back as one.
+func mcpAppViewsLane(ctx context.Context, cfg apiConfig, deployCfg deployconfig.Config, logger *slog.Logger) ([]compose.Option, func(), error) {
+	noop := func() {}
+	origin, err := mcpAppsOrigin(cfg, deployCfg.MCP.ConnectorEnabled)
+	if err != nil {
+		return nil, noop, err
+	}
+	if origin == nil {
+		// The connector-disabled shape: no provider, no `ui://` document, no
+		// `_meta.ui`, and every tool still answering in text.
+		return nil, noop, nil
+	}
+	views := apps.NewProvider(apps.NewFetcher(origin), logger)
+	if err := views.Prime(ctx); err != nil {
+		return nil, noop, err
+	}
+	// WithoutCancel: the refresh loop outlives the boot context and is ended by
+	// the returned stop, which the caller defers.
+	refreshCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	go views.RunRefresh(refreshCtx)
+	return []compose.Option{compose.WithMCPAppViews(views)}, stop, nil
 }

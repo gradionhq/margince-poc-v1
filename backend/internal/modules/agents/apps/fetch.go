@@ -89,6 +89,12 @@ func NewFetcher(base *url.URL) *Fetcher {
 	}
 }
 
+// configured reports whether this fetcher has an origin to read from. A Fetcher
+// built around a nil base is a real value that can answer nothing, which is not
+// the same as no fetcher at all — and telling them apart is what lets Prime
+// report a misconfiguration instead of recording two views that "did not answer".
+func (f *Fetcher) configured() bool { return f != nil && f.base != nil }
+
 // documentURL is the ONE place a URL is built, and it is built from parsed URLs
 // rather than by concatenating strings — a base with or without a trailing slash
 // yields the same path either way, where concatenation yields a doubled or

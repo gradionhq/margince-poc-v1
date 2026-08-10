@@ -147,6 +147,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
+	viewOpts, stopViewRefresh, err := mcpAppViewsLane(ctx, cfg, deployCfg, logger)
+	if err != nil {
+		return err
+	}
+	defer stopViewRefresh()
+	opts = append(opts, viewOpts...)
+
 	apiHandler := compose.New(pool, logger, opts...)
 	// Only now: the flush it listens with is captured while the options run.
 	resetLane.listen(ctx, modelPath)
