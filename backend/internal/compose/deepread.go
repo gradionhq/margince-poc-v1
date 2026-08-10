@@ -338,6 +338,30 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 	bundleID := ids.NewV7()
 	var proposalIDs []ids.UUID
 	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
+		// BOTH kinds this act stages, locked in one canonically ordered
+		// statement before it stages either, and before the leads pass takes
+		// its own narrower one.
+		//
+		// The order that matters is the transaction's, not each statement's.
+		// Staging the facts first joins a `deepread` row; staging the leads then
+		// joins `site_lead` rows — and because re-proposing REBUNDLES what it
+		// joins, a bundle ends up holding both kinds with different ages, which
+		// a decision walks as one interleaved (created_at, id) sequence. Two
+		// ordered runs, one per kind, are not one order: the decision can hold a
+		// lead this act is about to want while waiting for a facts row this act
+		// already holds.
+		// The claim's account is what everything below files under, and the
+		// pre-lock is the FIRST thing to need it — before this, a claim with no
+		// account reached the staging calls that dereference it only when there
+		// was something to stage, so an empty read was a silent no-op. It stays
+		// one.
+		if claim.OrganizationID == nil {
+			return fmt.Errorf("compose: site read %s claims no account to file its proposals under", readID)
+		}
+		if err := w.approvals.LockPendingGroupInTx(ctx, tx, *claim.OrganizationID,
+			deepReadProposalKind, siteLeadProposalKind); err != nil {
+			return err
+		}
 		if len(mergedFields)+len(mergedFacts) > 0 {
 			approvalID, err := w.stage(ctx, tx, readID, claim, mergedFields, mergedFacts, pagesRead, bundleID)
 			if err != nil {

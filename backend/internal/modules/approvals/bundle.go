@@ -248,7 +248,7 @@ func (s *Service) releaseDecidedMembers(ctx context.Context, members []BundleMem
 // about.
 func bundleMembers(ctx context.Context, tx pgx.Tx, bundleID ids.UUID) (rows []row, oversized bool, err error) {
 	rows, err = collect(ctx, tx, `SELECT `+columns+` FROM approval
-		WHERE bundle_id = $1 ORDER BY created_at, id LIMIT $2 FOR UPDATE`,
+		WHERE bundle_id = $1 `+lockOrder+` LIMIT $2 FOR UPDATE`,
 		[]any{bundleID, bundleDecisionCap + 1})
 	if err != nil {
 		return nil, false, err
