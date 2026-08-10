@@ -33,6 +33,7 @@ export function CompanyRail({
   locale,
   writable,
   onOpenRecord,
+  withPeople,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
@@ -43,6 +44,8 @@ export function CompanyRail({
   // Where a cited record opens. Owned by the page, because the grid cites the
   // same records and two owners would mean two receipts open at once.
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // False where the page's own body is already the roster in full.
+  withPeople: boolean;
 }>) {
   return (
     // A plain div: RecordView's own <aside> is the landmark around this, and a
@@ -60,7 +63,9 @@ export function CompanyRail({
         onOpenRecord={onOpenRecord}
       />
       <HealthCard health={view?.health} />
-      <PeopleCard view={view} writable={writable} orgId={orgId} />
+      {withPeople && (
+        <PeopleCard view={view} writable={writable} orgId={orgId} />
+      )}
       <SignalsCard orgId={orgId} />
       <RecentActivityCard view={view} locale={locale} />
     </div>
@@ -86,12 +91,14 @@ function RecentActivityCard({
   locale,
 }: Readonly<{ view?: Organization360; locale: Locale }>) {
   const t = useT();
-  // A row with no subject would draw as a bare timestamp, which says less than
-  // leaving it out. The full chronology is the History tab, where the kind and
-  // the body give an unsubjected entry its meaning.
-  const entries = (view?.activities?.data ?? [])
-    .filter((entry) => Boolean(entry.subject))
-    .slice(0, RECENT_LIMIT);
+  // Every logged activity, not only the ones with a subject. A call or a note
+  // often has none, and filtering them out here would both under-report the
+  // chronology and — because the count below feeds sectionState — draw
+  // "nothing logged with them yet" on an account that has been called five
+  // times. Absence of a subject is a fact about the ROW, never about the
+  // account.
+  const logged = view?.activities?.data ?? [];
+  const entries = logged.slice(0, RECENT_LIMIT);
   return (
     <SectionCard
       title={t("co.recent.title")}
@@ -99,7 +106,7 @@ function RecentActivityCard({
         view,
         "activities",
         Boolean(view?.activities),
-        entries.length,
+        logged.length,
       )}
       emptyLabel={t("co.recent.empty")}
     >
@@ -108,7 +115,9 @@ function RecentActivityCard({
           <li key={entry.id} className="co-row">
             <span className="co-row-main">
               <Clock size={14} aria-hidden="true" />
-              {entry.subject}
+              {/* The same fallback the timeline uses: a subjectless row still
+                  has something to show, so it is never a blank line. */}
+              {entry.subject || entry.body || entry.kind}
             </span>
             {entry.occurred_at && (
               <span className="co-row-meta">

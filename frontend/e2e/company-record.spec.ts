@@ -165,13 +165,15 @@ test.describe("company record — the mockup's page shape", () => {
   });
 
   // State A's right column: next best actions, health, contacts, signals and
-  // recent activity. Only four are asserted, because the advice card draws
-  // nothing when the rules found nothing to advise — an empty "next best
-  // actions" is a card that says a rule did not fire.
+  // recent activity.
   //
-  // The rail's existence and its ORDER are what the mockup fixes, and both are
-  // asserted: it sits to the RIGHT of the work column, which is what makes it
-  // a rail rather than more page.
+  // What is asserted is that the rail EXISTS and sits to the RIGHT of the work
+  // column, which is what makes it a rail rather than more page. (The x
+  // comparison holds above the 1200px restack, which this suite's viewport
+  // pins.)
+  //
+  // Four rather than five: the advice card draws nothing when the rules found
+  // nothing to advise, and health draws nothing on an account it cannot judge.
   test("the right rail carries the account's context beside the work", async ({
     page,
   }) => {

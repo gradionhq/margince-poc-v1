@@ -206,6 +206,13 @@
   color: var(--textPrimary);
 }
 
+/* A row's own line: the icon sits with the text rather than on its baseline. */
+.co-row-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px; /* ds:ignore matches .co-row-meta below, which the same row aligns to */
+}
+
 .co-row-meta {
   display: flex;
   align-items: center;
@@ -496,11 +503,11 @@
 .co-strip {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 0;
+  gap: 1px; /* ds:ignore a hairline divider, not spacing rhythm — this 1px IS the rule between slots */
   margin-block-end: 0.9rem;
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
-  background: var(--bgCard);
+  background: var(--borderSubtle);
   overflow: hidden;
 }
 
@@ -516,19 +523,17 @@
   }
 }
 
-/* The dividers ARE the strip: each slot draws its own left rule except the
-   first in a row, so the shape follows the column count above without a rule
-   hanging off the edge. */
+/* The dividers are the GAP, showing the strip's own background between slots.
+   A per-slot rule would have to be reset on whichever child starts a row,
+   which is index arithmetic that only agrees with position while the slot
+   count is a multiple of the column count — and this strip draws four, five or
+   six depending on what the account has. A gap cannot hang off an edge at any
+   count. */
 .co-strip > * {
   border: 0;
   border-radius: 0;
-  border-inline-start: 1px solid var(--borderSubtle);
-  background: transparent;
+  background: var(--bgCard);
   margin: 0;
-}
-
-.co-strip > *:first-child {
-  border-inline-start: 0;
 }
 
 /* A strip slot is narrower than a free-standing stat card, so the source badge
@@ -537,18 +542,6 @@
 .co-strip .stat-card-label {
   flex-wrap: wrap;
   justify-content: flex-start;
-}
-
-@media (max-width: 68rem) {
-  .co-strip > *:nth-child(3n + 1) {
-    border-inline-start: 0;
-  }
-}
-
-@media (max-width: 40rem) {
-  .co-strip > *:nth-child(odd) {
-    border-inline-start: 0;
-  }
 }
 
 /* The brief under the questions it answers. Sections are separated by space

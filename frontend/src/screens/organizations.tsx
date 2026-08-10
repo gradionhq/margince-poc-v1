@@ -2017,6 +2017,9 @@ function CompanyPage({
             locale={locale}
             writable={!org.archived_at}
             onOpenRecord={receipt.open}
+            // The People tab IS the roster in full, so the rail's summary of
+            // it stands down rather than repeating it beside itself.
+            withPeople={tab !== "people"}
           />
         )
       }
@@ -2103,9 +2106,10 @@ function CompanyPage({
           onClose={() => setComposing(null)}
         />
       )}
-      {/* The People tab gives the account team the whole middle column. The
-          grid's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
+      {/* The People tab gives the account team the whole middle column, with
+          room for the title and the last exchange beside each name. The rail's
+          copy stands down while it is open — the same roster twice, side by
+          side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}

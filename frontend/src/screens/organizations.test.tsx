@@ -1919,6 +1919,35 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     }
   });
 
+  // A call or a note often carries no subject. Counting only the subjected
+  // rows would draw "nothing logged with them yet" on an account that has been
+  // called five times — a false statement about the account, made from a fact
+  // about a row.
+  it("counts every logged activity, not only the ones with a subject", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "call",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const rail = container.querySelector(".co-rail");
+    await waitFor(() => expect(rail?.textContent).toContain("Recent activity"));
+    expect(rail?.textContent).not.toContain("Nothing logged with them yet");
+  });
+
   // None of the reference cards comes from the 360 — each runs its own read —
   // so they must be on the page before that read lands, and stay there if it
   // never does.
