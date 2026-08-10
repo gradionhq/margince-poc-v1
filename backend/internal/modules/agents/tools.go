@@ -364,12 +364,16 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	pin, err := pinForWrite(ctx, args.IfVersion)
+	if err != nil {
+		return nil, err
+	}
 	ref, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  pinForWrite(ctx, args.IfVersion),
+		IfVersion:  pin,
 	})
 	if err != nil {
 		return nil, err

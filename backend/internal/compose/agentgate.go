@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -226,6 +227,9 @@ type admissionOutcome struct {
 func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, outcome admissionOutcome) {
 	switch {
 	case outcome.err == nil:
+		if !pinAdmittedWrite(w, r) {
+			return
+		}
 		// The effect is charged on BOTH arms — the field split forwards to the
 		// same handler through its own path — and on NEITHER when the handler
 		// refused. A quota counts what an agent did, so a rejected mutation that
@@ -266,6 +270,51 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
 		}
 	}
+}
+
+// pinAdmittedWrite conditions an auto-executed agent write on the record state
+// its tier was decided from, by forwarding the gate's pin as the request's own
+// If-Match.
+//
+// This is redeemIfPresented's forward (agentgatestaging.go) one tier down, and
+// for the same reason: the gate resolved a dynamic tier by READING the record,
+// that read commits before the handler's transaction opens, and the agent
+// controls both sides of the window — its own 🟢 call can close a deal between
+// the two. Moving the compare inside the transaction that mutates is what makes
+// a record that changed lose to the version check instead of to timing.
+//
+// A caller that sent its own If-Match keeps it — but only if it names the
+// version the gate read, and that is CHECKED. The caller controls the header,
+// so a version the gate never saw is a version nothing proved: a caller naming
+// the version the racing close will PRODUCE walks straight through, because the
+// store's compare then passes on precisely the record the tier decision does not
+// describe. Preferring the caller unchecked would turn a coin-toss race into an
+// armable one. A disagreement is answered as skew, which is also what a caller
+// holding a genuinely stale version already gets, one layer down.
+//
+// It reports whether the request may proceed; a refusal has already been
+// written.
+func pinAdmittedWrite(w http.ResponseWriter, r *http.Request) bool {
+	version, pinned := auth.AutoExecutePin(r.Context())
+	if !pinned {
+		return true
+	}
+	if caller := r.Header.Get("If-Match"); caller != "" {
+		// Compared as the numbers they are: the contract's If-Match is a bare
+		// integer version, and two spellings of one number must not read as
+		// disagreement. A caller header this parser refuses is left for the
+		// handler's own IfMatchVersion to answer, which is where that message
+		// already lives.
+		if got, err := strconv.ParseInt(caller, 10, 64); err != nil || got == version {
+			return true
+		}
+		httperr.Write(w, r, fmt.Errorf(
+			"If-Match %s is not the version this record was read at (%d) — re-read it and retry: %w",
+			caller, version, apperrors.ErrVersionSkew))
+		return false
+	}
+	r.Header.Set("If-Match", strconv.FormatInt(version, 10))
+	return true
 }
 
 // effectRecorder answers whether the handler behind this door actually
