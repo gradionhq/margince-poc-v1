@@ -46,7 +46,6 @@ import {
 } from "./person360";
 import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
-import { PersonMoments } from "./personmoments";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
 
@@ -721,12 +720,6 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             </div>
-            {/* First on the page, above everything the record IS: the reason
-                to be here. Deterministic, so it paints with the rest rather
-                than arriving later behind a spinner. */}
-            {tab === "overview" && view && (
-              <PersonMoments personId={id} view={view} />
-            )}
             {tab === "overview" && thinRecord(view) && view && (
               <ThinState view={view} />
             )}

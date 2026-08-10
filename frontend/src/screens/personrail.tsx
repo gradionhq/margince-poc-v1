@@ -204,7 +204,9 @@ function WhoKnows({
             <span className="pe-colleague-proof">
               {/* The PROOF, never a ranking nobody can check: six unanswered
                   sends must not read as stronger than two real exchanges. */}
-              {t("person.rail.exchanges", { count: colleague.interactions })}
+              {t("person.rail.exchanges", {
+                count: colleague.interactions_90d,
+              })}
             </span>
           </span>
         </div>

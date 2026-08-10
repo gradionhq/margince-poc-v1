@@ -432,7 +432,8 @@ export function Modal({
   // "right" anchors the dialog to the right edge, full height — the drawer
   // form the composer and the evidence receipt use, where the record behind
   // stays visible as context rather than being covered by a centred box.
-  // `size` does not apply to it: a drawer's width comes from the viewport.
+  // With size="wide" it takes the roomier clamp and a sticky header/footer,
+  // for the surfaces a rep works IN rather than glances at.
   placement?: "center" | "right";
   children: ReactNode;
 }>) {
@@ -512,7 +513,13 @@ export function Modal({
 // variants — which exist to widen a centred box — do not apply to it.
 function modalClass(size: "default" | "wide", placement: "center" | "right") {
   if (placement === "right") {
-    return "modal modal-drawer";
+    // A drawer's width normally comes from the viewport, but a surface a rep
+    // WORKS in — a numbered claim list, a message being written — wraps into an
+    // unreadable column at the default clamp. `size` is what asks for the
+    // roomier one, and it brings sticky header and footer with it.
+    return size === "wide"
+      ? "modal modal-drawer modal-drawer-wide"
+      : "modal modal-drawer";
   }
   return size === "wide" ? "modal modal-wide" : "modal";
 }

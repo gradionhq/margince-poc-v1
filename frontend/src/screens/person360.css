@@ -447,12 +447,14 @@
 }
 
 .pe-memory-title {
+  display: block;
   font-size: 14px;
   font-weight: 600;
   color: var(--textPrimary);
 }
 
 .pe-memory-summary {
+  display: block;
   margin-top: 2px; /* ds:ignore optical, below the 4px scale's floor */
   font-size: 13px;
   line-height: 1.5;
@@ -556,12 +558,16 @@
   padding: var(--space-2) 0;
 }
 
+/* Name over proof, not name beside proof: they are two spans in one column,
+   so the name needs to be a block or the two run together. */
 .pe-colleague-name {
+  display: block;
   font-size: 14px;
   color: var(--textPrimary);
 }
 
 .pe-colleague-proof {
+  display: block;
   font-size: 12px;
   color: var(--textSecondary);
 }
@@ -605,4 +611,139 @@
   margin-top: var(--space-3);
   font-size: 13px;
   color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   The drawers: composer, research, meeting brief (concept §6.2–6.4).
+
+   All three are the design system's WIDE drawer. What is here is only their
+   own content rhythm — the frame, the sticky header and the sticky footer come
+   from the drawer variant itself.
+   --------------------------------------------------------------------------- */
+.pe-drawer-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pe-drawer-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--textPrimary);
+}
+
+/* The consent verdict leads the composer: a rep about to write needs to know
+   whether they may send BEFORE they spend words on it. */
+.pe-consent-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: 13px;
+  color: var(--success);
+}
+
+.pe-consent-line-blocked {
+  color: var(--warn);
+}
+
+.pe-field-label {
+  display: block;
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--textSecondary);
+}
+
+.pe-field-label:first-child {
+  margin-top: 0;
+}
+
+/* "Why this draft": the reasoning is a SIBLING of the body, never part of it.
+   A body that explained itself is a body the rep has to edit before sending. */
+.pe-why {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  background: var(--bgCard);
+  border-radius: 8px;
+}
+
+.pe-why-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--textContent);
+}
+
+.pe-disclosure {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  font-size: 12px;
+  color: var(--textSecondary);
+}
+
+.pe-confirm-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
+.pe-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Research: the staged notice is the whole promise of the drawer — nothing
+   here has touched the record — so it reads as a statement, not a hint. */
+.pe-staged-notice {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--accentLight);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--textContent);
+}
+
+/* A numbered claim: the ordinal is what a conversation angle cites back. */
+.pe-claim {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.pe-claim-ordinal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accentLight);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pe-claim-body {
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--textPrimary);
+}
+
+.pe-brief-section {
+  margin-bottom: var(--space-5);
 }

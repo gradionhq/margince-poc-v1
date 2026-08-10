@@ -4142,4 +4142,43 @@ export const vi = {
   "person.rail.recentActivity": "Hoạt động gần đây",
   "person.rail.nothingCaptured": "Chưa ghi nhận gì.",
   "person.rail.viewAllActivity": "Xem tất cả hoạt động",
+  "person.drawer.close": "Đóng",
+  "person.composer.title": "Soạn thư tiếp theo · {name}",
+  "person.composer.to": "Đến",
+  "person.composer.subject": "Chủ đề",
+  "person.composer.body": "Nội dung",
+  "person.composer.drafting": "Đang soạn bản nháp…",
+  "person.composer.why": "Vì sao có bản nháp này",
+  "person.composer.consentUnknown":
+    "Chưa có quyết định về sự đồng ý cho kênh này.",
+  "person.composer.confirmFirst":
+    "Việc gửi cần xác nhận trước. Bản nháp này chỉ được gửi sau khi bạn duyệt.",
+  "person.composer.reviewSend": "Xem lại & gửi",
+  "person.composer.staged": "Đã đưa vào chờ duyệt",
+  "person.composer.aiDisclosure": "Bản nháp có hỗ trợ AI · hãy đọc kỹ từng từ",
+  "person.research.title": "Nghiên cứu sâu · {name}",
+  "person.research.publicOnly": "Chỉ nguồn công khai",
+  "person.research.running": "Đang đọc các nguồn công khai…",
+  "person.research.notConnected":
+    "Chưa kết nối nhà cung cấp dữ liệu. Margince không bao giờ tự ý nghiên cứu về một cá nhân — việc này cần một nhà cung cấp được cấp phép.",
+  "person.research.staged":
+    "Kết quả đang ở trạng thái chờ. Hồ sơ của {name} không thay đổi cho đến khi bạn xem lại và lưu.",
+  "person.research.stats":
+    "Đã đọc {sources} nguồn · {claims} nhận định có trích dẫn",
+  "person.research.dismiss": "Bỏ qua",
+  "person.research.discard": "Hủy bỏ",
+  "person.research.save": "Xem lại & lưu {count} nhận định",
+  "person.research.evidenceOrOmit":
+    "Có hỗ trợ AI · có bằng chứng hoặc bỏ qua · chỉ thông tin công khai",
+  "person.meeting.title": "Tóm tắt cuộc họp",
+  "person.meeting.loading": "Đang tổng hợp bản tóm tắt…",
+  "person.meeting.assembledNow": "Vừa được tổng hợp từ dữ liệu mới nhất",
+  "person.meeting.header": "Tổng quan",
+  "person.meeting.goal": "Mục tiêu cuộc họp",
+  "person.meeting.attendees": "Người tham dự",
+  "person.meeting.commitments": "Cam kết còn mở",
+  "person.meeting.deal_state": "Tình trạng thương vụ",
+  "person.meeting.risks": "Rủi ro và điểm cần lưu ý",
+  "person.meeting.talking_points": "Gợi ý nội dung trao đổi",
+  "person.meeting.company_context": "Bối cảnh công ty",
 } as const satisfies Record<MessageKey, string>;

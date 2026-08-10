@@ -4155,4 +4155,45 @@ export const de = {
   "person.rail.recentActivity": "Letzte Aktivität",
   "person.rail.nothingCaptured": "Noch nichts erfasst.",
   "person.rail.viewAllActivity": "Alle Aktivitäten ansehen",
+  "person.drawer.close": "Schließen",
+  "person.composer.title": "Follow-up entwerfen · {name}",
+  "person.composer.to": "An",
+  "person.composer.subject": "Betreff",
+  "person.composer.body": "Nachricht",
+  "person.composer.drafting": "Entwurf wird geschrieben…",
+  "person.composer.why": "Warum dieser Entwurf",
+  "person.composer.consentUnknown":
+    "Für diesen Kanal ist keine Einwilligungsentscheidung erfasst.",
+  "person.composer.confirmFirst":
+    "Der Versand erfolgt erst nach Freigabe. Dieser Entwurf wird nicht ohne Ihre Zustimmung gesendet.",
+  "person.composer.reviewSend": "Prüfen & senden",
+  "person.composer.staged": "Zur Freigabe vorgemerkt",
+  "person.composer.aiDisclosure":
+    "KI-unterstützter Entwurf · jedes Wort prüfen",
+  "person.research.title": "Tiefenrecherche · {name}",
+  "person.research.publicOnly": "Nur öffentliche Quellen",
+  "person.research.running": "Öffentliche Quellen werden gelesen…",
+  "person.research.notConnected":
+    "Noch kein Datenanbieter verbunden. Margince recherchiert nie aus eigener Befugnis zu einer Person — dafür braucht es einen lizenzierten Anbieter mit eigener Rechtsgrundlage.",
+  "person.research.staged":
+    "Die Recherche ist vorgemerkt. Am Datensatz von {name} ändert sich nichts, bis Sie prüfen und speichern.",
+  "person.research.stats":
+    "{sources} Quellen gelesen · {claims} belegte Aussagen",
+  "person.research.dismiss": "Verwerfen",
+  "person.research.discard": "Verwerfen",
+  "person.research.save": "{count} Aussagen prüfen & speichern",
+  "person.research.evidenceOrOmit":
+    "KI-unterstützt · nur mit Beleg · ausschließlich öffentliche Informationen",
+  "person.meeting.title": "Meeting-Briefing",
+  "person.meeting.loading": "Briefing wird zusammengestellt…",
+  "person.meeting.assembledNow":
+    "Soeben aus den aktuellen Daten zusammengestellt",
+  "person.meeting.header": "Auf einen Blick",
+  "person.meeting.goal": "Ziel dieses Meetings",
+  "person.meeting.attendees": "Teilnehmende",
+  "person.meeting.commitments": "Offene Zusagen",
+  "person.meeting.deal_state": "Stand des Deals",
+  "person.meeting.risks": "Risiken und Warnsignale",
+  "person.meeting.talking_points": "Vorgeschlagene Gesprächspunkte",
+  "person.meeting.company_context": "Unternehmenskontext",
 } as const satisfies Record<MessageKey, string>;

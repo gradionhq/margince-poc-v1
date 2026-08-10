@@ -4135,6 +4135,44 @@ export const en = {
   "person.rail.recentActivity": "Recent activity",
   "person.rail.nothingCaptured": "Nothing captured yet.",
   "person.rail.viewAllActivity": "View all activity",
+  "person.drawer.close": "Close",
+  "person.composer.title": "Draft follow-up · {name}",
+  "person.composer.to": "To",
+  "person.composer.subject": "Subject",
+  "person.composer.body": "Message",
+  "person.composer.drafting": "Writing a draft…",
+  "person.composer.why": "Why this draft",
+  "person.composer.consentUnknown":
+    "No consent decision is recorded for this channel.",
+  "person.composer.confirmFirst":
+    "Sending is confirm-first. This draft is not sent until you approve.",
+  "person.composer.reviewSend": "Review & send",
+  "person.composer.staged": "Staged for approval",
+  "person.composer.aiDisclosure": "AI-assisted draft · review every word",
+  "person.research.title": "Deep research · {name}",
+  "person.research.publicOnly": "Public sources only",
+  "person.research.running": "Reading public sources…",
+  "person.research.notConnected":
+    "No data provider yet connected. Margince never researches a person on its own authority — a licensed provider carries the lawful basis this needs.",
+  "person.research.staged":
+    "Research is staged. Nothing changes {name}'s record until you review and save.",
+  "person.research.stats": "{sources} sources read · {claims} cited claims",
+  "person.research.dismiss": "Dismiss",
+  "person.research.discard": "Discard",
+  "person.research.save": "Review & save {count} claims",
+  "person.research.evidenceOrOmit":
+    "AI-assisted · evidence-or-omit · public information only",
+  "person.meeting.title": "Meeting brief",
+  "person.meeting.loading": "Assembling the brief…",
+  "person.meeting.assembledNow": "Assembled just now, from the latest data",
+  "person.meeting.header": "At a glance",
+  "person.meeting.goal": "Goal for this meeting",
+  "person.meeting.attendees": "Attendees",
+  "person.meeting.commitments": "Open commitments",
+  "person.meeting.deal_state": "Where the deal stands",
+  "person.meeting.risks": "Risks and watch-outs",
+  "person.meeting.talking_points": "Suggested talking points",
+  "person.meeting.company_context": "Company context",
 } as const;
 
 export type MessageKey = keyof typeof en;
