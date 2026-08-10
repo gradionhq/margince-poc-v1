@@ -253,8 +253,9 @@ Wiring details:
   a margince-constellation release versioned `<year>.<build>` in the dist
   service — not a GitHub release: the release-management CLI cuts the
   incremental patch over the push's range and uploads it with `draft-release`,
-  then the three role images are built, pushed to ghcr, and added to the draft
-  as digest-pinned references with `add-artifacts`. Publishing the release is
+  then the three role images are built through the bake file
+  (`docker-bake.hcl`), pushed to ghcr, and added to the draft as digest-pinned
+  references with `add-artifacts`. Publishing the release is
   deliberately not part of the workflow yet. The upload authenticates with the
   dist publisher token (the `MARGINCE_DIST_PUBLISHER_TOKEN` secret). The two
   degenerate patch cases go opposite ways: a branch creation (all-zeros

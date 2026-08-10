@@ -8,9 +8,9 @@ name: release
 # The flow, in order: draft the release versioned <year>.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
 # scheme) with the incremental patch attached, then build the three role
-# images, push them to ghcr, and add each to the draft as a digest-pinned
-# image reference. Publishing the release is deliberately NOT part of this
-# workflow yet.
+# images through the bake file (docker-bake.hcl), push them to ghcr, and add
+# them to the draft as digest-pinned image references. Publishing the release
+# is deliberately NOT part of this workflow yet.
 #
 # Both the patch cut and the release upload go through the release-management
 # CLI (a closed-source tool built and published from
@@ -121,53 +121,50 @@ jobs:
             "$RELEASE_MANAGEMENT_IMAGE" \
             draft-release -version "$version" -revision "$AFTER" "${patch_args[@]}"
 
-  # One leg per role: build the image, push it to ghcr, and add it to the
-  # drafted release as a digest-pinned reference (the digest is the identity;
-  # the version tag is recorded for humans). Each leg adds a distinct image
-  # role, so the legs cannot conflict in the dist service.
+  # Build the three role images through the bake file (docker-bake.hcl), push
+  # them to ghcr, and add all three to the drafted release in ONE add-artifacts
+  # call, each as a digest-pinned reference (the digest is the identity; the
+  # version tag is recorded for humans). A release needs every role, so the
+  # images land in the draft together or not at all.
   #
   # `docker-image`, not `image`: the check-image-pins gate key-anchors every
   # `image:` in a workflow as a container reference to digest-check, and that
   # includes a job id.
   docker-image:
-    name: image (${{ matrix.role }})
+    name: images (api + web + worker)
     needs: [draft]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      # A broken web image must not hide whether api/worker still build.
-      fail-fast: false
-      matrix:
-        role: [api, web, worker]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The docker-container driver: with the default docker driver the bake
+      # metadata file carries no pushed-manifest digest, and the digest is
+      # exactly what the release records.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Log in to ghcr.io
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-      - name: Build and push the image, add it to the draft
+      - name: Bake and push the images, add them to the draft
         env:
-          ROLE: ${{ matrix.role }}
           VERSION: ${{ needs.draft.outputs.version }}
+          MARGINCE_BUILD_REVISION: ${{ github.sha }}
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
-        # ONE revision for every role, so the api and the web tier can be
-        # compared at run time. A role that does not declare the ARG simply
-        # ignores it.
         run: |
           set -euo pipefail
-          ref="ghcr.io/$GITHUB_REPOSITORY/$ROLE:$VERSION"
-          docker build --build-arg MARGINCE_BUILD_REVISION="$GITHUB_SHA" -f "Dockerfile.$ROLE" -t "$ref" .
-          docker push "$ref"
-          # The push assigns the manifest digest; RepoDigests carries it for
-          # the one repository this image was pushed to.
-          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$ref")"
+          docker buildx bake --push --metadata-file bake-metadata.json
+          images=()
+          for role in api web worker; do
+            digest="$(jq -er --arg role "$role" '.[$role]."containerimage.digest"' bake-metadata.json)"
+            images+=(-image "$role=ghcr.io/$GITHUB_REPOSITORY/$role:$VERSION@$digest")
+          done
           docker run --rm \
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
             "$RELEASE_MANAGEMENT_IMAGE" \
-            add-artifacts -version "$VERSION" -image "$ROLE=$ref@${digest##*@}"
+            add-artifacts -version "$VERSION" "${images[@]}"
