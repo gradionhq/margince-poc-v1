@@ -140,7 +140,19 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// composite that costs the same on every account and one that costs most on
 	// the accounts with the most contacts. It rides the person grant the
 	// contacts section already checked, so it costs no second admission.
-	const budget = 29
+	//
+	// Raised 29 → 30 for last_meeting_at: ONE query, the most recent meeting
+	// that has already happened. It is the opposite question from the
+	// next-meeting section — backwards rather than forwards — so it cannot be
+	// read off that section's row, and it carries the activity scope clause
+	// itself rather than trusting a read that asked something else. It reuses
+	// the activity grant the timeline already checked, so it costs no second
+	// admission, and it stays flat in the size of the account like every
+	// other section here.
+	//
+	// It landed without this line, so the assembly issued 30 against a budget
+	// of 29 and every branch cut afterwards inherited a red gate.
+	const budget = 30
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}
