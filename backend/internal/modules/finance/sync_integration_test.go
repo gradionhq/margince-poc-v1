@@ -313,3 +313,62 @@ func TestCrossingADueDateDoesNotRewriteTheLedger(t *testing.T) {
 			second.InvoicesUpdate)
 	}
 }
+
+// The repair Codex named: an invoice mirrored BEFORE the rate was recorded is
+// unchanged on the source, so the hash skip would keep it unconvertible for
+// good — and one unconvertible row refuses the whole total (FIN-AC-6). The
+// source has no reason to change again, so nothing would ever fix it.
+func TestASyncRepairsAnInvoiceThatIsMissingItsRate(t *testing.T) {
+	e := setupFinance(t)
+	ctx, orgID, provider := e.ctx, e.org, e.provider()
+
+	if _, err := e.store.SyncConnection(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	// Put the ledger back into the state the old writer left: rates cleared,
+	// hashes untouched. This is what a database that synced before the fix
+	// actually holds.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE finance_invoice
+			   SET fx_rate_to_base = NULL, fx_rate_date = NULL
+			 WHERE organization_id = $1`, orgID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := e.store.SummaryFor(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.NetInvoiced != nil {
+		t.Fatal("a ledger with no rates reported a total; the rest of this test proves nothing")
+	}
+
+	repair, err := e.store.SyncConnection(ctx, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair.InvoicesUpdate == 0 {
+		t.Fatal("the pass skipped every invoice, so the rates were never repaired")
+	}
+	after, err := e.store.SummaryFor(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.NetInvoiced == nil || after.NetInvoiced.AmountMinor == nil {
+		t.Fatal("still no total after a repair pass")
+	}
+
+	// And it settles. A repair that re-fired every pass would be the same bug
+	// wearing the opposite sign: an event and a version bump per invoice, four
+	// times a day, forever.
+	settled, err := e.store.SyncConnection(ctx, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.InvoicesUpdate != 0 {
+		t.Fatalf("the pass after the repair rewrote %d invoices, want none",
+			settled.InvoicesUpdate)
+	}
+}

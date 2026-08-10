@@ -170,42 +170,59 @@ func (s *Store) mirrorInvoice(
 ) (ids.UUID, writeOutcome, error) {
 	inv := args.invoice
 	hash := invoiceHash(inv)
-	existingID, existingHash, found, err := findInvoice(ctx, tx, args.connectionID, inv.ExternalID)
+	existing, found, err := findInvoice(ctx, tx, args.connectionID, inv.ExternalID)
 	if err != nil {
 		return ids.UUID{}, wroteNothing, err
 	}
-	if found && existingHash == hash {
+	// The hash covers the SOURCE's values, and the rate is not one of them: it
+	// is derived from the workspace's base currency, which the source knows
+	// nothing about. So a row can be up to date on the source and still be
+	// missing a rate it should carry — and the skip below would keep it that
+	// way for good, because the source has no reason to change again.
+	wantRate, _ := fxRateToBase(inv, args.baseCurrency)
+	rateMissing := wantRate != nil && existing.fxRate == nil
+	if found && existing.hash == hash && !rateMissing {
 		// The source says exactly what it said last time. Rewriting the row
 		// would bump its version, write an audit row and emit an event for a
 		// change that did not happen.
-		return existingID, wroteNothing, nil
+		return existing.id, wroteNothing, nil
 	}
 	values := deriveValues(inv, s.now(), args.rowIDs, args.creditedAgainst, args.baseCurrency)
 	if found {
-		return existingID, wroteUpdate, updateInvoice(ctx, tx, existingID, args, values, hash)
+		return existing.id, wroteUpdate, updateInvoice(ctx, tx, existing.id, args, values, hash)
 	}
 	id := ids.NewV7()
 	return id, wroteInsert, insertInvoice(ctx, tx, id, args, values, hash)
 }
 
+// mirroredInvoice is what the mirror already holds for one source invoice:
+// enough to decide whether this pass has anything to write.
+type mirroredInvoice struct {
+	id   ids.UUID
+	hash string
+	// fxRate is nil on a row written before the mirror recorded one, which is
+	// what lets the skip above tell "unchanged" from "unchanged but unusable".
+	fxRate *float64
+}
+
 func findInvoice(
 	ctx context.Context, tx pgx.Tx, connectionID ids.UUID, externalID string,
-) (id ids.UUID, hash string, found bool, err error) {
+) (row mirroredInvoice, found bool, err error) {
 	// FOR UPDATE, because this read starts a read-modify-write: two sweeps
 	// racing on the same invoice would otherwise both see the old hash, both
 	// decide it changed, and both write. The row is held to commit.
 	err = tx.QueryRow(ctx, `
-		SELECT id, sync_hash FROM finance_invoice
+		SELECT id, sync_hash, fx_rate_to_base FROM finance_invoice
 		 WHERE connection_id = $1 AND external_id = $2
 		   FOR UPDATE`,
-		connectionID, externalID).Scan(&id, &hash)
+		connectionID, externalID).Scan(&row.id, &row.hash, &row.fxRate)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.UUID{}, "", false, nil
+		return mirroredInvoice{}, false, nil
 	}
 	if err != nil {
-		return ids.UUID{}, "", false, fmt.Errorf("read the mirrored invoice: %w", err)
+		return mirroredInvoice{}, false, fmt.Errorf("read the mirrored invoice: %w", err)
 	}
-	return id, hash, true, nil
+	return row, true, nil
 }
 
 // invoiceValues are the columns derived from one source invoice — everything
@@ -402,85 +419,6 @@ func overdue(inv SourceInvoice, now time.Time) bool {
 	return inv.DueOn != nil && now.After(*inv.DueOn)
 }
 
-type paymentArgs struct {
-	connectionID   ids.UUID
-	organizationID ids.OrganizationID
-	payment        SourcePayment
-	capturedBy     string
-	rowIDs         map[string]ids.UUID
-}
-
-// mirrorPayment upserts one received payment, on the same hash rule.
-func (s *Store) mirrorPayment(
-	ctx context.Context, tx pgx.Tx, args paymentArgs,
-) (writeOutcome, error) {
-	pay := args.payment
-	hash := paymentHash(pay)
-	var (
-		existingID   ids.UUID
-		existingHash string
-	)
-	// FOR UPDATE for the reason findInvoice takes it: this read is the first
-	// half of a read-modify-write, and two sweeps must not both write.
-	err := tx.QueryRow(ctx, `
-		SELECT id, sync_hash FROM finance_payment
-		 WHERE connection_id = $1 AND external_id = $2
-		   FOR UPDATE`,
-		args.connectionID, pay.ExternalID).Scan(&existingID, &existingHash)
-	switch {
-	case err == nil && existingHash == hash:
-		return wroteNothing, nil
-	case err == nil:
-		// Every hashed field, for the reason updateInvoice writes them all: a
-		// payment reassigned to a different invoice, or restated in another
-		// currency, changed the hash and must change the row.
-		if _, err := tx.Exec(ctx, `
-			UPDATE finance_payment
-			   SET organization_id = $2, invoice_id = $3, paid_at = $4,
-			       currency = $5, amount_minor = $6, source_updated_at = $7,
-			       sync_hash = $8
-			 WHERE id = $1`,
-			existingID, args.organizationID, resolveInvoice(pay, args.rowIDs),
-			pay.PaidAt, pay.Currency, pay.AmountMinor, pay.UpdatedAt, hash); err != nil {
-			return wroteNothing, fmt.Errorf("update the mirrored payment: %w", err)
-		}
-		return wroteUpdate, nil
-	case !errors.Is(err, pgx.ErrNoRows):
-		return wroteNothing, fmt.Errorf("read the mirrored payment: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO finance_payment
-		       (workspace_id, connection_id, organization_id, external_id, invoice_id,
-		        paid_at, currency, amount_minor, source_updated_at, sync_hash,
-		        source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		storekit.MustWorkspace(ctx), args.connectionID, args.organizationID,
-		pay.ExternalID, resolveInvoice(pay, args.rowIDs), pay.PaidAt, pay.Currency, pay.AmountMinor,
-		pay.UpdatedAt, hash, OfflineProviderName, args.capturedBy)
-	if err != nil {
-		return wroteNothing, fmt.Errorf("mirror the payment: %w", err)
-	}
-	return wroteInsert, nil
-}
-
-// resolveInvoice answers the mirrored row a payment settles.
-//
-// A payment the source has not applied to a specific invoice stays unapplied
-// rather than being guessed onto the oldest open one — an on-account credit is
-// a real state, and attributing it would move money onto an invoice the source
-// never named.
-func resolveInvoice(pay SourcePayment, rowIDs map[string]ids.UUID) *ids.UUID {
-	if pay.InvoiceExternalID == "" {
-		return nil
-	}
-	if target, ok := rowIDs[pay.InvoiceExternalID]; ok {
-		return &target
-	}
-	return nil
-}
-
-// nullable turns an empty source string into a NULL column: a blank invoice
-// number is the absence of one, not a number that is the empty string.
 func nullable(value string) *string {
 	if value == "" {
 		return nil
