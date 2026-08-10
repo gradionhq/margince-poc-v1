@@ -299,11 +299,19 @@ export function count(value: unknown): string {
  * An amount that is not a finite number, or a currency Intl does not know,
  * renders as the em dash. Intl throws on an unknown currency code, and a view
  * that threw mid-render would leave the reader a blank panel.
+ *
+ * SO DOES AN AMOUNT OUTSIDE THE SAFE INTEGER RANGE. The field is an int64 on
+ * the wire and a double by the time this sees it, so a value past 2^53 has
+ * already been rounded to a number that is not the one that was stored. There
+ * is nothing to recover — the digits are gone before this function is called —
+ * and the choice is between an em dash and a money figure that is quietly
+ * wrong. A reader can act on the first.
  */
 export function money(amountMinor: unknown, currency: unknown): string {
   const minor = asFiniteNumber(amountMinor);
   const code = asText(currency);
-  if (minor === null || code === "") return ABSENT;
+  if (minor === null || code === "" || !Number.isSafeInteger(minor))
+    return ABSENT;
   try {
     const formatter = new Intl.NumberFormat(undefined, {
       style: "currency",

@@ -136,6 +136,16 @@ describe("the commitments view renders what it was given", () => {
     expect(el.querySelector(".empty")).not.toBeNull();
   });
 
+  // "Nothing is outstanding" is a definite, reassuring claim. A payload that
+  // is not this tool's answer must not print it.
+  it("refuses a payload with no commitments member rather than reporting a clean queue", () => {
+    const el = root();
+    render(el, { error: "result unavailable" }, []);
+    const empty = el.querySelector(".empty")?.textContent ?? "";
+    expect(empty).toMatch(/no readable commitment review/i);
+    expect(empty).not.toMatch(/nothing is outstanding/i);
+  });
+
   it("says so when the host sent no structured result at all", () => {
     const el = root();
     render(el, null, []);

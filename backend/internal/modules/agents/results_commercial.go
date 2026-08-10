@@ -70,14 +70,19 @@ type HandoffDeal struct {
 }
 
 // HandoffStakeholder is one seat on the account side of the work: who holds
-// it, and what their part in it is.
+// it, what they are called, and what their part in it is.
 //
-// It carries no display name, which is the shape account_coverage already
-// answers a deal's seats in. Naming a seat needs a gated person read per row;
-// the caller has read_record for the one they want to reach, and the field a
-// handover is actually judged on is the role.
+// The NAME is here because the tool's whole promise on this list is "who to
+// call at the client", and a UUID restates that question rather than answering
+// it. Every other nested list in this answer names its records; the seat was
+// the one that did not.
+//
+// It is absent for a person the caller may not read — the seat itself survived
+// the edge's own visibility rule, so this is the narrow case of a name read
+// that came back empty, and a reader shows the id rather than a blank.
 type HandoffStakeholder struct {
 	PersonID ids.UUID `json:"person_id"`
+	Name     string   `json:"name,omitempty"`
 	// Role is absent for a seat nobody titled. It is the field the receiving
 	// side reads first, so an empty one is a gap rather than a blank.
 	Role string `json:"role,omitempty"`

@@ -18,7 +18,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // wholeHandoff is a project with nothing missing: an owner, a target date, a
@@ -227,6 +229,90 @@ func TestAnEmptyHandoverAnswersEmptyListsNotNulls(t *testing.T) {
 	for _, member := range []string{"open_commitments", "gaps"} {
 		if string(decoded[member]) != "[]" {
 			t.Errorf("%s = %s, want []", member, decoded[member])
+		}
+	}
+}
+
+// A bound is not evidence of an absence.
+//
+// Two of the gaps are claims that something is NOT there, and neither can be
+// read off a list that stopped at fifty rows. A project with fifty-one deals
+// whose only won one sorted off the page would otherwise be told nothing was
+// ever sold — a gap firing about a field that is present, which is the failure
+// this whole set of gaps exists to prevent.
+func TestABoundedListWithholdsTheGapsItCannotSupport(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		withheld string
+		bound    func(*HandoffFacts)
+	}{
+		{
+			"a truncated deal list cannot say nothing was sold", gapNoWonDeal,
+			func(f *HandoffFacts) { f.Deals = nil; f.DealsTruncated = true },
+		},
+		{
+			"a truncated stakeholder list cannot say nobody is named", gapNoStakeholder,
+			func(f *HandoffFacts) { f.Stakeholders = nil; f.StakeholdersTruncated = true },
+		},
+	} {
+		bounded := wholeHandoff()
+		tc.bound(&bounded)
+		if _, raised := gapNamed(prepared(t, bounded), tc.withheld); raised {
+			t.Errorf("%s, but %q was raised anyway", tc.name, tc.withheld)
+		}
+
+		// And the same emptiness WITHOUT a bound still raises it — otherwise
+		// this test would pass against a build that had simply deleted the gap.
+		complete := wholeHandoff()
+		tc.bound(&complete)
+		complete.DealsTruncated, complete.StakeholdersTruncated = false, false
+		if _, raised := gapNamed(prepared(t, complete), tc.withheld); !raised {
+			t.Errorf("%s: a COMPLETE empty list raised no %q either, so the "+
+				"withholding above proved nothing", tc.name, tc.withheld)
+		}
+	}
+}
+
+// The unpriced count is a statement about the deals that WERE read, so a bound
+// does not withhold it — only the absence claim goes.
+func TestABoundedDealListStillReportsWhatItRead(t *testing.T) {
+	facts := wholeHandoff()
+	facts.Deals[0].AmountMinor = nil
+	facts.DealsTruncated = true
+
+	if _, raised := gapNamed(prepared(t, facts), gapUnpricedWonDeal); !raised {
+		t.Error("a bounded read withheld a count of what it actually read")
+	}
+}
+
+// A bound changes what the answer MEANS, so the answer says so.
+func TestABoundedHandoffSaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		bound func(*HandoffFacts)
+		want  bool
+	}{
+		{"a truncated deal list warns", func(f *HandoffFacts) { f.DealsTruncated = true }, true},
+		{"a truncated stakeholder list warns", func(f *HandoffFacts) { f.StakeholdersTruncated = true }, true},
+		{"a truncated commitment sweep warns", func(f *HandoffFacts) { f.CommitmentsTruncated = true }, true},
+		{"a complete briefing claims no bound", func(*HandoffFacts) {}, false},
+	} {
+		facts := wholeHandoff()
+		tc.bound(&facts)
+		tool := prepareHandoff{read: func(context.Context, ids.UUID) (HandoffFacts, error) {
+			return facts, nil
+		}}
+		registry := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+		registry.Register(tool)
+
+		out, err := registry.Invoke(scopedAgentCtx(principal.ScopeRead), "prepare_handoff",
+			json.RawMessage(`{"project_id":"`+facts.Project.ProjectID.String()+`"}`))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		env := sealedEnvelope(t, out)
+		if _, warned := warningNamed(env, warningSweepTruncated); warned != tc.want {
+			t.Errorf("%s: truncation warning = %v, want %v (%v)", tc.name, warned, tc.want, env.Warnings)
 		}
 	}
 }

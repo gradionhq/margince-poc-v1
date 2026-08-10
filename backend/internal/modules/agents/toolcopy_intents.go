@@ -53,8 +53,8 @@ var whatsSlippingCopy = toolCopy{
 
 var reviewCommitmentsCopy = toolCopy{
 	Purpose: "Answer \"what have we promised and not delivered?\": the open tasks across the " +
-		"workspace, oldest promise first, each with the person who owes it, when it came due and " +
-		"the record it was made about.",
+		"workspace, earliest due date first and undated ones last, each with the person who owes " +
+		"it, when it came due and the record it was made about.",
 	Limits: "A promise appears here only because someone recorded it as a task — what was agreed " +
 		"in a meeting and never written down is absent — so this is what the workspace has on " +
 		"record, not everything owed. It is scoped to the records the caller may see.",
@@ -69,8 +69,10 @@ var prepareHandoffCopy = toolCopy{
 	Purpose: "Assemble what the delivery side of one project needs from the sales side: who owns " +
 		"it, who to call at the client, what was sold, by when, and what is already promised — " +
 		"with a named gap for each of those the records do not answer.",
-	Limits: "It reports what the records say and reads nothing outside them; a gap means a field " +
-		"is empty, and each one names the field it was read off. It changes nothing — preparing a " +
+	Limits: "It reports what the records say and reads nothing outside them; each gap names the " +
+		"field it was read off. It is scoped to the records the caller may see, so a gap means the " +
+		"field is empty as far as THEY can read it, and a bounded list withholds the gaps that " +
+		"claim something is absent rather than guessing them. It changes nothing — preparing a " +
 		"handover is not performing one.",
 	Instead: "Use catch_me_up_on when the question is what has been happening on the account " +
 		"rather than what a handover is missing, and read_record for the project's own stored " +

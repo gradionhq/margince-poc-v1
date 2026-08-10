@@ -12,23 +12,40 @@
 // visible: a warning with no source beside it is advice, and neither the tool
 // nor the view gives advice.
 
-import { day, el, money, onResult } from "../bridge";
+import { day, el, money, onResult, warned } from "../bridge";
 import { asList, asRecord, asText, type Warning } from "../types";
 import "../view.css";
+
+/** The envelope's code for "a list in this answer stopped at its bound". The
+ *  tool withholds the gaps a bounded read cannot support and says so with
+ *  this, so a view that dropped it would present a briefing with checks
+ *  MISSING as a briefing with nothing missing. */
+const SWEEP_TRUNCATED = "sweep_truncated";
 
 type Gap = { message: string; source: string };
 type Deal = { name: string; status: string; amount: string };
 type Seat = { person: string; role: string };
 type Promise_ = { subject: string; state: string; dueAt: string };
 
-function gapsOf(data: Record<string, unknown>): Gap[] {
-  return asList(data.gaps)
+/** The gaps, and how many were unreadable.
+ *
+ *  THE DROP COUNT IS RETURNED, not swallowed. A gap with no message cannot be
+ *  rendered, and if EVERY gap is unreadable the list goes empty — which on this
+ *  panel is not "nothing to report" but the verdict "ready to hand over". A
+ *  drop has to be able to withhold that verdict, so the caller is told there
+ *  was one. */
+function gapsOf(data: Record<string, unknown>): {
+  gaps: Gap[];
+  dropped: number;
+} {
+  const read = asList(data.gaps)
     .map((entry) => asRecord(entry))
     .map((gap) => ({
       message: asText(gap.message),
       source: asText(gap.source),
-    }))
-    .filter((gap) => gap.message !== "");
+    }));
+  const gaps = read.filter((gap) => gap.message !== "");
+  return { gaps, dropped: read.length - gaps.length };
 }
 
 function dealsOf(data: Record<string, unknown>): Deal[] {
@@ -47,7 +64,10 @@ function seatsOf(data: Record<string, unknown>): Seat[] {
   return asList(data.stakeholders)
     .map((entry) => asRecord(entry))
     .map((seat) => ({
-      person: asText(seat.person_id),
+      // The name where the answer has one, the id where it does not — a seat
+      // whose person the caller may not read comes back unnamed, and an id is
+      // a worse answer than a name but a much better one than a blank.
+      person: asText(seat.name) || asText(seat.person_id),
       // "no recorded part", not an empty cell: an untitled seat is a gap the
       // panel above names, and the row has to agree with it.
       role: asText(seat.role) || "no recorded part",
@@ -147,10 +167,57 @@ function ownerLine(answer: Record<string, unknown>): string {
   return owner === "" ? "no owner" : `owner ${owner}`;
 }
 
+/**
+ * verdict is the panel's answer to the one question it is opened for: is this
+ * work ready to hand over.
+ *
+ * "Ready" is the strongest claim here, and it is only true when every check
+ * RAN and every result was readable. A bounded read had checks withheld by the
+ * tool; an unreadable gap had one lost in transit. Either way the honest
+ * answer is that the question was not fully answered — which is a different
+ * thing from the answer being "yes".
+ */
+function verdict(
+  answer: Record<string, unknown>,
+  bounded: boolean,
+): HTMLElement {
+  const { gaps, dropped } = gapsOf(answer);
+  if (gaps.length > 0) {
+    const block = el("div", "section");
+    block.appendChild(
+      el("h2", "section-title", `${gaps.length} thing(s) still missing`),
+    );
+    for (const gap of gaps) block.appendChild(gapRow(gap));
+    if (bounded) block.appendChild(el("div", "state", boundedNote));
+    return block;
+  }
+  if (bounded || dropped > 0) {
+    return el(
+      "div",
+      "empty",
+      "Not every check could be made, so this briefing cannot say the work " +
+        "is ready to hand over. " +
+        (bounded ? boundedNote : "A reported gap arrived unreadable."),
+    );
+  }
+  return el(
+    "div",
+    "empty",
+    "Nothing the records were checked for is missing. " +
+      "This work is ready to hand over.",
+  );
+}
+
+/** What a bounded read costs this briefing, in the tool's own terms. */
+const boundedNote =
+  "The lists below stopped at their bound, so they are partial — and the " +
+  "checks for an absent won deal or an absent contact were withheld rather " +
+  "than guessed.";
+
 export function render(
   root: HTMLElement,
   data: unknown,
-  _warnings: Warning[],
+  warnings: Warning[],
 ): void {
   root.replaceChildren();
   if (data === null || data === undefined) {
@@ -165,11 +232,15 @@ export function render(
   }
   const answer = asRecord(data);
   // A payload that is not a handoff is refused rather than narrowed into one.
-  // Every other member here degrades quietly to an empty list, and an answer
-  // with no gaps renders as "ready to hand over" — so a number, a string or
-  // some other tool's result would be shown to a human as a project cleared
-  // for handover. project_id is the one member the tool always answers.
-  if (asText(answer.project_id) === "") {
+  // Every other member degrades quietly to an empty list, and an answer with
+  // no gaps renders as "ready to hand over" — so a number, a string or another
+  // tool's result would be shown to a human as a project cleared for handover.
+  //
+  // Both members are checked. `project_id` is the one the tool always answers,
+  // and `gaps` is the one whose emptiness this panel reads as its verdict; the
+  // tool always serializes it, an empty array at worst, so an absent member is
+  // proof of skew rather than of a clean project.
+  if (asText(answer.project_id) === "" || !Array.isArray(answer.gaps)) {
     root.appendChild(
       el("div", "empty", "The host sent no readable handoff for this project."),
     );
@@ -181,25 +252,7 @@ export function render(
   root.appendChild(
     el("p", "meta", `${headline(answer)} · ${ownerLine(answer)}`),
   );
-
-  const gaps = gapsOf(answer);
-  if (gaps.length === 0) {
-    root.appendChild(
-      el(
-        "div",
-        "empty",
-        "Nothing the records were checked for is missing. " +
-          "This work is ready to hand over.",
-      ),
-    );
-  } else {
-    const block = el("div", "section");
-    block.appendChild(
-      el("h2", "section-title", `${gaps.length} thing(s) still missing`),
-    );
-    for (const gap of gaps) block.appendChild(gapRow(gap));
-    root.appendChild(block);
-  }
+  root.appendChild(verdict(answer, warned(warnings, SWEEP_TRUNCATED)));
 
   for (const block of [
     section("What was sold", dealsOf(answer).map(dealRow)),

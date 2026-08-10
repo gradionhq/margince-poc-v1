@@ -102,6 +102,25 @@ describe("the handoff view renders what it was given", () => {
     expect(el.textContent).toContain("no recorded part");
   });
 
+  // "Who to call" answered as a UUID restates the question. The name is what
+  // the tool promises on this list, so it is what the panel shows.
+  it("names the people to call, and falls to the id for one it cannot name", () => {
+    const el = root();
+    render(el, handoffFixture.data, []);
+    expect(el.textContent).toContain("Alice Müller");
+
+    render(
+      el,
+      {
+        project_id: "5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f",
+        gaps: [],
+        stakeholders: [{ person_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }],
+      },
+      [],
+    );
+    expect(el.textContent).toContain("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+  });
+
   it("scales a won deal's amount by the currency's minor units, and shows an unpriced one as absent", () => {
     const el = root();
     render(el, handoffFixture.data, []);
@@ -150,6 +169,63 @@ describe("the handoff view renders what it was given", () => {
     expect(el.querySelector(".empty")?.textContent).toMatch(
       /no readable handoff/i,
     );
+  });
+
+  // The tool always serializes `gaps`, an empty array at worst. An absent
+  // member is proof of skew — and it is the member whose emptiness this panel
+  // reads as "ready to hand over", which is the strongest claim it makes.
+  it("refuses a payload whose gaps member is absent rather than clearing it", () => {
+    const el = root();
+    render(
+      el,
+      { project_id: "5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f", name: "P" },
+      [],
+    );
+    const empty = el.querySelector(".empty")?.textContent ?? "";
+    expect(empty).toMatch(/no readable handoff/i);
+    expect(empty).not.toMatch(/ready to hand over/i);
+  });
+
+  // Dropping ONE unreadable gap is right. Dropping the LAST one and then
+  // announcing the work is ready is the failure — a gap lost in transit must
+  // not read as a gap that does not exist.
+  it("does not clear the work when every reported gap was unreadable", () => {
+    const el = root();
+    render(
+      el,
+      {
+        project_id: "5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f",
+        name: "P",
+        gaps: [{ code: "no_delivery_owner", source: "project.owner_id" }],
+      },
+      [],
+    );
+    const empty = el.querySelector(".empty")?.textContent ?? "";
+    // The positive claim, in the words it is actually made in — the refusal
+    // below contains "ready to hand over" too, inside "cannot say".
+    expect(empty).not.toMatch(
+      /nothing the records were checked for is missing/i,
+    );
+    expect(empty).toMatch(/not every check could be made/i);
+  });
+
+  // The tool WITHHOLDS the absence gaps when a list stopped at its bound and
+  // says so with sweep_truncated. A view that dropped the warning would show a
+  // briefing with checks missing as a briefing with nothing missing.
+  it("never says the work is ready when a list stopped at its bound", () => {
+    const el = root();
+    render(el, ready(), [{ code: "sweep_truncated" }]);
+    const empty = el.querySelector(".empty")?.textContent ?? "";
+    expect(empty).not.toMatch(
+      /nothing the records were checked for is missing/i,
+    );
+    expect(empty).toMatch(/withheld rather than guessed/i);
+  });
+
+  it("says the lists are partial even when there are gaps to show", () => {
+    const el = root();
+    render(el, handoffFixture.data, [{ code: "sweep_truncated" }]);
+    expect(el.textContent).toMatch(/stopped at their bound/i);
   });
 
   it("says so when the host sent no structured result at all", () => {

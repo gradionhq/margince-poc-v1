@@ -3,8 +3,14 @@
 
 package agents
 
-// review_commitments: the open promises this workspace has made, oldest
-// first, each with the person who owes it and the record it was made about.
+// review_commitments: the open promises this workspace has made, earliest due
+// date first, each with the person who owes it and the record it was made
+// about.
+//
+// EARLIEST DUE, not oldest promise. The order is the due date ascending with
+// undated last — a promise made a year ago and never dated sorts behind one
+// made this morning for tomorrow, because what a reviewer is chasing is the
+// date that has passed rather than the day the words were said.
 //
 // A promise here is a TASK ACTIVITY that nobody has ticked off. That is the
 // whole definition, and it is the tool's honesty problem: a commitment made
@@ -105,7 +111,7 @@ const (
 // a model told nothing reports it as one. It matters more here than most,
 // because the question this tool answers is "is anything being dropped".
 const commitmentsTruncatedMessage = "More open commitments exist than are listed here. " +
-	"Report these as the oldest promises found, not as everything outstanding."
+	"Report these as the soonest-due promises found, not as everything outstanding."
 
 // maxCommitments bounds one call. It is the schema's maximum and the
 // server-side ceiling both, so a caller that omits the argument gets a
@@ -127,7 +133,7 @@ func (t reviewCommitments) Spec() mcp.ToolSpec {
 		OutputSchema: schemaFor[ReviewCommitmentsResult](),
 		// The view renders the same answer as a dated queue. What it buys over
 		// the text is the shape of the backlog at a glance — how far past due
-		// the oldest promises are, and which of them nobody owns.
+		// the soonest-due promises are, and which of them nobody owns.
 		UI: &mcp.ToolUI{ResourceURI: apps.CommitmentsURI},
 	}
 }

@@ -144,6 +144,17 @@ export function render(
     return;
   }
   const answer = asRecord(data);
+  // The member has to BE an array. asList answers [] for one that is absent,
+  // which would render "nothing is outstanding" — a definite, reassuring claim
+  // — for a payload that is not this tool's answer at all: version skew, a
+  // host dispatch error, another tool's result. An empty QUEUE and an
+  // unreadable RESULT are different things and must not print the same.
+  if (!Array.isArray(answer.commitments)) {
+    root.appendChild(
+      el("div", "empty", "The host sent no readable commitment review."),
+    );
+    return;
+  }
   const commitments = known(answer);
   root.appendChild(el("h1", undefined, "Open commitments"));
   root.appendChild(

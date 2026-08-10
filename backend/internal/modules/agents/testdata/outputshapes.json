@@ -2458,6 +2458,9 @@
             "items": {
               "type": "object",
               "properties": {
+                "name": {
+                  "type": "string"
+                },
                 "person_id": {
                   "type": "string",
                   "format": "uuid"

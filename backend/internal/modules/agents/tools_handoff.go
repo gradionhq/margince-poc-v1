@@ -43,12 +43,19 @@ import (
 type HandoffFacts struct {
 	// AsOf is the instant the commitments below were judged against, stamped
 	// by the seam for the reason CommitmentSweep gives.
-	AsOf                 time.Time
-	Project              HandoffProject
-	Deals                []HandoffDeal
-	Stakeholders         []HandoffStakeholder
-	OpenCommitments      []OpenCommitment
-	CommitmentsTruncated bool
+	AsOf         time.Time
+	Project      HandoffProject
+	Deals        []HandoffDeal
+	Stakeholders []HandoffStakeholder
+	// DealsTruncated and StakeholdersTruncated report a list read that
+	// stopped at its bound. They are not cosmetic: two of the gaps below are
+	// claims that something is ABSENT, and absence cannot be read off a
+	// truncated list. A bounded read that raised them anyway would tell the
+	// receiving side no deal was ever won on a project with fifty-one of them.
+	DealsTruncated        bool
+	StakeholdersTruncated bool
+	OpenCommitments       []OpenCommitment
+	CommitmentsTruncated  bool
 }
 
 // HandoffProject is the project row itself, carried across the seam with the
@@ -101,7 +108,7 @@ func (t prepareHandoff) Spec() mcp.ToolSpec {
 		Name: "prepare_handoff", Title: "Prepare a delivery handoff", Version: toolVersionV1,
 		Description:   prepareHandoffCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "getProject",
+		OpenAPIOp: "getProject + listDeals + listProjectStakeholders + listActivities",
 		InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{
 			"project_id":{"type":"string","format":"uuid","description":"The project being handed to delivery"}},
 			"additionalProperties":false}`),
@@ -140,8 +147,8 @@ func (t prepareHandoff) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 		noteEvidence(ctx, datasource.EntityActivity, c.TaskID)
 		commitments = append(commitments, c.wire(facts.AsOf))
 	}
-	if facts.CommitmentsTruncated {
-		noteWarning(ctx, warningSweepTruncated, commitmentsTruncatedMessage)
+	if facts.CommitmentsTruncated || facts.DealsTruncated || facts.StakeholdersTruncated {
+		noteWarning(ctx, warningSweepTruncated, handoffTruncatedMessage)
 	}
 	return json.Marshal(assembleHandoff(facts, commitments))
 }
@@ -161,14 +168,23 @@ func assembleHandoff(facts HandoffFacts, commitments []CommitmentItem) PreparedH
 		AsOf:            facts.AsOf,
 		OpenCommitments: orEmpty(commitments),
 	}
-	out.Gaps = handoffGaps(out)
+	out.Gaps = handoffGaps(out, facts)
 	return out
 }
+
+// handoffTruncatedMessage is the rule every bounded read on this surface
+// states, sharpened for the one answer where a bound changes what the answer
+// MEANS: two of the gaps are claims that something is absent, and a bounded
+// read cannot make one. They are withheld rather than guessed, so this says
+// what is missing from the answer as well as from the project.
+const handoffTruncatedMessage = "This project has more deals, contacts or open commitments than " +
+	"one briefing lists. Report the lists as partial, and do not report an absent " +
+	"won deal or an absent contact as a finding — those checks were withheld."
 
 // handoffGaps judges the assembled brief. It reads the ANSWER rather than the
 // facts it came from, so every gap is a statement about something the reader
 // can see for themselves in the same document.
-func handoffGaps(h PreparedHandoff) []HandoffGap {
+func handoffGaps(h PreparedHandoff, facts HandoffFacts) []HandoffGap {
 	gaps := make([]HandoffGap, 0)
 	if h.OwnerID == nil {
 		gaps = append(gaps, HandoffGap{
@@ -182,8 +198,8 @@ func handoffGaps(h PreparedHandoff) []HandoffGap {
 			"No target end date, so there is nothing to deliver against.",
 		})
 	}
-	gaps = append(gaps, stakeholderGaps(h.Stakeholders)...)
-	gaps = append(gaps, dealGaps(h.Deals)...)
+	gaps = append(gaps, stakeholderGaps(h.Stakeholders, facts.StakeholdersTruncated)...)
+	gaps = append(gaps, dealGaps(h.Deals, facts.DealsTruncated)...)
 	if overdue := countOverdue(h.OpenCommitments); overdue > 0 {
 		gaps = append(gaps, HandoffGap{
 			gapOverdueCommitment, "activity.due_at",
@@ -194,11 +210,17 @@ func handoffGaps(h PreparedHandoff) []HandoffGap {
 	return gaps
 }
 
-func stakeholderGaps(stakeholders []HandoffStakeholder) []HandoffGap {
+// stakeholderGaps judges the seats. `bounded` reports a read that stopped at
+// its cap: an empty page of a truncated read says nothing about whether a
+// contact exists, so the absence claim is withheld rather than asserted.
+func stakeholderGaps(stakeholders []HandoffStakeholder, bounded bool) []HandoffGap {
 	if len(stakeholders) == 0 {
+		if bounded {
+			return nil
+		}
 		return []HandoffGap{{
 			gapNoStakeholder, "relationship.project_stakeholder",
-			"No contact is named on the client side of this work.",
+			"No contact this caller can see is named on the client side of this work.",
 		}}
 	}
 	untitled := 0
@@ -217,7 +239,11 @@ func stakeholderGaps(stakeholders []HandoffStakeholder) []HandoffGap {
 	}}
 }
 
-func dealGaps(deals []HandoffDeal) []HandoffGap {
+// dealGaps judges what was sold. `bounded` reports a read that stopped at its
+// cap, and it withholds exactly one claim: "no won deal" is a statement about
+// every deal on the project, which a truncated list cannot support. The
+// unpriced count is a statement about the deals that WERE read, so it stands.
+func dealGaps(deals []HandoffDeal, bounded bool) []HandoffGap {
 	won, unpriced := 0, 0
 	for _, d := range deals {
 		if d.Status != dealStatusWon {
@@ -229,9 +255,13 @@ func dealGaps(deals []HandoffDeal) []HandoffGap {
 		}
 	}
 	if won == 0 {
+		if bounded {
+			return nil
+		}
 		return []HandoffGap{{
 			gapNoWonDeal, "deal.status",
-			"No won deal is rolled up to this project, so what was sold is not recorded here.",
+			"No won deal this caller can see is rolled up to this project, " +
+				"so what was sold is not recorded here.",
 		}}
 	}
 	if unpriced == 0 {

@@ -11,11 +11,12 @@
 // off a tool that already answers, which is what every `render_*` name on this
 // surface is.
 
-import { el, money, onResult } from "../bridge";
+import { count, el, money, onResult } from "../bridge";
 import { asList, asRecord, asText, type Warning } from "../types";
 import "../view.css";
 
 type SlippingDeal = {
+  rank: string;
   name: string;
   amount: string;
   evidence: { source: string; snippet: string }[];
@@ -31,6 +32,11 @@ function known(data: Record<string, unknown>): SlippingDeal[] {
       (d): d is Record<string, unknown> => typeof d === "object" && d !== null,
     )
     .map((d) => ({
+      // The tool's OWN rank, not this array's index. They agree today and the
+      // difference only shows when a payload carries a row this view drops —
+      // at which point renumbering would put a rank on screen the tool never
+      // answered.
+      rank: count(d.rank),
       name: asText(d.name) || asText(d.deal_id),
       // Absent, not zero. A deal can be worked before it is priced, and a
       // blank amount rendered as a currency zero says it is worth nothing.
@@ -44,10 +50,10 @@ function evidenceOf(entry: unknown): { source: string; snippet: string } {
   return { source: asText(evidence.source), snippet: asText(evidence.snippet) };
 }
 
-function dealRow(deal: SlippingDeal, position: number): HTMLElement {
+function dealRow(deal: SlippingDeal): HTMLElement {
   const row = el("div", "row");
   const head = el("div", "row-head");
-  head.appendChild(el("span", "rank", `#${position}`));
+  head.appendChild(el("span", "rank", `#${deal.rank}`));
   head.appendChild(el("span", "name", deal.name));
   head.appendChild(el("span", "score", deal.amount));
   row.appendChild(head);
@@ -78,7 +84,18 @@ export function render(
     );
     return;
   }
-  const deals = known(asRecord(data));
+  const answer = asRecord(data);
+  // The member has to BE an array, for the reason the commitments view gives:
+  // an absent one renders as "no deal's risk can be evidenced", which is a
+  // definite answer about the pipeline rather than an admission that the
+  // payload could not be read.
+  if (!Array.isArray(answer.deals)) {
+    root.appendChild(
+      el("div", "empty", "The host sent no readable pipeline review."),
+    );
+    return;
+  }
+  const deals = known(answer);
   root.appendChild(el("h1", undefined, "Pipeline review"));
   root.appendChild(
     el(
@@ -102,9 +119,9 @@ export function render(
     return;
   }
   const rows = el("div", "rows");
-  deals.forEach((deal, index) => {
-    rows.appendChild(dealRow(deal, index + 1));
-  });
+  for (const deal of deals) {
+    rows.appendChild(dealRow(deal));
+  }
   root.appendChild(rows);
 }
 

@@ -36,9 +36,13 @@ import (
 )
 
 // handoffScanLimit bounds each of the handover's list reads. A handover is a
-// briefing rather than an export: a project with more than this many deals,
-// stakeholders or open promises has a reading problem the tool cannot fix by
-// returning more rows.
+// briefing rather than an export.
+//
+// EVERY BOUND IS REPORTED. A briefing that quietly stopped at fifty would be
+// fine for the lists — a reader can see there are fifty rows — and wrong for
+// the GAPS, two of which are claims that something is ABSENT. Absence cannot
+// be read off a truncated list, so whether each read hit its bound crosses the
+// seam and the tool withholds the claims a bounded read cannot support.
 const handoffScanLimit = 50
 
 // commitmentLister serves the open-promise set from the activities module's
@@ -83,12 +87,23 @@ func asCommitments(tasks []activities.OpenTask) []agents.OpenCommitment {
 
 // handoffReader assembles one project's handover material.
 //
-// FOUR GATED READS, NOT ONE JOIN. Each of them enforces its own object grant
-// and its own row scope: a caller who may read the project but not its deals
-// is answered a handover with no deals in it rather than one assembled around
-// a gate nobody asked. The project read runs FIRST and its refusal is
-// returned unchanged, so a project outside the caller's scope answers
-// not-found exactly as reading it directly would.
+// FOUR GATED READS, NOT ONE JOIN. Each enforces its own object grant and its
+// own row scope, and the two do different things here — a distinction worth
+// stating, because the obvious reading of "each read is gated" is wrong for
+// one of them:
+//
+//   - An OBJECT-grant denial FAILS the call. A caller with no `deal` read
+//     grant does not get a handover with the deals left out; ListDeals
+//     refuses, and that refusal is returned unchanged. Nothing is assembled
+//     around a gate nobody asked for, because nothing is assembled at all.
+//   - A ROW-SCOPE miss FILTERS. A deal owned outside the caller's scope is
+//     simply not in the page, and the brief is assembled from what remains.
+//     The gap messages say "this caller can see" for exactly that reason: the
+//     honest claim is about what is visible, not about what exists.
+//
+// The project read runs FIRST and its refusal is returned unchanged, so a
+// project outside the caller's scope answers not-found exactly as reading it
+// directly would.
 func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
 	dealStore := deals.NewStore(pool, identity.BaseCurrencyOf)
 	peopleStore := people.NewStore(pool)
@@ -100,10 +115,10 @@ func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
 			return agents.HandoffFacts{}, err
 		}
 		facts := agents.HandoffFacts{AsOf: clockNow(), Project: handoffProject(project)}
-		if facts.Deals, err = handoffDeals(ctx, dealStore, projectID); err != nil {
+		if facts.Deals, facts.DealsTruncated, err = handoffDeals(ctx, dealStore, projectID); err != nil {
 			return agents.HandoffFacts{}, err
 		}
-		if facts.Stakeholders, err = handoffStakeholders(ctx, peopleStore, projectID); err != nil {
+		if facts.Stakeholders, facts.StakeholdersTruncated, err = handoffStakeholders(ctx, peopleStore, projectID); err != nil {
 			return agents.HandoffFacts{}, err
 		}
 		projectType := string(datasource.RecordProject)
@@ -148,12 +163,12 @@ func handoffProject(p crmcontracts.Project) agents.HandoffProject {
 // won or not: which of them counts as sold is the tool's judgement, and a
 // filter here would hide the open ones from a reader who has to know a
 // pursuit is still running.
-func handoffDeals(ctx context.Context, store *deals.Store, projectID ids.UUID) ([]agents.HandoffDeal, error) {
+func handoffDeals(ctx context.Context, store *deals.Store, projectID ids.UUID) ([]agents.HandoffDeal, bool, error) {
 	limit := handoffScanLimit
 	project := ids.From[ids.ProjectKind](projectID)
-	rows, _, err := store.ListDeals(ctx, deals.ListDealsInput{ProjectID: &project, Limit: &limit})
+	rows, page, err := store.ListDeals(ctx, deals.ListDealsInput{ProjectID: &project, Limit: &limit})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	out := make([]agents.HandoffDeal, 0, len(rows))
 	for _, d := range rows {
@@ -162,7 +177,7 @@ func handoffDeals(ctx context.Context, store *deals.Store, projectID ids.UUID) (
 			AmountMinor: d.AmountMinor, Currency: d.Currency,
 		})
 	}
-	return out, nil
+	return out, page.HasMore, nil
 }
 
 // handoffStakeholders reads the people attached to the project, through the
@@ -173,26 +188,38 @@ func handoffDeals(ctx context.Context, store *deals.Store, projectID ids.UUID) (
 // person read per seat, and the caller already has read_record for the one
 // they want to reach; the field a handover is judged on is the role, and that
 // is here.
-func handoffStakeholders(ctx context.Context, store *people.Store, projectID ids.UUID) ([]agents.HandoffStakeholder, error) {
+func handoffStakeholders(ctx context.Context, store *people.Store, projectID ids.UUID) ([]agents.HandoffStakeholder, bool, error) {
 	limit := handoffScanLimit
 	project := ids.From[ids.ProjectKind](projectID)
 	kind := people.ProjectStakeholderKind
-	edges, _, err := store.ListRelationships(ctx, people.ListRelationshipsInput{
+	edges, page, err := store.ListRelationships(ctx, people.ListRelationshipsInput{
 		Kind: &kind, ProjectID: &project, Limit: &limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	seated := make([]ids.PersonID, 0, len(edges))
+	for _, e := range edges {
+		if e.PersonID != nil {
+			seated = append(seated, *e.PersonID)
+		}
+	}
+	names, err := store.PersonNames(ctx, seated)
+	if err != nil {
+		return nil, false, err
 	}
 	out := make([]agents.HandoffStakeholder, 0, len(edges))
 	for _, e := range edges {
 		if e.PersonID == nil {
 			continue
 		}
-		stakeholder := agents.HandoffStakeholder{PersonID: e.PersonID.UUID}
+		stakeholder := agents.HandoffStakeholder{
+			PersonID: e.PersonID.UUID, Name: names[e.PersonID.UUID],
+		}
 		if e.Role != nil {
 			stakeholder.Role = *e.Role
 		}
 		out = append(out, stakeholder)
 	}
-	return out, nil
+	return out, page.HasMore, nil
 }

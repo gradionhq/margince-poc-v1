@@ -129,6 +129,37 @@ describe("the pipeline review renders what it was given", () => {
     expect(el.querySelector(".empty")).not.toBeNull();
   });
 
+  // "No deal's risk can be evidenced" is a definite answer about the pipeline.
+  // Another tool's result must not produce it.
+  it("refuses a payload with no deals member rather than reporting a clean pipeline", () => {
+    const el = root();
+    render(el, { commitments: [] }, []);
+    const empty = el.querySelector(".empty")?.textContent ?? "";
+    expect(empty).toMatch(/no readable pipeline review/i);
+    expect(empty).not.toMatch(/cannot be evidenced/i);
+  });
+
+  // The tool answers its own rank. Re-deriving it from the array index would
+  // renumber the moment this view drops a row, putting a rank on screen the
+  // tool never gave.
+  it("shows the rank the tool answered, not this array's index", () => {
+    const el = root();
+    render(
+      el,
+      {
+        deals: [
+          {
+            rank: 4,
+            name: "Fourth worst",
+            evidence: [{ source: "deal.created_at", snippet: "quiet" }],
+          },
+        ],
+      },
+      [],
+    );
+    expect(el.querySelector(".rank")?.textContent).toBe("#4");
+  });
+
   it("says so when the host sent no structured result at all", () => {
     const el = root();
     render(el, null, []);

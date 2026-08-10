@@ -3,23 +3,27 @@
 
 package activities
 
-// The open-promise read: task activities nobody has ticked off, oldest
-// promise first.
+// The open-promise read: task activities nobody has ticked off, earliest due
+// date first and undated ones last.
 //
 // WHY IT IS NOT ListActivities WITH TWO MORE FILTERS. The timeline list
 // answers "what happened, newest first" and pages on occurred_at. A promise
 // is the opposite question in every dimension that matters to the query: it
 // is ordered by when it comes DUE, it is bounded to the one kind that has a
-// due date, and the rows that matter most are the oldest rather than the
-// newest. Bolting an is_done filter onto the timeline would have given the
+// due date, and the rows that matter most are the ones whose date has already
+// passed. Bolting an is_done filter onto the timeline would have given the
 // right rows in the wrong order behind a cursor that cannot express the
 // right one — and would have widened a contract endpoint's vocabulary for a
 // caller the contract does not have.
 //
-// It also has an index of its own: idx_activity_tasks is
+// It has an index of its own: idx_activity_tasks is
 // (workspace_id, assignee_id, due_at) WHERE kind = 'task' AND is_done =
-// false AND archived_at IS NULL — this read's predicate and this read's
-// order, written into core 0008 before anything asked it.
+// false AND archived_at IS NULL — this read's predicate exactly, written
+// into core 0008 before anything asked it. It supplies the ORDER too for
+// the narrowed sweep, where assignee_id is bound to one owner; the
+// workspace-wide sweep matches the partial predicate and then sorts, since
+// assignee_id leads the key and id is not in it at all. Both are bounded
+// reads, which is what keeps the second affordable.
 //
 // ONE READ, TWO CALLERS. review_commitments asks it workspace-wide or for
 // one owner; prepare_handoff asks it for one project. Both want the same
@@ -110,6 +114,9 @@ func (s *Store) ListOpenTasks(ctx context.Context, in ListOpenTasksInput) ([]Ope
 }
 
 func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]OpenTask, bool, error) {
+	if err := ensureNarrowingVisible(ctx, tx, in); err != nil {
+		return nil, false, err
+	}
 	limit := openTasksLimit(in.Limit)
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -143,6 +150,31 @@ func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]Ope
 		return nil, false, err
 	}
 	return tasks, truncated, nil
+}
+
+// ensureNarrowingVisible gates the record a sweep was narrowed TO, before any
+// promise about it is read.
+//
+// The activity scope below is an ANY-LINK rule: a task reachable through one
+// visible record is readable. So a task linked to both a deal the caller may
+// see and a project they may not passes it — and without this check, narrowing
+// to that project's id would return the task, which answers "yes, this project
+// exists and has promises on it" to someone who may not read it. Whether the
+// narrowing record is visible is a different question from whether the task is,
+// and it is asked here rather than left to whichever caller remembers.
+//
+// Out of scope answers ErrNotFound, the same as an id that names nothing —
+// existence-hiding, exactly as reading the record directly would.
+func ensureNarrowingVisible(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) error {
+	if in.EntityType == nil || in.EntityID == nil {
+		return nil
+	}
+	if linkColumn(*in.EntityType) == "" {
+		return &InvalidLinkTypeError{EntityType: *in.EntityType}
+	}
+	// The record type IS the table name for every arm of this vocabulary, which
+	// is the same identity linkNameCoalesce reads.
+	return auth.EnsureVisible(ctx, tx, *in.EntityType, *in.EntityID)
 }
 
 // openTasksFilter builds the predicate: the two columns that define an open
