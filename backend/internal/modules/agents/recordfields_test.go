@@ -19,13 +19,18 @@ import (
 )
 
 // The write tools' schemas are JSON handed to a client, and their field
-// descriptions are built at init by splicing a rendered string into a
-// hand-written literal — so the first thing to prove is that they are still
-// parseable. The second is that they name what a caller would otherwise have
-// to discover by trial and error: the two record types whose name field
-// differs (full_name vs display_name), the cf_ prefix extras must carry, and
-// the fact that employment is a relationship this tool cannot write.
-func TestWriteToolSchemasNameTheirFields(t *testing.T) {
+// descriptions are built at init by splicing a constant into a hand-written
+// literal — so the first thing to prove is that they are still parseable.
+//
+// The second is that the pointer still POINTS. The field vocabulary is
+// published at RecordFieldsURI instead of being recited here, and the only
+// thing standing between a caller and it is this sentence: a description that
+// stopped naming the URI would leave the tool describing its `fields` argument
+// as an opaque object with no way to learn a name — the trial-and-error surface
+// the shapes were written to end, back with nothing reporting it. The cf_ shape
+// stays in the description because it is what a caller needs BEFORE it decides
+// to go and read.
+func TestWriteToolSchemasPointAtThePublishedFieldVocabulary(t *testing.T) {
 	for name, raw := range map[string]json.RawMessage{
 		"create_record": createRecord{}.Spec().InputSchema,
 		"update_record": updateRecord{}.Spec().InputSchema,
@@ -46,7 +51,7 @@ func TestWriteToolSchemasNameTheirFields(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s fields property carries no description", name)
 		}
-		for _, want := range []string{"full_name", "display_name", "cf_<slug>", "relationship"} {
+		for _, want := range []string{RecordFieldsURI, "cf_<slug>"} {
 			if !strings.Contains(desc, want) {
 				t.Errorf("%s fields description does not mention %q: %s", name, want, desc)
 			}
@@ -78,11 +83,15 @@ func TestContractFieldNamesReadsTheWireNames(t *testing.T) {
 
 // jsonString leans on Go and JSON string quoting agreeing, which they do for
 // every character except a control character. Forbidding those here is what
-// makes that lean safe instead of lucky.
+// makes that lean safe instead of lucky — over the constants this package
+// splices into a schema literal, whether they ride jsonString or are pasted in
+// as pre-quoted JSON, since either spelling of a control character is a schema
+// the client cannot parse.
 func TestDescriptionsCarryNoControlCharacters(t *testing.T) {
 	for name, desc := range map[string]string{
-		"create": describeRecordFields(createShapes, createRecordShapes),
-		"update": describeRecordFields(updateShapes, updateRecordShapes),
+		"record fields": recordFieldsDescription,
+		"timestamp":     timestampNote,
+		"stage id":      stageIDNote,
 	} {
 		for i, r := range desc {
 			if r < 0x20 || r == 0x7f {
@@ -348,108 +357,4 @@ func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
 		t.Fatalf("%s advertises no record_type enum — this walk would pass vacuously", tool)
 	}
 	return parsed.Properties.RecordType.Enum
-}
-
-// The create and patch descriptions must not converge.
-//
-// They differ on one thing that matters: an edge's endpoints can be NAMED on
-// create and cannot be patched at all, because an edge's ends are what it is. The
-// branch that says so was keyed on `shapes[EntityRelationship]` at first, and both
-// maps carry that key — so the patch tool shipped the create tool's pairing rule
-// and the sentence written for the patch tool was unreachable.
-func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
-	create := describeRecordFields(createShapes, createRecordShapes)
-	patch := describeRecordFields(updateShapes, updateRecordShapes)
-
-	// The pairing rule is create-only: naming a pair is a thing only a create can
-	// do. Keyed on the stable CLAIM, not on the sentence — a reworded advisory is
-	// not a regression, a missing one is.
-	const pairingRule = "endpoint pair"
-	if !strings.Contains(create, pairingRule) {
-		t.Errorf("create_record's description does not state the per-kind endpoint pairing rule, which "+
-			"is invisible from a flat field list: %q", create)
-	}
-	if strings.Contains(patch, pairingRule) {
-		t.Error("update_record's description states the endpoint pairing rule, and a patch cannot reach " +
-			"an endpoint — so it is advice the caller cannot act on")
-	}
-
-	// And the patch tool says what IS true for it, rather than saying nothing.
-	if !strings.Contains(patch, "cannot be patched") {
-		t.Errorf("update_record's description never says an edge's endpoints are unpatchable, which is "+
-			"the first thing a caller looks for and does not find: %q", patch)
-	}
-
-	// The same mistake in its sibling: an activity's links ARE settable on create
-	// and not patchable, and both shape maps carry activity — so a record-type key
-	// put the patch-only advice on the create tool too.
-	const linksAdvisory = "links are NOT patchable"
-	if !strings.Contains(patch, linksAdvisory) {
-		t.Errorf("update_record's description does not say an activity's links are unpatchable: %q", patch)
-	}
-	if strings.Contains(create, linksAdvisory) {
-		t.Error("create_record's description says an activity's links are NOT patchable — create_record " +
-			"and log_activity both ACCEPT links, so it is advice against a field the tool takes")
-	}
-
-	// The two advisories about a field whose NAME misleads about what supplying it
-	// does. Both are create-only for the same reason as the pair above — the field
-	// exists on one shape map — and both were unkeyed prose once, handing the
-	// create tool's advice to the patch tool.
-	const provenanceStamp = "stamps its own provenance"
-	if !strings.Contains(create, provenanceStamp) {
-		t.Errorf("create_record's description does not warn that `source` is overwritten, so a caller "+
-			"that sets it believes a provenance it did not write: %q", create)
-	}
-	if strings.Contains(patch, provenanceStamp) {
-		t.Error("update_record's description warns that `source` is overwritten, but no update request " +
-			"type carries the field at all — it is REFUSED as unknown, which is the opposite advice")
-	}
-	const pipelineSource = "come from list_pipelines"
-	if !strings.Contains(create, pipelineSource) {
-		t.Errorf("create_record's description does not say where a deal's pipeline_id and stage_id come "+
-			"from, which is what made create_record/deal unusable: %q", create)
-	}
-	if strings.Contains(patch, pipelineSource) {
-		t.Error("update_record's description tells a caller where to get ids it is not required to " +
-			"supply, which is advice about a problem the patch tool does not have")
-	}
-}
-
-// The closing custom-field sentence must not promise carriage the surface
-// withholds.
-//
-// Every record type's description ends by telling callers that extra cf_<slug>
-// keys are read as custom-field values. That is false for activity and
-// relationship: neither contract shape carries the additionalProperties bag a cf_
-// value travels in, and customfields.FieldObjects deliberately excludes both — so
-// an agent following the description writes a key the strict decoder refuses.
-func TestTheCustomFieldSentenceNamesTheTypesThatTakeNone(t *testing.T) {
-	for name, description := range map[string]string{
-		"create": describeRecordFields(createShapes, createRecordShapes),
-		"update": describeRecordFields(updateShapes, updateRecordShapes),
-	} {
-		if !strings.Contains(description, "cf_<slug>") {
-			t.Fatalf("%s: the description no longer mentions the custom-field key shape at all: %q",
-				name, description)
-		}
-		// The exclusion clause, isolated with Cut so the assertion reads the
-		// SENTENCE rather than the whole description — "activity" appears earlier
-		// in the field lists, so a substring test over the full text would pass
-		// without any exclusion being stated at all.
-		_, exclusion, found := strings.Cut(description, "No custom fields on")
-		if !found {
-			t.Errorf("%s: the description promises cf_ carriage and excludes nothing, though activity and "+
-				"relationship carry no additionalProperties bag — a cf_ key on either is refused, not "+
-				"stored: %q", name, description)
-			continue
-		}
-		// Both, and by name: an agent reads prose, so "some types are excluded"
-		// would leave it guessing which.
-		for _, excluded := range []string{"activity", "relationship"} {
-			if !strings.Contains(exclusion, excluded) {
-				t.Errorf("%s: the cf_ exclusion clause %q does not name %q", name, exclusion, excluded)
-			}
-		}
-	}
 }

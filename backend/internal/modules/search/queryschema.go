@@ -49,10 +49,14 @@ func (r *QuerySchemaResource) Resources(context.Context) []mcp.Resource {
 		// governed by the same scope a record read is.
 		RequiredScope: principal.ScopeRead,
 		MIMEType:      "application/json",
+		// Says what it HOLDS, not when to fetch it. This sentence rides every
+		// prompt that lists resources, and an instruction there is one a model
+		// acts on: a binding told to read first spent turns fetching vocabularies
+		// on goals that needed none.
 		Description: "Everything a query plan may say, for you: the record types you can ask " +
 			"about, the fields you can name on each, the operators each field admits, and the " +
 			"single relationship hop a plan may take. A plan naming anything outside it is " +
-			"refused rather than approximated, so read this before composing one.",
+			"refused rather than approximated.",
 	}}
 }
 
