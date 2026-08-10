@@ -3,6 +3,7 @@ import {
   CalendarClock,
   Info,
   type LucideIcon,
+  MessageSquare,
   Target,
   TriangleAlert,
   Waypoints,
@@ -35,27 +36,22 @@ import { RECORD_ZONE, SectionCard, signalKindLabel } from "./company360";
 // scheduled" earns a line only when the system can name whom to contact and
 // why, which is the suggestion engine's job, not this component's.
 //
-// WHAT THIS DELIBERATELY DOES NOT CARRY, and the rule behind all three: a
-// second, weaker rendering of a claim that already has a good one is the
-// duplication the page's own rules forbid.
+// WHAT THIS DELIBERATELY DOES NOT CARRY, and the rule behind it: a second,
+// weaker rendering of a claim that already has a good one is the duplication
+// the page's own rules forbid.
 //
-//   - the suggestions, which the account brief renders with their evidence
-//     chips, their action states and their dismissal;
-//   - the open tasks THEMSELVES, which the next-steps card lists in full with
-//     its quick actions. The commitment tile answers how many are open and how
-//     soon — the question the card does not put at the top of the page — and
-//     never repeats a subject the card is about to render with a due-date edit
-//     and a complete button beside it;
-//   - the last interaction, which the account pulse line under the title
-//     already names in BOTH directions with their dates. One tile could only
-//     show the later of the two, and which side wrote last is the whole
-//     distinction a reader acts on;
-//   - what changed since the last visit, which the account brief's own footer
-//     reports with the baseline it counted from.
+//   - the open tasks THEMSELVES, which the Tasks screen lists in full with
+//     their quick actions. The commitment tile answers how many are open and
+//     how soon — the question a list does not put at the top of the page —
+//     and never repeats a subject you would act on somewhere better;
+//   - WHO wrote last, which the account pulse line under the title names in
+//     BOTH directions with their dates. The last-interaction tile below says
+//     what the exchange was ABOUT; which side owes a reply is the pulse's
+//     question and one tile could only ever show the later of the two.
 //
 // So this section earns its place by carrying what nothing else says: what is
-// owed, when we next speak, who can reach them, what is running, and what is
-// wrong.
+// owed, when we next speak, who can reach them, what was last said, what is
+// running, and what is wrong.
 
 type Organization360 = components["schemas"]["Organization360"];
 
@@ -165,7 +161,15 @@ export function TodayOnThisAccount({
         <div className="today-body">
           <ul className="today-tiles">
             {items.map((item) => (
-              <li key={item.key} className="today-tile">
+              // The key's prefix names WHICH reading this is ("commitment",
+              // "interaction", …). Exposed so a layout test can anchor on the
+              // tile it means without matching drawn copy, which would make a
+              // translation edit fail a layout suite.
+              <li
+                key={item.key}
+                className="today-tile"
+                data-tile={item.key.split(":")[0]}
+              >
                 <span className="today-tile-label">
                   <item.icon size={14} aria-hidden="true" />
                   {item.label}
@@ -278,6 +282,7 @@ const TODAY_SOURCES: ReadonlyArray<{ section: string; label: MessageKey }> = [
   { section: "people", label: "today.source.people" },
   { section: "deals", label: "today.source.deals" },
   { section: "signals", label: "today.source.signals" },
+  { section: "activities", label: "today.source.activities" },
 ];
 
 function TodayWithheld({ view }: Readonly<{ view: Organization360 }>) {
@@ -320,6 +325,7 @@ function todayItems(ctx: TodayContext): TodayItem[] {
     nextCommitment(ctx),
     bookedMeeting(ctx),
     bestRoute(ctx),
+    lastInteraction(ctx),
     activeOpportunity(ctx),
     openRisk(ctx),
   ].filter((item): item is TodayItem => item !== null);
@@ -562,6 +568,62 @@ function openRisk({ view, t }: TodayContext): TodayItem | null {
     headline: signalKindLabel(signal.kind, t),
     detail: signal.summary ?? undefined,
     tone: severityTone(signal.severity),
+  };
+}
+
+// The kinds that are an EXCHANGE with the account. The 360's timeline section
+// is unfiltered — it carries tasks and meetings from the same table — and a
+// task is something we wrote to ourselves rather than something that was said.
+const EXCHANGE_KINDS: ReadonlySet<string> = new Set([
+  "email",
+  "call",
+  "meeting",
+  "note",
+  "whatsapp",
+  "telegram",
+]);
+
+/**
+ * What was last said, and when.
+ *
+ * The subject of the most recent exchange, which is the one reading a rep
+ * opens the page for that no other tile carries: the commitment tile says what
+ * we OWE, this says what was SAID.
+ *
+ * The pulse line under the title still names both directions with their dates,
+ * and this does not replace it. The two answer different questions — the pulse
+ * is who wrote last, which is the direction a rep acts on, and one tile could
+ * only ever show the later of the two. This is what the exchange was ABOUT.
+ *
+ * TWO FILTERS, and neither is cosmetic. The timeline carries every activity
+ * kind, so without them the head of the list can be a TASK — whose subject
+ * this file refuses to render twice — or a meeting scheduled for next week,
+ * which `occurred_at DESC` sorts to the top and which has not been said yet.
+ *
+ * A FACT: the subject is what the activity says, quoted rather than judged.
+ * The builder returns null both when the section was withheld and when nothing
+ * has been logged; it cannot tell those apart, and the withheld footer below
+ * is what tells a reader they are missing what was said.
+ */
+function lastInteraction({ view, t, when }: TodayContext): TodayItem | null {
+  const latest = (view.activities?.data ?? []).find(
+    (activity) =>
+      EXCHANGE_KINDS.has(activity.kind) &&
+      Boolean(activity.subject) &&
+      // Already happened, as of the read the rest of this page describes.
+      Boolean(activity.occurred_at) &&
+      (activity.occurred_at as string) <= view.as_of,
+  );
+  if (!latest?.subject) {
+    return null;
+  }
+  return {
+    key: `interaction:${latest.id}`,
+    icon: MessageSquare,
+    label: t("today.tile.lastInteraction"),
+    nature: "fact",
+    headline: latest.subject,
+    detail: latest.occurred_at ? when(latest.occurred_at) : undefined,
   };
 }
 
