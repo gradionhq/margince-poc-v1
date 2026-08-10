@@ -45,11 +45,11 @@ var overlayMirroredTypes = func() map[string]bool {
 }()
 
 // overlaySearchDefaultLimit sizes an overlay search page when the request
-// names no limit — the shared Limit parameter's own default (crm.yaml's
-// components.parameters.Limit: default 50), which /search refs like every
-// other paged op. Overlay pages the same way native does or the two modes
-// answer different pages for one query.
-const overlaySearchDefaultLimit = 50
+// names no limit. It is defaultSearchPageSize — the shared Limit parameter's
+// declared default — rather than a second copy of the number: overlay pages
+// the same way native does, or the two modes answer different pages for one
+// query.
+const overlaySearchDefaultLimit = defaultSearchPageSize
 
 // overlaySearchMaxLimit is that same shared parameter's ceiling (maximum
 // 200). A bound integer that slips past request validation (a negative or
