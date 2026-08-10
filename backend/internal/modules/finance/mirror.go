@@ -41,6 +41,11 @@ func (s *Store) mirrorLedger(
 	credited, orphans := applyCredits(ledger)
 	out.OrphanCredits += len(orphans)
 
+	base, err := baseCurrency(ctx, tx)
+	if err != nil {
+		return err
+	}
+
 	// External id → row id, so a payment can name the invoice it settles and a
 	// credit note the invoice it reduces. Both are source-side references,
 	// resolved here rather than stored as strings.
@@ -56,7 +61,7 @@ func (s *Store) mirrorLedger(
 		id, outcome, err := s.mirrorInvoice(ctx, tx, mirrorArgs{
 			connectionID: connectionID, organizationID: mapped.organizationID,
 			invoice: invoice, capturedBy: by, rowIDs: rowIDs,
-			creditedAgainst: credited[invoice.ExternalID],
+			creditedAgainst: credited[invoice.ExternalID], baseCurrency: base,
 		})
 		if err != nil {
 			return err
@@ -141,7 +146,22 @@ type mirrorArgs struct {
 	// THIS invoice by. Resolved over the whole ledger before any write, so a
 	// note that arrives before its target still lands.
 	creditedAgainst int64
+	// baseCurrency is the workspace's reporting currency, and the ONLY reason
+	// the mirror knows it: an invoice already issued in it converts at exactly
+	// 1, which is an identity rather than an exchange rate. Anything else
+	// leaves fx_rate_to_base null, and the summary formulas refuse the total
+	// (FIN-AC-6) instead of summing across currencies.
+	baseCurrency string
 }
+
+// fxRateToBase is the frozen rate an invoice converts at, or nil when this
+// build cannot supply one.
+//
+// There is no rate sheet yet. The one rate that needs no sheet is the identity:
+// an invoice issued in the workspace's own reporting currency is already in
+// base. Returning 1 for every other currency would be an invented rate, and a
+// total computed from invented rates is worse than no total — so those rows
+// stay null and the formulas refuse the figure.
 
 // mirrorInvoice upserts one invoice, writing only when the SOURCE's own values
 // changed.
@@ -160,7 +180,7 @@ func (s *Store) mirrorInvoice(
 		// change that did not happen.
 		return existingID, wroteNothing, nil
 	}
-	values := deriveValues(inv, s.now(), args.rowIDs, args.creditedAgainst)
+	values := deriveValues(inv, s.now(), args.rowIDs, args.creditedAgainst, args.baseCurrency)
 	if found {
 		return existingID, wroteUpdate, updateInvoice(ctx, tx, existingID, args, values, hash)
 	}
@@ -197,10 +217,13 @@ type invoiceValues struct {
 	creditsID  *ids.UUID
 	disputedAt *time.Time
 	voidAt     *time.Time
+	fxRate     *float64
+	fxDate     *time.Time
 }
 
 func deriveValues(
-	inv SourceInvoice, now time.Time, rowIDs map[string]ids.UUID, creditedAgainst int64,
+	inv SourceInvoice, now time.Time, rowIDs map[string]ids.UUID,
+	creditedAgainst int64, base string,
 ) invoiceValues {
 	open := inv.GrossMinor - inv.PaidMinor
 	if open < 0 {
@@ -216,6 +239,7 @@ func deriveValues(
 	}
 	out := invoiceValues{openMinor: open, credited: creditedAgainst}
 	out.status = deriveStatus(inv, open, now)
+	out.fxRate, out.fxDate = fxRateToBase(inv, base)
 	if inv.CreditsExternalID != "" {
 		// A credit note whose target is not in this pass keeps its amount and
 		// loses only the pointer: dropping the row would lose real money from
@@ -243,14 +267,16 @@ func insertInvoice(
 		       (id, workspace_id, connection_id, organization_id, external_id, number,
 		        issued_at, due_at, status, currency, net_minor, tax_minor, gross_minor,
 		        open_minor, credited_minor, fully_paid_at, disputed_at, void_at,
-		        credits_invoice_id, source_updated_at, sync_hash, source, captured_by)
+		        credits_invoice_id, source_updated_at, sync_hash, fx_rate_to_base,
+		        fx_rate_date, source, captured_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-		        $16, $17, $18, $19, $20, $21, $22, $23)`,
+		        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
 		id, storekit.MustWorkspace(ctx), args.connectionID, args.organizationID,
 		inv.ExternalID, nullable(inv.Number), inv.IssuedOn, inv.DueOn, values.status,
 		inv.Currency, inv.NetMinor, inv.TaxMinor, inv.GrossMinor, values.openMinor,
 		values.credited, inv.FullyPaidAt, values.disputedAt, values.voidAt,
-		values.creditsID, inv.UpdatedAt, hash, OfflineProviderName, args.capturedBy)
+		values.creditsID, inv.UpdatedAt, hash, values.fxRate, values.fxDate,
+		OfflineProviderName, args.capturedBy)
 	if err != nil {
 		return fmt.Errorf("mirror the invoice: %w", err)
 	}
@@ -285,12 +311,14 @@ func updateInvoice(
 		       status = $6, currency = $7, net_minor = $8, tax_minor = $9,
 		       gross_minor = $10, open_minor = $11, credited_minor = $12,
 		       fully_paid_at = $13, disputed_at = $14, void_at = $15,
-		       credits_invoice_id = $16, source_updated_at = $17, sync_hash = $18
+		       credits_invoice_id = $16, source_updated_at = $17, sync_hash = $18,
+		       fx_rate_to_base = $19, fx_rate_date = $20
 		 WHERE id = $1`,
 		id, args.organizationID, nullable(inv.Number), inv.IssuedOn, inv.DueOn,
 		values.status, inv.Currency, inv.NetMinor, inv.TaxMinor, inv.GrossMinor,
 		values.openMinor, values.credited, inv.FullyPaidAt, values.disputedAt,
-		values.voidAt, values.creditsID, inv.UpdatedAt, hash)
+		values.voidAt, values.creditsID, inv.UpdatedAt, hash,
+		values.fxRate, values.fxDate)
 	if err != nil {
 		return fmt.Errorf("update the mirrored invoice: %w", err)
 	}
