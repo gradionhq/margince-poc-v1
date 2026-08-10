@@ -3,8 +3,8 @@
 
 package backendarch
 
-// A declared narrowing parameter binds the read it is declared on, or it is not
-// declared.
+// A declared narrowing parameter is read by the handler it is declared on, or
+// it is not declared.
 //
 // The defect this closes is the widest wrong answer there is. `GET
 // /v1/people?tag=vip` whose handler never reads `tag` returns EVERY person the
@@ -23,9 +23,9 @@ package backendarch
 //
 // Two obligations, because a request in overlay mode meets two handlers:
 //
-//   - the NATIVE one must reach its store with the dial (or hand the whole
-//     params value on to something that does, or own the raw query string
-//     itself — the report handlers parse it wholesale);
+//   - the NATIVE one must READ the dial (or hand the whole params value on to
+//     something that does, or own the raw query string itself — the report
+//     handlers parse it wholesale);
 //   - the overlay SHADOW must name the dial in the branch that reads the
 //     mirror: forward it, or refuse it with the 422 that says the mirror cannot
 //     answer this. Delegating to the native handler is the OTHER branch, so a
@@ -34,6 +34,17 @@ package backendarch
 //     — forwarded by neither and refused by neither, so a whole mirrored
 //     timeline came back as though it were the requested day — is the failure
 //     it is derived from.
+//
+// READ, precisely — not "correctly bound". This walk proves a handler NAMES
+// the parameter; it cannot prove the value then narrows the query, and a
+// handler that mapped `tag` onto the wrong field would satisfy it. That is
+// the honest limit of a static census and it is stated rather than papered
+// over, because the pair is what covers the class: this gate is the half no
+// test can be written for in advance — the parameter nobody came back for —
+// and declaredfilters_http_integration_test.go is the half that proves the
+// named ones actually narrow, over HTTP, against records created over HTTP.
+// A new parameter therefore arrives with the census already failing, and its
+// wire arm is what closes the finding.
 //
 // Paging and ordering are deliberately OUT of scope: `cursor`, `limit` and
 // `sort` are the shared components a page's SHAPE is spelled with, not its
@@ -103,8 +114,8 @@ var overlayDialsTheMirrorAnswersTheSameWayEitherWay = gatekit.Waive(map[string]s
 		"would cost every caller that sends the parameter's own default a 422 for nothing",
 })
 
-// TestEveryDeclaredNarrowingParameterReachesItsRead is the native obligation.
-func TestEveryDeclaredNarrowingParameterReachesItsRead(t *testing.T) {
+// TestEveryDeclaredNarrowingParameterIsReadByItsHandler is the native obligation.
+func TestEveryDeclaredNarrowingParameterIsReadByItsHandler(t *testing.T) {
 	declared := narrowingParametersByType(t)
 	if len(declared) < wantMinimumNarrowedOperations {
 		t.Fatalf("only %d operations declare a narrowing query parameter in %s, want at least %d — "+
