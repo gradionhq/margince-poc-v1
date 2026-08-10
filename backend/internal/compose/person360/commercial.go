@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -100,7 +101,10 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 	var seat dealSeat
 	var stage, currency *string
 	var amount *int64
-	var closeDate *openapi_types.Date
+	// The close date is scanned as a time, not as the wire's Date: pgx has no
+	// binary decoder for DATE into the generated **Date, and a wrapper type the
+	// driver does not know fails at runtime rather than at compile time.
+	var closeDate *time.Time
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT d.id, r.role, d.name, s.name, d.amount_minor, d.currency, d.expected_close_date
 		FROM relationship r
@@ -121,7 +125,9 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 	seat.deal.Stage = stage
 	seat.deal.AmountMinor = amount
 	seat.deal.Currency = currency
-	seat.deal.CloseDate = closeDate
+	if closeDate != nil {
+		seat.deal.CloseDate = &openapi_types.Date{Time: *closeDate}
+	}
 	return seat, true, nil
 }
 
