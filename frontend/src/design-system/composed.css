@@ -202,9 +202,28 @@
   font-weight: 600;
   color: var(--textPrimary);
 }
+/* The RECORD page's identity block, at the scale the mockups draw it: the name
+   is the largest thing on the page and the mark beside it is a logo rather
+   than the list-row avatar it shares a component with. The list keeps its own
+   compact sizes — this applies only where the header runs wide. */
+.record-head-wide h1 {
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.record-head-wide .avatar {
+  width: 76px;
+  height: 76px;
+  font-size: 26px;
+}
 .record-head .record-sub {
   font-size: 13px;
   color: var(--textMeta);
+}
+.record-head-wide .record-sub {
+  font-size: 14.5px;
+  line-height: 1.45;
+  max-width: 62ch;
 }
 .record-badges {
   display: flex;

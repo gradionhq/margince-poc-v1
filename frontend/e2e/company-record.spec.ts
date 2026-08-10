@@ -5,9 +5,19 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
  * docs/explanation/assets/company-record-page-v2/.
  *
  * This suite exists because "it looks like the mockup" kept being reported from
- * reading the code rather than the page. It asserts REGION ORDER AND PRESENCE,
- * never pixels and never the drawn English strings: the app renders German
- * chrome, and a copy change must not fail a layout suite.
+ * reading the code rather than the page. TWO describes, and the split matters:
+ *
+ *   - page shape — which regions exist and in what order;
+ *   - visual weight — how big and how prominent they are.
+ *
+ * Shape alone is not the requirement, and asserting only shape is how a page
+ * with the right skeleton at half the mockup's scale passed every check while
+ * looking nothing like it. The second describe reads computed styles.
+ *
+ * Never pixel-equality and never the drawn English strings: the app renders
+ * German chrome, so a copy change must not fail a layout suite, and a font
+ * substitution must not fail a scale one. The visual assertions are FLOORS —
+ * they say "at least this prominent", which is the claim the mockup makes.
  *
  * It runs against a LIVE stack (BASE_URL + a real company id), because the two
  * states that have to look right — a populated account and a freshly imported
@@ -206,6 +216,11 @@ test.describe("company record — the mockup's page shape", () => {
   // Not an assertion — the artifact a human compares against the PNGs. It is
   // written outside the repo (E2E_SHOT_DIR) because a screenshot is session
   // debris, not product.
+  //
+  // The assertions above this point are all STRUCTURE: which regions exist and
+  // in what order. A page can satisfy every one of them and still look nothing
+  // like the mockup, because none of them reads a colour, a size or a weight —
+  // which is exactly what happened. The block below closes that hole.
   test("capture both states for eyeball comparison", async ({ page }) => {
     for (const [name, org] of [
       ["populated", POPULATED_ORG],
@@ -217,5 +232,134 @@ test.describe("company record — the mockup's page shape", () => {
         fullPage: true,
       });
     }
+  });
+});
+
+/**
+ * The mockup's TYPOGRAPHIC SCALE, asserted as computed styles.
+ *
+ * The structural suite above passes on a page rendering at half the mockup's
+ * size, because a count does not know how big anything is. These are the
+ * numbers a reader actually sees: the account's name, its logo, the money in
+ * the KPI strip, and the control that says where the account stands.
+ *
+ * Floors rather than exact values. A design that lands at 42px where the
+ * mockup drew 40 is right; one that lands at 22 is the dense admin-tool
+ * rendering these exist to catch. Pixel equality would fail on a font
+ * substitution and tell nobody anything.
+ */
+test.describe("company record — the mockup's visual weight", () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page);
+    await openCompany(page, POPULATED_ORG as string);
+  });
+
+  const px = async (locator: Locator, prop: string): Promise<number> => {
+    await expect(locator).toBeVisible();
+    const value = await locator.evaluate(
+      (element, name) => getComputedStyle(element).getPropertyValue(name),
+      prop,
+    );
+    return Number.parseFloat(value);
+  };
+
+  test("the account's name leads the page", async ({ page }) => {
+    // ~40px in both mockups. It is the largest text on the record and the
+    // first thing a reader lands on.
+    expect(
+      await px(page.locator("h1").first(), "font-size"),
+    ).toBeGreaterThanOrEqual(30);
+  });
+
+  test("the company's mark is a logo, not a favicon", async ({ page }) => {
+    // ~110px square in the mockups, beside a name at ~40px. At 44 it reads as
+    // a list-row avatar that wandered onto a record page.
+    const box = await page
+      .locator(".record-head .avatar")
+      .first()
+      .boundingBox();
+    if (!box) {
+      throw new Error("the header avatar has no box");
+    }
+    expect(box.width).toBeGreaterThanOrEqual(72);
+  });
+
+  test("the KPI figures read as the headline numbers they are", async ({
+    page,
+  }) => {
+    // The money is the reading the page is opened for, and at 16px it was the
+    // same size as the label above it.
+    //
+    // The floor is 20 rather than the mockup's ~30. Six slots share this
+    // strip and the app's left nav takes width the mockup's page does not
+    // spend, so ~110px per slot is what a figure actually gets — at 30px a
+    // euro amount wraps mid-number, and "€201,099.0" is a different number
+    // rather than a bigger rendering of the right one. The figures abbreviate
+    // (€201.1k) for the same reason, which is what both mockups draw.
+    const size = await px(
+      page.locator(".stat-card-value").first(),
+      "font-size",
+    );
+    // 18 rather than 20: the clamp's floor IS 20, and asserting the exact
+    // floor makes the check flip on sub-pixel rounding. The bar is "clearly
+    // bigger than a label", not "exactly what the clamp happens to compute".
+    expect(size).toBeGreaterThanOrEqual(18);
+    // And it must still LEAD its label, which is the relationship the mockup
+    // fixes even where the absolute size cannot hold.
+    const label = await px(
+      page.locator(".stat-card-label").first(),
+      "font-size",
+    );
+    expect(size).toBeGreaterThan(label * 1.4);
+  });
+
+  test("the lifecycle control is a control, not a tag", async ({ page }) => {
+    // A filled button of ~190x48 in State A, sitting beside the name. The
+    // 75x22 pale chip reads as metadata a reader cannot act on.
+    const box = await page
+      .locator(".co-standing .badge, .co-standing button")
+      .first()
+      .boundingBox();
+    if (!box) {
+      throw new Error("the lifecycle control has no box");
+    }
+    expect(box.height).toBeGreaterThanOrEqual(32);
+  });
+
+  // Website, LinkedIn, location, industry, size: five pills under the
+  // description in both mockups. Each is drawn only where the field is
+  // recorded — a chip invented for an empty column would state a fact the
+  // record does not hold — so this asserts the row renders what the fixture
+  // HAS, rather than a fixed count the data may not support.
+  test("the header carries the company's attribute chips", async ({ page }) => {
+    const recorded = await page.evaluate(async () => {
+      const id = location.hash.split("/").pop();
+      const response = await fetch(`/v1/organizations/${id}`, {
+        headers: { accept: "application/json" },
+      });
+      const org = await response.json();
+      return ["industry", "address_city", "linkedin_url"].filter((field) =>
+        Boolean(org?.[field]),
+      ).length;
+    });
+    expect(
+      await page.locator(".record-sub .chip").count(),
+    ).toBeGreaterThanOrEqual(recorded);
+  });
+
+  test("a card reads as a card against the page behind it", async ({
+    page,
+  }) => {
+    // The mockups set white cards on a light grey page. The border is what
+    // makes a card an object; against a near-white background at 1px of very
+    // low contrast it stops being visible at all.
+    const card = page.locator(".co-grid > .card").first();
+    const pageBg = await page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
+    const cardBg = await card.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    expect(cardBg).not.toBe(pageBg);
   });
 });

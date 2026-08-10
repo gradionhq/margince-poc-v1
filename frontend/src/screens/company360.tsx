@@ -14,7 +14,12 @@ import {
   StatCard,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
-import { formatDate, formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatMoneyCompact,
+} from "../format/format";
 
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -2212,7 +2217,7 @@ function FinanceStat({
   return (
     <StatCard
       label={t(`co.strip.${reading}`)}
-      value={formatMoney(amount.amount_minor, amount.currency, locale)}
+      value={formatMoneyCompact(amount.amount_minor, amount.currency, locale)}
       source={
         namesSource && data?.provider ? (
           <Badge>{data.provider}</Badge>
