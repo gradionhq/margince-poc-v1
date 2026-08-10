@@ -68,7 +68,11 @@ func TestTheGroupPreLockHoldsEveryPendingMemberAtOnce(t *testing.T) {
 			return nil
 		})
 	}()
-	<-held
+	// Both channels, not just held: a pre-lock that ERRORS sends on done and
+	// never closes held, so a bare receive here would block until the package
+	// timeout and report the whole package as hung rather than this test as
+	// failed.
+	awaitHeld(t, held, done)
 
 	for i, id := range members {
 		if err := e.lockNoWait(t, id); !isLockNotAvailable(err) {
@@ -118,7 +122,11 @@ func TestAMultiKindActLocksEveryKindItStages(t *testing.T) {
 			return nil
 		})
 	}()
-	<-held
+	// Both channels, not just held: a pre-lock that ERRORS sends on done and
+	// never closes held, so a bare receive here would block until the package
+	// timeout and report the whole package as hung rather than this test as
+	// failed.
+	awaitHeld(t, held, done)
 
 	for _, member := range []struct {
 		kind string
@@ -135,6 +143,17 @@ func TestAMultiKindActLocksEveryKindItStages(t *testing.T) {
 	close(released)
 	if err := <-done; err != nil {
 		t.Fatalf("the pre-locking transaction: %v", err)
+	}
+}
+
+// awaitHeld blocks until the pre-locking transaction reports its locks held, or
+// fails the test with whatever stopped it from getting there.
+func awaitHeld(t *testing.T, held <-chan struct{}, done <-chan error) {
+	t.Helper()
+	select {
+	case <-held:
+	case err := <-done:
+		t.Fatalf("the pre-locking transaction ended before it held anything: %v", err)
 	}
 }
 

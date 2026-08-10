@@ -350,6 +350,14 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 		// ordered runs, one per kind, are not one order: the decision can hold a
 		// lead this act is about to want while waiting for a facts row this act
 		// already holds.
+		// The claim's account is what everything below files under, and the
+		// pre-lock is the FIRST thing to need it — before this, a claim with no
+		// account reached the staging calls that dereference it only when there
+		// was something to stage, so an empty read was a silent no-op. It stays
+		// one.
+		if claim.OrganizationID == nil {
+			return fmt.Errorf("compose: site read %s claims no account to file its proposals under", readID)
+		}
 		if err := w.approvals.LockPendingGroupInTx(ctx, tx, *claim.OrganizationID,
 			deepReadProposalKind, siteLeadProposalKind); err != nil {
 			return err
