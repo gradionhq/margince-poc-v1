@@ -27,12 +27,17 @@ import (
 
 // row is the store shape of one approval.
 type row struct {
-	ID         ids.ApprovalID
-	Kind       string
-	Status     string
-	ProposedBy string
-	OnBehalfOf *ids.UserID
-	PassportID *ids.PassportID
+	ID ids.ApprovalID
+	// WorkspaceID is read back rather than assumed from the bound GUC: the
+	// contract declares it REQUIRED on every approval the API returns, and a
+	// field the wire shape promises is either read from the row or it is a
+	// zero uuid nobody can tell from a real one.
+	WorkspaceID ids.UUID
+	Kind        string
+	Status      string
+	ProposedBy  string
+	OnBehalfOf  *ids.UserID
+	PassportID  *ids.PassportID
 	// TargetType + TargetID are the polymorphic pointer to the entity the
 	// staging acts on (deal, org, person, lead, activity, …); the id stays
 	// untyped because the pair IS the discriminated reference.
@@ -52,14 +57,14 @@ type row struct {
 	BundleID *ids.UUID
 }
 
-const columns = `id, kind, status, proposed_by, on_behalf_of, passport_id,
+const columns = `id, workspace_id, kind, status, proposed_by, on_behalf_of, passport_id,
 	target_entity_type, target_entity_id, target_version, summary,
 	proposed_change, diff_hash, expires_at, decided_by, decided_at, consumed_at, created_at,
 	bundle_id`
 
 func scan(r pgx.Row) (row, error) {
 	var a row
-	err := r.Scan(&a.ID, &a.Kind, &a.Status, &a.ProposedBy, &a.OnBehalfOf, &a.PassportID,
+	err := r.Scan(&a.ID, &a.WorkspaceID, &a.Kind, &a.Status, &a.ProposedBy, &a.OnBehalfOf, &a.PassportID,
 		&a.TargetType, &a.TargetID, &a.TargetVersion, &a.Summary,
 		&a.ProposedChange, &a.DiffHash, &a.ExpiresAt, &a.DecidedBy, &a.DecidedAt, &a.ConsumedAt, &a.CreatedAt,
 		&a.BundleID)

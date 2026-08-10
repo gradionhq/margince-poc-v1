@@ -227,15 +227,16 @@ func (h Handlers) wire(a row) crmcontracts.Approval { return wire(a, h.svc.now()
 // lazy expiry in so a stale pending row never reads as approvable.
 func wire(a row, now time.Time) crmcontracts.Approval {
 	out := crmcontracts.Approval{
-		Id:         openapi_types.UUID(a.ID.UUID),
-		Kind:       a.Kind,
-		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(now)),
-		ProposedBy: a.ProposedBy,
-		CreatedAt:  a.CreatedAt,
-		DiffHash:   &a.DiffHash,
-		Summary:    a.Summary,
-		ExpiresAt:  &a.ExpiresAt,
-		DecidedAt:  a.DecidedAt,
+		Id:          openapi_types.UUID(a.ID.UUID),
+		WorkspaceId: openapi_types.UUID(a.WorkspaceID),
+		Kind:        a.Kind,
+		Status:      crmcontracts.ApprovalStatus(a.effectiveStatus(now)),
+		ProposedBy:  a.ProposedBy,
+		CreatedAt:   a.CreatedAt,
+		DiffHash:    &a.DiffHash,
+		Summary:     a.Summary,
+		ExpiresAt:   &a.ExpiresAt,
+		DecidedAt:   a.DecidedAt,
 	}
 	if a.OnBehalfOf != nil {
 		v := openapi_types.UUID(a.OnBehalfOf.UUID)
