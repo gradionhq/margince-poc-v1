@@ -47,22 +47,42 @@ const CARD_STATE: Record<FinanceState, SectionState> = {
   stale: "stale",
 };
 
+/**
+ * The lifecycles FIN-AC-3 authorises the card's absence for, and ONLY those.
+ *
+ * Named as the allowlist of absence rather than as an allowlist of presence,
+ * because the two fail in opposite directions. A lifecycle this list forgets
+ * gets a card that says "no accounting source connected" — a true statement
+ * and a prompt to connect one. A lifecycle wrongly ON it gets NO card, and a
+ * reader is never told the money is missing.
+ *
+ * `unknown` is the case that made this matter: every imported company carries
+ * it, so an allowlist of presence hid finance from the majority of the book.
+ * `disqualified` is the same shape — an account we stopped selling to may
+ * still owe us money.
+ */
+const NEVER_INVOICED: ReadonlySet<string> = new Set([
+  "target",
+  "prospect",
+  "opportunity",
+]);
+
 export function CompanyFinanceCard({
   orgId,
   lifecycle,
 }: Readonly<{
   orgId: string;
-  // The account's lifecycle. A target or a prospect has never been invoiced,
-  // so the card is ABSENT for them rather than empty (FIN-AC-3) — an empty
-  // finance card on a company we have never billed is a question nobody asked.
+  // The account's lifecycle. A target, a prospect or an opportunity has never
+  // been invoiced, so the card is ABSENT for them rather than empty (FIN-AC-3)
+  // — an empty finance card on a company we have never billed is a question
+  // nobody asked.
   lifecycle?: string;
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const billable = lifecycle === "customer" || lifecycle === "former_customer";
   const query = useFinanceSummary(orgId);
 
-  if (!billable) {
+  if (lifecycle && NEVER_INVOICED.has(lifecycle)) {
     return null;
   }
   if (query.isPending) {
@@ -95,7 +115,17 @@ export function CompanyFinanceCard({
   const summary = query.data;
   return (
     <SectionCard
-      title={t("finance.title")}
+      // A former customer's money is HISTORY, and the title says so rather
+      // than letting figures from a finished relationship read as current
+      // (FIN-AC-3). The coverage period the criterion also asks for is not on
+      // the wire — `OrganizationFinanceSummary` carries `last_synced_at` and
+      // no coverage start or end — so the label states what it can stand
+      // behind and omits what it cannot.
+      title={
+        lifecycle === "former_customer"
+          ? t("finance.titleHistorical")
+          : t("finance.title")
+      }
       state={CARD_STATE[summary.state]}
       emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
       detail={{

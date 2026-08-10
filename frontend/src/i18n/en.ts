@@ -710,6 +710,7 @@ export const en = {
   "co.section.unavailable":
     "Could not be loaded — this may not be the whole picture",
   "finance.title": "Finance",
+  "finance.titleHistorical": "Finance · historical",
   "finance.none": "Nothing recorded.",
   "finance.noConnection":
     "No financial source connected — connect one to see what this customer has been invoiced and whether they pay on time",
