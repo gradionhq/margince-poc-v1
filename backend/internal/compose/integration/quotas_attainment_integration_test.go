@@ -16,6 +16,7 @@ package integration
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // attainmentClock pins the attainment store's injected clock mid-period
@@ -462,5 +464,65 @@ func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testin
 	}
 	if att.TargetMinor != 1100000 {
 		t.Errorf("target = %d, want 1100000 (10,000.00 EUR @ 1.1 into the USD base)", att.TargetMinor)
+	}
+}
+
+// An installation whose base currency was never stored must REFUSE, not
+// quietly answer with the registered default.
+//
+// The state is reachable: 0191's backfill only runs where exactly one live
+// workspace exists, so a database that migrated with two gets no row, and
+// bootstrap's seed does not run for an installation that already exists. The
+// default is the right answer for a setting nobody has changed; it is the
+// wrong answer for the unit money is measured in — a silent EUR here converts
+// a target against one currency and labels the result another.
+func TestAttainmentRefusesWhenTheBaseCurrencyWasNeverStored(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	in := ownerQuotaInput(e.Rep1, 1000000)
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.WsExec(t, `DELETE FROM setting WHERE key = 'installation.base_currency'`)
+
+	if _, err := store.QuotaAttainment(ctx, ids.UUID(created.Id)); err == nil {
+		t.Fatal("attainment answered with no base currency stored; " +
+			"an unset money basis must refuse, never fall through to the default")
+	} else if !strings.Contains(err.Error(), "no stored value") {
+		t.Errorf("refusal should say the value was never stored, got %v", err)
+	}
+}
+
+// The base currency is read through the installation_settings object gate, so
+// a principal without that grant cannot compute attainment. Every seeded role
+// holds it (0191 grants read to all five), so this is not a state a real
+// caller reaches — but the gate is the ONLY control on `setting`, which
+// carries no RLS, and a gate nothing exercises is a gate nobody notices
+// losing.
+func TestAttainmentNeedsTheInstallationSettingsReadGrant(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ungranted := principal.Permissions{
+		RoleKeys: []string{"admin"},
+		Objects: map[string]principal.ObjectGrant{
+			"quota": {Create: true, Read: true, Update: true, Delete: true},
+			"deal":  {Read: true},
+		},
+		RowScope: principal.RowScopeAll,
+	}
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	in := ownerQuotaInput(e.Rep1, 1000000)
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.QuotaAttainment(e.As(e.Rep1, nil, ungranted), ids.UUID(created.Id))
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("attainment without installation_settings:read = %v, want permission denied", err)
 	}
 }
