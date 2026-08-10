@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -86,36 +87,78 @@ type settledThread struct {
 	// Count is how many messages the conversation held when this pass read it.
 	// The timestamp alone cannot see a message inserted at the same instant, or
 	// a backfill filling in older ones; the count changes for both.
-	Count    int
-	Messages []threadMessage
+	Count int
+	// PrivateTo is the one reader this conversation answers to, or the zero
+	// value when every message on it is workspace-readable.
+	//
+	// What the model writes about a conversation is only as shareable as the
+	// conversation. Capture auto-creates contacts owner-private, and a message
+	// filed against nobody else is readable by its capturing user alone — so a
+	// summary of it, filed on an account the whole workspace can see, would
+	// disclose exactly what the private contact protects.
+	PrivateTo ids.UUID
+	Messages  []threadMessage
 }
 
-// dueThreads lists the conversations that have settled and have moved since
-// they were last read, newest first.
+// dueThreadsQuery is the queue itself. It is a package-level constant rather
+// than a literal inside dueThreads because the query IS the rule — settled,
+// resolvable to one account, moved since it was last read, not parked — and a
+// hundred lines of it wrapped around twenty lines of scanning made the Go read
+// like a footnote to the SQL.
 //
-// The org resolution is deliberately strict: exactly one organization across
-// the whole thread. A conversation touching two accounts would have its events
-// filed against whichever the join happened to pick, and a signal on the wrong
-// account is worse than no signal — it is a claim the reader cannot trace back.
-func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]settledThread, error) {
-	settled := now.Add(-extractSettleHours * time.Hour)
-	rows, err := tx.Query(ctx, `
+// $1 settled instant, $2 per-pass cap, $3 refusal cap, $4 park cutoff.
+var dueThreadsQuery = `
 		WITH conversation AS (
 			SELECT a.thread_key,
 			       max(a.occurred_at) AS newest,
 			       count(DISTINCT a.id) AS message_count,
-			       min(l.organization_id::text) AS one_org,
-			       count(DISTINCT l.organization_id) AS org_count
+			       min(ro.organization_id::text) AS one_org,
+			       count(DISTINCT ro.organization_id) AS org_count,
+			       -- Shared only when EVERY message is: the model is shown the
+			       -- whole conversation, so what it writes is as private as the
+			       -- most private thing it read.
+			       --
+			       -- A message with no links at all counts as shared, which is
+			       -- the link-less note rule auth.ActivityScopeClause already
+			       -- applies — its empty link set reads as visible. Calling it
+			       -- private here would disagree with the gate the reader
+			       -- actually faces, and withhold a finding about mail anyone
+			       -- may open.
+			       bool_and(coalesce(vis.shared, true)) AS shared,
+			       min(vis.private_owner::text) AS private_owner
 			  FROM activity a
-			  JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization'
+			  LEFT JOIN (` + activities.OrgReachSet() + `) ro ON ro.activity_id = a.id
+			  -- Who may read this message, asked of the records it is filed
+			  -- against. A message is readable when ANY of its links is
+			  -- (auth.ActivityScopeClause), so one workspace-visible link
+			  -- shares it; only an activity whose every link is capture-private
+			  -- belongs to one person, and then that person is its owner.
+			  LEFT JOIN LATERAL (
+			    SELECT bool_or(coalesce(vp.visibility, vo.visibility, 'workspace') <> 'owner') AS shared,
+			           min(coalesce(vp.owner_id, vo.owner_id)::text)
+			             FILTER (WHERE coalesce(vp.visibility, vo.visibility) = 'owner')
+			             AS private_owner
+			      FROM activity_link vl
+			      LEFT JOIN person vp ON vp.id = vl.person_id
+			      LEFT JOIN organization vo ON vo.id = vl.organization_id
+			     WHERE vl.activity_id = a.id
+			  ) vis ON true
 			 WHERE a.thread_key IS NOT NULL AND a.kind = 'email'
 			   AND a.archived_at IS NULL AND a.captured_by LIKE 'connector:%'
 			 GROUP BY a.thread_key
 		)
-		SELECT c.thread_key, c.one_org::uuid, c.newest, c.message_count
+		SELECT c.thread_key, c.one_org::uuid, c.newest, c.message_count,
+		       CASE WHEN c.shared THEN NULL ELSE c.private_owner::uuid END
 		  FROM conversation c
 		  LEFT JOIN signal_thread_scan s ON s.thread_key = c.thread_key
 		 WHERE c.org_count = 1
+		   -- A conversation nobody else may read, whose reader cannot be named,
+		   -- is not offered at all. Reading it would produce a finding with no
+		   -- owner to answer to, and a signal that names no owner is a shared
+		   -- one — so the unattributable case would resolve, silently, to the
+		   -- widest possible audience. Refusing it is the only answer that
+		   -- fails the safe way.
+		   AND (c.shared OR c.private_owner IS NOT NULL)
 		   AND c.newest <= $1
 		   -- Parked: this exact conversation state has been refused as often as
 		   -- it may be, recently. Two things release it. A message added to the
@@ -127,14 +170,57 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		            AND s.refused_activity_at IS NOT DISTINCT FROM c.newest
 		            AND s.refused_message_count IS NOT DISTINCT FROM c.message_count
 		            AND s.scanned_at > $4)
-		   -- Due when the conversation has MOVED in either way it can. The
+		   -- Due when the conversation has MOVED in any way it can. The
 		   -- timestamp misses a message inserted at the same instant and a
-		   -- backfill that adds older ones; the count sees both.
+		   -- backfill that adds older ones; the count sees both. And the
+		   -- ACCOUNT moves without the conversation moving at all — two of the
+		   -- three arms are live relationships, so a contact changing employer
+		   -- re-points every quiet thread they are on. Read for one account is
+		   -- not read for another.
 		   AND (s.thread_key IS NULL
 		        OR s.last_activity_at < c.newest
-		        OR s.message_count <> c.message_count)
+		        OR s.message_count <> c.message_count
+		        OR s.resolved_org_id IS DISTINCT FROM c.one_org::uuid)
 		 ORDER BY c.newest DESC
-		 LIMIT $2`, settled, limit, extractRefusalCap, now.Add(-extractParkFor))
+		 LIMIT $2`
+
+// dueThreads lists the conversations that have settled and have moved since
+// they were last read, newest first.
+//
+// A conversation's account comes from the three-arm walk (the message's own
+// link, its deal's account, the employer of the contact it is about) rather
+// than a direct organization link. Capture files mail against the PERSON it was
+// with, so a direct match resolves nothing on real correspondence — an account
+// is reached through its people, or not at all.
+//
+// The walk is joined rather than applied as a predicate because the question
+// here is which account a thread belongs to, not whether it belongs to a known
+// one — and it is a LEFT join because the two things the aggregate computes are
+// different questions over different rows:
+//
+//   - WHEN the conversation last moved, and how many messages it holds, is
+//     asked of EVERY message on the thread. Counting only the resolvable ones
+//     would let a thread look settled while a message nobody can place arrived
+//     minutes ago, and the settle window exists precisely to keep the model out
+//     of a conversation still in progress.
+//   - WHICH account it belongs to is asked only of the messages that reach one;
+//     count(DISTINCT) ignores the NULLs a LEFT join leaves behind.
+//
+// The org resolution is deliberately strict: exactly one organization across
+// the whole thread. A conversation touching two accounts would have its events
+// filed against whichever the join happened to pick, and a signal on the wrong
+// account is worse than no signal — it is a claim the reader cannot trace back.
+// A contact with two live employers makes their threads ambiguous by the same
+// rule and skips them; filtering the walk down to a primary employer would buy
+// those threads back by guessing, which is the thing being refused.
+//
+// A message whose contact reaches no account at all still reaches the PROMPT —
+// threadMessages reads the conversation by thread_key alone. Resolution decides
+// whose conversation this is, not which of its messages the model may read.
+func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]settledThread, error) {
+	settled := now.Add(-extractSettleHours * time.Hour)
+	rows, err := tx.Query(ctx, dueThreadsQuery,
+		settled, limit, extractRefusalCap, now.Add(-extractParkFor))
 	if err != nil {
 		return nil, fmt.Errorf("list the threads due for a read: %w", err)
 	}
@@ -142,9 +228,13 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 	var due []settledThread
 	for rows.Next() {
 		var thread settledThread
+		var privateTo *ids.UUID
 		if err := rows.Scan(&thread.Key, &thread.OrganizationID,
-			&thread.Newest, &thread.Count); err != nil {
+			&thread.Newest, &thread.Count, &privateTo); err != nil {
 			return nil, err
+		}
+		if privateTo != nil {
+			thread.PrivateTo = *privateTo
 		}
 		due = append(due, thread)
 	}
@@ -239,12 +329,17 @@ func recordThreadRefusal(
 func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO signal_thread_scan
-		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at)
-		VALUES ($1, $2, $3, $4, $5)
+		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
+		   resolved_org_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (workspace_id, thread_key) DO UPDATE
 		   SET last_activity_at = greatest(signal_thread_scan.last_activity_at, excluded.last_activity_at),
 		       message_count = excluded.message_count,
 		       scanned_at = excluded.scanned_at,
+		       -- WHICH account this reading was for. Overwritten, never
+		       -- greatest()-style clamped: the account is not a high-water mark,
+		       -- it is what the walk resolves to now.
+		       resolved_org_id = excluded.resolved_org_id,
 		       -- A reading landed, so the earlier refusals were about a model
 		       -- that could not do it then, not a conversation that cannot be
 		       -- done. Left standing they would park the thread on its next
@@ -252,7 +347,7 @@ func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thr
 		       refusals = 0,
 		       refused_activity_at = NULL,
 		       refused_message_count = NULL`,
-		wsID, thread.Key, thread.Newest, thread.Count, now); err != nil {
+		wsID, thread.Key, thread.Newest, thread.Count, now, thread.OrganizationID); err != nil {
 		return fmt.Errorf("record where the read got to: %w", err)
 	}
 	return nil

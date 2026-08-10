@@ -358,6 +358,11 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// addresses the ghost row rather than naming a person.
 	"linkedin_connection.matched_person_id": "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
 	"linkedin_connection.matched_org_id":    "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
+	// Cursor state, not a reference a reader follows: the account a producer
+	// pass resolved for a conversation, compared for equality to decide whether
+	// that conversation is owed a fresh reading. Resolved by the producer's own
+	// three-arm walk inside a workspace transaction, never from a request body.
+	"signal_thread_scan.resolved_org_id": "server-derived: the account the signal producer's own account walk resolved, never from a request body",
 	// The finance mirror (FIN-DDL-2..4). Exactly ONE of these three is
 	// client-supplied: the customer LINK is a human's mapping decision, so the
 	// company it names is gated by auth.EnsureLinkTarget at the write, exactly

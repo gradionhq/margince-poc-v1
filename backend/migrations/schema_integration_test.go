@@ -468,3 +468,201 @@ func TestChannelTablesEnforceRowLevelSecurity(t *testing.T) {
 		})
 	}
 }
+
+// The 0208 backfill narrows what a PRODUCER already wrote, and touches nothing
+// else.
+//
+// It runs against installations that already had the signal producers, where
+// findings drawn from one person's correspondence are standing at the old
+// default of workspace-visible. Three things it must get right, and all three
+// are ways to do real damage: it must not sweep up a signal a human filed
+// (the contract DEFAULTS their source_channel to 'derived', so that column
+// cannot be the test), it must not abort on evidence it cannot parse (a failed
+// migration is a failed deploy), and it must not narrow a finding whose source
+// everyone can already read.
+func TestSignalVisibilityBackfillNarrowsOnlyWhatAProducerWrote(t *testing.T) {
+	ownerDSN, _ := dsns(t)
+	conn := connect(t, ownerDSN)
+	resetSchema(t, conn)
+	ctx := context.Background()
+
+	core, err := Core()
+	if err != nil {
+		t.Fatalf("loading core: %v", err)
+	}
+	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	idx := -1
+	for i, m := range core.Migrations {
+		if m.Version == "0208" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("core migrations contain no 0208 — the signal visibility migration is missing")
+	}
+	if _, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations)-idx); err != nil {
+		t.Fatalf("down to pre-0208: %v", err)
+	}
+
+	ws := seedWorkspace(t, conn, "pre-signal-visibility")
+	var reader string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO app_user (workspace_id, email, display_name, status)
+		VALUES ($1, 'owner@test', 'Owner', 'active')
+		RETURNING id`, ws).Scan(&reader); err != nil {
+		t.Fatalf("seeding the reader: %v", err)
+	}
+	// A promoted account whose contact is not promoted: the ordinary shape, and
+	// the one where a summary of private mail would reach the whole workspace.
+	var org, contact, private, shared string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO organization (workspace_id, display_name, visibility, source, captured_by)
+		VALUES ($1, 'Acme', 'workspace', 'manual', 'human:test') RETURNING id`, ws).Scan(&org); err != nil {
+		t.Fatalf("seeding the account: %v", err)
+	}
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO person (workspace_id, full_name, visibility, owner_id, source, captured_by)
+		VALUES ($1, 'Ada Unpromoted', 'owner', $2, 'gmail', 'connector:gmail')
+		RETURNING id`, ws, reader).Scan(&contact); err != nil {
+		t.Fatalf("seeding the private contact: %v", err)
+	}
+	privateMail := seedSignalSource(t, conn, ws, &contact)
+	sharedMail := seedSignalSource(t, conn, ws, nil)
+
+	// Three rows entering the migration, all at the old default.
+	private = seedPreVisibilitySignal(t, conn, ws, org, "contract_ended",
+		"signal-scan", "agent:contract_ended", privateMail)
+	shared = seedPreVisibilitySignal(t, conn, ws, org, "new_opportunity",
+		"signal-scan", "agent:new_opportunity", sharedMail)
+	// A human's own filing. Its source_channel is 'derived' like every other,
+	// which is exactly why the migration may not read that column.
+	human := seedPreVisibilitySignal(t, conn, ws, org, "contract_ended",
+		"manual", "human:test", privateMail)
+	// Evidence that names no readable id at all. The cast must survive it.
+	var unparsable string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO signal (workspace_id, kind, source_channel, entity_type, entity_id,
+		  resolved_org_id, resolution_state, severity, summary, evidence, status,
+		  detected_at, source, captured_by)
+		VALUES ($1, 'commitment_made', 'derived', 'organization', $2, $2, 'resolved',
+		  'info', 'A finding whose evidence names nothing.',
+		  '[{"source_id": "not-a-uuid"}]'::jsonb, 'open', now(), 'signal-scan',
+		  'agent:commitment_made')
+		RETURNING id`, ws, org).Scan(&unparsable); err != nil {
+		t.Fatalf("seeding the unparsable-evidence signal: %v", err)
+	}
+
+	// A source nobody else may read, belonging to nobody in particular: an
+	// owner-private account with no owner recorded. There is no reader to hand
+	// the finding to, and leaving it shared would answer the question the wrong
+	// way, so it stands down instead.
+	var namelessOrg string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO organization (workspace_id, display_name, visibility, source, captured_by)
+		VALUES ($1, 'Unattributable', 'owner', 'gmail', 'connector:gmail')
+		RETURNING id`, ws).Scan(&namelessOrg); err != nil {
+		t.Fatalf("seeding the ownerless private account: %v", err)
+	}
+	namelessMail := seedSignalSource(t, conn, ws, nil)
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, ws, namelessMail, namelessOrg); err != nil {
+		t.Fatalf("linking the ownerless private account: %v", err)
+	}
+	nameless := seedPreVisibilitySignal(t, conn, ws, namelessOrg, "commitment_made",
+		"signal-scan", "agent:commitment_made", namelessMail)
+
+	// evidence that is not an array at all. jsonb is free-form, so the shape
+	// the backfill expects is a convention rather than a guarantee, and a row
+	// that breaks it must cost nothing more than being skipped.
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO signal (workspace_id, kind, source_channel, entity_type, entity_id,
+		  resolved_org_id, resolution_state, severity, summary, evidence, status,
+		  detected_at, source, captured_by)
+		VALUES ($1, 'commitment_made', 'derived', 'organization', $2, $2, 'resolved',
+		  'info', 'A finding whose evidence is an object.',
+		  '{"source_id": "not-even-a-list"}'::jsonb, 'open', now(), 'signal-scan',
+		  'agent:commitment_made')`, ws, org); err != nil {
+		t.Fatalf("seeding the non-array-evidence signal: %v", err)
+	}
+
+	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+		t.Fatalf("re-applying 0208 over existing rows: %v — a migration that cannot "+
+			"run over real evidence is a deploy that cannot happen", err)
+	}
+
+	assertSignal(t, conn, private, "owner", &reader, false,
+		"a finding drawn from one person's correspondence")
+	assertSignal(t, conn, shared, "workspace", nil, false,
+		"a finding whose source everyone can already read")
+	assertSignal(t, conn, human, "workspace", nil, false,
+		"a signal a human filed themselves")
+	assertSignal(t, conn, unparsable, "workspace", nil, false,
+		"a finding whose evidence names no activity")
+	assertSignal(t, conn, nameless, "workspace", nil, true,
+		"a finding whose source nobody else may read and whose reader cannot be named")
+}
+
+// seedSignalSource inserts one captured message, linked to the given contact or
+// to nobody.
+func seedSignalSource(t *testing.T, conn *pgx.Conn, ws string, contact *string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO activity (workspace_id, kind, direction, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'inbound', 'Renewal', now(), 'gmail', 'connector:gmail')
+		RETURNING id`, ws).Scan(&id); err != nil {
+		t.Fatalf("seeding the source message: %v", err)
+	}
+	if contact != nil {
+		if _, err := conn.Exec(ctx, `
+			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+			VALUES ($1, $2, 'person', $3)`, ws, id, *contact); err != nil {
+			t.Fatalf("linking the source message: %v", err)
+		}
+	}
+	return id
+}
+
+// seedPreVisibilitySignal inserts one signal as it looked before 0208.
+func seedPreVisibilitySignal(t *testing.T, conn *pgx.Conn, ws, org, kind, source, capturedBy, activity string) string {
+	t.Helper()
+	var id string
+	if err := conn.QueryRow(context.Background(), `
+		INSERT INTO signal (workspace_id, kind, source_channel, entity_type, entity_id,
+		  resolved_org_id, resolution_state, severity, summary, evidence, status,
+		  detected_at, source, captured_by)
+		VALUES ($1, $2, 'derived', 'organization', $3, $3, 'resolved', 'warn',
+		  'They wrote that they will not renew.',
+		  jsonb_build_array(jsonb_build_object('source_id', $6::text)), 'open', now(), $4, $5)
+		RETURNING id`, ws, kind, org, source, capturedBy, activity).Scan(&id); err != nil {
+		t.Fatalf("seeding a pre-0208 signal: %v", err)
+	}
+	return id
+}
+
+// assertSignal reads one signal's visibility, owner and archived state.
+func assertSignal(t *testing.T, conn *pgx.Conn, id, wantVisibility string, wantOwner *string, wantArchived bool, what string) {
+	t.Helper()
+	var visibility string
+	var owner *string
+	var archived bool
+	if err := conn.QueryRow(context.Background(),
+		`SELECT visibility, owner_id::text, archived_at IS NOT NULL FROM signal WHERE id = $1`,
+		id).Scan(&visibility, &owner, &archived); err != nil {
+		t.Fatalf("reading %s: %v", what, err)
+	}
+	if visibility != wantVisibility {
+		t.Errorf("%s is %q, want %q", what, visibility, wantVisibility)
+	}
+	if (wantOwner == nil) != (owner == nil) || (wantOwner != nil && owner != nil && *wantOwner != *owner) {
+		t.Errorf("%s answers to %v, want %v", what, owner, wantOwner)
+	}
+	if archived != wantArchived {
+		t.Errorf("%s archived = %v, want %v", what, archived, wantArchived)
+	}
+}
