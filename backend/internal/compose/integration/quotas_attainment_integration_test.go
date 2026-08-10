@@ -32,8 +32,8 @@ import (
 var attainmentClock = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC)
 
 func attainmentStore(e *Env) *quotas.Store {
-	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock }).
-		WithSettings(compose.NewSettingsStore(e.Pool))
+	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock },
+		compose.InstallationBaseCurrency())
 }
 
 // attainmentDealSeed is one deal row inserted directly — attainment is a
@@ -412,5 +412,55 @@ func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
 	// deal-derived aggregate carries the extra gate.
 	if _, err := store.GetQuota(noDeals, ids.UUID(created.Id), storekit.LiveOnly); err != nil {
 		t.Fatalf("quota.read alone must still resolve the quota itself, got %v", err)
+	}
+}
+
+// The base currency comes from the SETTING, not from workspace.base_currency.
+//
+// This is the only assertion in the suite that can tell the two apart. Every
+// other test seeds both to EUR, so it passes just as well against a reader
+// that never left the column — which is exactly the trap ADR-0091 phase 4
+// sets while the two copies coexist: the migration looks done and nothing
+// fails. Here the column stays EUR and the setting says USD, so a reader on
+// the old source labels the answer EUR and this test fails.
+//
+// The workspace column is written directly rather than through the settings
+// surface: that surface writes BOTH copies in one transaction (identity's
+// transitional mirror), which is precisely the agreement being broken here.
+func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
+	// The fixture is only meaningful while the two copies disagree. Once
+	// phase 4 drops the column this guard stops finding it and the test
+	// becomes an ordinary assertion about the setting, which is the point.
+	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND base_currency = 'EUR'`, e.WS); n != 1 {
+		t.Fatalf("the fixture needs the two copies to DISAGREE; workspace.base_currency is not EUR")
+	}
+
+	// EUR→USD on file, so a target in EUR has a rate into the new base. The
+	// suite's seedRollupFxRate helper hardcodes to_currency = 'EUR', which is
+	// itself an assumption this test exists to break, so the row goes in here.
+	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
+		VALUES ($1, 'EUR', 'USD', '1.1000000000', $2)`, e.WS, attainmentClock.AddDate(0, 0, -1))
+
+	in := ownerQuotaInput(e.Rep1, 1000000) // 10,000.00 EUR
+	in.Currency = "EUR"
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	att, err := store.QuotaAttainment(ctx, ids.UUID(created.Id))
+	if err != nil {
+		t.Fatalf("attainment with the setting on USD: %v", err)
+	}
+	if att.Currency != "USD" {
+		t.Errorf("attainment currency = %q, want USD — the reader is still on workspace.base_currency", att.Currency)
+	}
+	if att.TargetMinor != 1100000 {
+		t.Errorf("target = %d, want 1100000 (10,000.00 EUR @ 1.1 into the USD base)", att.TargetMinor)
 	}
 }

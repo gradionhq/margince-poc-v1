@@ -23,10 +23,8 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // AttainmentDeal is one closed-won deal counted toward a quota — the
@@ -193,11 +191,7 @@ func (s *Store) QuotaAttainment(ctx context.Context, id ids.UUID) (Attainment, e
 // latest stored rate on or before the UTC as-of day, and a missing rate
 // refuses loudly — the system never invents a rate.
 func (s *Store) targetInBase(ctx context.Context, tx pgx.Tx, q crmcontracts.Quota, asOf time.Time) (int64, string, error) {
-	if s.settings == nil {
-		return 0, "", errors.New("quotas: attainment needs the installation-settings seam; " +
-			"construct the store through compose, or call WithSettings before computing attainment")
-	}
-	base, err := settings.GetTx(ctx, tx, s.settings, portsettings.InstallationBaseCurrency)
+	base, err := s.baseCurrency(ctx, tx)
 	if err != nil {
 		return 0, "", fmt.Errorf("load the installation's base currency: %w", err)
 	}

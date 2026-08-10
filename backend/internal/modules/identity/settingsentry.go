@@ -4,10 +4,7 @@
 package identity
 
 // The installation's own settings (ADR-0090/A135). Identity owns them because
-// it owns the installation. Their KEYS come from shared/ports/settings rather
-// than being spelled here, because several modules read these values and a
-// module may not import a sibling for the name — so the name has exactly one
-// definition site and the entry binds to it: it is the module that bootstraps the singleton
+// it owns the installation: it is the module that bootstraps the singleton
 // organization and resolves it on every boot (ADR-0061 §3).
 //
 // These moved off columns on the `workspace` row. Two of them were never
@@ -22,7 +19,6 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // installationSettingsObject is the RBAC object gating the installation
@@ -38,7 +34,7 @@ var iso4217 = regexp.MustCompile(`^[A-Z]{3}$`)
 // bootstrap; the row is authoritative afterwards, so renaming the
 // organization does not require a redeployment.
 var Name = settings.Define[string](
-	portsettings.InstallationName.Name(),
+	"installation.name",
 	installationSettingsObject,
 	"update",
 	"",
@@ -54,7 +50,7 @@ var Name = settings.Define[string](
 // computed in. Distinct from a user's own timezone (app_user.timezone), which
 // only affects how times are displayed to them.
 var Timezone = settings.Define[string](
-	portsettings.InstallationTimezone.Name(),
+	"installation.timezone",
 	installationSettingsObject,
 	"update",
 	"UTC",
@@ -93,7 +89,7 @@ var Timezone = settings.Define[string](
 // Until it does, this setting is changeable — which is why the injection is
 // asserted by a fitness test rather than left to wiring discipline.
 var BaseCurrency = settings.Define[string](
-	portsettings.InstallationBaseCurrency.Name(),
+	"installation.base_currency",
 	installationSettingsObject,
 	"update",
 	"EUR",

@@ -93,7 +93,7 @@ func (w *financeSyncWorker) Work(ctx context.Context, job *river.Job[FinanceSync
 		// connected nothing, and a sweep over them has nothing to do.
 		return nil
 	}
-	store := finance.NewStore(w.pool).WithSettings(NewSettingsStore(w.pool))
+	store := finance.NewStore(w.pool, InstallationBaseCurrency())
 	result, err := store.SyncConnection(wsCtx, provider)
 	if err != nil {
 		return jobs.FaultContext(ctx, store.RecordSyncFailure(wsCtx, err))

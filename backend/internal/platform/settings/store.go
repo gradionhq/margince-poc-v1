@@ -17,7 +17,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // Registry is the assembled catalog. Compose builds exactly one from every
@@ -275,46 +274,41 @@ func SeedValue[T any](ctx context.Context, tx pgx.Tx, e *Entry[T], v T) error {
 	return Seed(ctx, tx, e, raw)
 }
 
-// RawTx reads a setting inside a transaction the caller already holds, for the
-// callers that need the value partway through work of their own.
+// RequireTx reads a setting inside a transaction the caller already holds, for
+// a caller that needs the VALUE to finish work of its own and cannot afford
+// the second transaction the gated Raw opens.
 //
-// It takes NO RBAC gate, deliberately, and that is not a hole. It replaces a
-// plain base-currency column read on the installation row, which never took
-// one either: the caller's own entry point is what admission checks, and this
-// is a lookup of
-// installation configuration inside an operation already admitted — the base
-// currency every amount converts to, the zone every period is computed in.
-// Gating it would refuse a worker sweep that has no human principal at all,
-// and would refuse it for reading a value the whole installation shares.
+// It takes the same object gate Raw does. There is no principal-less caller to
+// exempt: auth.Require passes a PrincipalSystem unconditionally, which is what
+// the worker sweeps bind before they resolve anything (the capture auto-enrich
+// sweep reads its setting through the gate for exactly this reason). `setting`
+// carries no RLS, so this gate is the only control on the table — an ungated
+// twin of Raw would remove it for every setting at once.
 //
-// Raw, by contrast, IS gated: it serves the settings surface, where the caller
-// is asking for the setting itself rather than needing it to finish something.
-func (s *Store) RawTx(ctx context.Context, tx pgx.Tx, key string) (json.RawMessage, error) {
-	def, err := s.lookup(key)
-	if err != nil {
-		return nil, err
+// Unlike Get, an ABSENT row is an error rather than the registered default.
+// The default is the right answer for a setting a human has simply not
+// changed; it is the wrong answer for a value the installation is measured in.
+// A money basis that silently reads EUR because no row was ever written would
+// convert against one currency and label the result another, and the finance
+// mirror would freeze that mistake onto rows it cannot revisit.
+func RequireTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
+	var zero T
+	if err := auth.Require(ctx, e.Object(), principal.ActionRead); err != nil {
+		return zero, err
 	}
 	var raw json.RawMessage
-	err = tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, key).Scan(&raw)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return def.DefaultJSON()
-	case err != nil:
-		return nil, fmt.Errorf("settings: reading %s: %w", key, err)
+	err := tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, e.Key()).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, fmt.Errorf("settings: %s has no stored value, and this reader may not "+
+			"assume the registered default: set it on the installation settings screen: %w",
+			e.Key(), apperrors.ErrNotFound)
 	}
-	return raw, nil
-}
-
-// GetTx resolves a typed setting inside the caller's transaction.
-func GetTx[T any](ctx context.Context, tx pgx.Tx, s *Store, key portsettings.Key[T]) (T, error) {
-	var zero T
-	raw, err := s.RawTx(ctx, tx, key.Name())
 	if err != nil {
-		return zero, err
+		return zero, fmt.Errorf("settings: reading %s: %w", e.Key(), err)
 	}
 	var out T
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return zero, fmt.Errorf("settings: decoding %s: %w", key.Name(), err)
+		return zero, fmt.Errorf("settings: decoding %s: %w", e.Key(), err)
 	}
 	return out, nil
 }

@@ -12,16 +12,8 @@ package finance
 // rate" — not 1, which would silently sum dollars into euros.
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/settings"
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // The rate and the date it froze on are one fact (FIN-PARAM-7), so they are
@@ -34,17 +26,4 @@ func fxRateToBase(inv SourceInvoice, base string) (*float64, *time.Time) {
 	identity := 1.0
 	issued := inv.IssuedOn
 	return &identity, &issued
-}
-
-// baseCurrency reads the installation's reporting currency.
-func (s *Store) baseCurrency(ctx context.Context, tx pgx.Tx) (string, error) {
-	if s.settings == nil {
-		return "", errors.New("finance: the mirror needs the installation-settings seam; " +
-			"construct the store through compose, or call WithSettings before mirroring")
-	}
-	base, err := settings.GetTx(ctx, tx, s.settings, portsettings.InstallationBaseCurrency)
-	if err != nil {
-		return "", fmt.Errorf("read the installation's base currency: %w", err)
-	}
-	return base, nil
 }
