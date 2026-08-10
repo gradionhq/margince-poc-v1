@@ -20,6 +20,7 @@ needs the whole file to start a session.
 
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
+- [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
 - [Company record page V2 — measured against the mockups, 2026-08-10](#company-record-page-v2--measured-against-the-mockups-2026-08-10)
 - [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
@@ -112,6 +113,41 @@ every task and needs its own certification pass.
 [#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
+## Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10
+
+The audit found roughly a third of what the mockups draw had **no field behind
+it**. The PO's call was that the contract changes rather than the drawings, so
+ADR-0095/A146 was accepted and extended (foundation #1270) and the build
+followed it.
+
+| PR | What a user gets |
+|---|---|
+| #829 | A gate that fails when the contract promises a field nobody writes — `last_meeting_at` was its first finding, and is now produced |
+| #833 | Customer health as three rated dimensions with a **worst-of** verdict, and how many it was read from |
+| #837 | Growth fit taken apart: four sub-scores with their reasons, no headline number |
+| #838 | Suggestions carry a title in the rule's own words and the evidence's own date |
+| #840 | The readings already on the wire: invoice paid date + days late, signal severity, dossier receipts, the strip's empty slot |
+| #841 | The dossier as prose and the ICP bars with labels — both caught by screenshot, not by tests |
+
+**Decisions, all PO's:** no Adoption dimension until something measures it;
+overall health is the worst dimension, never an average; sub-scores yes,
+headline 0-100 no; contracts deferred to their own chapter.
+
+**The constraint that made #838 safe:** a dismissal is keyed on the suggestion's
+fingerprint, so folding a title or a date into it would resurrect every
+suggestion every reader has ever dismissed. The test asserts that a title which
+CHANGES leaves the fingerprint identical.
+
+**Worth knowing:** `specs/contract/crm.yaml` and `backend/api/crm.yaml` have no
+sync tooling and have diverged in both directions. Editing the spec propagates
+nothing; the build repo's copy is operative, and a re-sync is a breaking change
+needing `CONTRACT_STABILITY=pre-live`.
+
+**Still not built, deliberately:** contracts/renewals (no record type — its own
+chapter), the mockup's "Upsell potential" slot (no field), contact photos (no
+field), and the dossier's named-source chips with fact counts (the data is on
+the evidence-drawer payload, not the dossier response).
 
 ## Company record page V2 — measured against the mockups, 2026-08-10
 
