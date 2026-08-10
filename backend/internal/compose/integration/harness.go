@@ -3,42 +3,6 @@
 
 //go:build integration
 
-// Package integration holds the cross-module integration suites — the
-// compose charter exercised end to end over a real migrated Postgres —
-// and the shared fixtures they ride. There are three, all exported, all in
-// non-test files:
-//
-//   - Env, here — a migrated database plus the core stores.
-//   - SearchEnv, in searchenv.go — lighter, and despite the name mostly taken
-//     for the database rather than the search store.
-//   - apptest.AppEnv, in the apptest subpackage — the booted application behind
-//     a TLS test server.
-//
-// Env and SearchEnv live here because the white-box suites that must stay in
-// their own package (compose root, briefs) import them, so neither may import
-// compose. AppEnv boots a compose handler stack and therefore CANNOT live here:
-// that would close a cycle through those same white-box tests. It sits one level
-// down instead, and nothing in apptest may import this package, or the cycle
-// closes from the other side.
-//
-// Suites also live in sibling packages that import this one. That is how the
-// lane gets more than one scheduling slot: one package is one slot, and this
-// package is large enough to be the lane's long pole on its own. The set of such
-// packages is the subdirectories of this one, which is where to look rather than
-// a list here that the next split would have to remember to extend — apptest is
-// the exception, a fixture package rather than a suite slot.
-//
-// Split a group out when it is a closed seam: it rides one of the three exported
-// fixtures, and it neither needs nor owes an unexported helper across the
-// boundary. Any of the three will do — a group riding AppEnv is no longer stuck.
-// A helper that two such groups need is promoted here; one that only a group
-// needs stays with it.
-//
-// Two things a split reliably runs into. A fixture is only importable if its
-// METHODS are in a non-test file too, since a method declared in a _test.go file
-// is not part of the package a sibling imports. And once the fixture's type is
-// foreign, a suite cannot declare methods on it at all — helpers a group keeps
-// become plain functions taking the fixture.
 package integration
 
 import (
@@ -454,10 +418,10 @@ var SchedulerPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-// ApplyRiverSchema gives this package's suites River's schema on the
-// harness-migrated database, as cmd/migrate does after core and custom. Several
-// suites here and in package compose drive a real River runner and each needs it
-// present.
+// ApplyRiverSchema gives a suite River's schema on the harness-migrated
+// database, as cmd/migrate does after core and custom. Every suite that drives a
+// real River runner needs it present, and those sit here, in package compose,
+// and in the sibling suite packages alike.
 //
 // Call it AFTER Setup — testdb.EnsureRiverSchema explains why the order matters
 // and why the guard probes the table rather than a flag.

@@ -47,7 +47,11 @@ func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
 }
 
 // init mirrors the arming the composed boot performs: the registry is
-// process-global, so registering once arms the floor for this binary.
+// process-global, so registering once arms the floor for THIS BINARY — and one
+// package is one binary. A retention suite in a sibling package runs with no pack
+// registered, which is not a weaker version of this suite but the opposite of it:
+// a destructive pass over correspondence would go green precisely because the
+// floor that shields it is absent. A suite that moves out takes this with it.
 func init() {
 	jurisdiction.Register(gobdFloorPack{})
 }
@@ -90,7 +94,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

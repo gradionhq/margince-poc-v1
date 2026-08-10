@@ -255,7 +255,7 @@ func TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows(t *testing.T) {
 	underAge := seedEmbedCall(t, e, 10)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,7 +295,7 @@ func TestAICallPayloadRetentionAgesOutContentKeepingMetadata(t *testing.T) {
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'ai_call_payload', 'content', 365, 'erase')`)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
