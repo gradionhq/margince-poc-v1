@@ -115,11 +115,12 @@ export function Chip({
       <span>{children}</span>
     </>
   );
-  if (href) {
+  const destination = href && isWebUrl(href) ? href : undefined;
+  if (destination) {
     return (
       <a
         className="chip chip-link"
-        href={href}
+        href={destination}
         target="_blank"
         rel="noreferrer"
       >
@@ -127,5 +128,22 @@ export function Chip({
       </a>
     );
   }
+  // A chip whose href was refused still shows the FACT — the reader loses the
+  // link, not the value.
   return <span className="chip">{body}</span>;
+}
+
+// These URLs come from records, and a record's fields are typed by whoever
+// captured them — a crawler, a connector, a person pasting. `javascript:` and
+// `data:` in an href are script execution on click, so only the two schemes a
+// company link can honestly be are allowed through.
+function isWebUrl(href: string): boolean {
+  try {
+    const scheme = new URL(href).protocol;
+    return scheme === "https:" || scheme === "http:";
+  } catch {
+    // Not parseable as an absolute URL. A relative href would resolve against
+    // our own origin, which a company's website never is.
+    return false;
+  }
 }

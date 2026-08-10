@@ -309,6 +309,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/organizations/{id}/brief":                                  {Op: "regenerateOrganizationBrief", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/organizations/{id}/deep-read":                              {Op: "deepReadCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required", Scope: "enrich"},
 	"POST /v1/organizations/{id}/dossier":                                {Op: "refreshOrganizationDossier", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/organizations/{id}/draft-email":                            {Op: "draftAccountEmail", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/organizations/{id}/enrich":                                 {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required", Scope: "enrich"},
 	"POST /v1/organizations/{id}/facts/{factKey}/confirm":                {Op: "confirmOrganizationFact", Access: "tool", Tool: "update_record", RecordType: "organization", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/organizations/{id}/growth-fit":                             {Op: "refreshOrganizationGrowthFit", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

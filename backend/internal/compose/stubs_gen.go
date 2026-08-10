@@ -719,6 +719,10 @@ func (stubs) RefreshOrganizationDossier(w nethttp.ResponseWriter, r *nethttp.Req
 	httperr.NotImplemented(w, r, "RefreshOrganizationDossier")
 }
 
+func (stubs) DraftAccountEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DraftAccountEmail")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
@@ -737,6 +741,10 @@ func (stubs) UpdateOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (stubs) ConfirmOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, factKey crmcontracts.FactKey, params crmcontracts.ConfirmOrganizationFactParams) {
 	httperr.NotImplemented(w, r, "ConfirmOrganizationFact")
+}
+
+func (stubs) GetOrganizationFinanceSummary(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationFinanceSummary")
 }
 
 func (stubs) GetOrganizationGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

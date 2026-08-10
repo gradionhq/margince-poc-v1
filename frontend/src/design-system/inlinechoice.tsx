@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useState } from "react";
 import { useT } from "../i18n";
+import { Button, TextInput } from "./atoms";
 import { Select, type SelectOption } from "./select";
 
 // One value a reader can change without leaving the page they are reading.
@@ -126,6 +127,139 @@ export function InlineChoice({
           void commit(next);
         }}
       />
+      {failure && (
+        <span id={errorId} role="alert" className="form-error">
+          {failure}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// InlineText is InlineChoice for a free-text value: the company's one-line
+// description, edited where it is read rather than inside a form that also
+// asks about legal names and size bands.
+//
+// It keeps the same four rules — a viewer who may not edit sees the value and
+// not a disabled control, a failed save keeps the typed text, the refusal
+// shows next to the field, and Escape reverts — and adds the two a text field
+// needs that a select does not: an explicit commit (a select commits on
+// choice; typing has no such moment), and something to press when the value is
+// empty, since there is no text to click on.
+export function InlineText({
+  label,
+  value,
+  placeholder,
+  maxLength,
+  canEdit,
+  readOnlyReason,
+  onSave,
+}: Readonly<{
+  label: string;
+  value: string;
+  // What the pressable reads as when the value is empty. Without it an unset
+  // description is a zero-width button nobody can find.
+  placeholder: string;
+  maxLength?: number;
+  canEdit: boolean;
+  readOnlyReason?: string;
+  // Returns nothing on success and throws on failure; the thrown message is
+  // what the reader is shown.
+  onSave: (next: string) => Promise<void>;
+}>) {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const fieldId = useId();
+  const errorId = useId();
+
+  if (!canEdit || !editing) {
+    const shown = value || placeholder;
+    if (!canEdit) {
+      return (
+        <span className="inlinetext" title={readOnlyReason}>
+          {value}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="link-button inlinetext"
+        aria-label={t("inlineChoice.change", { field: label })}
+        title={t("inlineChoice.change", { field: label })}
+        onClick={() => {
+          setDraft(value);
+          setFailure(null);
+          setEditing(true);
+        }}
+      >
+        {shown}
+      </button>
+    );
+  }
+
+  const commit = async () => {
+    const next = draft.trim();
+    // Saving what is already stored writes an audit row for a change that did
+    // not happen.
+    if (next === value) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    setFailure(null);
+    try {
+      await onSave(next);
+      setEditing(false);
+    } catch (err) {
+      // The draft survives, so a failed save does not also lose what they
+      // typed.
+      setFailure(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <span className="inlinetext-edit">
+      <label className="sr-only" htmlFor={fieldId}>
+        {label}
+      </label>
+      <TextInput
+        id={fieldId}
+        value={draft}
+        maxLength={maxLength}
+        disabled={saving}
+        aria-invalid={failure ? true : undefined}
+        aria-describedby={failure ? errorId : undefined}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void commit();
+          }
+          if (event.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+      />
+      <Button small variant="primary" disabled={saving} onClick={commit}>
+        {t("inlineText.save")}
+      </Button>
+      <Button
+        small
+        disabled={saving}
+        onClick={() => {
+          setDraft(value);
+          setEditing(false);
+        }}
+      >
+        {t("inlineText.cancel")}
+      </Button>
       {failure && (
         <span id={errorId} role="alert" className="form-error">
           {failure}

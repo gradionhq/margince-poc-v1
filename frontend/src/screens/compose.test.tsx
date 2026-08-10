@@ -1681,10 +1681,12 @@ describe("ComposeModal started from an account", () => {
     expect(sent.some((r) => r.key.includes("send-email"))).toBe(false);
   });
 
-  // The grounded account-started draft is ADR-0087 §3 and is not built. Saying
-  // so is honest; drafting against some nearby activity would ground the mail
-  // in a conversation the rep never chose.
-  it("reports drafting unavailable rather than drafting off a stranger's thread", async () => {
+  // The grounded account-started draft (ADR-0087/A132) needs a recipient
+  // before it can say anything: that is the one thing it knows that an empty
+  // compose box does not. The button is disabled with the picker directly
+  // above it, rather than running and coming back with a refusal about a
+  // field already on screen.
+  it("will not draft from an account until a recipient is chosen", async () => {
     const sent = stubRoutes({});
     render(
       <ComposeModal
@@ -1695,16 +1697,118 @@ describe("ComposeModal started from an account", () => {
       />,
     );
 
+    const drafting = screen.getByRole("button", { name: "Draft with AI" });
+    expect(drafting).toHaveProperty("disabled", true);
+    expect(sent.some((r) => r.key.includes("draft-email"))).toBe(false);
+    // Undraftable is not unsendable: the rep writes it themselves and sends.
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+  });
+
+  // A draft belongs to the pair it was written for. Showing a message
+  // addressed to B that carries A's words, A's disclosure and A's reasons is
+  // the mistake nobody catches before pressing Send — and re-drafting could
+  // not repair it, because the fill never clobbers a non-empty field.
+  it("retires the draft when the recipient changes", async () => {
+    stubRoutes({
+      "GET /organizations/org-1/360": () =>
+        jsonResponse({
+          state: "ready",
+          as_of: "2026-08-09T09:00:00Z",
+          organization: {
+            id: "org-1",
+            workspace_id: "w",
+            display_name: "Acme",
+            source: "manual",
+            captured_by: "human:u1",
+            created_at: "2026-08-01T00:00:00Z",
+            updated_at: "2026-08-01T00:00:00Z",
+          },
+          sections_omitted: [],
+          people: {
+            data: [
+              {
+                person_id: "p-1",
+                full_name: "Sarah Cole",
+                strength: {
+                  score: 40,
+                  bucket: "warm",
+                  factors: {
+                    recency: 0,
+                    frequency: 0,
+                    reciprocity: 0,
+                    direction: 0,
+                  },
+                },
+                deal_roles: [],
+                consent: {},
+              },
+              {
+                person_id: "p-2",
+                full_name: "Mark Hughes",
+                strength: {
+                  score: 20,
+                  bucket: "weak",
+                  factors: {
+                    recency: 0,
+                    frequency: 0,
+                    reciprocity: 0,
+                    direction: 0,
+                  },
+                },
+                deal_roles: [],
+                consent: {},
+              },
+            ],
+            page: { has_more: false, next_cursor: null },
+          },
+        }),
+      "POST /organizations/org-1/draft-email": () =>
+        jsonResponse({
+          subject: "For Sarah",
+          body: "Hi Sarah, shall we pick this up?",
+          to: ["sarah@acme.test"],
+          generated_by: "model",
+          ai_generated: true,
+          ai_disclosure: "This message was drafted with AI assistance.",
+          reasoning: [{ kind: "recipient", label: "Sarah Cole" }],
+        }),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await pickOption(
+      user,
+      await screen.findByRole("combobox", { name: "Draft to" }),
+      "Sarah Cole",
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Draft with AI" }),
     );
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Body")).toHaveProperty(
+        "value",
+        "Hi Sarah, shall we pick this up?",
+      ),
+    );
+    expect(screen.getByText(/Based on/)).toBeTruthy();
 
-    expect(sent.some((r) => r.key.includes("draft-email"))).toBe(false);
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Draft to" }),
+      "Mark Hughes",
+    );
+
+    // Sarah's draft, her address, her disclosure and her reasons all go with
+    // her. The rep drafts again for Mark, or writes it themselves.
     expect(screen.getByPlaceholderText("Body")).toHaveProperty("value", "");
-    // Silence would read as a broken button. The rep is told drafting is off
-    // and that writing it themselves still works — and Send stays reachable,
-    // because an undraftable message is not an unsendable one.
-    expect(await screen.findByText(/AI drafting is unavailable/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(screen.queryByText(/Based on/)).toBeNull();
+    expect(screen.queryByText(/AI assistance/)).toBeNull();
   });
 });

@@ -84,6 +84,22 @@ describe("Chip is a fact, and a link when the fact has somewhere to go", () => {
     expect(screen.getByText("London, UK")).toBeTruthy();
   });
 
+  // These hrefs come from records, and a record's fields are typed by whoever
+  // captured them. A javascript: href is script execution on click.
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<script>x</script>",
+    "/local",
+  ])("refuses %s as a destination but still shows the fact", (href) => {
+    render(
+      <Chip icon={Globe} href={href}>
+        glazedfrog.example
+      </Chip>,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("glazedfrog.example")).toBeTruthy();
+  });
+
   it("opens an off-origin destination in a new tab without a referrer", () => {
     render(
       <Chip icon={Globe} href="https://glazedfrog.example">

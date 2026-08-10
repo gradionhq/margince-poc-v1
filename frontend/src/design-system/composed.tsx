@@ -370,7 +370,10 @@ export function RecordView({
   // Null or absent renders the deterministic monogram, which is the floor for
   // every record type that has no image at all.
   avatarSrc?: string | null;
-  subtitle?: string;
+  // A string for the records whose subtitle IS one line of joined facts, or a
+  // node for a record that needs structure under its name — the company page's
+  // editable description plus its row of attribute chips.
+  subtitle?: ReactNode;
   badges?: ReactNode;
   // A one-line "state of this record" strip under the name — warmth, last
   // touch, owner. Absent on records that have no such summary.
@@ -418,7 +421,11 @@ export function RecordView({
         <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
           <h1>{name}</h1>
-          {subtitle && <p className="record-sub">{subtitle}</p>}
+          {/* A div, not a p: a caller passing structure — the company page's
+              description line plus its chip row — would otherwise nest block
+              elements inside a paragraph, which the browser silently
+              un-nests, leaving the chips outside the header they belong to. */}
+          {subtitle && <div className="record-sub">{subtitle}</div>}
           {pulse && <div className="record-pulse">{pulse}</div>}
         </div>
         {badges && <div className="record-badges">{badges}</div>}

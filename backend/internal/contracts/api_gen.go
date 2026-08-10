@@ -111,6 +111,39 @@ func (e AcceptedExtractionFieldProvenance) Valid() bool {
 	}
 }
 
+// Defines values for AccountDraftReasonKind.
+const (
+	AccountDraftReasonKindCommitment   AccountDraftReasonKind = "commitment"
+	AccountDraftReasonKindConversation AccountDraftReasonKind = "conversation"
+	AccountDraftReasonKindDeal         AccountDraftReasonKind = "deal"
+	AccountDraftReasonKindDossier      AccountDraftReasonKind = "dossier"
+	AccountDraftReasonKindIntent       AccountDraftReasonKind = "intent"
+	AccountDraftReasonKindRecipient    AccountDraftReasonKind = "recipient"
+	AccountDraftReasonKindRelationship AccountDraftReasonKind = "relationship"
+)
+
+// Valid indicates whether the value is a known member of the AccountDraftReasonKind enum.
+func (e AccountDraftReasonKind) Valid() bool {
+	switch e {
+	case AccountDraftReasonKindCommitment:
+		return true
+	case AccountDraftReasonKindConversation:
+		return true
+	case AccountDraftReasonKindDeal:
+		return true
+	case AccountDraftReasonKindDossier:
+		return true
+	case AccountDraftReasonKindIntent:
+		return true
+	case AccountDraftReasonKindRecipient:
+		return true
+	case AccountDraftReasonKindRelationship:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityCaptureLabel.
 const (
 	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
@@ -3381,6 +3414,72 @@ func (e FilteredExportRequestObject) Valid() bool {
 	case FilteredExportRequestObjectOrganization:
 		return true
 	case FilteredExportRequestObjectPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FinanceInvoiceStatus.
+const (
+	FinanceInvoiceStatusCredited      FinanceInvoiceStatus = "credited"
+	FinanceInvoiceStatusDisputed      FinanceInvoiceStatus = "disputed"
+	FinanceInvoiceStatusDraft         FinanceInvoiceStatus = "draft"
+	FinanceInvoiceStatusOpen          FinanceInvoiceStatus = "open"
+	FinanceInvoiceStatusOverdue       FinanceInvoiceStatus = "overdue"
+	FinanceInvoiceStatusPaid          FinanceInvoiceStatus = "paid"
+	FinanceInvoiceStatusPartiallyPaid FinanceInvoiceStatus = "partially_paid"
+	FinanceInvoiceStatusVoid          FinanceInvoiceStatus = "void"
+)
+
+// Valid indicates whether the value is a known member of the FinanceInvoiceStatus enum.
+func (e FinanceInvoiceStatus) Valid() bool {
+	switch e {
+	case FinanceInvoiceStatusCredited:
+		return true
+	case FinanceInvoiceStatusDisputed:
+		return true
+	case FinanceInvoiceStatusDraft:
+		return true
+	case FinanceInvoiceStatusOpen:
+		return true
+	case FinanceInvoiceStatusOverdue:
+		return true
+	case FinanceInvoiceStatusPaid:
+		return true
+	case FinanceInvoiceStatusPartiallyPaid:
+		return true
+	case FinanceInvoiceStatusVoid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FinanceSummaryState.
+const (
+	FinanceSummaryStateConnected    FinanceSummaryState = "connected"
+	FinanceSummaryStateError        FinanceSummaryState = "error"
+	FinanceSummaryStateNoConnection FinanceSummaryState = "no_connection"
+	FinanceSummaryStateStale        FinanceSummaryState = "stale"
+	FinanceSummaryStateSyncing      FinanceSummaryState = "syncing"
+	FinanceSummaryStateUnmapped     FinanceSummaryState = "unmapped"
+)
+
+// Valid indicates whether the value is a known member of the FinanceSummaryState enum.
+func (e FinanceSummaryState) Valid() bool {
+	switch e {
+	case FinanceSummaryStateConnected:
+		return true
+	case FinanceSummaryStateError:
+		return true
+	case FinanceSummaryStateNoConnection:
+		return true
+	case FinanceSummaryStateStale:
+		return true
+	case FinanceSummaryStateSyncing:
+		return true
+	case FinanceSummaryStateUnmapped:
 		return true
 	default:
 		return false
@@ -8792,22 +8891,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -8894,6 +8993,76 @@ type AcceptedExtractionField struct {
 
 // AcceptedExtractionFieldProvenance defines model for AcceptedExtractionField.Provenance.
 type AcceptedExtractionFieldProvenance string
+
+// AccountDraftReason One thing the draft was written from, named so the reader can check it rather than
+// take the draft on trust. Structured rather than a phrase, because the composer
+// renders the same reason twice — once in the "Based on" line and once as a chip —
+// and a string would have to be parsed to do that.
+type AccountDraftReason struct {
+	// EvidenceRef One record a brief sentence was written from.
+	EvidenceRef *OrganizationBriefEvidence `json:"evidence_ref,omitempty"`
+
+	// Kind Which grounding input this came from, in A132's order.
+	//
+	// `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+	// and how we stand with them. `deal` — the open opportunity the message is about.
+	// `commitment` — something one side said they would do. `conversation` — what was
+	// recently said. `dossier` — what the company is, from its own recorded facts.
+	Kind AccountDraftReasonKind `json:"kind"`
+
+	// Label The reason in the reader's words, short enough to render as a chip.
+	Label string `json:"label"`
+}
+
+// AccountDraftReasonKind Which grounding input this came from, in A132's order.
+//
+// `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+// and how we stand with them. `deal` — the open opportunity the message is about.
+// `commitment` — something one side said they would do. `conversation` — what was
+// recently said. `dossier` — what the company is, from its own recorded facts.
+type AccountDraftReasonKind string
+
+// AccountEmailDraft A draft written from an account's records, and what it was written from
+// (ADR-0087/A132). Never sent by drafting; send via `POST /emails`.
+//
+// It is `EmailDraft` plus the two things an account-started draft owes that a reply
+// does not: `reasoning`, because a rep who did not choose the message it answers
+// needs to see what the draft is standing on, and `generated_by`, because the
+// deterministic floor is a real outcome here rather than an error.
+type AccountEmailDraft struct {
+	// AiDisclosure The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.
+	AiDisclosure *string `json:"ai_disclosure,omitempty"`
+
+	// AiGenerated Art. 50 AI-assisted disclosure: true when a model produced this draft. Stamped on the drafting call, never persisted.
+	AiGenerated *bool `json:"ai_generated,omitempty"`
+
+	// Body Plain text, end to end. There is no rich-text storage format, no paste sanitiser and no HTML+text send pair, so a formatted draft would be a wire change rather than a toolbar.
+	Body string `json:"body"`
+
+	// DraftRef Opaque reference identifying this served draft. Null here: recording a draft for voice learning is a WRITE, and this operation performs none.
+	DraftRef *string `json:"draft_ref,omitempty"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// Reasoning What the draft was written from, as separate claims rather than a sentence in
+	// the body. A SIBLING of the body on purpose (DRAFT-AC-N-4): a body that
+	// explains itself is a body the rep has to edit before sending, and the two
+	// surfaces the composer draws from this — the "Based on" line and the "Why this
+	// draft?" chips — need the parts, not the prose.
+	//
+	// Empty when the account gave the draft nothing to stand on beyond the
+	// recipient. An honest empty list, never an invented reason.
+	Reasoning []AccountDraftReason   `json:"reasoning"`
+	Subject   string                 `json:"subject"`
+	To        *[]openapi_types.Email `json:"to,omitempty"`
+
+	// VoiceProfileVersion The Voice DNA profile version that styled this draft; null when no ready profile shaped it.
+	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
+}
 
 // Activity A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
 // **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
@@ -11579,6 +11748,48 @@ type FilteredExportRequestFormat string
 // FilteredExportRequestObject The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
 type FilteredExportRequestObject string
 
+// FinanceInvoice One mirrored invoice, in the currency it was issued in.
+type FinanceInvoice struct {
+	Currency string `json:"currency"`
+
+	// DaysLate Days between the due date and settlement, or between the due date and today while it is still open. Absent when the invoice carries no due date — lateness against no deadline is not a reading.
+	DaysLate *int                `json:"days_late,omitempty"`
+	DueAt    *openapi_types.Date `json:"due_at,omitempty"`
+
+	// GrossMinor The invoiced total in minor units.
+	GrossMinor int64              `json:"gross_minor"`
+	Id         openapi_types.UUID `json:"id"`
+	IssuedAt   openapi_types.Date `json:"issued_at"`
+
+	// Number The source's own invoice number, absent when it does not issue one.
+	Number *string `json:"number,omitempty"`
+
+	// OpenMinor What is still unpaid on it.
+	OpenMinor int64 `json:"open_minor"`
+
+	// PaidAt When it was settled in full. Null while anything is still open.
+	PaidAt *time.Time           `json:"paid_at,omitempty"`
+	Status FinanceInvoiceStatus `json:"status"`
+}
+
+// FinanceInvoiceStatus defines model for FinanceInvoice.Status.
+type FinanceInvoiceStatus string
+
+// FinanceSummaryState Why the figures are what they are — the six cases a company page must keep
+// apart, because five of them look identical if you only render the numbers.
+//
+// `no_connection` — no accounting source is configured for this installation.
+// `unmapped` — a source is connected, but nobody has said which of its
+// customers this organization is. The figures are absent, and the fix is a
+// mapping rather than a sync.
+// `syncing` — the first pass has not finished; figures may be partial.
+// `connected` — the figures are current.
+// `stale` — the last sync succeeded, but long enough ago that the reader
+// should see the date beside the number.
+// `error` — the last attempt failed. What is shown is the last good answer,
+// and the reader is told it is not current.
+type FinanceSummaryState string
+
 // FxRate One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.
 type FxRate struct {
 	EffectiveDate openapi_types.Date `json:"effective_date"`
@@ -13240,6 +13451,59 @@ type OrganizationFactSuspectReason string
 // OrganizationFactListResponse defines model for OrganizationFactListResponse.
 type OrganizationFactListResponse struct {
 	Data []OrganizationFact `json:"data"`
+}
+
+// OrganizationFinanceSummary What the accounting mirror knows about one customer (ADR-0083/A128).
+//
+// Every figure is nullable and ABSENT when it cannot be computed, never zero
+// (FIN-AC-2). "€0 open" says the customer is square with us; "no figure" says
+// we do not know. A card that renders the second as the first tells a rep an
+// account is healthy on the strength of a missing connector.
+type OrganizationFinanceSummary struct {
+	// LastSyncedAt When the last successful sync finished. Null when none has.
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+
+	// MedianDaysAfterDue The median days between an invoice's DUE date and its settlement over the window (FIN-FORM-3) — how late they pay, not how long they take. Negative reads as early. Deliberately not issue-to-settlement: an invoice paid on the last day of 30-day terms is punctual, and a figure that called it "30 days to pay" would read as slow.
+	// Absent when too few invoices have settled to say — a median of one invoice is an anecdote, not a payment habit.
+	MedianDaysAfterDue *int `json:"median_days_after_due,omitempty"`
+
+	// NetInvoiced Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against.
+	NetInvoiced *Money `json:"net_invoiced,omitempty"`
+
+	// OpenBalance What is still open across unpaid invoices (FIN-FORM-2).
+	OpenBalance    *Money             `json:"open_balance,omitempty"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Overdue The share of the open balance already past its due date.
+	Overdue *Money `json:"overdue,omitempty"`
+
+	// PaymentBehaviour Days-late per settled invoice, oldest first, for the sparkline. Never padded with zeroes, because a zero here reads as "paid exactly on time".
+	// Absent under the same sample floor the median observes: a shape drawn from one invoice would state a payment habit the number beside it refuses to.
+	PaymentBehaviour *[]int `json:"payment_behaviour,omitempty"`
+
+	// Provider Which accounting source this came from, in the source's own words ("offline_demo"). Rendered as a label beside the figures so a reader knows what they are looking at; absent when nothing is connected.
+	Provider *string `json:"provider,omitempty"`
+
+	// RecentInvoices The five most recent invoices (FIN-LIM-4); `truncated` says whether there are more.
+	RecentInvoices *[]FinanceInvoice `json:"recent_invoices,omitempty"`
+
+	// State Why the figures are what they are — the six cases a company page must keep
+	// apart, because five of them look identical if you only render the numbers.
+	//
+	// `no_connection` — no accounting source is configured for this installation.
+	// `unmapped` — a source is connected, but nobody has said which of its
+	// customers this organization is. The figures are absent, and the fix is a
+	// mapping rather than a sync.
+	// `syncing` — the first pass has not finished; figures may be partial.
+	// `connected` — the figures are current.
+	// `stale` — the last sync succeeded, but long enough ago that the reader
+	// should see the date beside the number.
+	// `error` — the last attempt failed. What is shown is the last good answer,
+	// and the reader is told it is not current.
+	State FinanceSummaryState `json:"state"`
+
+	// Truncated True when the account has more invoices than `recent_invoices` carries.
+	Truncated *bool `json:"truncated,omitempty"`
 }
 
 // OrganizationGraph The account's one-hop connection graph, as nodes and edges the client lays out.
@@ -17943,6 +18207,18 @@ type ListOrganizationDocumentsParamsCategory string
 // ListOrganizationDocumentsParamsDocState defines parameters for ListOrganizationDocuments.
 type ListOrganizationDocumentsParamsDocState string
 
+// DraftAccountEmailJSONBody defines parameters for DraftAccountEmail.
+type DraftAccountEmailJSONBody struct {
+	// DealId Which open deal the message is about. Absent draws on the account as a whole.
+	DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
+	Intent *string `json:"intent,omitempty"`
+
+	// PersonId Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
+	PersonId openapi_types.UUID `json:"person_id"`
+}
+
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
 type UpdateOrganizationFactParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -19714,6 +19990,9 @@ type AskAboutOrganizationJSONRequestBody AskAboutOrganizationJSONBody
 
 // DeepReadCompanyJSONRequestBody defines body for DeepReadCompany for application/json ContentType.
 type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
+
+// DraftAccountEmailJSONRequestBody defines body for DraftAccountEmail for application/json ContentType.
+type DraftAccountEmailJSONRequestBody DraftAccountEmailJSONBody
 
 // ScrapeCompanyJSONRequestBody defines body for ScrapeCompany for application/json ContentType.
 type ScrapeCompanyJSONRequestBody = EnrichCompanyRequest
@@ -26188,6 +26467,9 @@ type ServerInterface interface {
 	// Reassemble the dossier now, past a fingerprint that still matches.
 	// (POST /organizations/{id}/dossier)
 	RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
+	// Draft an email to this account, grounded in its records.
+	// (POST /organizations/{id}/draft-email)
+	DraftAccountEmail(w http.ResponseWriter, r *http.Request, id Id)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -26203,6 +26485,9 @@ type ServerInterface interface {
 	// Confirm an extracted fact without changing its value.
 	// (POST /organizations/{id}/facts/{factKey}/confirm)
 	ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams)
+	// Does this customer actually pay us, and on time?
+	// (GET /organizations/{id}/finance-summary)
+	GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request, id Id)
 	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 	// (GET /organizations/{id}/graph)
 	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
@@ -27685,6 +27970,12 @@ func (_ Unimplemented) RefreshOrganizationDossier(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Draft an email to this account, grounded in its records.
+// (POST /organizations/{id}/draft-email)
+func (_ Unimplemented) DraftAccountEmail(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 // (POST /organizations/{id}/enrich)
 func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
@@ -27712,6 +28003,12 @@ func (_ Unimplemented) UpdateOrganizationFact(w http.ResponseWriter, r *http.Req
 // Confirm an extracted fact without changing its value.
 // (POST /organizations/{id}/facts/{factKey}/confirm)
 func (_ Unimplemented) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Does this customer actually pay us, and on time?
+// (GET /organizations/{id}/finance-summary)
+func (_ Unimplemented) GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36249,6 +36546,38 @@ func (siw *ServerInterfaceWrapper) RefreshOrganizationDossier(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
+// DraftAccountEmail operation middleware
+func (siw *ServerInterfaceWrapper) DraftAccountEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DraftAccountEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScrapeCompany operation middleware
 func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -36568,6 +36897,40 @@ func (siw *ServerInterfaceWrapper) ConfirmOrganizationFact(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ConfirmOrganizationFact(w, r, id, factKey, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganizationFinanceSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationFinanceSummary(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -44342,6 +44705,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/organizations/{id}/dossier", wrapper.RefreshOrganizationDossier)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/draft-email", wrapper.DraftAccountEmail)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
 	})
 	r.Group(func(r chi.Router) {
@@ -44355,6 +44721,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/facts/{factKey}/confirm", wrapper.ConfirmOrganizationFact)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/finance-summary", wrapper.GetOrganizationFinanceSummary)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
