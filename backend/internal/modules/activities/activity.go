@@ -271,6 +271,11 @@ type ListActivitiesInput struct {
 	// account that has no long thread.
 	ThreadKey       *string
 	IncludeArchived bool
+	// AssigneeID is the work queue's narrowing: the OPEN tasks one person
+	// holds, which is what the contract declares the parameter to mean and
+	// what the partial index behind it is built on. Done-ness is part of
+	// that question rather than a second dial — see openTaskAssigneeClause.
+	AssigneeID *ids.UserID
 }
 
 // ListActivities is the timeline read: newest first, optionally scoped to

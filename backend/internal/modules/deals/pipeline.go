@@ -115,14 +115,31 @@ func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontract
 	return out, err
 }
 
-func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, error) {
+// ListPipelines answers the pipeline catalog, live rows only unless the
+// caller asks for the archived ones too (the contract's include_archived).
+//
+// No operation on this contract archives a pipeline, so the dial changes
+// nothing a deployment's own endpoints can produce. It is bound rather than
+// dropped because the column and this read's filter on it are what decide the
+// answer, and a row in that state — from a fork's migration, from an ops
+// repair — is then reachable by the parameter that names it instead of being
+// invisible to every caller.
+//
+// Its STAGES stay live-only either way: include_archived names the rows this
+// list answers about, and a stage's own archival is what listStages' copy of
+// the parameter answers.
+func (s *Store) ListPipelines(ctx context.Context, archived storekit.ArchivedFilter) ([]crmcontracts.Pipeline, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
+	}
+	archivedFilter := ""
+	if archived == storekit.LiveOnly {
+		archivedFilter = liveRowsClause
 	}
 	var out []crmcontracts.Pipeline
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM pipeline WHERE archived_at IS NULL ORDER BY position, created_at`)
+			`SELECT id FROM pipeline WHERE `+whereSeed+archivedFilter+` ORDER BY position, created_at`)
 		if err != nil {
 			return err
 		}
@@ -141,7 +158,7 @@ func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, err
 		}
 
 		for _, id := range pipelineIDs {
-			p, err := readPipeline(ctx, tx, id)
+			p, err := readPipelineWith(ctx, tx, id, archived)
 			if err != nil {
 				return err
 			}
@@ -177,12 +194,27 @@ func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, err
 	return out, err
 }
 
+// readPipeline is the single-row read every live-only caller uses: a
+// pipeline that has been archived reads as missing.
 func readPipeline(ctx context.Context, tx pgx.Tx, id ids.PipelineID) (crmcontracts.Pipeline, error) {
+	return readPipelineWith(ctx, tx, id, storekit.LiveOnly)
+}
+
+// readPipelineWith is that read with the archived rows admitted or not, so
+// the catalog list can serve include_archived through the same assembly
+// rather than a second copy of it.
+func readPipelineWith(
+	ctx context.Context, tx pgx.Tx, id ids.PipelineID, archived storekit.ArchivedFilter,
+) (crmcontracts.Pipeline, error) {
 	var p crmcontracts.Pipeline
 	var pid, wsID ids.UUID
+	live := ""
+	if archived == storekit.LiveOnly {
+		live = liveRowsClause
+	}
 	err := tx.QueryRow(ctx,
 		`SELECT id, workspace_id, name, is_default, position, created_at, updated_at, archived_at
-		 FROM pipeline WHERE id = $1 AND archived_at IS NULL`, id).
+		 FROM pipeline WHERE id = $1`+live, id).
 		Scan(&pid, &wsID, &p.Name, &p.IsDefault, &p.Position, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, apperrors.ErrNotFound
