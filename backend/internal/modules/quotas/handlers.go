@@ -18,6 +18,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -28,8 +29,8 @@ type Handlers struct {
 }
 
 // NewHandlers wires the transport over the RLS-bound app pool.
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+func NewHandlers(pool *pgxpool.Pool, installation *settings.Store) Handlers {
+	return Handlers{store: NewStore(pool).WithSettings(installation)}
 }
 
 // pageInfo renders the store's keyset page onto the contract's PageInfo

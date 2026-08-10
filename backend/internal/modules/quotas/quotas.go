@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -28,6 +29,11 @@ import (
 // mutation rides the storekit audit shape in one transaction.
 type Store struct {
 	pool *pgxpool.Pool
+	// settings resolves the installation's base currency (ADR-0090/A135).
+	// Injected by compose through WithSettings rather than taken in the
+	// constructor, so the many call sites that never compute attainment stay
+	// untouched — the builder shape WithClock already uses here.
+	settings *settings.Store
 	// now is the store's clock: the attainment read's as-of instant,
 	// pace window, and FX as-of day all evaluate at it, so a pinned test
 	// reads the same moment it seeded against.
@@ -447,4 +453,13 @@ func uuidPtr(id *ids.UUID) *openapi_types.UUID {
 	}
 	converted := openapi_types.UUID(*id)
 	return &converted
+}
+
+// WithSettings injects the installation-settings seam the base currency is
+// read from (ADR-0090/A135). A store without it does not silently read the
+// retiring workspace column instead — attainment refuses, because one of two
+// answers for the same question is how the two copies drift apart unnoticed.
+func (s *Store) WithSettings(store *settings.Store) *Store {
+	s.settings = store
+	return s
 }

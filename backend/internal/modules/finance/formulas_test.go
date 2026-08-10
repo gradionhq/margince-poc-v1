@@ -9,6 +9,8 @@ package finance
 // fail here, where a reader can see both.
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -427,5 +429,21 @@ func TestAnEvenSampleTakesTheMeanOfTheTwoMiddleValues(t *testing.T) {
 	// Middle two are 3 and 4; rounded half away from zero that is 4.
 	if out.MedianDaysLate != 4 {
 		t.Fatalf("median = %d, want 4", out.MedianDaysLate)
+	}
+}
+
+// The mirror must REFUSE when its installation-settings seam is unwired,
+// rather than fall back to the retiring workspace column: a mirror that
+// converted against a second, stale copy of the base currency would write
+// wrong amounts and report success.
+func TestMirrorRefusesWithoutTheInstallationSettingsSeam(t *testing.T) {
+	t.Parallel()
+	_, err := NewStore(nil).baseCurrency(context.Background(), nil)
+	if err == nil {
+		t.Fatal("baseCurrency without the settings seam returned no error; " +
+			"an unwired store must refuse, never read the retiring column instead")
+	}
+	if !strings.Contains(err.Error(), "WithSettings") {
+		t.Errorf("the refusal must name the fix; got %q", err)
 	}
 }

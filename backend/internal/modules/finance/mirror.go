@@ -41,7 +41,7 @@ func (s *Store) mirrorLedger(
 	credited, orphans := applyCredits(ledger)
 	out.OrphanCredits += len(orphans)
 
-	base, err := baseCurrency(ctx, tx)
+	base, err := s.baseCurrency(ctx, tx)
 	if err != nil {
 		return err
 	}

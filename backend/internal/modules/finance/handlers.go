@@ -14,6 +14,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -23,8 +24,8 @@ type Handlers struct {
 }
 
 // NewHandlers binds the transport to the pool the mirror is read through.
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+func NewHandlers(pool *pgxpool.Pool, installation *settings.Store) Handlers {
+	return Handlers{store: NewStore(pool).WithSettings(installation)}
 }
 
 // GetOrganizationFinanceSummary implements

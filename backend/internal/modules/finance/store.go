@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 )
 
 // Store reads the finance mirror under the caller's own gates.
@@ -26,11 +27,23 @@ type Store struct {
 	// now is injected so a summary's staleness and its trailing window are
 	// testable without waiting for the clock to move.
 	now func() time.Time
+	// settings resolves the installation's base currency (ADR-0090/A135),
+	// injected the same way the clock is.
+	settings *settings.Store
 }
 
 // NewStore binds the store to the pool every tenant read runs through.
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool, now: time.Now}
+}
+
+// WithSettings injects the installation-settings seam the mirror reads its
+// base currency from (ADR-0090/A135). A store without it refuses rather than
+// falling back to the retiring workspace column: two answers to one question
+// is how the copies drift apart unnoticed.
+func (s *Store) WithSettings(store *settings.Store) *Store {
+	s.settings = store
+	return s
 }
 
 // WithClock replaces the store's clock. Tests only: a summary that reads
