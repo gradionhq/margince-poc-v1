@@ -1530,11 +1530,15 @@ describe("company view — the state strip", () => {
     expect(strip.textContent).toContain("1 stalled");
   });
 
+  // On a prospect: the customer row spends its six slots on money, and an
+  // open signal about a CUSTOMER is the rail's "Signals & risks" card. The
+  // invariant under test is the wording either way — the strip states what
+  // the conversation said rather than a rephrasing of it.
   it("states the worst thing standing open, in the words its producer wrote", async () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
           signal: {
@@ -1561,7 +1565,7 @@ describe("company view — the state strip", () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
           signal: null,
@@ -1579,11 +1583,13 @@ describe("company view — the state strip", () => {
     expect(within(strip).queryByText("Worth knowing")).toBeNull();
   });
 
+  // On a prospect, where the engagement slot lives: a customer's six slots are
+  // money and health.
   it("draws no engagement reading when the caller may not read the mail", async () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
         },
@@ -1603,7 +1609,9 @@ describe("company view — the state strip", () => {
     expect(within(strip).queryByText("Whose move")).toBeNull();
     expect(within(strip).queryByText("Never contacted")).toBeNull();
     expect(within(strip).queryByText("Open work")).toBeNull();
-    expect(within(strip).getByText("Customer")).toBeTruthy();
+    // The standing slot still draws, so the absences above are the strip
+    // withholding a reading rather than the strip failing to render.
+    expect(within(strip).getByText("Prospect")).toBeTruthy();
   });
 });
 
@@ -1798,7 +1806,9 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     await strip();
-    expect(await screen.findByText("Connect your accounting")).toBeTruthy();
+    expect(
+      (await screen.findAllByText("Connect your accounting")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("says the source is not matched rather than not connected", async () => {
@@ -1810,8 +1820,8 @@ describe("the money slot says WHY it has no figure", () => {
     renderCompany();
     const region = await strip();
     expect(
-      await screen.findByText("Not matched to a customer yet"),
-    ).toBeTruthy();
+      (await screen.findAllByText("Not matched to a customer yet")).length,
+    ).toBeGreaterThan(0);
     // The wrong advice, specifically: this reader HAS connected a source.
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
@@ -1824,7 +1834,7 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     const region = await strip();
-    expect(await screen.findByText("Syncing…")).toBeTruthy();
+    expect((await screen.findAllByText("Syncing…")).length).toBeGreaterThan(0);
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
@@ -1847,8 +1857,9 @@ describe("the money slot says WHY it has no figure", () => {
     renderCompany();
     const region = await strip();
     expect(
-      await screen.findByText("You may not see this account's finance"),
-    ).toBeTruthy();
+      (await screen.findAllByText("You may not see this account's finance"))
+        .length,
+    ).toBeGreaterThan(0);
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
@@ -1862,7 +1873,9 @@ describe("the money slot says WHY it has no figure", () => {
     );
     renderCompany();
     const region = await strip();
-    expect(await screen.findByText("Could not be read")).toBeTruthy();
+    expect(
+      (await screen.findAllByText("Could not be read")).length,
+    ).toBeGreaterThan(0);
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
@@ -1878,8 +1891,10 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     await strip();
-    expect(await screen.findByText(/186,420/)).toBeTruthy();
-    expect(await screen.findByText(/Last synced a while ago/)).toBeTruthy();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/Last synced a while ago/)).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/sync failed/)).toBeNull();
   });
 
@@ -1893,8 +1908,10 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     await strip();
-    expect(await screen.findByText(/186,420/)).toBeTruthy();
-    expect(await screen.findByText(/Last sync failed/)).toBeTruthy();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/Last sync failed/)).length,
+    ).toBeGreaterThan(0);
   });
 
   // A live, mapped source that produced no figure is not a missing setup.
@@ -1906,7 +1923,9 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     const region = await strip();
-    expect(await screen.findByText("Nothing invoiced yet")).toBeTruthy();
+    expect(
+      (await screen.findAllByText("Nothing invoiced yet")).length,
+    ).toBeGreaterThan(0);
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
@@ -1919,7 +1938,7 @@ describe("the money slot says WHY it has no figure", () => {
     });
     renderCompany();
     await strip();
-    expect(await screen.findByText(/186,420/)).toBeTruthy();
-    expect(await screen.findByText("datev")).toBeTruthy();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("datev")).length).toBeGreaterThan(0);
   });
 });

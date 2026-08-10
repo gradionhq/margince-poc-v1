@@ -13470,6 +13470,10 @@ type OrganizationFinanceSummary struct {
 	// NetInvoiced Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against.
 	NetInvoiced *Money `json:"net_invoiced,omitempty"`
 
+	// NetInvoicedLifetime The same FIN-FORM-1 fold with no lower bound on the issue date: every invoice this connection has mirrored, issued minus credited. Named "net invoiced" for the same reason as the trailing figure, and never "revenue".
+	// Scoped to the CURRENT connection — what the mirror holds, not what the customer has ever been billed — so re-connecting a source restates it. Absent under the same FIN-AC-6 refusal: one invoice without a conversion rate withholds the whole total rather than reporting a partial sum as if it were complete.
+	NetInvoicedLifetime *Money `json:"net_invoiced_lifetime,omitempty"`
+
 	// OpenBalance What is still open across unpaid invoices (FIN-FORM-2).
 	OpenBalance    *Money             `json:"open_balance,omitempty"`
 	OrganizationId openapi_types.UUID `json:"organization_id"`
