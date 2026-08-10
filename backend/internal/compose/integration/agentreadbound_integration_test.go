@@ -20,6 +20,7 @@ package integration
 // one credential presenting at a second door must meet the same counter.
 //
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -43,20 +44,32 @@ func boundedApp(t *testing.T, slug string, limit int) (*apptest.AppEnv, *agentqu
 	return e, meter
 }
 
-// spendWindow charges the meter against one passport, as the MCP door would.
-func spendWindow(t *testing.T, e *apptest.AppEnv, meter *agentquota.Meter, passport ids.UUID, records int) {
+// asPassport builds the context the meter counts one passport against — the
+// same binding the gate resolves from a presented Bearer.
+func asPassport(t *testing.T, e *apptest.AppEnv, passport ids.UUID) context.Context {
 	t.Helper()
 	var ws ids.UUID
 	if err := e.Owner.QueryRow(t.Context(), `SELECT id FROM workspace LIMIT 1`).Scan(&ws); err != nil {
 		t.Fatalf("reading the workspace id: %v", err)
 	}
 	ctx := principal.WithWorkspaceID(t.Context(), ws)
-	ctx = principal.WithActor(ctx, principal.Principal{
+	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:" + passport.String(), PassportID: passport,
 	})
-	if err := meter.Consume(ctx, agentquota.Reads, records); err != nil {
+}
+
+// spendWindow charges the meter against one passport, as the MCP door would.
+func spendWindow(t *testing.T, e *apptest.AppEnv, meter *agentquota.Meter, passport ids.UUID, records int) {
+	t.Helper()
+	if err := meter.Consume(asPassport(t, e, passport), agentquota.Reads, records); err != nil {
 		t.Fatalf("spending the window: %v", err)
 	}
+}
+
+// readsCharged is what the window has actually observed against one passport.
+func readsCharged(t *testing.T, e *apptest.AppEnv, meter *agentquota.Meter, passport ids.UUID) int {
+	t.Helper()
+	return meter.Read(asPassport(t, e, passport), agentquota.Reads).Observed
 }
 
 // A passport that has spent its window is refused on the REST door too. Before
@@ -102,6 +115,144 @@ func TestAHumanSessionIsUnaffectedByASpentAgentWindow(t *testing.T) {
 
 	if status := e.Call(t, "GET", "/v1/people", nil, nil, nil); status != http.StatusOK {
 		t.Errorf("a human read → %d after an agent spent its window; humans are outside this bound", status)
+	}
+}
+
+// The door that REFUSES on a counter pays into it. The refusal above proves /v1
+// consults MCP-SESS-READS; this proves it charges, which is what makes the
+// refusal reachable by reading rather than only by having read elsewhere.
+//
+// Counted in RECORDS, not requests: a page of one and a page of two hundred are
+// not the same read, and a per-request charge would price them alike.
+func TestARestReadChargesTheRecordsItServed(t *testing.T) {
+	e, meter := boundedApp(t, "read-bound-charge", 100)
+	bearer, passport := passportWithID(t, e, "reading agent", "read")
+	seedPeople(t, e, 3)
+
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+		t.Fatalf("an agent read under the bound → %d, want 200", status)
+	}
+
+	if charged := readsCharged(t, e, meter, passport); charged != 3 {
+		t.Errorf("a page of 3 records charged %d against MCP-SESS-READS, want 3; "+
+			"a door that refuses on a counter nothing increments bounds nobody", charged)
+	}
+}
+
+// A single record read charges one, so the counter measures what was handed
+// over rather than how the caller happened to ask for it.
+func TestARestSingleRecordReadChargesOne(t *testing.T) {
+	e, meter := boundedApp(t, "read-bound-single", 100)
+	bearer, passport := passportWithID(t, e, "reading agent", "read")
+
+	var created struct {
+		ID ids.UUID `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
+		"full_name": "Single Read",
+	}, nil, &created); status != http.StatusCreated {
+		t.Fatalf("seeding the person → %d", status)
+	}
+
+	if status := e.Call(t, "GET", "/v1/people/"+created.ID.String(), nil, bearer, nil); status != http.StatusOK {
+		t.Fatalf("an agent single read → %d, want 200", status)
+	}
+
+	if charged := readsCharged(t, e, meter, passport); charged != 1 {
+		t.Errorf("one record charged %d against MCP-SESS-READS, want 1", charged)
+	}
+}
+
+// THE DERIVED OBLIGATION, and the reason this file grew: every counter the
+// admission gate can REFUSE on has a charge point on the SAME door.
+//
+// platform/auth refuses on Calls and on agentquota.CounterFor(spec) — which is
+// Reads, Writes or Egress — so the REST door owes all four. Stated as one rule
+// it catches a half at a time: the mutating half was closed by C2 and the read
+// half sat open for a release, because nothing asserted the pair.
+//
+// Egress is not driven here and is not missing: CounterFor picks between Writes
+// and Egress at the SAME charge point (ChargeEffect), so the Writes row proves
+// the call site and CounterFor's own tests prove the choice. Reaching Egress
+// through this door additionally needs an approval staged and redeemed, since
+// every egress tool with a REST twin is confirm-first.
+// Each counter is measured across the ONE request that must charge it, not over
+// the suite. A total taken at the end cannot say which door paid: a mutation
+// answers with the row it changed, so its read-back charges Reads too, and a
+// read door charging nothing at all still reads as covered. That is not a
+// hypothetical — this test passed against the unmetered read door until it
+// measured per request.
+func TestEveryCounterTheRestDoorRefusesOnIsChargedOnIt(t *testing.T) {
+	e, meter := boundedApp(t, "read-bound-census", 1000)
+	bearer, passport := passportWithID(t, e, "counting agent", "read", "write")
+	seedPeople(t, e, 2)
+	ctx := asPassport(t, e, passport)
+
+	advance := func(during func()) map[agentquota.Counter]int {
+		counters := []agentquota.Counter{agentquota.Reads, agentquota.Writes, agentquota.Calls}
+		was := map[agentquota.Counter]int{}
+		for _, c := range counters {
+			was[c] = meter.Read(ctx, c).Observed
+		}
+		during()
+		moved := map[agentquota.Counter]int{}
+		for _, c := range counters {
+			moved[c] = meter.Read(ctx, c).Observed - was[c]
+		}
+		return moved
+	}
+
+	onRead := advance(func() {
+		if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+			t.Fatalf("the agent read → %d, want 200", status)
+		}
+	})
+	onWrite := advance(func() {
+		if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
+			"full_name": "Charged By The Gate",
+		}, bearer, nil); status != http.StatusCreated {
+			t.Fatalf("the agent write → %d, want 201", status)
+		}
+	})
+
+	for _, owed := range []struct {
+		counter agentquota.Counter
+		moved   int
+		door    string
+	}{
+		{agentquota.Reads, onRead[agentquota.Reads], "a GET hands over records"},
+		{agentquota.Writes, onWrite[agentquota.Writes], "a POST mutates"},
+		{agentquota.Calls, onWrite[agentquota.Calls], "every admitted call sits under the ceiling"},
+	} {
+		if !owed.counter.Governed() {
+			continue
+		}
+		if owed.moved == 0 {
+			t.Errorf("the REST door refuses on %s and its own request charged it 0 — %s, so a credential using only this door never approaches it",
+				owed.counter, owed.door)
+		}
+	}
+}
+
+// The bound closes on REST reads ALONE. This is the property #623 names: an
+// agent that reads only over /v1 must approach the same ceiling as one reading
+// over /mcp, rather than being bounded by its MCP half alone.
+func TestRestReadsAloneCanSpendTheWindow(t *testing.T) {
+	e, _ := boundedApp(t, "read-bound-selfspend", 4)
+	bearer, _ := passportWithID(t, e, "reading agent", "read")
+	seedPeople(t, e, 3)
+
+	// 3 records served takes the window to 3 of 4 — admitted, not yet exceeded.
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+		t.Fatalf("the first agent read → %d, want 200", status)
+	}
+	// Admitted on entry (3 < 4) and serves 3 more, taking it to 6 of 4.
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+		t.Fatalf("the second agent read → %d, want 200", status)
+	}
+
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusTooManyRequests {
+		t.Errorf("the third agent read → %d, want 429; reading over /v1 never spends the window it is refused on", status)
 	}
 }
 

@@ -46,8 +46,10 @@ var preservedWorkspaceColumns = map[string]bool{
 // workspaceConfigColumns lists the workspace columns a reset restores — every
 // column of the table that is not preserved, derived from the catalog for the
 // same reason the data reset derives its table sweep from one: a setting added
-// later (capture_auto_enrich, x_sor_mode, …) is restored automatically instead
-// of escaping a hand-kept list.
+// later is restored automatically instead of escaping a hand-kept list.
+//
+// The set can be EMPTY on a core-only tree — core contributes no configuration
+// column to this row today, only identity — and the caller handles that.
 func workspaceConfigColumns(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT a.attname
@@ -108,8 +110,21 @@ func ResetWorkspaceConfig(ctx context.Context, tx pgx.Tx) error {
 	}
 	if len(cols) == 0 {
 		// A workspace row that is identity and nothing else has nothing to
-		// restore. That is not a state this schema is in, which is asserted
-		// rather than assumed — see the fitness rail's vacuity check.
+		// restore, and returning early is the whole of the correct behaviour.
+		//
+		// This IS reachable now. capture_auto_enrich was core's only
+		// configuration column on this row, and it moved into `setting`; what
+		// remains — x_sor_mode, x_incumbent — comes from the fork-owned custom
+		// namespace (ADR-0054 §7), which upstream ships empty. So a core-only
+		// tree takes this branch. That is correct rather than a gap: with no
+		// configuration column there is nothing a reset could restore, and the
+		// settings that DID move are restored by platform/settings.ResetConfig
+		// on the same path.
+		//
+		// It matters to whoever reads the tests: their assertions run against
+		// a schema the overlay pack has migrated, so they exercise fork
+		// columns. A fork that removes that pack makes them vacuous, and the
+		// vacuity check in workspaceconfig_integration_test.go is what says so.
 		return nil
 	}
 	assignments := make([]string, 0, len(cols))

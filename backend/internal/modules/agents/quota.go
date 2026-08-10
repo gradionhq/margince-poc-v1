@@ -222,6 +222,35 @@ func (r *Registry) ChargeAdmittedCall(ctx context.Context, spec mcp.ToolSpec) er
 	return r.chargeCall(ctx, spec, nothingHasHappenedYet)
 }
 
+// ChargeServedRecords records what ONE REST response handed over against
+// MCP-SESS-READS. It is the read twin of ChargeAdmittedCall and exists for the
+// same reason: the composition layer owns that door and this package may not
+// import it, so without a charge point here AdmitRead refuses on a counter
+// nothing increments and a credential reading only over /v1 is unbounded.
+//
+// It counts RECORDS, which is what the counter measures and what the MCP door
+// charges at chargeAnswer — a page of one and a page of two hundred are not the
+// same read, and a per-request charge would price them alike.
+//
+// It REPORTS a failed charge rather than deciding what it costs. That decision
+// is this file's one rule — refuse only while nothing has happened yet — and on
+// the REST door only the caller knows which side of it this response is on: a
+// read has committed nothing, while a mutation's body is written after its
+// effect landed.
+func (r *Registry) ChargeServedRecords(ctx context.Context, n int) error {
+	if r.quota == nil || n <= 0 {
+		return nil
+	}
+	if err := r.quota.Consume(ctx, agentquota.Reads, n); err != nil {
+		slog.ErrorContext(ctx, "recording the records a REST response served against the read bound failed",
+			"quota", string(agentquota.Reads), "records", n, "err", err)
+		return fmt.Errorf(
+			"crmagents: %d records could not be counted against this agent's read bound: %w",
+			n, apperrors.ErrBudgetExceeded)
+	}
+	return nil
+}
+
 // ChargeRedeemedCall is ChargeAdmittedCall for a call whose approval has
 // already been consumed. It never refuses, for the reason refusable states.
 func (r *Registry) ChargeRedeemedCall(ctx context.Context, spec mcp.ToolSpec) {
