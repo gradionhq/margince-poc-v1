@@ -10,6 +10,7 @@ import {
   MorningBriefItem,
   PipelineBoard,
   RecordView,
+  timelinePeriod,
 } from "./composed";
 
 // B-EP09.3b acceptance: the composed surfaces consume the 3a primitives and
@@ -208,5 +209,50 @@ describe("RecordView + timeline", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+  });
+});
+
+// The chronology's period buckets. Both ends are fixed, so the boundaries are
+// assertable rather than whatever the clock happens to say when CI runs.
+describe("timelinePeriod", () => {
+  // Dates are built in local time and handed over as instants, because the
+  // buckets are the READER's weeks: an entry three hours before midnight
+  // belongs to the day they saw it, not to whichever day it was in UTC.
+  const local = (y: number, m: number, d: number, h = 9) =>
+    new Date(y, m, d, h).toISOString();
+  // Thursday 6 August 2026. Its calendar week opened on Monday the 3rd.
+  const now = new Date(2026, 7, 6, 9);
+
+  it("puts today and the rest of its calendar week in this week", () => {
+    expect(timelinePeriod(local(2026, 7, 6, 8), now).key).toBe(
+      "timeline.period.thisWeek",
+    );
+    // Monday, the first day of the same week.
+    expect(timelinePeriod(local(2026, 7, 3, 1), now).key).toBe(
+      "timeline.period.thisWeek",
+    );
+  });
+
+  it("reads last week as the week that closed, not the last seven days", () => {
+    // Sunday the 2nd ends the previous week, though it is four days ago: a
+    // reader who says "last week" means the week, not a rolling span.
+    expect(timelinePeriod(local(2026, 7, 2, 18), now).key).toBe(
+      "timeline.period.lastWeek",
+    );
+    expect(timelinePeriod(local(2026, 6, 27), now).key).toBe(
+      "timeline.period.lastWeek",
+    );
+  });
+
+  it("falls back to the month for anything older, and names which", () => {
+    const older = timelinePeriod(local(2026, 6, 10), now);
+    expect(older.key).toBe("timeline.period.month");
+    expect(older.monthOf?.getMonth()).toBe(6);
+  });
+
+  it("keeps a future entry out of the past buckets", () => {
+    expect(timelinePeriod(local(2026, 8, 1), now).key).toBe(
+      "timeline.period.upcoming",
+    );
   });
 });
