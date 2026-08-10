@@ -112,6 +112,10 @@ func flipAdminPerms() principal.Permissions {
 			"person": crud, "organization": crud, "deal": crud, "lead": crud,
 			"activity": crud, "relationship": crud, "pipeline": crud,
 			"overlay_connection": crud, "import_run": crud, "audit": {Read: true},
+			// The flip closes imported deals, and a close freezes a rate
+			// against the installation's base currency — read behind this
+			// object (0191 grants it to every seeded role, admin included).
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
