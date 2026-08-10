@@ -1877,7 +1877,7 @@ describe("CompanyScreen — Ask Margince", () => {
 // both. Its cards moved into the grid, which is the obligation these cases
 // keep: a layout change must not become an availability change.
 describe("CompanyScreen — State D's one column and its card grid", () => {
-  it("gives the account's story the full width, with no rail and no aside", async () => {
+  it("puts the account's context beside the work, and no rail on the left", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
@@ -1885,30 +1885,67 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     await waitFor(() =>
       expect(container.querySelector(".co-grid")).toBeTruthy(),
     );
-    // No zone template at all: RecordView names one only when a rail or an
-    // aside is present, so the page cannot re-column under the reader when
-    // the composite read lands — there is no second column to arrive.
-    expect(container.querySelector(".record-zones")).toBeNull();
+    // Two columns, not three: the work and the context beside it. A LEFT rail
+    // would be a third place to look, and the mockups draw none.
+    expect(container.querySelector(".record-aside")).toBeTruthy();
+    expect(container.querySelector(".co-rail")).toBeTruthy();
     expect(container.querySelector(".record-rail")).toBeNull();
-    expect(container.querySelector(".record-aside")).toBeNull();
   });
 
-  // Every card the context column held is in the grid. Named individually
-  // rather than counted: a count passes on a grid that lost one card and
-  // grew another.
-  it("carries the business cards the context column used to hold", async () => {
+  // Every card is still ON the page, wherever it sits. Named individually
+  // rather than counted: a count passes on a layout that lost one card and
+  // grew another, and moving a card between columns must never be the way one
+  // disappears.
+  it("carries every business card across its two columns", async () => {
     stubFetch(companyBackstop, { org360 });
-    render(<CompanyScreen id="o-1" />);
+    const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
     const grid = await screen.findByRole("complementary", { name: "Business" });
-    for (const card of ["People", "Deals", "Signals", "Documents"]) {
+    // The business of the account: what is running, and the paperwork.
+    for (const card of ["Deals", "Documents"]) {
       expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
     }
     // Filing metadata stays folded, and stays in the grid: tags and lists are
     // governed 360 sections like the cards above them, so a withheld half has
     // to say so where the reader is looking for it.
     expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+
+    // The relationship around it moved to the rail rather than off the page.
+    const rail = container.querySelector(".co-rail");
+    expect(rail).toBeTruthy();
+    for (const card of ["People", "Signals"]) {
+      expect(rail?.textContent).toContain(card);
+    }
+  });
+
+  // A call or a note often carries no subject. Counting only the subjected
+  // rows would draw "nothing logged with them yet" on an account that has been
+  // called five times — a false statement about the account, made from a fact
+  // about a row.
+  it("counts every logged activity, not only the ones with a subject", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "call",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const rail = container.querySelector(".co-rail");
+    await waitFor(() => expect(rail?.textContent).toContain("Recent activity"));
+    expect(rail?.textContent).not.toContain("Nothing logged with them yet");
   });
 
   // None of the reference cards comes from the 360 — each runs its own read —
@@ -1970,7 +2007,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(
       screen.getByText(
         "This account has more activities than fit here. Only the most recent ones are listed.",
@@ -1999,7 +2038,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText(/more activities than fit here/)).toBeNull();
   });
 });

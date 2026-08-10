@@ -48,12 +48,10 @@ import {
 } from "./common";
 import {
   DealsCard,
-  HealthCard,
   type Org360Result,
   OverlayFallback,
   PeopleCard,
   RECORD_ZONE,
-  SignalsCard,
   StateStrip,
   TagsCard,
   useAcknowledgeOrganizationView,
@@ -75,6 +73,7 @@ import {
   CompanyPulse,
   CompanyStanding,
 } from "./companyheader";
+import { CompanyRail } from "./companyrail";
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
 import {
@@ -1939,6 +1938,7 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
+  const { locale } = useLocale();
   // ONE composer, opened two ways. Anchored on a timeline message it answers
   // that message; anchored on a person it starts a new one and grounds on the
   // account instead of a thread (ADR-0087 §1). Two pieces of state would let
@@ -1999,14 +1999,30 @@ function CompanyPage({
       // also moves the action row up into the header, which is the company
       // page's shape and no other record's.
       controls={<CompanyStanding org={org} />}
-      // NO rail and NO aside: the page is a header, a full-width work column
-      // and a grid of cards inside it (mockup State D). A context column beside
-      // the grid would be a third place to look for facts the grid already
-      // carries, and it is the space the composer drawer opens into — the
-      // mockups never show both.
+      // The account's context, beside the work rather than under it (mockup
+      // State A). It carries the cards that describe the RELATIONSHIP —
+      // health, who is on it, what is worth knowing, what happened lately —
+      // and the grid below keeps the cards about the BUSINESS.
       //
-      // Everything the right rail used to hold moved into that grid or onto a
-      // tab. Nothing was dropped; see CompanyOverviewStack.
+      // It yields to the composer. The drawer opens into this column, so a
+      // rail standing beside it would be two things in one space, which no
+      // mockup draws. Absent rather than narrowed: a rail squeezed to a third
+      // of its width is a column of broken cards.
+      asideLabel={t("record.accountContext")}
+      aside={
+        composing ? undefined : (
+          <CompanyRail
+            orgId={org.id}
+            view={view}
+            locale={locale}
+            writable={!org.archived_at}
+            onOpenRecord={receipt.open}
+            // The People tab IS the roster in full, so the rail's summary of
+            // it stands down rather than repeating it beside itself.
+            withPeople={tab !== "people"}
+          />
+        )
+      }
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
@@ -2090,9 +2106,10 @@ function CompanyPage({
           onClose={() => setComposing(null)}
         />
       )}
-      {/* The People tab gives the account team the whole middle column. The
-          grid's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
+      {/* The People tab gives the account team the whole middle column, with
+          room for the title and the last exchange beside each name. The rail's
+          copy stands down while it is open — the same roster twice, side by
+          side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
@@ -2275,14 +2292,14 @@ function CompanyBusinessGrid({
           Beside the deals card because the two answer the same question at
           different depths. */}
       <CompanyCommercialCard view={view} />
-      <HealthCard health={view?.health} />
       {/* The money, next to the pipeline it belongs beside. Absent entirely on
           an account we have never billed — an empty finance card on a target
           is a question nobody asked. */}
       <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
-      <SignalsCard orgId={org.id} />
-      {/* Who carries the account, and the paperwork behind it. */}
-      <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
+      {/* The paperwork behind the account. Health, the roster and the signals
+          are the RAIL's — they describe the relationship rather than the
+          business, and a card in both columns is a fact a reader has to
+          reconcile. */}
       <CompanyDocumentsCard orgId={org.id} />
       {/* How the account is FILED. It stays folded — this is our own
           bookkeeping rather than anything about the company — but it stays in

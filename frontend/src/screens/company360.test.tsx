@@ -1672,11 +1672,10 @@ describe("company view — the account's own tabs", () => {
     await screen.findByRole("complementary", { name: "Business" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
-    // The rail's card is a summary; the tab is the roster. Both read the same
-    // section of the one composite read, so they cannot disagree.
-    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
-      1,
-    );
+    // ONCE. The tab is the roster in full, and the rail's summary of it stands
+    // down while the tab is open — the same names twice, side by side, is a
+    // list a reader has to reconcile with itself.
+    expect(screen.getAllByText("Christian Hagemeyer")).toHaveLength(1);
   });
 
   it("offers the four tabs the record page has, in order", async () => {

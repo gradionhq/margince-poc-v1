@@ -357,6 +357,7 @@ export function RecordView({
   controls,
   rail,
   aside,
+  asideLabel,
   timeline,
   timelineGroups,
   onOpenThread,
@@ -393,6 +394,11 @@ export function RecordView({
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
+  // What the aside column IS, for a reader navigating by landmark. Defaults to
+  // the record's context; a page whose aside holds something else names it,
+  // because two regions with one name is a dead end for anyone moving between
+  // them.
+  asideLabel?: string;
   // The entries, or undefined when this view has NO timeline at all. The
   // distinction is the same one every card on a record page keeps: absent is
   // not empty. `[]` renders the section with its honest "nothing logged yet";
@@ -476,7 +482,10 @@ export function RecordView({
           )}
         </div>
         {aside && (
-          <aside className="record-aside" aria-label={t("record.business")}>
+          <aside
+            className="record-aside"
+            aria-label={asideLabel ?? t("record.context")}
+          >
             {aside}
           </aside>
         )}
