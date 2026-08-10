@@ -23,6 +23,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
+// The column names the module's lists order by, spelled once so a
+// vocabulary entry and the clause reading it cannot drift apart.
+const (
+	listCreatedAtColumn = "created_at"
+	listUpdatedAtColumn = "updated_at"
+)
+
 // listPrelude is one list read's validated, scope-bounded starting point.
 // It is passed by POINTER throughout: `arg` appends to args, and callers
 // keep registering arguments (their own filters) after it is built — a
@@ -56,12 +63,18 @@ func buildListPrelude(
 	p := &listPrelude{sorted: sorted, limit: storekit.ClampLimit(limit), where: []string{offerTemplateWhereSeed}}
 	p.arg = func(v any) int { p.args = append(p.args, v); return len(p.args) }
 
-	scope, err := auth.ScopeClauseFor(ctx, object, "", p.arg)
-	if err != nil {
-		return nil, err
-	}
-	if scope != "" {
-		p.where = append(p.where, scope)
+	// A row-scoped record narrows to what this reader may see. The
+	// workspace-shared catalogues (products, offer templates) have no such
+	// boundary — every seat sees the same rows — and asking for one is an
+	// error rather than an empty clause, so they say so by passing "".
+	if object != "" {
+		scope, err := auth.ScopeClauseFor(ctx, object, "", p.arg)
+		if err != nil {
+			return nil, err
+		}
+		if scope != "" {
+			p.where = append(p.where, scope)
+		}
 	}
 
 	cfClauses, err := storekit.CustomFilterClauses(active, customFilters, p.arg)

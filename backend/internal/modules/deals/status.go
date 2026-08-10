@@ -19,6 +19,11 @@ const (
 	DealLost DealStatus = "lost"
 )
 
+// One key keeps a stage refusal and the audit image of a stage write naming
+// the same field, so the client reading the error and the auditor reading the
+// trail see one name rather than two spellings of it.
+const stageSemanticField = "semantic"
+
 type StageSemantic string
 
 const (
@@ -37,8 +42,10 @@ func ParseStageSemantic(raw string) (StageSemantic, error) {
 	case SemanticOpen, SemanticWon, SemanticLost:
 		return s, nil
 	}
-	return "", &values.ParseError{Field: "semantic", Code: "invalid_stage_semantic",
-		Message: "semantic is one of open, won, lost"}
+	return "", &values.ParseError{
+		Field: stageSemanticField, Code: "invalid_stage_semantic",
+		Message: "semantic is one of open, won, lost",
+	}
 }
 
 // Offer status needs no local vocabulary: the generated contract enum

@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type CreateProductInput struct {
@@ -203,67 +204,81 @@ type ListProductsInput struct {
 	Query           *string
 	Active          *bool
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the vocabulary
+	// below — the catalogue is read by price and by name at least as often
+	// as by when a row was added.
+	Sort *string
+}
+
+// productListFields is the product list's sortable vocabulary: every
+// column the catalogue shows, so a header the reader can click is a
+// header the server can answer.
+// The product columns the catalogue orders by.
+const (
+	productNameColumn  = "name"
+	productSkuColumn   = "sku"
+	productPriceColumn = "unit_price_minor"
+	productActiveField = "active"
+)
+
+var productListFields = map[string]string{
+	listCreatedAtColumn: storekit.KindTimestamp,
+	listUpdatedAtColumn: storekit.KindTimestamp,
+	productNameColumn:   fieldcatalog.TypeText,
+	productSkuColumn:    fieldcatalog.TypeText,
+	productPriceColumn:  fieldcatalog.TypeCurrency,
+	productActiveField:  fieldcatalog.TypeBoolean,
 }
 
 func (s *Store) ListProducts(ctx context.Context, in ListProductsInput) ([]crmcontracts.Product, storekit.Page, error) {
 	if err := auth.Require(ctx, "product", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
-
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
+	// The catalogue carries no custom columns, so the vocabulary is the
+	// fixed one and there is nothing to append to the select.
+	pre, err := buildListPrelude(ctx, "", productListFields, nil,
+		in.Sort, in.Limit, in.Cursor, nil)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where := pre.where
 	if !in.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Active != nil {
-		where = append(where, storekit.SQLf("active = $%d", arg(*in.Active)))
+		where = append(where, storekit.SQLf(productActiveField+" = $%d", pre.arg(*in.Active)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		pos := arg("%" + storekit.EscapeLike(*in.Query) + "%")
+		pos := pre.arg("%" + storekit.EscapeLike(*in.Query) + "%")
 		where = append(where, storekit.SQLf("(name ILIKE $%d OR sku ILIKE $%d)", pos, pos))
 	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-	}
 
+	return runListPage(ctx, s, pre, "product", productColumns, nil, where, scanProductPage,
+		func(p crmcontracts.Product) (time.Time, ids.UUID) { return p.CreatedAt, ids.UUID(p.Id) })
+}
+
+// scanProductPage drains one list query's rows: each product plus, under
+// a non-default sort, the row's trailing __cursor_key.
+func scanProductPage(rows pgx.Rows, _ []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Product, []*string, error) {
 	var products []crmcontracts.Product
-	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+productColumns+` FROM product WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
-			args...)
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		p, err := scanProduct(rows, extra...)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			p, err := scanProduct(rows)
-			if err != nil {
-				return err
-			}
-			products = append(products, p)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(products) > limit {
-			products = products[:limit]
-			last := products[len(products)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if products == nil {
-		products = []crmcontracts.Product{}
+		products = append(products, p)
+		cursorKeys = append(cursorKeys, key)
 	}
-	return products, page, err
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return products, cursorKeys, nil
 }
 
 const productColumns = `id, workspace_id, name, sku, description, unit, unit_price_minor,
@@ -281,15 +296,18 @@ func readProduct(ctx context.Context, tx pgx.Tx, id ids.ProductID, archived stor
 	return p, err
 }
 
-func scanProduct(row pgx.Row) (crmcontracts.Product, error) {
+func scanProduct(row pgx.Row, extra ...any) (crmcontracts.Product, error) {
 	var p crmcontracts.Product
 	var id, wsID ids.UUID
 	var taxRate string
 	var capturedBy string
 	var version int64
 
-	err := row.Scan(&id, &wsID, &p.Name, &p.Sku, &p.Description, &p.Unit, &p.UnitPriceMinor,
-		&p.Currency, &taxRate, &p.Active, &p.Source, &capturedBy, &version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
+	dests := []any{
+		&id, &wsID, &p.Name, &p.Sku, &p.Description, &p.Unit, &p.UnitPriceMinor,
+		&p.Currency, &taxRate, &p.Active, &p.Source, &capturedBy, &version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
+	}
+	err := row.Scan(append(dests, extra...)...)
 	if err != nil {
 		return p, err
 	}

@@ -331,6 +331,7 @@ export const en = {
   "list.sortScore": "Score",
   "list.viewAll": "All",
   "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Highest score",
   "list.viewHot": "Hot",
   "list.overlayReadOnly":
     "Sorting and filters read through HubSpot — open it there",
