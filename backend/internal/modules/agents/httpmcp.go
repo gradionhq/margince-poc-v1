@@ -153,6 +153,12 @@ func WithResourceProvider(provider mcp.ResourceProvider) HTTPOption {
 	return func(d *Dispatcher) { d.WithResources(provider) }
 }
 
+// WithHeldViews tells the tool surface which `ui://` documents are actually
+// being served, so a tool never names one this deployment does not publish.
+func WithHeldViews(held func(uri string) bool) HTTPOption {
+	return func(d *Dispatcher) { d.viewHeld = held }
+}
+
 // WithTaskStore turns the io.modelcontextprotocol/tasks extension on: a staged
 // confirm-first call answers a durable handle to a client that declared it, and
 // the three task methods start being served. Without it the surface behaves

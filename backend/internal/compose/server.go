@@ -26,6 +26,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -118,6 +119,9 @@ type Server struct {
 	// ONE group — transport, authorization server, both discovery documents —
 	// and routes.go, where the group is mounted, carries why.
 	mcpConnectorEnabled bool
+	// appViews holds the MCP App documents this api is serving. Nil for the
+	// worker and for an api that composed no views — see mcpappviews.go.
+	appViews *apps.Provider
 
 	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
 	// admits — derived by WithMCPResource from the configured

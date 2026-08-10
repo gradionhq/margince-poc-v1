@@ -562,6 +562,11 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 // was green, which is how it was actually found.
 func TestTheWholeToolListEncodes(t *testing.T) {
 	s := NewDispatcher(fullRegistry(t), bindAuthenticated, "margince-crm", "test")
+	// Holding every view the surface declares, because `_meta.ui` is now emitted
+	// only for a document this server IS serving — a dispatcher holding nothing
+	// would list no _meta at all and this walk would stop covering the member it
+	// says it covers.
+	s.viewHeld = func(string) bool { return true }
 
 	// The WIDEST response: the modern framing with the App extension declared,
 	// so a view's `_meta.ui` is inside the bytes this walk marshals. A listing

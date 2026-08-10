@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/build-mcp-apps.mjs",
     "build:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 pnpm build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -14,7 +14,7 @@
     "check": "pnpm lint && pnpm test && pnpm build",
     "gen:api": "openapi-typescript ../backend/api/crm.yaml -o src/api/schema.d.ts && pnpm gen:events",
     "gen:events": "openapi-typescript ../backend/api/public-events.yaml --enum-values -o src/api/public-events.ts",
-    "e2e": "vite build && playwright test",
+    "e2e": "pnpm build && playwright test",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build -o storybook-static"
   },
@@ -42,6 +42,7 @@
     "@vitejs/plugin-react": "^4.5.0",
     "@vitest/coverage-v8": "^3.2.6",
     "jsdom": "^30.0.0",
+    "node-html-parser": "^9.0.1",
     "openapi-typescript": "^7.13.0",
     "storybook": "^9.1.20",
     "tailwindcss": "^4.1.0",

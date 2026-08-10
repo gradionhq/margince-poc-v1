@@ -166,12 +166,19 @@ func TestAFailingProviderStopsTheWalkRatherThanBecomingANotFound(t *testing.T) {
 	}
 }
 
-// The composed view provider is what a hosted request actually reaches. Its
-// assembly panics on a bad build, so reaching this assertion at all is half of
-// it; the other half is that it publishes something, because an empty provider
-// panics nowhere and offers no host a view.
-func TestTheViewProviderAssemblesForThisBuild(t *testing.T) {
-	if len(appViews.Resources(context.Background())) == 0 {
-		t.Error("the composed view provider publishes nothing, so no host is ever offered a view")
+// A role that composed no view provider serves the surface exactly as it did
+// before any view existed — the same conditional wiring every other injected
+// capability takes, and the shape a worker and a connector-disabled api are both
+// in. Asserted because the alternative is a nil dereference on the first
+// resources/list rather than an absent capability.
+func TestARoleWithNoViewProviderComposesTheRestAndServesIt(t *testing.T) {
+	vocabulary := stubProvider{documents: map[string]string{"margince://schema/query": "{}"}}
+	composed := composeResources(mcpResourceProviders(vocabulary, nil)...)
+	if composed == nil {
+		t.Fatal("a role with no views composed no resource surface at all")
+	}
+	published := composed.Resources(context.Background())
+	if len(published) != 1 || published[0].URI != "margince://schema/query" {
+		t.Fatalf("the composed surface published %+v, want the vocabulary alone", published)
 	}
 }

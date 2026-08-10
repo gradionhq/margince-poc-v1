@@ -27,3 +27,12 @@ func (s Server) writeAIMetrics(w io.Writer) {
 		s.aiMetrics(w)
 	}
 }
+
+// writeMetricsSections renders every counter family this role wired, in one
+// call, because httpserver.Metrics takes ONE extra renderer and its own comment
+// says the parameter list has reached the point where a further section should
+// not become another argument.
+func (s Server) writeMetricsSections(w io.Writer) {
+	s.writeAIMetrics(w)
+	s.writeMCPAppMetrics(w)
+}

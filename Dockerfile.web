@@ -49,6 +49,11 @@ WORKDIR /app/frontend
 # scratch. Persisting just that directory makes tsc incremental across builds;
 # it keys off recorded file content hashes, so changed files are still re-checked
 # and the type gate over the freshly generated schema.d.ts is unchanged.
+# The same revision the api image is built with, written into each MCP App view
+# document so the api can report skew between the two tiers. See Dockerfile.api
+# for why an absent value disables the comparison rather than alarming.
+ARG MARGINCE_BUILD_REVISION=""
+ENV MARGINCE_BUILD_REVISION=$MARGINCE_BUILD_REVISION
 RUN --mount=type=cache,id=margince-tsbuildinfo,target=/app/frontend/node_modules/.tmp \
     --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
     pnpm gen:api && pnpm build

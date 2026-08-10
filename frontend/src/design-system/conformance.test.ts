@@ -78,10 +78,19 @@ describe("design-system conformance gates (B-EP09.1)", () => {
       // Stories (like tests) are catalog fixtures, not shipped UI: their demo
       // copy is deliberately literal — they still stay subject to the emoji and
       // colour-purity checks below, only this i18n-copy rule exempts them.
+      //
+      // Plus exactly ONE component, named rather than pattern-matched:
+      // mcp-apps/story-hosts.tsx is Storybook-only scaffolding whose single
+      // string tells a DEVELOPER to run `pnpm build` before the document story
+      // can render. No user ever reads it, and it cannot carry a .stories.tsx
+      // name because Storybook would then load it as a story module and fail on
+      // the component exports. Keep this a NAMED file — widening it to a pattern
+      // is how real drift gets in beside it.
       if (
         !file.endsWith(".tsx") ||
         /\.test\.tsx$/.test(file) ||
-        /\.stories\.tsx$/.test(file)
+        /\.stories\.tsx$/.test(file) ||
+        file.endsWith("mcp-apps/story-hosts.tsx")
       ) {
         continue;
       }

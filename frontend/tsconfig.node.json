@@ -14,7 +14,8 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client"],
+    "resolveJsonModule": true
   },
-  "include": ["vite.config.ts", "src"]
+  "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"]
 }

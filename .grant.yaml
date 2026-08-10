@@ -5,8 +5,15 @@ verbose: false # Enable verbose output (default: false)
 # Allowed licenses. Baseline set: MIT, Apache-2.0, BSD-2-Clause,
 # BSD-3-Clause, ISC, 0BSD, Zlib, BSL-1.0, CC0-1.0. Extended to cover the
 # permissive / weak-copyleft licenses of dependencies actually present in the
-# tree (MIT-0, BlueOak-1.0.0, MPL-2.0) plus CC-BY-4.0 / Python-2.0 / Unlicense
-# (maintainer decision). BUSL-1.1 is Margince's own source license.
+# tree (MIT-0, BlueOak-1.0.0, MPL-2.0, PostgreSQL) plus CC-BY-4.0 / Python-2.0 /
+# Unlicense (maintainer decision). BUSL-1.1 is Margince's own source license.
+#
+# PostgreSQL is here for github.com/jackc/pgerrcode, which IS linked into the
+# shipped product. It is an OSI-approved permissive license of the same shape as
+# the BSD-2-Clause and MIT entries above — attribution and a warranty disclaimer,
+# no reciprocal obligation — so it reaches BUSL-1.1 source on the same terms they
+# do. Admitting it is a maintainer decision, taken deliberately rather than to
+# clear a red build.
 allow:
   - Apache-2.0
   - MIT
@@ -19,6 +26,7 @@ allow:
   - BSL-1.0
   - BlueOak-1.0.0
   - MPL-2.0
+  - PostgreSQL
   - CC0-1.0
   - CC-BY-4.0
   - Python-2.0

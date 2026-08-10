@@ -15,14 +15,88 @@ package compose
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
+
+// viewDocument is a document shaped the way the build emits one: a doctype, the
+// licence header, the catalogue title, and everything else inline.
+//
+// IT IS A FIXTURE AND NOT THE ARTIFACT, and this file says so rather than
+// letting a reader believe otherwise. `make check` has no network and no built
+// frontend, so nothing here can read the bytes a host will actually render. The
+// real bytes are owned by two lanes that CAN see them: the build-time parsed
+// validator in frontend/scripts/vite-inline-views.ts, which refuses to emit a
+// document that reaches off-origin, and the Playwright zero-request run. What
+// these sweeps prove is the WIRING — that a tool's declaration and the document
+// the server is holding are read from one value.
+func viewDocument(title string) string {
+	return `<!doctype html>
+<!--
+SPDX-License-Identifier: BUSL-1.1
+SPDX-FileCopyrightText: 2026 Gradion
+-->
+<html lang="en"><head><meta charset="utf-8"><title>` + title + `</title>
+<style>.row{border:1px solid var(--borderSubtle)}</style></head>
+<body><main id="root"></main><script>
+function render(root, data) { root.replaceChildren(); }
+</script></body></html>`
+}
+
+// primedViews is the REAL view provider, primed through the REAL fetcher and the
+// REAL admission check against a stand-in web tier.
+//
+// The web tier is the one boundary a test may replace; everything between it and
+// the resource seam is production code. A hand-built provider holding
+// hand-inserted documents would prove nothing about the path a deployment takes
+// — it is the shape review-loop rule 6 exists to refuse.
+//
+// titles maps each view's URI to the title its document will declare; a URI left
+// out is one the origin does not serve, which is how a test drives partial
+// availability.
+func primedViews(t *testing.T, titles map[string]string) *apps.Provider {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		title, serving := titles["ui://margince"+strings.TrimPrefix(r.URL.Path, "/mcp-apps")]
+		if !serving {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.WriteString(w, viewDocument(title)); err != nil {
+			t.Errorf("serving the stand-in view: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parsing the stand-in origin: %v", err)
+	}
+	views := apps.NewProvider(apps.NewFetcher(base), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := views.Prime(t.Context()); err != nil {
+		t.Fatalf("priming the view provider: %v", err)
+	}
+	return views
+}
+
+// bothViews is the titles map for a deployment serving everything it declares.
+func bothViews() map[string]string {
+	return map[string]string{
+		apps.AccountBriefURI:    "Morning brief",
+		apps.RelationshipMapURI: "Who knows this contact",
+	}
+}
 
 // composedResources is the view half of the resource surface, assembled through
 // the same constructor the transport uses.
@@ -39,8 +113,9 @@ import (
 // other side, structurally, because it can be answered without a pool — and it
 // reads mcpResourceProviders, so a provider added to the transport enters it
 // automatically rather than being a list somebody has to remember.
-func composedResources() mcp.ResourceProvider {
-	return composeResources(mcpResourceProviders(nil)...)
+func composedResources(t *testing.T) mcp.ResourceProvider {
+	t.Helper()
+	return composeResources(mcpResourceProviders(nil, primedViews(t, bothViews()))...)
 }
 
 // readerCtx is an agent holding `read`, which is the scope a view requires. The
@@ -59,8 +134,13 @@ func readerCtx() context.Context {
 // called, so a URI nobody publishes is not a render that fails — it is a host
 // fetching a 404 and a panel that silently never appears.
 func TestEveryToolsViewIsAServedDocument(t *testing.T) {
+	// ONE surface, listed and then read. Building a second provider for the
+	// read-back would ask a different object whether it serves what the first
+	// one advertised — and a regression where listing invalidates the very
+	// document it named would pass, because the fresh one would answer.
+	surface := composedResources(t)
 	published := map[string]mcp.Resource{}
-	for _, r := range composedResources().Resources(readerCtx()) {
+	for _, r := range surface.Resources(readerCtx()) {
 		published[r.URI] = r
 	}
 	named := 0
@@ -79,7 +159,7 @@ func TestEveryToolsViewIsAServedDocument(t *testing.T) {
 		// And the document has to be readable, not merely advertised. A
 		// descriptor with no content behind it fails at exactly the same point
 		// as a missing descriptor, one step later.
-		if _, err := composedResources().ReadResource(readerCtx(), spec.UI.ResourceURI); err != nil {
+		if _, err := surface.ReadResource(readerCtx(), spec.UI.ResourceURI); err != nil {
 			t.Errorf("%s names the view %q, which is advertised but cannot be read: %v", spec.Name, view.URI, err)
 		}
 	}
@@ -95,7 +175,7 @@ func TestEveryToolsViewIsAServedDocument(t *testing.T) {
 // content-type bug.
 func TestEveryViewIsServedUnderTheAppProfile(t *testing.T) {
 	views := 0
-	for _, r := range composedResources().Resources(readerCtx()) {
+	for _, r := range composedResources(t).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
 			continue
 		}
@@ -140,7 +220,7 @@ func TestEveryServedViewIsNamedByATool(t *testing.T) {
 			named[spec.UI.ResourceURI] = spec.Name
 		}
 	}
-	for _, r := range composedResources().Resources(readerCtx()) {
+	for _, r := range composedResources(t).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
 			continue
 		}
@@ -195,12 +275,12 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
 	// Derived from the transport's own list, so a THIRD provider is measured the
 	// commit it is wired rather than the commit somebody remembers this test.
-	wired := mcpResourceProviders(nil)
+	wired := mcpResourceProviders(nil, primedViews(t, bothViews()))
 	if len(wired) != 2 {
 		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the "+
 			"vocabulary and the views. Add the new one's scheme below before it can collide with a view", len(wired))
 	}
-	for _, r := range appViews.Resources(readerCtx()) {
+	for _, r := range primedViews(t, bothViews()).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
 			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with the query "+
 				"vocabulary, and the fan-out would resolve that silently by composition order", r.URI, mcp.AppURIScheme)
@@ -219,7 +299,7 @@ func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
 // defined tiebreak, not a way to notice this.
 func TestNoTwoResourceProvidersClaimOneURI(t *testing.T) {
 	seen := map[string]bool{}
-	for _, r := range composedResources().Resources(readerCtx()) {
+	for _, r := range composedResources(t).Resources(readerCtx()) {
 		if seen[r.URI] {
 			t.Errorf("two providers publish %s; the fan-out serves whichever was composed first and the other "+
 				"document is unreachable with nothing reporting it", r.URI)

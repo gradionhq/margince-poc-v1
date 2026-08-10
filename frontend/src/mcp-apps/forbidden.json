@@ -1,0 +1,50 @@
+{
+  "offOrigin": [
+    "http://",
+    "https://",
+    "//cdn.",
+    "<link",
+    "<base",
+    "<iframe",
+    "<form",
+    "src=",
+    "srcset",
+    "poster=",
+    "ping=",
+    "@import",
+    "url(",
+    "image-set(",
+    "http-equiv",
+    "fetch(",
+    "XMLHttpRequest",
+    "WebSocket(",
+    "EventSource(",
+    "importScripts(",
+    "navigator.sendBeacon",
+    "RTCPeerConnection",
+    "location.replace",
+    "navigator.geolocation",
+    "WebAssembly",
+    "blob:",
+    "javascript:",
+    "URL.createObjectURL",
+    "sourceMappingURL",
+    "/@vite/client"
+  ],
+  "toolCall": ["tools/call", "ui/tool", "callTool"],
+  "credential": [
+    "Authorization",
+    "Bearer ",
+    "access_token",
+    "refresh_token",
+    "passport"
+  ],
+  "markupSink": [
+    "innerHTML",
+    "outerHTML",
+    "insertAdjacentHTML",
+    "document.write",
+    "eval(",
+    "Function("
+  ]
+}

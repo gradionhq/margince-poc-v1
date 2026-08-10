@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
@@ -40,12 +41,39 @@ needs the whole file to start a session.
 - [Open spec collision — the coverage matrix needs what the spec rules out](#open-spec-collision--the-coverage-matrix-needs-what-the-spec-rules-out)
 - [Open items left by the consent screen (PR #345)](#open-items-left-by-the-consent-screen-pr-345)
 - [Where this is](#where-this-is)
-- [Pick up here](#pick-up-here)
+- [Pick up here](#pick-up-here) — the MCP App views now live in `frontend/` (#742)
 - [Open follow-ups — the identity chokepoint (2026-08-03)](#open-follow-ups--the-identity-chokepoint-2026-08-03)
 - [Upstream spec raises owed from 2026-08-01](#upstream-spec-raises-owed-from-2026-08-01)
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
+
+**Found from an unrelated PR's red integration shard, and it has a date on it.**
+`TestAfterASyncTheCardHasFiguresToShow` fails intermittently today and will fail
+on **every** run from **2026-09-01**.
+
+The offline ledger generator anchors every invoice to a fixed `offlineEpoch`
+(`2026-08-01`), while `TimelinessOver` measures its 180-day window from `now`.
+The window slides and the ledger does not, so the settled-invoice count inside it
+shrinks month by month past FIN-FORM-3's floor of five:
+
+| date | settled invoices in window | vs floor |
+|---|---|---|
+| 2026-08-10 | 5 | exactly at it |
+| 2026-09-01 | 4 | below |
+| 2026-10-01 | 3 | below |
+
+Today the margin is exactly ZERO — `openTail: 1` leaves precisely five — so a
+single dispute (the archetypes carry 30–40 per thousand) drops the sample to four
+and the run fails. It is a coin flip per run rather than deterministic because the
+test seeds a fresh workspace uuid each time, and that uuid is hashed into the
+generator's PCG seed.
+
+The fix is to anchor the generator to `now`, or to give the test a clock pinned
+near the epoch — and either way to restore a margin, because at zero any dispute
+fails the run. Detail and the arithmetic are in [#798].
 
 ## Open — two follow-ups left by the activity anchor (#686, 2026-08-09)
 
@@ -80,6 +108,7 @@ the runner's own system frame (a record id comes from something the run has
 read, never from the occurrence reference it was started with), which touches
 every task and needs its own certification pass.
 
+[#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
 
@@ -683,6 +712,34 @@ The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
 ## Pick up here
+
+### The MCP App views live in `frontend/` now — 2026-08-10 (#742, PR #793)
+
+Both `ui://` views build from `frontend/src/mcp-apps/` into one self-contained
+document each; the api fetches, admits and holds them, and `resources/list`,
+`resources/read` and every tool's `_meta.ui` read one immutable per-URI snapshot.
+The narrative — including the availability blocker, the three "two readings of
+one value" defects, and why the design's dark-theme arm had to move into the
+bridge — is in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
+
+**What a branch touching this area should know.** The advertised set FREEZES
+after the startup fetch, because the transport declares
+`resources.listChanged: false` and opens no stream to announce a recovery on. A
+view that is not held has its own tool's `_meta.ui` suppressed and nothing else —
+the tool keeps answering in text, which is D3's exit criterion and is gated.
+`make dev` starts the FE **before** the api on purpose: the api reads its view
+documents from that origin at boot, and the reverse order left both views
+permanently unadvertised in every dev stack.
+
+**The admission vocabulary is authored in `frontend/src/mcp-apps/forbidden.json`
+and copied into the Go package** by `make -C backend mcp-apps-vocab`. Edit the
+frontend copy, never the Go one; a byte-equality test and the drift gate both
+fail otherwise, and `ci.yml`'s backend filter names that path so the lane
+carrying the test actually runs.
+
+**Four follow-ups filed**, none blocking: the `tokens.css` media arm, the
+unpinned view-payload shape across the Go/TS seam, `resources/listChanged`, and
+a CDN origin.
 
 ### Admin "reset data" (non-production) — 2026-08-03
 
