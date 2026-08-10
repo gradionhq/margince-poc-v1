@@ -1573,7 +1573,6 @@
 }
 .ob-core-dialog > .btn {
   width: 100%;
-  justify-content: center;
   margin-top: var(--space-4);
 }
 .ob-core-link {
