@@ -7,19 +7,15 @@ package overlay
 
 // The overlay search sweep, against a real mirror.
 //
-// Two defects meet here. `search_records` advertises that omitting
-// `record_type` sweeps every type, and the overlay provider refused any query
-// that did not name exactly one — so an agent doing exactly what the schema
-// says was refused on an overlay workspace, for a rule the schema never
-// stated. And the REST search shadow, which DID walk every type, reported
-// `has_more` with no `next_cursor`, so whatever the first page did not carry
-// was unreachable by any means the contract offers.
+// Two claims are under test. A query naming no record type sweeps every type
+// the mirror holds — which is what the tool surface advertises, and what the
+// native provider answers. And the walk is RESUMABLE: it has no ranking to
+// interleave types by, so it goes one type at a time, and every page that
+// reports more carries the position to continue from.
 //
-// The sweep answers both, and what makes it more than a loop is that the
-// position is resumable: a walk with no ranking to interleave types by can
-// still say where it stopped. This asks it to page a set it cannot fit, one
-// hit at a time, and holds it to the invariant that a page claiming more
-// carries somewhere to go.
+// It is driven one hit at a time over a set it cannot fit, so each step
+// either crosses into a new type or resumes inside one, and both cursor
+// shapes are exercised rather than described.
 
 import (
 	"encoding/json"
@@ -56,6 +52,7 @@ func TestOverlaySearchSweepsEveryMirroredTypeAndPagesThroughThem(t *testing.T) {
 	e.seed(t, "organization", "9403", map[string]any{"display_name": "Sweepable Org"})
 	e.seed(t, "deal", "9404", map[string]any{"name": "Sweepable Renewal", "currency": "EUR"})
 	e.seed(t, "lead", "9405", map[string]any{"full_name": "Sweepable Lead"})
+	e.seed(t, "activity", "9406", map[string]any{"kind": "call", "subject": "Sweepable Call"})
 
 	// One hit per page, so every step of the walk crosses or exhausts a type
 	// and the cursor is exercised in both of its shapes: resuming INSIDE a
@@ -77,8 +74,8 @@ func TestOverlaySearchSweepsEveryMirroredTypeAndPagesThroughThem(t *testing.T) {
 			}
 			seen[hit.ID] = hit.Type
 		}
-		// The invariant #586 was filed for: more is only true when there is
-		// somewhere to go, and somewhere to go only when there is more.
+		// More is only true when there is somewhere to go, and there is
+		// somewhere to go only when more is true.
 		if page.Page.HasMore != (page.Page.NextCursor != nil && *page.Page.NextCursor != "") {
 			t.Fatalf("has_more = %v with next_cursor = %v — a page that claims more and offers no way to reach "+
 				"it leaves those records unreachable", page.Page.HasMore, page.Page.NextCursor)
@@ -89,10 +86,10 @@ func TestOverlaySearchSweepsEveryMirroredTypeAndPagesThroughThem(t *testing.T) {
 		path = "/v1/search?q=Sweepable&limit=1&cursor=" + *page.Page.NextCursor
 	}
 
-	if len(seen) != 5 {
-		t.Fatalf("the sweep reached %d of the 5 seeded records: %v", len(seen), seen)
+	if len(seen) != 6 {
+		t.Fatalf("the sweep reached %d of the 6 seeded records: %v", len(seen), seen)
 	}
-	for _, want := range []string{"person", "organization", "deal", "lead"} {
+	for _, want := range []string{"person", "organization", "deal", "lead", "activity"} {
 		found := false
 		for _, recordType := range seen {
 			found = found || recordType == want
@@ -103,11 +100,9 @@ func TestOverlaySearchSweepsEveryMirroredTypeAndPagesThroughThem(t *testing.T) {
 	}
 }
 
-// The tool this was filed against. `search_records` says `record_type` may be
-// omitted to sweep all five, and the overlay provider used to refuse exactly
-// that — an agent doing what the schema told it to was answered with an error
-// about a rule the schema never stated. This drives the tool itself, through
-// the registry a real call comes in on.
+// The same claim, driven through the tool rather than the route: the schema
+// says `record_type` may be omitted to sweep every type, and this is the
+// registry a real agent call arrives on.
 func TestTheSearchRecordsToolSweepsWithoutARecordTypeInOverlayMode(t *testing.T) {
 	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)

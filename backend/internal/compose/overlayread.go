@@ -27,6 +27,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -327,20 +328,16 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 		})
 }
 
-// overlaySearchTypes is the entity-type order the overlay search union
-// walks — fixed, so a capped page is deterministic.
-var overlaySearchTypes = []datasource.EntityType{
-	datasource.EntityPerson,
-	datasource.EntityOrganization,
-	datasource.EntityDeal,
-	datasource.EntityLead,
-	datasource.EntityActivity,
-}
+// overlaySearchTypes is the entity-type order the overlay search walks. It is
+// the MODULE's own list rather than a copy: the provider refuses a class the
+// mirror cannot hold, and a second list here would let this door refuse one it
+// can, or admit one it cannot, the moment a sixth is mirrored.
+var overlaySearchTypes = overlay.MirroredEntityTypes()
 
-// overlayMirroredTypes is the set of record types the mirror holds — the same
-// five the read shadows serve, keyed by the string form that is both
-// datasource.EntityType and the generated agentPolicy.RecordType. Derived from
-// overlaySearchTypes rather than re-listed, so reads and writes cannot drift.
+// overlayMirroredTypes is the set of record types the mirror holds, keyed by
+// the string form that is both datasource.EntityType and the generated
+// agentPolicy.RecordType. Derived from overlaySearchTypes rather than
+// re-listed, so reads and writes cannot drift.
 var overlayMirroredTypes = func() map[string]bool {
 	set := make(map[string]bool, len(overlaySearchTypes))
 	for _, et := range overlaySearchTypes {
@@ -380,11 +377,10 @@ func clampOverlaySearchLimit(v int) int {
 // the provider's own sweep so the MCP tool and this route answer one
 // implementation rather than two.
 //
-// It PAGES. The walk has no ranking to interleave types by, but the sweep's
-// cursor names where it stopped — the type plus that type's mirror cursor —
-// so `has_more` now comes with somewhere to go. It previously refused
-// `cursor` outright and still reported more, which told a caller rows existed
-// and left them unreachable.
+// It PAGES. The walk has no ranking to interleave types by, so the sweep's
+// cursor names where it stopped — the type plus that type's own mirror
+// cursor — and `has_more` is true exactly when there is such a position to
+// hand back.
 func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontracts.SearchParams) {
 	ov, ok := s.overlayReadMode(w, r)
 	if !ok {
@@ -407,13 +403,16 @@ func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontrac
 	} else {
 		query.Limit = overlaySearchDefaultLimit
 	}
-	// An empty scope is an answerable question with an empty answer: the seat
-	// may read none of the types it asked about. Serving it here rather than
-	// through the provider keeps that a page, not a 403 — search shows the
-	// object classes a seat can read and says nothing about the rest, which is
-	// the native surface's own posture (search/store.go's branchScope).
+	// An empty scope is an answerable question with an empty answer: the one
+	// type the caller named is one they may not read. Serving it here rather
+	// than through the provider is what keeps it a page instead of the 403 the
+	// seam answers a tool with (overlaySearchScope's own rationale).
 	res := datasource.SearchResult{}
 	if len(types) > 0 {
+		// An unmapped caller's existence-hiding ErrNotFound answers an EMPTY
+		// page here, the same reading every list shadow gives it: a collection
+		// read row-scopes down to nothing rather than 404ing, and both modes
+		// must answer one contract the same way.
 		var err error
 		if res, err = s.sorDispatch.Search(r.Context(), query); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			httperr.Write(w, r, err)
@@ -432,14 +431,22 @@ func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontrac
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SearchResponse{Data: hits, Page: page})
 }
 
-// overlaySearchScope resolves which entity types this request sweeps: the
-// ones it named, or every mirrored one, minus those the seat may not read.
+// overlaySearchScope resolves which entity types this request sweeps.
 //
 // A named type the mirror does not hold is REFUSED rather than walked past.
 // The mirror carries five object classes and the contract's `types` enum
 // carries six, so a caller asking for projects would otherwise be handed an
 // empty page reading "this workspace has no projects" — an answer about the
 // records, when the truth is about the mode.
+//
+// It resolves ONE denial itself and leaves the rest to the provider, because
+// the two doors answer a denial differently and each rule belongs where it is
+// kept. Search shows a seat the object classes it can read and says nothing
+// about the rest, so a caller who named a single type they may not read gets
+// an empty page here rather than the 403 the seam gives a tool. Everything
+// wider goes through unfiltered: the provider omits what the seat cannot see,
+// and narrowing the list here as well would make the sweep's own posture
+// depend on a filter applied a layer above it.
 func (s Server) overlaySearchScope(
 	w http.ResponseWriter, r *http.Request, named *[]crmcontracts.SearchParamsTypes,
 ) ([]datasource.EntityType, bool) {
@@ -455,13 +462,23 @@ func (s Server) overlaySearchScope(
 			asked = append(asked, et)
 		}
 	}
-	readable := make([]datasource.EntityType, 0, len(asked))
-	for _, et := range asked {
-		if auth.Require(r.Context(), string(et), principal.ActionRead) == nil {
-			readable = append(readable, et)
-		}
+	if len(asked) != 1 {
+		return asked, true
 	}
-	return readable, true
+	err := auth.Require(r.Context(), string(asked[0]), principal.ActionRead)
+	switch {
+	case err == nil:
+		return asked, true
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		// The empty scope, which Search answers as an empty page.
+		return nil, true
+	default:
+		// Not a fact about the caller's grants — this server not working.
+		// Reading it as "may not see it" would answer a broken request chain
+		// with an empty page and a 200.
+		httperr.Write(w, r, err)
+		return nil, false
+	}
 }
 
 // overlaySearchHits assembles one swept page onto the wire, titling each hit

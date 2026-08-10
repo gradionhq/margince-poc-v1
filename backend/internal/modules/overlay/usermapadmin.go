@@ -162,12 +162,7 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 	if err != nil {
 		return nil, "", err
 	}
-	switch {
-	case limit <= 0:
-		limit = defaultListLimit
-	case limit > maxListLimit:
-		limit = maxListLimit
-	}
+	limit = clampListLimit(limit)
 	var afterID ids.UserID
 	if after != "" {
 		afterID, err = ids.ParseAs[ids.UserKind](after)

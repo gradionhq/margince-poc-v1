@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -76,24 +78,47 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 
 // sweep walks types in order from the cursor's position, filling one page.
 //
-// The invariant it keeps is the one #586 was filed for: HasMore is true if
-// and ONLY if NextCursor names somewhere to resume. A page that reports more
-// and hands back no way to reach it is a page whose remainder does not exist
-// as far as any caller can tell.
+// The invariant it keeps: HasMore is true if and ONLY if NextCursor names
+// somewhere to resume. A page that reports more and hands back no way to
+// reach it is a page whose remainder does not exist as far as any caller can
+// tell.
+//
+// HasMore means the WALK has not reached the end of the mirrored rows — not
+// that another row will match. The mirror pages before the text filter runs,
+// so a page whose rows are all filtered out still reports more and hands back
+// the position to continue from, and a walk's last page can be empty. That is
+// the reading every single-type overlay list already gives (MirrorStore.List
+// answers a cursor whenever a batch filled); the alternative — scanning
+// forward until a match turns up — is a request whose cost is decided by how
+// rare the caller's word is.
 func (p *Provider) sweep(ctx context.Context, types []datasource.EntityType, q datasource.SearchQuery) (datasource.SearchResult, error) {
-	from, inner, err := decodeSweepCursor(q.Cursor, types)
+	resumeAt, inner, err := decodeSweepCursor(q.Cursor)
 	if err != nil {
 		return datasource.SearchResult{}, err
 	}
 	text := strings.ToLower(strings.TrimSpace(q.Text))
-	limit := sweepLimit(q.Limit)
+	// The page is one page whether it comes from one object class or five, so
+	// it is bounded once here rather than per type.
+	limit := clampListLimit(q.Limit)
 	out := datasource.SearchResult{Records: []datasource.Record{}}
 
-	for i := from; i < len(types); i++ {
+	for i := resumePosition(types, resumeAt); i < len(types); i++ {
 		et := types[i]
-		if len(types) > 1 && !p.mayRead(ctx, et) {
+		if len(types) > 1 {
+			admitted, err := p.mayRead(ctx, et)
+			if err != nil {
+				return datasource.SearchResult{}, err
+			}
+			if !admitted {
+				inner = ""
+				continue
+			}
+		}
+		if et != resumeAt {
+			// The stream the cursor was minted in is not this one — it was
+			// narrowed away, or the seat lost it. This type starts at ITS
+			// beginning rather than inheriting a position from another.
 			inner = ""
-			continue
 		}
 		rows, next, err := p.ms.List(ctx, string(et), inner, limit-len(out.Records))
 		if err != nil {
@@ -111,27 +136,47 @@ func (p *Provider) sweep(ctx context.Context, types []datasource.EntityType, q d
 		}
 		// This type still has rows the page did not reach: resume INSIDE it.
 		if next != "" {
-			out.NextCursor, out.HasMore = encodeSweepCursor(et, next), true
-			return out, nil
+			return withResumePosition(out, et, next)
 		}
 		// It is exhausted. If the page is full and any type is left, resume at
 		// the start of the next one; a full page on the LAST type is simply a
 		// complete answer, and claiming more would be the same lie inverted.
 		inner = ""
 		if len(out.Records) >= limit && i+1 < len(types) {
-			out.NextCursor, out.HasMore = encodeSweepCursor(types[i+1], ""), true
-			return out, nil
+			return withResumePosition(out, types[i+1], "")
 		}
 	}
 	return out, nil
 }
 
 // mayRead reports whether the seat may read one entity type, for the sweep's
-// skip-the-denied posture. A failure that is NOT a denial (a malformed
-// principal) also answers false: the sweep omits what it cannot prove the
-// caller may see, and never widens on an error.
-func (p *Provider) mayRead(ctx context.Context, et datasource.EntityType) bool {
-	return auth.Require(ctx, string(et), principal.ActionRead) == nil
+// skip-the-denied posture.
+//
+// A DENIAL and a failure are different answers. Only the first is a fact about
+// the caller's grants; the second — no principal bound, a malformed one — is
+// this server not working, and reading it as "may not see it" would answer a
+// broken request chain with five skipped types and a 200 saying the workspace
+// holds nothing. ListObjects draws the same line for the same reason.
+func (p *Provider) mayRead(ctx context.Context, et datasource.EntityType) (bool, error) {
+	err := auth.Require(ctx, string(et), principal.ActionRead)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+// MirroredEntityTypes is the order a sweep walks the mirror's object classes
+// in — fixed, so a capped page is deterministic, and EXPORTED because compose
+// answers "can this mode serve that type?" on the REST door and must answer it
+// from the same list the provider walks. Two lists would drift the moment a
+// sixth class is mirrored, and the shape of that drift is a type MCP serves
+// and REST refuses.
+func MirroredEntityTypes() []datasource.EntityType {
+	return slices.Clone(knownEntityTypes)
 }
 
 // searchableTypes resolves the types one query walks: the ones it named, or
@@ -139,30 +184,54 @@ func (p *Provider) mayRead(ctx context.Context, et datasource.EntityType) bool {
 // means on the tool surface. A type the mirror cannot hold is refused rather
 // than silently walked past, so a caller who names `project` hears that the
 // mirror has none instead of reading an empty page as an empty workspace.
+//
+// The answer is always in MIRROR order and always without repeats, whatever
+// order the caller listed them in and however many times. The contract's
+// `types` is a plain array with no uniqueness rule, and `types=person,person`
+// walked literally would read that stream twice — serving every person again,
+// since a cursor names a type rather than one of its two appearances.
 func searchableTypes(named []datasource.EntityType) ([]datasource.EntityType, error) {
 	if len(named) == 0 {
 		return knownEntityTypes, nil
 	}
+	asked := make(map[datasource.EntityType]bool, len(named))
 	for _, et := range named {
 		if !slices.Contains(knownEntityTypes, et) {
 			return nil, &datasource.UnsupportedEntityError{Type: string(et)}
 		}
+		asked[et] = true
 	}
-	return named, nil
+	walk := make([]datasource.EntityType, 0, len(asked))
+	for _, et := range knownEntityTypes {
+		if asked[et] {
+			walk = append(walk, et)
+		}
+	}
+	return walk, nil
 }
 
-// sweepLimit resolves the page size a sweep fills, through the same bounds
-// MirrorStore.List applies per type — the page is one page whether it comes
-// from one object class or five.
-func sweepLimit(requested int) int {
-	switch {
-	case requested <= 0:
-		return defaultListLimit
-	case requested > maxListLimit:
-		return maxListLimit
-	default:
-		return requested
+// resumePosition is where in this query's walk a cursor's type resumes.
+//
+// The cursor names a position in the MIRROR's fixed type order rather than an
+// index into one request's slice, so the same token still means the same place
+// when the request's own type set is not the one that minted it — a caller who
+// narrowed `types` mid-walk, or a seat that lost a grant between pages. A
+// position this query no longer walks resumes at the next type PAST it: the
+// rows in between belong to a stream this request is not reading, and the
+// contract already says changing a filter mid-walk changes what the remaining
+// pages see. Answering 422 there would call an authorization change a
+// malformed input.
+func resumePosition(walk []datasource.EntityType, resumeAt datasource.EntityType) int {
+	if resumeAt == "" {
+		return 0
 	}
+	at := slices.Index(knownEntityTypes, resumeAt)
+	for i, et := range walk {
+		if slices.Index(knownEntityTypes, et) >= at {
+			return i
+		}
+	}
+	return len(walk)
 }
 
 // sweepCursor is where a sweep stopped: the entity type being walked and that
@@ -176,40 +245,54 @@ type sweepCursor struct {
 
 // encodeSweepCursor renders a resume position opaquely: a caller must never
 // build or edit one, and the shape inside is this package's business.
-func encodeSweepCursor(et datasource.EntityType, inner string) string {
+//
+// It answers an error rather than an empty cursor, because the caller pairs
+// the result with HasMore: a silent "" there would report more with nowhere
+// to go, which is the answer this whole file exists to stop giving.
+func encodeSweepCursor(et datasource.EntityType, inner string) (string, error) {
 	raw, err := json.Marshal(sweepCursor{Type: string(et), Inner: inner})
 	if err != nil {
-		// A two-string struct cannot fail to marshal; encoding it as an empty
-		// cursor rather than panicking keeps the HasMore invariant honest —
-		// see sweep, which reads "" as "nowhere to resume".
-		return ""
+		return "", fmt.Errorf("overlay: encoding the sweep position for %s: %w", et, err)
 	}
-	return base64.RawURLEncoding.EncodeToString(raw)
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// decodeSweepCursor resolves a cursor to the index in types it resumes at and
-// the mirror cursor within that type. An empty cursor starts at the
-// beginning.
+// withResumePosition finishes a page that stopped short of the walk's end:
+// the position to continue from, and the flag that says one exists. They are
+// set together and only together, which is the whole of the invariant.
+func withResumePosition(out datasource.SearchResult, et datasource.EntityType, inner string) (datasource.SearchResult, error) {
+	cursor, err := encodeSweepCursor(et, inner)
+	if err != nil {
+		return datasource.SearchResult{}, err
+	}
+	out.NextCursor, out.HasMore = cursor, true
+	return out, nil
+}
+
+// decodeSweepCursor resolves a cursor to the mirrored type it resumes at and
+// the position within that type's stream. An empty cursor starts at the
+// beginning of the walk.
 //
-// A cursor naming a type this query does not walk is MALFORMED, not
-// ignorable: it was minted for a different sweep, and resuming a narrower
-// query from a wider one's position would silently skip whatever lies between
-// them.
-func decodeSweepCursor(cursor string, types []datasource.EntityType) (from int, inner string, err error) {
+// Malformed is reserved for a token this package could not have minted:
+// something that is not base64, not the position shape, or names an object
+// class the mirror does not hold. Whether the CURRENT request still walks that
+// type is not a question about the token — see resumePosition, which answers
+// it without calling a caller's valid cursor an input error.
+func decodeSweepCursor(cursor string) (resumeAt datasource.EntityType, inner string, err error) {
 	if cursor == "" {
-		return 0, "", nil
+		return "", "", nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return 0, "", &storekit.MalformedCursorError{}
+		return "", "", &storekit.MalformedCursorError{}
 	}
 	var position sweepCursor
 	if err := json.Unmarshal(raw, &position); err != nil {
-		return 0, "", &storekit.MalformedCursorError{}
+		return "", "", &storekit.MalformedCursorError{}
 	}
-	at := slices.Index(types, datasource.EntityType(position.Type))
-	if at < 0 {
-		return 0, "", &storekit.MalformedCursorError{}
+	at := datasource.EntityType(position.Type)
+	if !slices.Contains(knownEntityTypes, at) {
+		return "", "", &storekit.MalformedCursorError{}
 	}
 	return at, position.Inner, nil
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -263,39 +264,105 @@ func TestProviderSearchRefusesATypeTheMirrorCannotHold(t *testing.T) {
 	}
 }
 
-// TestASweepCursorResumesItsOwnSweepAndRefusesAnother pins the resume token
-// #586 turns on: it round-trips the position, and a cursor minted for a sweep
-// that walked OTHER types is malformed rather than silently reindexed.
-// Reading it as position zero would restart the walk; reading it as some
-// arbitrary index would skip whatever lies between the two scopes.
-func TestASweepCursorResumesItsOwnSweepAndRefusesAnother(t *testing.T) {
-	walked := []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal}
-
-	from, inner, err := decodeSweepCursor(encodeSweepCursor(datasource.EntityOrganization, "mirror-42"), walked)
+// TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest pins the
+// resume token and the reason it names a TYPE rather than an index: the same
+// token has to mean the same place when the request presenting it is not the
+// one that minted it.
+func TestASweepCursorNamesAPositionInTheMirrorRatherThanInOneRequest(t *testing.T) {
+	minted, err := encodeSweepCursor(datasource.EntityOrganization, "mirror-42")
 	if err != nil {
-		t.Fatalf("decoding a cursor this sweep minted: %v", err)
+		t.Fatalf("encoding a sweep position: %v", err)
 	}
-	if from != 1 || inner != "mirror-42" {
-		t.Errorf("resume position = (%d, %q), want the organization arm at its own mirror cursor", from, inner)
+	resumeAt, inner, err := decodeSweepCursor(minted)
+	if err != nil {
+		t.Fatalf("decoding a cursor the sweep minted: %v", err)
+	}
+	if resumeAt != datasource.EntityOrganization || inner != "mirror-42" {
+		t.Errorf("resume position = (%q, %q), want the organization stream at its own mirror cursor", resumeAt, inner)
 	}
 
 	// An empty cursor is the start of the walk, not a malformed one.
-	if from, inner, err = decodeSweepCursor("", walked); err != nil || from != 0 || inner != "" {
-		t.Errorf("the empty cursor decoded to (%d, %q, %v), want the beginning", from, inner, err)
+	if resumeAt, inner, err = decodeSweepCursor(""); err != nil || resumeAt != "" || inner != "" {
+		t.Errorf("the empty cursor decoded to (%q, %q, %v), want the beginning", resumeAt, inner, err)
 	}
 
+	// Malformed is reserved for a token this package could not have minted.
 	for _, probe := range []struct{ name, cursor string }{
-		{"minted for a sweep this one does not walk", encodeSweepCursor(datasource.EntityLead, "mirror-7")},
 		{"not base64 at all", "not a cursor!!"},
 		{"base64 of something that is not a position", base64.RawURLEncoding.EncodeToString([]byte("nonsense"))},
+		{"naming an object class the mirror cannot hold", mustEncodeSweepCursor(t, datasource.EntityProject)},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
-			_, _, err := decodeSweepCursor(probe.cursor, walked)
+			_, _, err := decodeSweepCursor(probe.cursor)
 			var malformed *storekit.MalformedCursorError
 			if !errors.As(err, &malformed) {
 				t.Errorf("decoding a cursor %s = %v, want the malformed-cursor answer", probe.name, err)
 			}
 		})
+	}
+}
+
+// mustEncodeSweepCursor mints a position for a probe, failing the test rather
+// than swallowing an encoding error into an empty cursor.
+func mustEncodeSweepCursor(t *testing.T, et datasource.EntityType) string {
+	t.Helper()
+	cursor, err := encodeSweepCursor(et, "mirror-7")
+	if err != nil {
+		t.Fatalf("encoding a sweep position for %s: %v", et, err)
+	}
+	return cursor
+}
+
+// TestAResumedSweepSurvivesTheWalkChangingUnderIt is the half a cursor over a
+// per-request slice could not answer. A caller's readable types change between
+// pages — a narrowed `types`, a revoked grant — and the position they hold is
+// still a token this server minted.
+func TestAResumedSweepSurvivesTheWalkChangingUnderIt(t *testing.T) {
+	all := []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization,
+		datasource.EntityDeal, datasource.EntityLead, datasource.EntityActivity,
+	}
+	for _, probe := range []struct {
+		name     string
+		walk     []datasource.EntityType
+		resumeAt datasource.EntityType
+		want     int
+	}{
+		{"the type is still walked", all, datasource.EntityDeal, 2},
+		{"no cursor starts at the beginning", all, "", 0},
+		{
+			"the type was narrowed away — resume PAST it, never before",
+			[]datasource.EntityType{datasource.EntityPerson, datasource.EntityLead},
+			datasource.EntityDeal, 1,
+		},
+		{
+			"everything past the position was narrowed away — the walk is over",
+			[]datasource.EntityType{datasource.EntityPerson},
+			datasource.EntityLead, 1,
+		},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			if at := resumePosition(probe.walk, probe.resumeAt); at != probe.want {
+				t.Errorf("resumePosition = %d, want %d — resuming before the position re-serves rows the "+
+					"caller already holds, and past the next one hides rows they never saw", at, probe.want)
+			}
+		})
+	}
+}
+
+// A type named twice is walked once. The contract's `types` is a plain array
+// with no uniqueness rule, and a stream walked twice serves every record in it
+// twice — a cursor names the type, not which of its appearances.
+func TestASweepWalksEachTypeOnceInMirrorOrder(t *testing.T) {
+	walk, err := searchableTypes([]datasource.EntityType{
+		datasource.EntityDeal, datasource.EntityPerson, datasource.EntityDeal,
+	})
+	if err != nil {
+		t.Fatalf("resolving the walk: %v", err)
+	}
+	want := []datasource.EntityType{datasource.EntityPerson, datasource.EntityDeal}
+	if !slices.Equal(walk, want) {
+		t.Errorf("walk = %v, want %v — each type once, in the mirror's own order", walk, want)
 	}
 }
 
