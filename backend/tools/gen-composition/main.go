@@ -372,6 +372,11 @@ var vanillaStubs = []struct {
 		emit:  func() []byte { return extScreensGen(nil) },
 		align: "align the committed stub with tools/gen-composition (emit.go's extScreensGenHeader)",
 	},
+	{
+		rel:   frontendLocalesVanillaStub,
+		emit:  func() []byte { return extLocalesGen(nil) },
+		align: "align the committed stub with tools/gen-composition (emit.go's extLocalesGenHeader)",
+	},
 }
 
 // frontendVanillaStub is the SPA's committed empty-tree registry. It sits
@@ -386,6 +391,10 @@ const frontendVanillaStub = "frontend/src/composition/extensions.gen.ts"
 // module with no alias pointing outside the Vite root and no build step having
 // run.
 const frontendScreensVanillaStub = "frontend/src/composition/extscreens.gen.ts"
+
+// frontendLocalesVanillaStub is the empty-tree copy overlay, beside the other
+// two and for the same reason.
+const frontendLocalesVanillaStub = "frontend/src/composition/extlocales.gen.ts"
 
 // stubMatchesVanilla holds the lanes together: each committed stub (what a
 // bare build wires) must be byte-identical to this generator's vanilla output

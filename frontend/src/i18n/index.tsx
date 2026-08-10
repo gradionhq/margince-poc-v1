@@ -1,3 +1,4 @@
+import { extensionCopy } from "@composition/copy";
 import {
   createContext,
   type ReactNode,
@@ -30,6 +31,24 @@ export const catalogs = { en, de, vi } satisfies Record<
 >;
 
 export type Locale = keyof typeof catalogs;
+
+/**
+ * A key an extension unit's own copy supplies, namespaced to the unit the way
+ * its tables and RBAC objects are (`extCrmDemo.title`).
+ *
+ * A template-literal type rather than a union, for the reason
+ * ExtensionRbacObject is one: this file cannot enumerate what an installation
+ * enabled, and a union would have to be generated and would then make the
+ * vanilla and composed lanes different programs. The GENERATOR checks the real
+ * rule — that every key a unit ships begins with that unit's own prefix.
+ */
+export type ExtensionMessageKey = `ext${string}`;
+
+/**
+ * The copy an enabled unit contributed, per locale, merged by gen-composition.
+ * Empty on a vanilla tree.
+ */
+const unitCopy: Partial<Record<Locale, Record<string, string>>> = extensionCopy;
 
 // Display order for the switcher. `satisfies` proves each entry is a real
 // locale; i18n.test.ts proves the list is exhaustive.
@@ -67,10 +86,21 @@ export function detectLocale(
 
 export function translate(
   locale: Locale,
-  key: MessageKey,
+  key: MessageKey | ExtensionMessageKey,
   params?: Record<string, string | number>,
 ): string {
-  const message = catalogs[locale][key];
+  // CORE FIRST, and a unit second. The generator already refuses a key outside
+  // the unit's own namespace, so the two sets cannot overlap today — this
+  // ordering is what keeps that true if the namespace rule were ever loosened:
+  // a unit must not be able to change what a core string says.
+  //
+  // A key neither side carries falls back to the key itself, which is what an
+  // untranslated string has always done here and reads as an obvious defect on
+  // the page rather than as an empty element.
+  const message =
+    (catalogs[locale] as Record<string, string>)[key] ??
+    unitCopy[locale]?.[key] ??
+    key;
   if (!params) {
     return message;
   }

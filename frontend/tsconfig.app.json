@@ -43,7 +43,8 @@
     "paths": {
       "@composition/extensions": ["./src/composition/extensions.gen"],
       "@composition/schema": ["./src/api/schema"],
-      "@composition/screens": ["./src/composition/extscreens.gen"]
+      "@composition/screens": ["./src/composition/extscreens.gen"],
+      "@composition/copy": ["./src/composition/extlocales.gen"]
     }
   },
   "include": ["src"],

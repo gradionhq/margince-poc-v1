@@ -134,12 +134,15 @@ func TestFrontendRegistryEscapesDeclaredText(t *testing.T) {
 	}
 }
 
-// stubMatchesVanilla is the gate BOTH committed stubs answer to, and until this
-// task it had no unit coverage at all — it was exercised only end to end by
-// `make gen` / `make check-composition`. A gate whose failure path is never run
-// is the one that quietly stops refusing, and this task gave it a second lane
-// to police.
-func TestStubMatchesVanillaRefusesAnEditToEitherStub(t *testing.T) {
+// stubMatchesVanilla is the gate EVERY committed stub answers to — the Go
+// wiring, the descriptor registry, the screen registry and the copy overlay —
+// and until the tier's first frontend slice it had no unit coverage at all,
+// being exercised only end to end by `make gen` / `make check-composition`. A
+// gate whose failure path is never run is the one that quietly stops refusing.
+//
+// It ranges vanillaStubs rather than naming them, so a fifth artifact is
+// policed by construction rather than by somebody remembering this test.
+func TestStubMatchesVanillaRefusesAnEditToAnyStub(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	if err := stubMatchesVanilla(root); err != nil {
 		t.Fatalf("the committed tree does not satisfy its own vanilla gate: %v", err)

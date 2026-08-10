@@ -21,7 +21,11 @@ const compositionDir = composedComposition
 // step did not run. Falling back to the vanilla stub would build a bundle that
 // silently routes no extension at all — the failure would surface as a missing
 // screen in a deployed image, long after the build that caused it went green.
-for (const artifact of ["extensions.gen.ts", "extscreens.gen.ts"]) {
+for (const artifact of [
+  "extensions.gen.ts",
+  "extscreens.gen.ts",
+  "extlocales.gen.ts",
+]) {
   if (composedComposition && !existsSync(join(compositionDir, artifact))) {
     throw new Error(
       `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no ${artifact} — run 'make -C backend composition' before building the composed frontend lane`,
@@ -51,6 +55,10 @@ export default defineConfig({
       // installation serves, so the vanilla bundle resolves an empty registry
       // and never pulls a unit into the graph at all.
       "@composition/screens": join(compositionDir, "extscreens.gen.ts"),
+      // A unit's own copy, merged into the catalogue. Selected by the same
+      // switch: on a vanilla tree it is an empty object, so `useT` resolves
+      // exactly the core keys it always did.
+      "@composition/copy": join(compositionDir, "extlocales.gen.ts"),
     },
     // ONE React, whichever copy a unit package's own dependency tree would
     // otherwise resolve. React's hook dispatcher is per-instance: a second copy

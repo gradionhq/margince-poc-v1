@@ -42,7 +42,8 @@
       // for a unit whose fragment did not merge does not typecheck HERE — the
       // route half of the ordering constraint, enforced at compile time (the
       // RBAC-object half is not; see src/app/capability.ts).
-      "@composition/screens": ["../build/composition/frontend/extscreens.gen"]
+      "@composition/screens": ["../build/composition/frontend/extscreens.gen"],
+      "@composition/copy": ["../build/composition/frontend/extlocales.gen"]
     }
   },
   // A unit's screen lives outside src/ entirely now, and tsc reaches it by
