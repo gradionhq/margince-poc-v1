@@ -103,6 +103,10 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, in Deri
 	if in.PrivateTo != (ids.UUID{}) {
 		visibility = visibilityOwner
 	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return false, err
+	}
 	var signalID ids.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO signal
@@ -114,7 +118,7 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, in Deri
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
 		wsID, in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
-		in.Severity, detectedAt, "agent:"+in.Kind,
+		in.Severity, detectedAt, by,
 		visibility, nullableOwner(in.PrivateTo)).Scan(&signalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
