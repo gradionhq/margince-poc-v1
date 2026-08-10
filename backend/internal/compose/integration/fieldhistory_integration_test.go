@@ -462,7 +462,7 @@ func TestFieldHistoryExcludesRetentionArchiveMeta(t *testing.T) {
 	_, _, staleDeal, _ := seedOverAgeRecords(t, e)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("retention pass: %v", err)
 	}
 
