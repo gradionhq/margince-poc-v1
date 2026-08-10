@@ -7950,6 +7950,20 @@ export interface components {
              *     restatement that data is missing.
              */
             next_step?: string | null;
+            /**
+             * @description The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+             *     same evidence the band is assessed from, each with a 0-100 score and the reason for
+             *     it, so a reader who disagrees with the verdict can see which input carried it.
+             *
+             *     ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+             *     zeroes and never a partial set, because a dimension scored 0 is a claim about the
+             *     company where an absent one is a fact about the reading (DOSS-AC-18).
+             *
+             *     This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+             *     composite that survives its own missing inputs; nothing here sums or averages these
+             *     four into one figure (DOSS-AC-19), and the band remains the verdict.
+             */
+            sub_scores?: components["schemas"]["GrowthFitSubScore"][];
             /** @description What argues for this company being a fit. */
             positive_factors?: components["schemas"]["OrganizationBriefSentence"][];
             /** @description What argues against it. */
@@ -8033,6 +8047,25 @@ export interface components {
              *     rather than a sentence written around the gap.
              */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description One dimension of the growth-fit assessment, with the reason for its score.
+         *
+         *     The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+         *     this model was built to replace, and a reader must be able to see what it was read from.
+         */
+        GrowthFitSubScore: {
+            /**
+             * @description The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+             * @enum {string}
+             */
+            dimension: "industry_fit" | "company_size" | "transformation_need" | "access";
+            /** @description 0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19) — the band is the verdict, and these are what it was read from. */
+            score: number;
+            /** @description One sentence saying what this score was read from. */
+            reason: string;
+            /** @description The records behind the reason, on the same footing as every other claim. A sub-score citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20). */
+            evidence?: components["schemas"]["OrganizationBriefEvidence"][];
         };
         OrganizationBriefSentence: {
             text: string;

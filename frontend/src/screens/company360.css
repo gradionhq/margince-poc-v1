@@ -854,3 +854,19 @@
   border-block-start: 1px solid var(--borderSubtle);
   font-weight: 600;
 }
+
+/* The growth-fit bars: the band taken apart, one row per dimension. The reason
+   sits under its bar rather than beside it — at this width a sentence and a
+   meter side by side leave neither enough room to read. */
+.co-growth-fit-scores {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-growth-fit-score {
+  display: grid;
+  gap: var(--space-1);
+}

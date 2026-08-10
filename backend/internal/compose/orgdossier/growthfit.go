@@ -229,11 +229,26 @@ func valueCounts(value string, human bool, retrievedAt *time.Time, updatedAt, no
 // it was written from, so the reader can open the evidence rather than take the
 // band on trust.
 type GrowthFitClaims struct {
-	PositiveFactors  []claims.Sentence `json:"positive_factors,omitempty"`
-	NegativeFactors  []claims.Sentence `json:"negative_factors,omitempty"`
-	Whitespace       []claims.Sentence `json:"whitespace,omitempty"`
-	Objections       []claims.Sentence `json:"objections,omitempty"`
-	RecommendedAngle *claims.Sentence  `json:"recommended_angle,omitempty"`
+	// SubScores is the band taken apart (DOSS-AC-17). Grounded like every other
+	// claim, and withheld with them below the abstention floor: a dimension
+	// scored 0 is a claim about the company, where an absent one is a fact
+	// about the reading (DOSS-AC-18).
+	SubScores        []GrowthFitSubScore `json:"sub_scores,omitempty"`
+	PositiveFactors  []claims.Sentence   `json:"positive_factors,omitempty"`
+	NegativeFactors  []claims.Sentence   `json:"negative_factors,omitempty"`
+	Whitespace       []claims.Sentence   `json:"whitespace,omitempty"`
+	Objections       []claims.Sentence   `json:"objections,omitempty"`
+	RecommendedAngle *claims.Sentence    `json:"recommended_angle,omitempty"`
+}
+
+// GrowthFitSubScore is one dimension's score and the sentence behind it. The
+// reason travels WITH the number: a bar with no sentence is the unexplainable
+// score this model was built to replace.
+type GrowthFitSubScore struct {
+	Dimension string            `json:"dimension"`
+	Score     int               `json:"score"`
+	Reason    string            `json:"reason"`
+	Evidence  []claims.Evidence `json:"evidence,omitempty"`
 }
 
 // empty reports whether nothing survived the grounding filter.
