@@ -36,6 +36,12 @@ var quotaAdminPerms = principal.Permissions{
 	Objects: map[string]principal.ObjectGrant{
 		"quota": {Create: true, Read: true, Update: true, Delete: true},
 		"deal":  {Read: true},
+		// Attainment converts the target into the installation's base currency,
+		// which it resolves from the settings row behind this object gate.
+		// 0191 grants installation_settings:read to EVERY seeded role — a rep
+		// reading their own attainment needs it as much as an admin does — so
+		// both fixtures below carry it, mirroring that seed.
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -44,7 +50,10 @@ var quotaAdminPerms = principal.Permissions{
 // a rep sees the targets, never sets one.
 var quotaRepPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
-	Objects:  map[string]principal.ObjectGrant{"quota": {Read: true}},
+	Objects: map[string]principal.ObjectGrant{
+		"quota":                 {Read: true},
+		"installation_settings": {Read: true},
+	},
 	RowScope: principal.RowScopeTeam,
 }
 
