@@ -27,6 +27,7 @@
     "WebAssembly",
     "blob:",
     "URL.createObjectURL",
+    "sourceMappingURL",
     "/@vite/client"
   ],
   "toolCall": ["tools/call", "ui/tool", "callTool"],
