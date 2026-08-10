@@ -187,25 +187,30 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 }
 
 // holdsOnlyInstalledOutput reports whether a unit directory contains nothing a
-// human wrote — only the node_modules a package manager put there. It is how
-// the scan tells "half-removed unit" from "unit missing its go.mod", which
-// otherwise look identical and want opposite advice.
+// human wrote AND does contain an installed dependency tree. It is how the scan
+// tells a half-removed unit from a directory that was always empty — two
+// situations that look identical by content and want opposite advice.
+//
+// The node_modules requirement is what makes it the half-removed case rather
+// than merely an empty one: `git rm -r` takes the tracked files and leaves the
+// ignored install behind, so that tree IS the evidence a unit used to be here.
 func holdsOnlyInstalledOutput(dir string) (bool, error) {
-	found := false
+	installed, wrote := false, false
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			if d.Name() == nodeModulesDir {
+				installed = true
 				return fs.SkipDir
 			}
 			return nil
 		}
-		found = true
+		wrote = true
 		return filepath.SkipAll
 	})
-	return !found, err
+	return installed && !wrote, err
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other

@@ -157,6 +157,22 @@ func TestScanExtensions(t *testing.T) {
 		})
 	}
 
+	// The half-removed unit: `git rm -r` takes the tracked files and leaves the
+	// IGNORED install behind, so the directory survives holding nothing a human
+	// wrote. It is a different situation from an empty directory and wants
+	// different advice, and the two are indistinguishable without the
+	// node_modules tree as evidence.
+	t.Run("a unit whose source is gone but whose install is not", func(t *testing.T) {
+		root := t.TempDir()
+		writeUnit(t, root, "half-removed", map[string]string{
+			"frontend/node_modules/react/index.js": "module.exports = {}\n",
+		})
+		_, err := scanExtensions(root)
+		if err == nil || !strings.Contains(err.Error(), "holds nothing but installed dependencies") {
+			t.Fatalf("err = %v, want the half-removed refusal", err)
+		}
+	})
+
 	// The refusal MECHANISM outlives the list, which is empty now that all
 	// three layers compose. Driving it through the var is the only way to
 	// exercise it, and it is worth exercising: the next capability layer
