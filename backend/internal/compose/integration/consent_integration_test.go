@@ -12,6 +12,7 @@ package integration
 // withdrawal re-blocks, and the German double-opt-in norm holds.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -154,6 +155,122 @@ func TestCorrespondenceAndTransactionalAreNotConsentGated(t *testing.T) {
 	}
 	if status, code := c.send(t, "business_correspondence"); status != http.StatusAccepted {
 		t.Fatalf("correspondence send → %d %q, want 202 — they wrote to us first", status, code)
+	}
+}
+
+// A basis the gate DERIVED is stamped onto the record before it is relied on
+// (ADR-0098 D2, Art 5(2)).
+//
+// Deriving the qualifying event from the timeline answers the question
+// correctly but not accountably: nothing on the record would say what
+// authorized this particular send. The controller carries the burden of
+// showing a lawful basis, and a computation this build happened to make is not
+// something anybody can look up afterwards.
+func TestASendOnADerivedBasisRecordsWhatAuthorizedIt(t *testing.T) {
+	c := setupConsent(t)
+	ctx := context.Background()
+
+	var before int
+	if err := c.Owner.QueryRow(ctx,
+		`SELECT count(*) FROM consent_qualifying_event WHERE person_id = $1`, c.personID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if before != 0 {
+		t.Fatalf("the fixture starts with %d qualifying events, want none — the derivation is what allows the send", before)
+	}
+
+	if status, code := c.send(t, "business_correspondence"); status != http.StatusAccepted {
+		t.Fatalf("correspondence send → %d %q, want 202", status, code)
+	}
+
+	var kind, sourceType, source string
+	if err := c.Owner.QueryRow(ctx,
+		`SELECT kind, source_entity_type, source
+		 FROM consent_qualifying_event WHERE person_id = $1`, c.personID).
+		Scan(&kind, &sourceType, &source); err != nil {
+		t.Fatalf("the send was allowed on a derived basis that was never recorded: %v", err)
+	}
+	if kind != "inbound_message" || sourceType != "activity" {
+		t.Errorf("recorded %s/%s, want inbound_message/activity — the stamp must name the message that allowed it", kind, sourceType)
+	}
+	if source != "derived" {
+		t.Errorf("recorded source %q, want %q — a derived basis must not read as one a human typed", source, "derived")
+	}
+
+	// A second send re-derives the same message. It must not stack a second
+	// row claiming a second event happened.
+	if status, _ := c.send(t, "business_correspondence"); status != http.StatusAccepted {
+		t.Fatal("the second correspondence send should still be allowed")
+	}
+	var after int
+	if err := c.Owner.QueryRow(ctx,
+		`SELECT count(*) FROM consent_qualifying_event WHERE person_id = $1`, c.personID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != 1 {
+		t.Errorf("qualifying events = %d after two sends, want 1 — the same message is one event", after)
+	}
+}
+
+// A preview authorizes nothing, so it records nothing.
+//
+// Writing a legal fact because somebody opened a composer would put a lawful
+// basis on the record for a message that was never sent.
+func TestTheGuardPreviewRecordsNothing(t *testing.T) {
+	c := setupConsent(t)
+	ctx := context.Background()
+
+	var guard struct {
+		Entries []struct {
+			PurposeKey string `json:"purpose_key"`
+			Verdict    string `json:"verdict"`
+		} `json:"entries"`
+	}
+	if status := c.Call(t, "GET", "/v1/people/"+c.personID+"/consent/guard", nil, nil, &guard); status != http.StatusOK {
+		t.Fatalf("guard → %d", status)
+	}
+	var sawCorrespondence bool
+	for _, entry := range guard.Entries {
+		if entry.PurposeKey == "business_correspondence" {
+			sawCorrespondence = true
+			if entry.Verdict != "allowed" {
+				t.Errorf("correspondence guard = %q, want allowed — they wrote to us", entry.Verdict)
+			}
+		}
+	}
+	if !sawCorrespondence {
+		t.Fatal("the guard did not report on business correspondence at all")
+	}
+
+	var recorded int
+	if err := c.Owner.QueryRow(ctx,
+		`SELECT count(*) FROM consent_qualifying_event WHERE person_id = $1`, c.personID).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 0 {
+		t.Errorf("the preview wrote %d qualifying event(s); a preview authorizes nothing and must record nothing", recorded)
+	}
+}
+
+// An archived address is one somebody detached from a record, and the same
+// string may be live on somebody else. Resolving through it would answer about
+// the wrong human.
+func TestAnArchivedAddressDoesNotAuthorizeItsFormerHolder(t *testing.T) {
+	c := setupConsent(t)
+	ctx := context.Background()
+
+	// Detach the address the fixture's person holds. Nothing else changes: the
+	// person is still live, and their inbound message still sits on the record.
+	if _, err := c.Owner.Exec(ctx,
+		`UPDATE person_email SET archived_at = now() WHERE person_id = $1`, c.personID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The address now belongs to nobody, so it resolves to no person and no
+	// lead — and default-deny refuses rather than reaching the former holder's
+	// qualifying event.
+	if status, code := c.send(t, "business_correspondence"); status != http.StatusConflict || code != "consent_not_granted" {
+		t.Fatalf("send to a detached address → %d %q, want 409 — an archived identity authorizes nobody", status, code)
 	}
 }
 

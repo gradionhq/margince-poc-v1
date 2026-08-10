@@ -127,13 +127,18 @@ var tableOwners = map[string]string{
 	"workspace_signing_key": "internal/modules/approvals",
 	// consent (the DSR case queue and the retention-policy catalog are
 	// consent's; the engines that EXECUTE them live in privacy)
-	"consent_purpose":      "internal/modules/consent",
-	"person_consent":       "internal/modules/consent",
-	"consent_event":        "internal/modules/consent",
-	"consent_doi_token":    "internal/modules/consent",
-	"data_subject_request": "internal/modules/consent",
-	"retention_policy":     "internal/modules/consent",
-	"preference_token":     "internal/modules/consent",
+	"consent_purpose":   "internal/modules/consent",
+	"person_consent":    "internal/modules/consent",
+	"consent_event":     "internal/modules/consent",
+	"consent_doi_token": "internal/modules/consent",
+	// What made business correspondence lawful, and the §7(3) flag: both are
+	// the gate's own evidence (ADR-0098 D2/D4), written where the gate that
+	// relies on them lives.
+	"consent_qualifying_event":       "internal/modules/consent",
+	"consent_existing_customer_flag": "internal/modules/consent",
+	"data_subject_request":           "internal/modules/consent",
+	"retention_policy":               "internal/modules/consent",
+	"preference_token":               "internal/modules/consent",
 	// capture
 	"raw_capture":                  "internal/modules/capture",
 	"capture_connection":           "internal/modules/capture",

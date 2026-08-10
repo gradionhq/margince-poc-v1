@@ -62,6 +62,17 @@ type Verdict struct {
 	// one did. Recording WHICH event is what makes the Art 6(1)(f) balancing
 	// accountable rather than merely asserted.
 	Qualifying *QualifyingEvent
+	// QualifyingDerived marks a Qualifying that was READ OFF the timeline
+	// rather than read from a stored row.
+	//
+	// The distinction is the accountability one. A derived event is
+	// re-computed on every call and leaves no trace of what authorized a
+	// particular send; ADR-0098 D2 requires the flip be "stamped with which
+	// event and when", so the transmit path persists a derived event before it
+	// relies on it. The guard preview does not — a preview authorizes nothing,
+	// and writing a record because somebody opened a drawer would put a legal
+	// fact on the record for a message nobody sent.
+	QualifyingDerived bool
 }
 
 const (
@@ -116,7 +127,7 @@ func VerdictForPerson(ctx context.Context, tx pgx.Tx, personID string, purpose P
 		return Verdict{State: VerdictAllowed, Reason: "account and contract notices need no consent"}, nil
 
 	case ClassBusinessCorrespondence:
-		event, found, err := latestQualifyingEvent(ctx, tx, personID)
+		event, derived, found, err := latestQualifyingEvent(ctx, tx, personID)
 		if err != nil {
 			return Verdict{}, err
 		}
@@ -130,9 +141,10 @@ func VerdictForPerson(ctx context.Context, tx pgx.Tx, personID string, purpose P
 			}, nil
 		}
 		return Verdict{
-			State:      VerdictAllowed,
-			Reason:     qualifyingReason(event),
-			Qualifying: &event,
+			State:             VerdictAllowed,
+			Reason:            qualifyingReason(event),
+			Qualifying:        &event,
+			QualifyingDerived: derived,
 		}, nil
 
 	case ClassPhoneOutreach:
@@ -260,12 +272,48 @@ func objectionStands(ctx context.Context, tx pgx.Tx, personID, purposeID string)
 // evidence, and a model that only recognised events recorded after this build
 // shipped would tell a rep they may not answer somebody who wrote to them last
 // week.
-func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, error) {
+func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, bool, error) {
 	event, found, err := recordedQualifyingEvent(ctx, tx, personID)
 	if err != nil || found {
-		return event, found, err
+		return event, false, found, err
 	}
-	return inboundQualifyingEvent(ctx, tx, personID)
+	event, found, err = inboundQualifyingEvent(ctx, tx, personID)
+	return event, found, found, err
+}
+
+// RecordDerivedQualifyingEvent stamps a derived qualifying event onto the
+// record, so what authorized a send is a fact somebody can look up rather than
+// a computation this build happened to make.
+//
+// ADR-0098 D2 requires the flip be "stamped with which event and when", and
+// Art 5(2) is why: a lawful basis nobody wrote down is an assertion, and the
+// controller carries the burden of showing it. Deriving the event at read time
+// answers the question correctly; it does not answer it accountably.
+//
+// Only the TRANSMIT path calls this. A preview authorizes nothing, and writing
+// a legal fact because somebody opened a composer would record a basis for a
+// message that was never sent.
+//
+// The insert is idempotent on the source record: the same inbound message
+// re-derived on the next send must not stack a second row claiming a second
+// event happened.
+func RecordDerivedQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string, event QualifyingEvent, capturedBy string) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO consent_qualifying_event
+			(workspace_id, person_id, kind, source_entity_type, source_entity_id,
+			 occurred_at, source, captured_by)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		       $1, $2, $3, $4, $5, 'derived', $6
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM consent_qualifying_event e
+		  WHERE e.person_id = $1 AND e.source_entity_type = $3 AND e.source_entity_id = $4
+		)`,
+		personID, event.Kind, event.SourceEntityType, event.SourceEntityID,
+		event.OccurredAt, capturedBy)
+	if err != nil {
+		return fmt.Errorf("consent: stamp the qualifying event that allowed this send: %w", err)
+	}
+	return nil
 }
 
 // recordedQualifyingEvent reads a row a human or an integration wrote.

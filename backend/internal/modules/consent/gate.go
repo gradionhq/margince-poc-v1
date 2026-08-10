@@ -5,13 +5,13 @@ package consent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -109,45 +109,101 @@ func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, 
 	if err != nil {
 		return false, err
 	}
-	if found {
-		verdict, err := VerdictForPerson(ctx, tx, personID, purpose)
-		if err != nil {
-			return false, err
-		}
-		// Only an explicit allow sends. Unknown is not a soft yes: it means
-		// nobody has decided, and default-deny is the whole posture.
-		return verdict.State == VerdictAllowed, nil
+	if !found {
+		return grantedForLead(ctx, tx, r, purpose.ID, purpose.RequiresDOI)
 	}
-	return grantedForLead(ctx, tx, r, purpose.ID, purpose.RequiresDOI)
+	verdict, err := VerdictForPerson(ctx, tx, personID, purpose)
+	if err != nil {
+		return false, err
+	}
+	// Only an explicit allow sends. Unknown is not a soft yes: it means nobody
+	// has decided, and default-deny is the whole posture.
+	if verdict.State != VerdictAllowed {
+		return false, nil
+	}
+	if err := stampDerivedBasis(ctx, tx, personID, verdict); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// stampDerivedBasis records a basis the gate worked out for itself, before the
+// send relies on it (ADR-0098 D2, Art 5(2)).
+//
+// A lawful basis nobody wrote down is an assertion, and the controller carries
+// the burden of showing it. A basis read from a stored row needs nothing: it is
+// already the record.
+func stampDerivedBasis(ctx context.Context, tx pgx.Tx, personID string, verdict Verdict) error {
+	if !verdict.QualifyingDerived || verdict.Qualifying == nil {
+		return nil
+	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
+	return RecordDerivedQualifyingEvent(ctx, tx, personID, *verdict.Qualifying, by)
 }
 
 // resolvePerson finds the person behind a recipient, through whichever
 // identity the recipient carries.
+//
+// Only a LIVE identity resolves. An archived address is one somebody detached
+// from a record — it is uniquely held only among live rows (uq_person_email_dedupe
+// is partial on archived_at IS NULL), so the same string can sit archived on one
+// person and live on another. Picking either would bind this send's whole verdict
+// to an identity nobody currently holds, and the answer would be about the wrong
+// human.
+//
+// AMBIGUITY REFUSES rather than picks. A bare LIMIT 1 over more than one live
+// match is a silent choice between two people, made by row order — which is the
+// one thing a default-deny gate must never do. The dedupe index makes a live
+// duplicate impossible for email in a healthy schema; this refuses anyway,
+// because a gate that trusts an invariant it does not check is a gate that stops
+// applying the moment the invariant slips.
 func resolvePerson(ctx context.Context, tx pgx.Tx, r connector.Recipient) (string, bool, error) {
-	var personID string
+	var rows pgx.Rows
 	var err error
 	if r.Channel != nil {
 		// Person-only by construction: a channel identity binds a Person and
 		// nothing else (0146 has no lead arm).
-		err = tx.QueryRow(ctx, `
-			SELECT p.id FROM person_channel_identity pci
+		rows, err = tx.Query(ctx, `
+			SELECT DISTINCT p.id FROM person_channel_identity pci
 			JOIN person p ON p.id = pci.person_id AND p.archived_at IS NULL
 			WHERE pci.provider = $1 AND pci.channel_user_id = $2 AND pci.archived_at IS NULL
-			LIMIT 1`, r.Channel.Provider, r.Channel.ChannelUserID).Scan(&personID)
+			LIMIT 2`, r.Channel.Provider, r.Channel.ChannelUserID)
 	} else {
-		err = tx.QueryRow(ctx, `
-			SELECT p.id FROM person_email pe
+		rows, err = tx.Query(ctx, `
+			SELECT DISTINCT p.id FROM person_email pe
 			JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
-			WHERE lower(pe.email) = lower($1)
-			LIMIT 1`, r.Email).Scan(&personID)
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+			WHERE lower(pe.email) = lower($1) AND pe.archived_at IS NULL
+			LIMIT 2`, r.Email)
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
 	}
-	return personID, true, nil
+	defer rows.Close()
+
+	var matches []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
+		}
+		matches = append(matches, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
+	}
+	switch len(matches) {
+	case 0:
+		return "", false, nil
+	case 1:
+		return matches[0], true, nil
+	default:
+		return "", false, fmt.Errorf(
+			"consent: this recipient resolves to more than one live contact, so no consent answer is about one person: %w",
+			apperrors.ErrConsentNotGranted)
+	}
 }
 
 // grantedForLead is the unpromoted-lead arm (E12.20).
