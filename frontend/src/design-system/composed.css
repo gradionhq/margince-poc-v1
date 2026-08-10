@@ -244,6 +244,17 @@
    bottom:0 would put every record verb underneath the nav — present in the
    DOM, unreachable by thumb. */
 @media (max-width: 720px) {
+  /* A phone has no room for a second column beside the name, so the header
+     stacks and the standing block sits under it at full width. Without this
+     the controls keep a narrow right-hand column and the lifecycle control
+     wraps to one word per line. */
+  .record-head-wide {
+    flex-wrap: wrap;
+  }
+  .record-head-wide .record-controls {
+    flex-basis: 100%;
+    align-items: flex-start;
+  }
   .record-actions {
     position: sticky;
     bottom: var(--phoneNavClearance);
@@ -256,6 +267,14 @@
     padding: var(--space-2) 0;
     background: var(--bg);
     border-top: 1px solid var(--border);
+  }
+  /* Inside the header the verbs are a right-aligned row of their own, which
+     on a phone would leave the sticky bar half a screen wide and pinned to
+     the bottom of the HEADER rather than the viewport. Full width, left to
+     right, like the bar on every other record. */
+  .record-head-wide .record-controls .record-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
   /* The bar floats over the end of the page while scrolling, so the record
      reserves room for it AND for the nav below it — without this the last row

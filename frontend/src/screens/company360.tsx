@@ -2138,17 +2138,19 @@ function FinanceStat({
 }>) {
   // The SAME query the finance card runs, so the two readings on one page
   // agree and the second one costs no request.
-  const { data } = useFinanceSummary(orgId);
+  const { data, isPending } = useFinanceSummary(orgId);
   const amount =
     reading === "netInvoiced" ? data?.net_invoiced : data?.open_balance;
-  // No figure is not €0. Until a source is connected and synced the strip says
-  // so and names the fix, which is what "connect your accounting" is for.
+  // No figure is not €0, and the six reasons there is none are not one reason.
+  // "Connect your accounting" is wrong advice for a connection that exists and
+  // is syncing, stale, errored or unmatched — it sends the reader to set up
+  // something they already have.
   if (!amount || amount.amount_minor == null || !amount.currency) {
     return (
       <StatCard
         label={t(`co.strip.${reading}`)}
         value={t("co.strip.financeUnknown")}
-        detail={t("co.strip.connectFinance")}
+        detail={t(financeDetailKey(isPending, data?.state))}
       />
     );
   }
@@ -2156,9 +2158,39 @@ function FinanceStat({
     <StatCard
       label={t(`co.strip.${reading}`)}
       value={formatMoney(amount.amount_minor, amount.currency, locale)}
+      // A stale figure is shown WITH its caveat rather than withheld: the last
+      // known number is usually the right one, and hiding it tells the reader
+      // less than showing it with a date would.
+      detail={data?.state === "stale" ? t("co.strip.fin.stale") : undefined}
       source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
+}
+
+// Why there is no figure, in the reader's terms. Each state has its own fix,
+// and naming the wrong one costs the reader a trip to a settings page they did
+// not need.
+function financeDetailKey(
+  pending: boolean,
+  state?: components["schemas"]["FinanceSummaryState"],
+): MessageKey {
+  if (pending) {
+    return "co.strip.fin.loading";
+  }
+  switch (state) {
+    case "unmapped":
+      return "co.strip.fin.unmapped";
+    case "syncing":
+      return "co.strip.fin.syncing";
+    case "stale":
+      return "co.strip.fin.stale";
+    case "error":
+      return "co.strip.fin.error";
+    default:
+      // no_connection, and the read that never answered. Both mean there is
+      // no source to read, which is the one case the setup advice fits.
+      return "co.strip.fin.noConnection";
+  }
 }
 
 type StripCommercial = NonNullable<
