@@ -268,6 +268,11 @@ func (s Server) ListDeals(w http.ResponseWriter, r *http.Request, params crmcont
 			{"stalled", params.Stalled != nil},
 			{"partner_org_id", params.PartnerOrgId != nil},
 			{"partner_sourced", params.PartnerSourced != nil},
+			// Delivery work is OUR record: the mirror holds the incumbent's
+			// deals and carries no project to attribute one to. Narrowing by a
+			// project would answer the whole mirror while reading as that
+			// project's deals.
+			{"project_id", params.ProjectId != nil},
 		},
 		nil, params.Cursor, params.Limit, overlayWireDeal,
 		func(data []crmcontracts.Deal, page crmcontracts.PageInfo) any {

@@ -42,7 +42,11 @@ type ListOrganizationsInput struct {
 	Classification   *string
 	Lifecycle        *string
 	RelationshipType *string
-	IncludeArchived  bool
+	// Domain narrows to the account that lists one domain — the
+	// employer-inference lookup, spelled as a filter over the same
+	// organization_domain rows the page attaches.
+	Domain          *string
+	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
 	// AiWritten filters on whether an AI wrote into the record (§3a).
@@ -65,9 +69,33 @@ var organizationListFields = map[string]string{
 	ownerIDColumn:   storekit.KindUUID,
 }
 
+// organizationDomainClause narrows the page to the account that lists one
+// domain, or "" when the caller named none.
+//
+// The value is folded the way organization_domain stores it (normalizeDomain),
+// so a caller's capitalization decides nothing — and it is compared against
+// LIVE domain rows only, which is both what the page itself attaches and what
+// `uq_org_domain` indexes. A domain released by one account and taken by
+// another must answer with the account that holds it now.
+//
+// EXISTS rather than a join: an account lists several domains, and a join
+// would return it once per row the keyset cursor would then page over as if
+// they were distinct accounts.
+func organizationDomainClause(domain *string, arg func(any) int) string {
+	if domain == nil {
+		return ""
+	}
+	return storekit.SQLf(`EXISTS (
+		SELECT 1 FROM organization_domain d
+		WHERE d.workspace_id = organization.workspace_id
+		  AND d.organization_id = organization.id
+		  AND d.domain = $%d AND d.archived_at IS NULL)`,
+		arg(normalizeDomain(*domain)))
+}
+
 // ListOrganizations is the row-scoped organization list read:
-// quick-find, owner, classification and custom-field filters, keyset
-// pagination under the validated sort.
+// quick-find, owner, domain, classification and custom-field filters,
+// keyset pagination under the validated sort.
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
 	shared := listFilters{
 		IncludeArchived: in.IncludeArchived,
@@ -99,6 +127,9 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			}
 			if in.Classification != nil {
 				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
+			}
+			if clause := organizationDomainClause(in.Domain, arg); clause != "" {
+				where = append(where, clause)
 			}
 			// A value outside the enum is a client mistake, not a selection
 			// that happens to match nothing: answering 200 with an empty page

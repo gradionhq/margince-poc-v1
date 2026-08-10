@@ -46,6 +46,7 @@ func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, para
 		CustomFilters:    httperr.CustomFieldFilters(r),
 		Lifecycle:        enumArg(params.Lifecycle),
 		RelationshipType: enumArg(params.RelationshipType),
+		Domain:           params.Domain,
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 

@@ -42,6 +42,7 @@ func (h Handlers) ListPeople(w http.ResponseWriter, r *http.Request, params crmc
 		AiWritten:       params.AiWritten,
 		Sort:            params.Sort,
 		CustomFilters:   httperr.CustomFieldFilters(r),
+		Tag:             params.Tag,
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 
