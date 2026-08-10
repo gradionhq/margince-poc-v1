@@ -38,8 +38,10 @@ jobs:
   # everything. Draft PRs run nothing until marked ready (the swarm pushes many
   # WIP commits). A required job skipped this way counts as passing.
   #   backend  = Go/DB + the gate inputs (backend, infra, go.work, Makefile,
-  #              scripts, workflows, AGENTS.md) — gates the Go build/gate,
-  #              craft, integration, vuln
+  #              scripts, this workflow, AGENTS.md) — gates the Go build/gate,
+  #              craft, integration, vuln. A gate input earns its place by
+  #              being able to change what a gate DOES; prose that merely
+  #              describes one does not, hence the two extglobs below.
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
@@ -73,7 +75,14 @@ jobs:
               # "two validators that disagree" outage the shared file exists to
               # make impossible.
               - 'frontend/src/mcp-apps/forbidden.json'
-              - 'infra/**'
+              # The dev compose stack the DB-backed lanes boot — but not the
+              # prose beside it. Editing infra/ci-pipeline.md, the file that
+              # DOCUMENTS this classifier, must not boot twelve Postgres
+              # shards. The extglob is one positive pattern on purpose: the
+              # action ORs its patterns, so a `!infra/**/*.md` entry would
+              # match every path OUTSIDE infra/ and fire the filter on
+              # everything.
+              - 'infra/**/!(*.md)'
               - 'go.work'
               - 'go.work.sum'
               - 'Makefile'
@@ -81,7 +90,10 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
-              - '.github/workflows/**'
+              # Only the merge gate itself. patch.yml and sbom.yml run no
+              # backend gate, so editing one cannot invalidate a gate result —
+              # and each proves itself when it runs.
+              - '.github/workflows/ci.yml'
               - 'AGENTS.md'
               - 'sonar-project.properties'
             frontend:
@@ -90,7 +102,8 @@ jobs:
             e2e:
               - 'backend/**'
               - 'frontend/**'
-              - 'infra/**'
+              # Same cut as the backend scope: the compose stack, not the prose.
+              - 'infra/**/!(*.md)'
               # live-boot boots COMPOSED (ADR-0069): the enabled extension
               # tree and the composition inputs shape the binary under test.
               - 'extensions/**'
@@ -353,6 +366,17 @@ jobs:
       - name: the gate still catches
         working-directory: .
         run: make test-secret-scan
+      # The pin gate rides along here, and only here, because it reads the WHOLE
+      # workflow directory while the backend scope names one file: sbom.yml and
+      # patch.yml match no scope, so gated on the classifier this check would
+      # skip on exactly the PR that unpins an action — and Renovate, which bumps
+      # `uses:` across all three workflows, auto-merges on green. Same reason the
+      # two gates above run unconditionally: supply-chain surface is not a scope.
+      # `make check-backend` keeps running it too, so a laptop `make check`
+      # reproduces this verdict. Pure bash and grep — no toolchain to install.
+      - name: Action and image pins
+        working-directory: .
+        run: make check-image-pins
 
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
