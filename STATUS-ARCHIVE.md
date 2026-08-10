@@ -21,6 +21,90 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-10 — the integration lane, and three ways of being confidently wrong about pgx
+
+Closes #539, #524, #482. Landed as #552, #556, #561, #563, #568, #574, #584
+(splitting and harness promotion), #625 (Redis), #626 + #769 (the shared pool),
+#671 (Postgres locks), #775 (the last split). An earlier version of this entry
+was written in #640 and removed by #674's restructuring; this one replaces it and
+covers what came after.
+
+**The lane went from ~300s to ~192s.** Most of that was not the thing that looked
+promising.
+
+**What worked.** One Postgres pool per test PROCESS instead of one per test
+(#626), a per-package Redis logical db once the lane outgrew 15 packages (#625),
+a lock table sized for the lane rather than for one app (#671), and four package
+splits so the wall clock is not hostage to one long pole.
+
+**What did not.** Splitting is spent: the wall clock stopped being bound by the
+longest package, so the final split bought ~9% and the next would buy less.
+Raising `INTEGRATION_JOBS` from 8 to 16 made the lane *slower* (200s vs 185s) —
+it is bound by one Postgres container, not by CPU; only ~1.2 of 8 cores are busy
+during a run. Both are recorded so nobody re-runs the experiment.
+
+### The part worth reading: the exec mode
+
+Sharing a pool costs you the statement cache, and I got the reason wrong twice
+before getting it right.
+
+`cache_describe` was chosen on the reasoning that holding no server-side plan
+made it safe under a changing schema. pgx's own doc says otherwise in the same
+sentence for both caching modes — the cached description is *assumed* stable and
+the first execution after a schema change may fail. A craft reviewer said so at
+the time; I overrode it with a mechanism argument. The lane then failed in CI
+with `cache lookup failed for type N (SQLSTATE XX000)` in reembed's baseline
+seed, a suite with nothing to do with the cause: `search`'s embedding upsert
+binds `$5::vector`, the server types that parameter as pgvector's, and
+perfbench's ratified inline remigration recreates the extension with a new OID
+under the live pool.
+
+Four repairs were measured, same sitting, Postgres restarted before each:
+`cache_describe` 190s but unsound; `DeallocateAll` per reset 215s but it acquires
+every idle connection at each reset and surfaced a straggler; `describe_exec`
+244s and sound; `pgxpool.Reset` per reset 254s. `describe_exec` won, and it is
+the mode pgx documents for exactly this — the one the first reviewer named.
+
+**So correctness ate most of the sharing win.** Whether sharing still pays
+against per-test pools on today's tree is an open question, not a settled one,
+and `testdb.Pool`'s doc says so rather than implying the trade is obviously
+right.
+
+### Four things that generalize
+
+**Mutation-test the gate, not just the code.** Every fitness function this arc
+added was mutation-tested, and two of them changed what I believed. The typed-id
+slice assertion in `pool_integration_test.go` cannot fail under
+`describe_exec` — the server always supplies the OID — so `jit=off` is the half
+that actually detects a hand-built pool. And the first version of
+`retentionscope_test.go` matched call expressions only, so
+`var alias = RetentionPassCtx` was invisible to it *and* did not increment its
+liveness counter; the tree already had the right shape in
+`integrationmigrateonce_test.go`, which matches *references* and says why.
+
+**A baseline from another sitting is not a baseline.** A freshly restarted
+Postgres container is worth ~25%, so early numbers in this arc that compared
+across a restart were meaningless. Every claim above compares two runs taken
+today.
+
+**One package is one binary.** Process-global state does not follow a split and
+the compiler will not say so: `retention_jurisdiction_integration_test.go` arms a
+statutory retention floor in `init()`, and a retention suite moved to a sibling
+package would run with no floor and go green while asserting the opposite of its
+sibling. Harmless today, silent by construction, now written into the split rule.
+
+**Never retarget a PR with auto-merge armed.** #672 merged into a feature branch
+with a red shard because retargeting moved it from protected `main` to an
+unprotected base, and auto-merge does not re-check whether the new base has
+gates. Nothing unreviewed reached `main`, but the PR it landed in then described
+one file while carrying nineteen.
+
+Open follow-ups: #779 (River's clock, ~28s of real waiting), #548 (contention
+probes), #770 (a straggling connection), #639 (two hand-rolled pools), and #772 —
+the one that matters beyond the lane, because production runs
+`cache_statement` while `customfields` alters record tables at runtime, and the
+fixture that would have caught it is the one now made immune.
+
 ## Session pickup — 2026-08-09 (a meeting becomes an anchor, and what the tool copy cost, PR #686)
 
 `prep_for_meeting`, `catch_me_up_on` and `GET /records/{entity_type}/{id}/context`

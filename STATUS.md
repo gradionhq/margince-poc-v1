@@ -26,7 +26,7 @@ needs the whole file to start a session.
 - [Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary](#pick-up-here--adr-0091-a136-retiring-the-workspace-tenant-boundary)
 - [Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)](#open--two-follow-ups-left-by-adr-0082a127-the-own-company-and-internal-mail)
 - [Open — an install with no mailer AND no public base URL still onboards nobody](#open--an-install-with-no-mailer-and-no-public-base-url-still-onboards-nobody)
-- [Open — the integration lane's cost, profiled](#open--the-integration-lanes-cost-profiled)
+- [Open — the integration lane, what is left](#open--the-integration-lane-what-is-left)
 - [Open — contract drift: the reset's response gained five fields](#open--contract-drift-the-resets-response-gained-five-fields)
 - [Open — the data reset has no end-to-end proof](#open--the-data-reset-has-no-end-to-end-proof)
 - [Open — the brief's omitted sections are prompt-enforced, not code-enforced](#open--the-briefs-omitted-sections-are-prompt-enforced-not-code-enforced)
@@ -307,36 +307,48 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
-## Open — the integration lane's cost, profiled
+## Open — the integration lane, what is left
 
-The lane is 1828 tests over 25 packages, ~493s summed (~300s wall, parallel).
-Profiled per test on 2026-08-06 because the suite *looked* inflated. It is not
-inflated by count: the slowest decile is 55% of the time and the fastest 1328
-tests together are 29%, so converting the small majority to unit tests would
-delete three-quarters of the suite to recover under a third of the runtime —
-and most of them assert database behaviour (RLS, CHECK→4xx, keyset pagination)
-that has no meaning without Postgres.
+The lane is ~2060 tests over 30 packages, ~192s wall. It was ~300s when this was
+first profiled on 2026-08-06. #524, #539 and #482 are closed; the narrative for
+each is in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md), and the entry for #539 is
+worth reading before optimizing further because it is mostly a record of things
+that did not work.
 
-Where the cost actually is, and what is worth doing about it:
+**Do not expect much more from splitting packages.** It was the obvious lever and
+it is spent: the lane's wall clock is no longer bound by its longest package, so
+the last split bought ~9% and the next would buy less. What is left sits in the
+~35s between the longest package and the lane's wall time, and in the suites
+below.
 
-- **#524** — closed; the per-package budget is 600s, both lanes resolve it
-  through one `resolve_it_timeout`, and the cost report prints each package's
-  share of it. Narrative in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
-- **#539** — that package's setup forks about five Postgres backends per test.
-  Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
-  the harness drops `cf_*` columns between tests, so a pooled connection
-  outliving that DDL serves a stale plan and fails with SQLSTATE 0A000 in a
-  suite unrelated to custom fields. The issue records the design that would
-  unblock it and the four cheaper approaches that were measured and do not pay.
+- **#779** — the periodic-dispatch suites wait ~28s in 12 tests on River's real
+  clock, the largest single concentration of real waiting. River can stub the
+  clock; the issue says why that is not a one-liner and which suite must stay on
+  the real clock as a control.
+- **#548** — the people contention probes spin ~7,500 queries/second at the
+  writer they are polling for, and still time out on a loaded runner. Time
+  bounding was added and was not enough; the shape needs to change.
 - **#535** — table-driven tests calling their harness inside `t.Run`, re-seeding
   Postgres per case (~44s), which also hides that the property under test is pure.
 - **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
   forbids the mirror case (a unit test opening real infra) but cannot see this one.
+- **#639** — two packages hand-roll the process pool `testdb.Pool` now owns.
+- **#770** — the telegram-ingress suite leaves a connection checked out past its
+  own cleanup under lane load.
 
-Two measurement notes for whoever picks this up. Run-to-run variance on the same
-commit is ~15%, so compare within one sitting on an idle machine. And both
-failures found while attempting #539 were order-dependent — they appeared only
-in a full-package or full-lane run, never in isolation.
+Three measurement notes, each of which cost a wrong number before it was written
+down. **Restart Postgres between runs** — a fresh container is worth ~25% on its
+own, so two runs taken across a restart boundary are not comparable to each
+other. Run-to-run variance on the same commit is ~15%, so compare within one
+sitting on an idle machine. And **measure both sides today**: the lane's own
+baseline moves as the tree grows and as its fixtures change, so a number from
+last week is not a control.
+
+One thing the lane can no longer catch, which matters more than its runtime:
+**#772**. Production runs pgx's default `cache_statement` while `customfields`
+alters record tables at runtime, so a live request can draw SQLSTATE 0A000 — and
+the shared test pool now runs `describe_exec`, which is immune. The fixture that
+would have reproduced it is the one that was made safe.
 
 ## Open — contract drift: the reset's response gained five fields
 
