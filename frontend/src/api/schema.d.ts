@@ -487,6 +487,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/draft-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft an email to this person, grounded in their record.
+         * @description The person-side mirror of `POST /organizations/{id}/draft-email`. That one writes to
+         *     an account and has to be told which contact; here the record IS the recipient, so the
+         *     request carries nothing but optional steering.
+         *
+         *     **It changes no record.** No field on the person, no activity, no voice-learning
+         *     signal, and nothing is sent. Sending stays `POST /emails`, with its own consent gate,
+         *     approval token and idempotency key; the absence of those three parameters here is the
+         *     guarantee rather than a convenience.
+         *
+         *     Two things it does write, and both are about the CALL rather than the person: the
+         *     workspace's AI usage meter and the model-call audit row, exactly as every other
+         *     model-backed read on this page does.
+         *
+         *     **Grounded, per viewer.** The draft is written from the caller's own person 360,
+         *     assembled inside the normal gates, so it can only mention records that caller could
+         *     open themselves. What it stands on is what the person page stands on: who they are
+         *     and where they work, the open deal and the money on it, the claims they have made —
+         *     what they asked for, promised, or objected to — and the recent conversation. A
+         *     section the caller has no grant for is absent from the view and therefore absent from
+         *     the draft. Every input but the intent is untrusted text and is fenced.
+         *
+         *     `reasoning` is a SIBLING of the body, never part of it: the composer renders it as the
+         *     "Based on" line and the "Why this draft?" chips, and a body that explained itself
+         *     would be a body the rep has to edit before sending.
+         *
+         *     When no model lane is configured, or the workspace's AI budget is exhausted, the draft
+         *     degrades to a deterministic one rather than failing — `generated_by` says which wrote
+         *     it.
+         *
+         *     Human-only: drafting spends the workspace's model budget on prose for a person to send
+         *     under their own name.
+         */
+        post: operations["draftPersonEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people/{id}/consent/guard": {
         parameters: {
             query?: never;
@@ -550,6 +603,74 @@ export interface paths {
          *     quoting a message the caller cannot open would disclose that it exists.
          */
         post: operations["recordConversationClaim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the connected provider what is publicly known about this person.
+         * @description Deep research on a person, through a licensed PROVIDER (ADR-0096 D4). Margince
+         *     never crawls the public web about a natural person on its own authority — there is
+         *     no GDPR-defensible way to do it — so this reads only from a provider that carries
+         *     its own lawful basis, and the company-site crawl machinery deliberately does not
+         *     extend here.
+         *
+         *     **It writes nothing.** A run STAGES: it returns claims and touches no record. The
+         *     record changes only when a human reviews the staged set and posts the ones they
+         *     accept to `.../research/save`.
+         *
+         *     With no provider registered the run answers `not_connected` and stops. That is a
+         *     named state, not an error to retry — retrying changes nothing, and a spinner over
+         *     an absent provider misrepresents what the product is doing.
+         *
+         *     Every claim carries citations a reader can open; one whose source cannot be
+         *     opened is dropped rather than shown.
+         */
+        post: operations["runPersonResearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/research/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save the research claims a human accepted, and only those.
+         * @description The first and only write in the research surface. `captured_by` names the HUMAN
+         *     who accepted the claim, not the provider that proposed it — the provider's URL
+         *     rides the source reference, so the chain from record to document stays intact,
+         *     but the decision was a person's and the record says so.
+         *
+         *     Each saved claim carries its value, the words it was read from, and the document
+         *     they came from. One that lost any of the three is refused rather than stored: a
+         *     fact a reader cannot trace back is exactly what the review step exists to stop.
+         */
+        post: operations["savePersonResearch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1891,6 +2012,50 @@ export interface paths {
         head?: never;
         /** Update an activity (e.g. complete a task). */
         patch: operations["updateActivity"];
+        trace?: never;
+    };
+    "/activities/{id}/meeting-brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+         * @description The prep dossier for a meeting, in the fixed eight-section order of ADR-0097 D5.
+         *
+         *     **Assembled fresh on every open.** There is no cache and no regenerate route, which is
+         *     the deliberate difference from the person brief (`GET /people/{id}/brief`): a reader
+         *     opens this in the minutes before walking into a room, and a brief served from a cached
+         *     artifact would describe a state of play a commitment logged an hour ago has already
+         *     moved past. Nothing here is stored, so nothing here can be stale.
+         *
+         *     **Every sentence is cited or dropped.** A sentence whose citations do not resolve to
+         *     records the caller can open is dropped whole rather than shown uncited — the same
+         *     grounding rule the account and person briefs run.
+         *
+         *     Assembled under the CALLER's own scope, from the same gated reads the person page
+         *     serves, so it can only describe records that caller could open themselves. The section
+         *     list is fixed and ordered: `goal` and `commitments` lead because burying the ask is the
+         *     canonical prep failure, and `company_context` is last because it is background. A
+         *     section with nothing to say is ABSENT rather than empty, so a reader never scans a
+         *     heading that turns out to hold nothing.
+         *
+         *     Degrades rather than fails: with no model lane configured the model-written sections are
+         *     a deterministic composition occupying the same place, and `generated_by` says which
+         *     wrote them.
+         */
+        get: operations["getMeetingBrief"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/activities/{id}/relink": {
@@ -9138,6 +9303,58 @@ export interface components {
             due_at?: string | null;
         };
         /**
+         * @description One staged research run. Nothing here has touched the record: these are claims a
+         *     human is about to accept or dismiss.
+         */
+        PersonResearchRun: {
+            /** Format: uuid */
+            person_id: string;
+            /**
+             * @description `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+             * @enum {string}
+             */
+            state: "not_connected" | "ready";
+            /** @description Who answered. A claim's trustworthiness depends on who said it. */
+            provider_name?: string | null;
+            /** Format: date-time */
+            generated_at: string;
+            /** @description How many documents the provider consulted — a different question from how many claims it made, and a surface showing one as both would overstate the work. */
+            sources_read?: number;
+            claims: components["schemas"]["PersonResearchClaim"][];
+        };
+        PersonResearchClaim: {
+            /** @description The claim's number in the drawer, so a conversation angle can cite "Claim 3". */
+            ordinal: number;
+            body: string;
+            /**
+             * @description `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "unstated";
+            sources: components["schemas"]["PersonResearchSource"][];
+        };
+        PersonResearchSource: {
+            /** @description The source as a reader would name it — a bare URL says nothing about whether to trust it. */
+            label: string;
+            url: string;
+            /** @description The passage the claim was read from, verbatim — what makes "check it" a real action. */
+            quote?: string | null;
+        };
+        SavePersonResearchRequest: {
+            claims: components["schemas"]["SavePersonResearchClaim"][];
+        };
+        /** @description One claim a human accepted, with the evidence that makes it checkable. */
+        SavePersonResearchClaim: {
+            /**
+             * @description Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+             * @enum {string}
+             */
+            field: "title" | "phone" | "role" | "linkedin" | "org_name";
+            value: string;
+            source_quote: string;
+            source_url: string;
+        };
+        /**
          * @description Which moment to hide, and the evidence it was showing when the reader hid it. Both are
          *     required: the fingerprint is what lets the moment come back when the evidence moves,
          *     and a dismissal without one is a permanent silence nobody asked for.
@@ -9145,6 +9362,48 @@ export interface components {
         DismissPersonMomentRequest: {
             claim_key: string;
             evidence_fingerprint: string;
+        };
+        /**
+         * @description The pre-meeting brief for one booked meeting (ADR-0097 D5), assembled fresh on every
+         *     read from what the CALLER can see.
+         *
+         *     Not cached, unlike `PersonBrief`. The `generated_at` on it is therefore always the
+         *     instant of this read, and there is no fingerprint and no refresh affordance: a brief
+         *     that arrives is by construction current.
+         */
+        MeetingBrief: {
+            /** Format: uuid */
+            activity_id: string;
+            /**
+             * Format: date-time
+             * @description The instant this read assembled the brief. Always now — nothing here is stored.
+             */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /** @description The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other. */
+            sections: components["schemas"]["MeetingBriefSection"][];
+        };
+        /** @description One of the eight fixed sections, with its cited sentences. */
+        MeetingBriefSection: {
+            /**
+             * @description The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+             *     than a free-text heading, so a surface can label, order and collapse them and no
+             *     writer can invent a ninth.
+             *
+             *     `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+             *     `goal` — the single next-step target; it leads because burying the ask is the
+             *     canonical prep failure.
+             *     `attendees` — who is in the room, with the first-timers flagged.
+             *     `commitments` — what was promised, ours and theirs, each with its source and status.
+             *     `deal_state` — where the deal stands: last conversation, objections, open questions.
+             *     `risks` — watch-outs; absent rather than empty when there are none.
+             *     `talking_points` — each tied to a specific captured statement.
+             *     `company_context` — background, collapsed and last.
+             * @enum {string}
+             */
+            kind: "header" | "goal" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
+            /** @description The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         /**
          * @description A written brief over one person, assembled from what the READER can see — the company
@@ -15218,6 +15477,40 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    draftPersonEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
+                    intent?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The draft, and what it was written from. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountEmailDraft"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getPersonConsentGuard: {
         parameters: {
             query?: never;
@@ -15268,6 +15561,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationClaim"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    runPersonResearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The staged run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonResearchRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    savePersonResearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePersonResearchRequest"];
+            };
+        };
+        responses: {
+            /** @description How many claims landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        saved: number;
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -17810,6 +18163,33 @@ export interface operations {
                     "application/json": components["schemas"]["Activity"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMeetingBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pre-meeting brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

@@ -4014,6 +4014,42 @@ func (e MeResponseSystemOfRecordMode) Valid() bool {
 	}
 }
 
+// Defines values for MeetingBriefSectionKind.
+const (
+	MeetingBriefSectionKindAttendees      MeetingBriefSectionKind = "attendees"
+	MeetingBriefSectionKindCommitments    MeetingBriefSectionKind = "commitments"
+	MeetingBriefSectionKindCompanyContext MeetingBriefSectionKind = "company_context"
+	MeetingBriefSectionKindDealState      MeetingBriefSectionKind = "deal_state"
+	MeetingBriefSectionKindGoal           MeetingBriefSectionKind = "goal"
+	MeetingBriefSectionKindHeader         MeetingBriefSectionKind = "header"
+	MeetingBriefSectionKindRisks          MeetingBriefSectionKind = "risks"
+	MeetingBriefSectionKindTalkingPoints  MeetingBriefSectionKind = "talking_points"
+)
+
+// Valid indicates whether the value is a known member of the MeetingBriefSectionKind enum.
+func (e MeetingBriefSectionKind) Valid() bool {
+	switch e {
+	case MeetingBriefSectionKindAttendees:
+		return true
+	case MeetingBriefSectionKindCommitments:
+		return true
+	case MeetingBriefSectionKindCompanyContext:
+		return true
+	case MeetingBriefSectionKindDealState:
+		return true
+	case MeetingBriefSectionKindGoal:
+		return true
+	case MeetingBriefSectionKindHeader:
+		return true
+	case MeetingBriefSectionKindRisks:
+		return true
+	case MeetingBriefSectionKindTalkingPoints:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MorningBriefItemState.
 const (
 	MorningBriefItemStateActed     MorningBriefItemState = "acted"
@@ -6147,6 +6183,45 @@ func (e PersonRelationshipChangeToBucket) Valid() bool {
 	}
 }
 
+// Defines values for PersonResearchClaimConfidence.
+const (
+	High     PersonResearchClaimConfidence = "high"
+	Medium   PersonResearchClaimConfidence = "medium"
+	Unstated PersonResearchClaimConfidence = "unstated"
+)
+
+// Valid indicates whether the value is a known member of the PersonResearchClaimConfidence enum.
+func (e PersonResearchClaimConfidence) Valid() bool {
+	switch e {
+	case High:
+		return true
+	case Medium:
+		return true
+	case Unstated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonResearchRunState.
+const (
+	NotConnected PersonResearchRunState = "not_connected"
+	Ready        PersonResearchRunState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the PersonResearchRunState enum.
+func (e PersonResearchRunState) Valid() bool {
+	switch e {
+	case NotConnected:
+		return true
+	case Ready:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PreferenceCenterPurposesState.
 const (
 	PreferenceCenterPurposesStateGranted   PreferenceCenterPurposesState = "granted"
@@ -6477,6 +6552,33 @@ func (e RunReportRequestAggregatesFn) Valid() bool {
 	case RunReportRequestAggregatesFnMin:
 		return true
 	case RunReportRequestAggregatesFnSum:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SavePersonResearchClaimField.
+const (
+	SavePersonResearchClaimFieldLinkedin SavePersonResearchClaimField = "linkedin"
+	SavePersonResearchClaimFieldOrgName  SavePersonResearchClaimField = "org_name"
+	SavePersonResearchClaimFieldPhone    SavePersonResearchClaimField = "phone"
+	SavePersonResearchClaimFieldRole     SavePersonResearchClaimField = "role"
+	SavePersonResearchClaimFieldTitle    SavePersonResearchClaimField = "title"
+)
+
+// Valid indicates whether the value is a known member of the SavePersonResearchClaimField enum.
+func (e SavePersonResearchClaimField) Valid() bool {
+	switch e {
+	case SavePersonResearchClaimFieldLinkedin:
+		return true
+	case SavePersonResearchClaimFieldOrgName:
+		return true
+	case SavePersonResearchClaimFieldPhone:
+		return true
+	case SavePersonResearchClaimFieldRole:
+		return true
+	case SavePersonResearchClaimFieldTitle:
 		return true
 	default:
 		return false
@@ -12744,6 +12846,64 @@ type MeResponsePassportScopes string
 // MeResponseSystemOfRecordMode defines model for MeResponse.SystemOfRecord.Mode.
 type MeResponseSystemOfRecordMode string
 
+// MeetingBrief The pre-meeting brief for one booked meeting (ADR-0097 D5), assembled fresh on every
+// read from what the CALLER can see.
+//
+// Not cached, unlike `PersonBrief`. The `generated_at` on it is therefore always the
+// instant of this read, and there is no fingerprint and no refresh affordance: a brief
+// that arrives is by construction current.
+type MeetingBrief struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// GeneratedAt The instant this read assembled the brief. Always now — nothing here is stored.
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// Sections The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other.
+	Sections []MeetingBriefSection `json:"sections"`
+}
+
+// MeetingBriefSection One of the eight fixed sections, with its cited sentences.
+type MeetingBriefSection struct {
+	// Kind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+	// than a free-text heading, so a surface can label, order and collapse them and no
+	// writer can invent a ninth.
+	//
+	// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+	// `goal` — the single next-step target; it leads because burying the ask is the
+	// canonical prep failure.
+	// `attendees` — who is in the room, with the first-timers flagged.
+	// `commitments` — what was promised, ours and theirs, each with its source and status.
+	// `deal_state` — where the deal stands: last conversation, objections, open questions.
+	// `risks` — watch-outs; absent rather than empty when there are none.
+	// `talking_points` — each tied to a specific captured statement.
+	// `company_context` — background, collapsed and last.
+	Kind MeetingBriefSectionKind `json:"kind"`
+
+	// Sentences The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// MeetingBriefSectionKind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+// than a free-text heading, so a surface can label, order and collapse them and no
+// writer can invent a ninth.
+//
+// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+// `goal` — the single next-step target; it leads because burying the ask is the
+// canonical prep failure.
+// `attendees` — who is in the room, with the first-timers flagged.
+// `commitments` — what was promised, ours and theirs, each with its source and status.
+// `deal_state` — where the deal stands: last conversation, objections, open questions.
+// `risks` — watch-outs; absent rather than empty when there are none.
+// `talking_points` — each tied to a specific captured statement.
+// `company_context` — background, collapsed and last.
+type MeetingBriefSectionKind string
+
 // Money Money as integer minor-units + ISO-4217 currency. Never a float.
 type Money struct {
 	// AmountMinor Smallest currency unit (e.g. cents). 100000 EUR-cents = €1,000.00.
@@ -15492,6 +15652,51 @@ type PersonRelationshipChangeKind string
 // PersonRelationshipChangeToBucket The band it holds now. Band moves only.
 type PersonRelationshipChangeToBucket string
 
+// PersonResearchClaim defines model for PersonResearchClaim.
+type PersonResearchClaim struct {
+	Body string `json:"body"`
+
+	// Confidence `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+	Confidence PersonResearchClaimConfidence `json:"confidence"`
+
+	// Ordinal The claim's number in the drawer, so a conversation angle can cite "Claim 3".
+	Ordinal int                    `json:"ordinal"`
+	Sources []PersonResearchSource `json:"sources"`
+}
+
+// PersonResearchClaimConfidence `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+type PersonResearchClaimConfidence string
+
+// PersonResearchRun One staged research run. Nothing here has touched the record: these are claims a
+// human is about to accept or dismiss.
+type PersonResearchRun struct {
+	Claims      []PersonResearchClaim `json:"claims"`
+	GeneratedAt time.Time             `json:"generated_at"`
+	PersonId    openapi_types.UUID    `json:"person_id"`
+
+	// ProviderName Who answered. A claim's trustworthiness depends on who said it.
+	ProviderName *string `json:"provider_name,omitempty"`
+
+	// SourcesRead How many documents the provider consulted — a different question from how many claims it made, and a surface showing one as both would overstate the work.
+	SourcesRead *int `json:"sources_read,omitempty"`
+
+	// State `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+	State PersonResearchRunState `json:"state"`
+}
+
+// PersonResearchRunState `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+type PersonResearchRunState string
+
+// PersonResearchSource defines model for PersonResearchSource.
+type PersonResearchSource struct {
+	// Label The source as a reader would name it — a bare URL says nothing about whether to trust it.
+	Label string `json:"label"`
+
+	// Quote The passage the claim was read from, verbatim — what makes "check it" a real action.
+	Quote *string `json:"quote,omitempty"`
+	Url   string  `json:"url"`
+}
+
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
 	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
@@ -16093,6 +16298,23 @@ type SaveLinkedInAccountRequest struct {
 
 	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
 	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
+// SavePersonResearchClaim One claim a human accepted, with the evidence that makes it checkable.
+type SavePersonResearchClaim struct {
+	// Field Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+	Field       SavePersonResearchClaimField `json:"field"`
+	SourceQuote string                       `json:"source_quote"`
+	SourceUrl   string                       `json:"source_url"`
+	Value       string                       `json:"value"`
+}
+
+// SavePersonResearchClaimField Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+type SavePersonResearchClaimField string
+
+// SavePersonResearchRequest defines model for SavePersonResearchRequest.
+type SavePersonResearchRequest struct {
+	Claims []SavePersonResearchClaim `json:"claims"`
 }
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
@@ -19457,6 +19679,12 @@ type IssueDoubleOptInJSONBody struct {
 	PurposeId openapi_types.UUID `json:"purpose_id"`
 }
 
+// DraftPersonEmailJSONBody defines parameters for DraftPersonEmail.
+type DraftPersonEmailJSONBody struct {
+	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
+	Intent *string `json:"intent,omitempty"`
+}
+
 // MergePersonJSONBody defines parameters for MergePerson.
 type MergePersonJSONBody struct {
 	// TargetId The surviving person (B). This row (A) is archived.
@@ -20856,11 +21084,17 @@ type RecordConsentJSONRequestBody = RecordConsentRequest
 // IssueDoubleOptInJSONRequestBody defines body for IssueDoubleOptIn for application/json ContentType.
 type IssueDoubleOptInJSONRequestBody IssueDoubleOptInJSONBody
 
+// DraftPersonEmailJSONRequestBody defines body for DraftPersonEmail for application/json ContentType.
+type DraftPersonEmailJSONRequestBody DraftPersonEmailJSONBody
+
 // MergePersonJSONRequestBody defines body for MergePerson for application/json ContentType.
 type MergePersonJSONRequestBody MergePersonJSONBody
 
 // DismissPersonMomentJSONRequestBody defines body for DismissPersonMoment for application/json ContentType.
 type DismissPersonMomentJSONRequestBody = DismissPersonMomentRequest
+
+// SavePersonResearchJSONRequestBody defines body for SavePersonResearch for application/json ContentType.
+type SavePersonResearchJSONRequestBody = SavePersonResearchRequest
 
 // CreatePipelineJSONRequestBody defines body for CreatePipeline for application/json ContentType.
 type CreatePipelineJSONRequestBody = CreatePipelineRequest
@@ -26786,6 +27020,9 @@ type ServerInterface interface {
 	// Draft a reply/follow-up email for context (the `draft_email` MCP verb).
 	// (POST /activities/{id}/draft-email)
 	DraftEmail(w http.ResponseWriter, r *http.Request, id Id)
+	// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+	// (GET /activities/{id}/meeting-brief)
+	GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id)
 	// Re-associate a captured activity to a chosen deal/entity (idempotent, source-preserving).
 	// (POST /activities/{id}/relink)
 	RelinkActivity(w http.ResponseWriter, r *http.Request, id Id, params RelinkActivityParams)
@@ -27446,6 +27683,9 @@ type ServerInterface interface {
 	// May we write to this person right now — per purpose and channel, with the reason.
 	// (GET /people/{id}/consent/guard)
 	GetPersonConsentGuard(w http.ResponseWriter, r *http.Request, id Id)
+	// Draft an email to this person, grounded in their record.
+	// (POST /people/{id}/draft-email)
+	DraftPersonEmail(w http.ResponseWriter, r *http.Request, id Id)
 	// Who around this contact could open a door, and through whom.
 	// (GET /people/{id}/graph)
 	GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id)
@@ -27461,6 +27701,12 @@ type ServerInterface interface {
 	// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
 	// (GET /people/{id}/profile-fields)
 	GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id)
+	// Ask the connected provider what is publicly known about this person.
+	// (POST /people/{id}/research)
+	RunPersonResearch(w http.ResponseWriter, r *http.Request, id Id)
+	// Save the research claims a human accepted, and only those.
+	// (POST /people/{id}/research/save)
+	SavePersonResearch(w http.ResponseWriter, r *http.Request, id Id)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -27797,6 +28043,12 @@ func (_ Unimplemented) UpdateActivity(w http.ResponseWriter, r *http.Request, id
 // Draft a reply/follow-up email for context (the `draft_email` MCP verb).
 // (POST /activities/{id}/draft-email)
 func (_ Unimplemented) DraftEmail(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+// (GET /activities/{id}/meeting-brief)
+func (_ Unimplemented) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29120,6 +29372,12 @@ func (_ Unimplemented) GetPersonConsentGuard(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Draft an email to this person, grounded in their record.
+// (POST /people/{id}/draft-email)
+func (_ Unimplemented) DraftPersonEmail(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Who around this contact could open a door, and through whom.
 // (GET /people/{id}/graph)
 func (_ Unimplemented) GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id) {
@@ -29147,6 +29405,18 @@ func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, 
 // The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
 // (GET /people/{id}/profile-fields)
 func (_ Unimplemented) GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask the connected provider what is publicly known about this person.
+// (POST /people/{id}/research)
+func (_ Unimplemented) RunPersonResearch(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save the research claims a human accepted, and only those.
+// (POST /people/{id}/research/save)
+func (_ Unimplemented) SavePersonResearch(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30130,6 +30400,38 @@ func (siw *ServerInterfaceWrapper) DraftEmail(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DraftEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMeetingBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetMeetingBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMeetingBrief(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39679,6 +39981,38 @@ func (siw *ServerInterfaceWrapper) GetPersonConsentGuard(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// DraftPersonEmail operation middleware
+func (siw *ServerInterfaceWrapper) DraftPersonEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DraftPersonEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonGraph operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonGraph(w http.ResponseWriter, r *http.Request) {
 
@@ -39877,6 +40211,70 @@ func (siw *ServerInterfaceWrapper) GetPersonProfileFields(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPersonProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunPersonResearch operation middleware
+func (siw *ServerInterfaceWrapper) RunPersonResearch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunPersonResearch(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SavePersonResearch operation middleware
+func (siw *ServerInterfaceWrapper) SavePersonResearch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SavePersonResearch(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45231,6 +45629,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/draft-email", wrapper.DraftEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/meeting-brief", wrapper.GetMeetingBrief)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/relink", wrapper.RelinkActivity)
 	})
 	r.Group(func(r chi.Router) {
@@ -45891,6 +46292,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/people/{id}/consent/guard", wrapper.GetPersonConsentGuard)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/draft-email", wrapper.DraftPersonEmail)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/graph", wrapper.GetPersonGraph)
 	})
 	r.Group(func(r chi.Router) {
@@ -45904,6 +46308,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/profile-fields", wrapper.GetPersonProfileFields)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/research", wrapper.RunPersonResearch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/research/save", wrapper.SavePersonResearch)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)

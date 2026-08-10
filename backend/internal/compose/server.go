@@ -100,6 +100,9 @@ type Server struct {
 	org360Handlers
 	person360Handlers
 	personBriefHandlers
+	meetingBriefHandlers
+	personResearchHandlers
+	personDraftHandlers
 	orgBriefHandlers
 	orgDossierHandlers
 	accountDraftHandlers
