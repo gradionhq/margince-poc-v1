@@ -338,6 +338,22 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 	bundleID := ids.NewV7()
 	var proposalIDs []ids.UUID
 	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
+		// BOTH kinds this act stages, locked in one canonically ordered
+		// statement before it stages either, and before the leads pass takes
+		// its own narrower one.
+		//
+		// The order that matters is the transaction's, not each statement's.
+		// Staging the facts first joins a `deepread` row; staging the leads then
+		// joins `site_lead` rows — and because re-proposing REBUNDLES what it
+		// joins, a bundle ends up holding both kinds with different ages, which
+		// a decision walks as one interleaved (created_at, id) sequence. Two
+		// ordered runs, one per kind, are not one order: the decision can hold a
+		// lead this act is about to want while waiting for a facts row this act
+		// already holds.
+		if err := w.approvals.LockPendingGroupInTx(ctx, tx, *claim.OrganizationID,
+			deepReadProposalKind, siteLeadProposalKind); err != nil {
+			return err
+		}
 		if len(mergedFields)+len(mergedFacts) > 0 {
 			approvalID, err := w.stage(ctx, tx, readID, claim, mergedFields, mergedFacts, pagesRead, bundleID)
 			if err != nil {

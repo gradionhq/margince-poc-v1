@@ -57,10 +57,17 @@ func (w *siteDeepReadWorker) stageSiteLeads(ctx context.Context, readID ids.UUID
 // set locked in two orders deadlocks, and the loser gets a 500 on a re-read that
 // was otherwise fine.
 func (w *siteDeepReadWorker) stageSiteLeadsInTx(ctx context.Context, tx pgx.Tx, readID ids.UUID, claim people.SiteReadClaim, found []sitePerson, bundleID ids.UUID) ([]ids.UUID, error) {
+	// Nothing to stage means no group to lock. The pre-lock is account-wide, so
+	// holding every pending lead of an account for a loop that will propose none
+	// of them blocks decisions for no reason — and it keeps a read that
+	// published nobody the no-op it has always been.
+	if len(found) == 0 {
+		return nil, nil
+	}
 	if claim.OrganizationID == nil {
 		return nil, fmt.Errorf("compose: site read %s claims no account to file its leads under", readID)
 	}
-	if err := w.approvals.LockPendingGroupInTx(ctx, tx, siteLeadProposalKind, *claim.OrganizationID); err != nil {
+	if err := w.approvals.LockPendingGroupInTx(ctx, tx, *claim.OrganizationID, siteLeadProposalKind); err != nil {
 		return nil, err
 	}
 	var proposalIDs []ids.UUID

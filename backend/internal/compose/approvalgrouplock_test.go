@@ -48,17 +48,20 @@ func TestEveryBatchStagerPreLocksItsGroup(t *testing.T) {
 	staging := stagingFuncs(decls)
 	found := 0
 	for _, fn := range decls {
-		if !stagesInsideALoop(fn.decl.Body, staging) {
+		loop := stagingLoop(fn.decl.Body, staging)
+		if loop == nil {
 			continue
 		}
 		found++
-		if callsAny(fn.decl.Body, map[string]bool{groupLock: true}) {
+		if preLockedBefore(fn.decl.Body, loop) {
 			continue
 		}
-		t.Errorf("%s (%s) stages inside a loop without calling %s first. Its locks are then taken "+
-			"in the payload's order, which nothing makes agree with the (created_at, id) order a "+
-			"bundle decision walks the same rows in — so the two deadlock and one of them 500s. "+
-			"Take the group's locks up front.", fn.decl.Name.Name, filepath.Base(fn.file), groupLock)
+		t.Errorf("%s (%s) stages inside a loop without an unconditional %s before it. Its locks "+
+			"are then taken in the payload's order, which nothing makes agree with the "+
+			"(created_at, id) order a bundle decision walks the same rows in — so the two deadlock "+
+			"and one of them 500s. Take the group's locks up front, as a statement of the function "+
+			"body rather than inside a branch the loop can be reached without.",
+			fn.decl.Name.Name, filepath.Base(fn.file), groupLock)
 	}
 	if found < batchStagerFloor {
 		t.Fatalf("found %d functions staging inside a loop, expected at least %d — the AST walk "+
@@ -88,24 +91,55 @@ func stagingFuncs(decls []packageFunc) map[string]bool {
 	return staging
 }
 
-// stagesInsideALoop reports whether the body contains a loop that stages on a
-// caller-owned transaction. Nested function literals count: a loop whose body
-// is a closure is the same transaction and the same lock sequence.
-func stagesInsideALoop(body *ast.BlockStmt, staging map[string]bool) bool {
+// stagingLoop returns the first loop in the body that stages on a caller-owned
+// transaction, or nil. Nested function literals count: a loop whose body is a
+// closure is the same transaction and the same lock sequence.
+func stagingLoop(body *ast.BlockStmt, staging map[string]bool) ast.Node {
 	if body == nil {
-		return false
+		return nil
 	}
-	inLoop := false
+	var loop ast.Node
 	ast.Inspect(body, func(n ast.Node) bool {
-		switch loop := n.(type) {
-		case *ast.RangeStmt:
-			inLoop = inLoop || callsAny(loop.Body, staging)
-		case *ast.ForStmt:
-			inLoop = inLoop || callsAny(loop.Body, staging)
+		if loop != nil {
+			return false
 		}
-		return !inLoop
+		switch stmt := n.(type) {
+		case *ast.RangeStmt:
+			if callsAny(stmt.Body, staging) {
+				loop = stmt
+			}
+		case *ast.ForStmt:
+			if callsAny(stmt.Body, staging) {
+				loop = stmt
+			}
+		}
+		return loop == nil
 	})
-	return inLoop
+	return loop
+}
+
+// preLockedBefore reports whether the group pre-lock runs unconditionally, and
+// before the loop.
+//
+// Both halves, because either alone certifies nothing. A call somewhere in the
+// body may sit AFTER the loop, where the locks it takes are the ones already
+// acquired in payload order. A call before the loop but nested inside a branch
+// is one the loop can be reached without. So the subject is the function body's
+// own statement list: a direct child, positioned earlier than the loop. The
+// house shape — `if err := …LockPendingGroupInTx(…); err != nil { return }` —
+// is a direct child whose condition guards the ERROR, not the call.
+//
+// What this cannot check is that the pre-lock names the same target and kinds
+// the loop then stages against. That agreement is what the whole mechanism
+// rests on, and it is held by the integration test over a real database rather
+// than from here.
+func preLockedBefore(body *ast.BlockStmt, loop ast.Node) bool {
+	for _, stmt := range body.List {
+		if stmt.Pos() < loop.Pos() && callsAny(stmt, map[string]bool{groupLock: true}) {
+			return true
+		}
+	}
+	return false
 }
 
 // callsAny reports whether the node contains a call to any of these names,

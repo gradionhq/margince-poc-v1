@@ -261,11 +261,24 @@ type stagedSitePerson struct {
 // crawled matches nothing here, and the honest answer for them is a fresh
 // read rather than a stale proposal.
 func (g *PersonAutoEnrich) stagedSitePeople(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]stagedSitePerson, error) {
+	// Oldest-first, which is the canonical approval lock order — not the
+	// newest-first this read used to take.
+	//
+	// It looks like a plain read, and that is exactly why it was wrong. The
+	// caller withdraws every row it matches on the SAME transaction, and each
+	// withdrawal takes that row's lock, so THIS `ORDER BY` is the order in which
+	// a transaction acquires approval locks. Newest-first is the mirror of the
+	// order a bundle decision walks the same rows in, and two of them meeting
+	// over two proposals deadlock — the loser gets a 500.
+	//
+	// Oldest-first also answers the caller's own question better: where two
+	// proposals match one person, the one the workspace has been sitting on
+	// longest is the one to retire first.
 	rows, err := tx.Query(ctx, `
 		SELECT id, proposed_change FROM approval
 		WHERE kind = $1 AND target_entity_type = $2 AND target_entity_id = $3
 		  AND status = 'pending' AND expires_at > now()
-		ORDER BY created_at DESC
+		ORDER BY created_at, id
 		LIMIT 50`, siteLeadProposalKind, enrichTargetType, orgID)
 	if err != nil {
 		return nil, err

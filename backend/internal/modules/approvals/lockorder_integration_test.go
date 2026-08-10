@@ -60,7 +60,7 @@ func TestTheGroupPreLockHoldsEveryPendingMemberAtOnce(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-			if err := e.svc.LockPendingGroupInTx(ctx, tx, kindSiteLead, org); err != nil {
+			if err := e.svc.LockPendingGroupInTx(ctx, tx, org, kindSiteLead); err != nil {
 				return err
 			}
 			close(held)
@@ -80,6 +80,56 @@ func TestTheGroupPreLockHoldsEveryPendingMemberAtOnce(t *testing.T) {
 	if err := e.lockNoWait(t, other); err != nil {
 		t.Errorf("a %s proposal against the same account was locked too (err = %v) — the pre-lock "+
 			"must take the group it named, not every row sharing a target", kindDeepRead, err)
+	}
+
+	close(released)
+	if err := <-done; err != nil {
+		t.Fatalf("the pre-locking transaction: %v", err)
+	}
+}
+
+// An act that stages MORE THAN ONE KIND against a target takes them in one
+// statement, not one per kind.
+//
+// Re-proposing rebundles what it joins, so a bundle ends up holding a company's
+// facts and its published people with different ages, and a decision walks that
+// as ONE interleaved (created_at, id) sequence. Two ordered runs, one per kind,
+// are not one order: the decision can hold a lead the act is about to want while
+// waiting for a facts row the act already holds. So the kinds are variadic, and
+// this is the test that says naming both of them means both are held at once.
+func TestAMultiKindActLocksEveryKindItStages(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	bundle := ids.NewV7()
+
+	lead := e.stageInto(ctx, t, bundle, org, kindSiteLead, "the published person")
+	facts := e.stageInto(ctx, t, bundle, org, kindDeepRead, "the company facts")
+
+	held, released := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+			if err := e.svc.LockPendingGroupInTx(ctx, tx, org, kindDeepRead, kindSiteLead); err != nil {
+				return err
+			}
+			close(held)
+			<-released
+			return nil
+		})
+	}()
+	<-held
+
+	for _, member := range []struct {
+		kind string
+		id   ids.ApprovalID
+	}{{kindSiteLead, lead}, {kindDeepRead, facts}} {
+		if err := e.lockNoWait(t, member.id); !isLockNotAvailable(err) {
+			t.Errorf("the %s member was free to lock while the act's pre-lock was held (err = %v) — "+
+				"an act that names a kind and does not hold it takes that row's lock later, in its "+
+				"own order, which is the half of the deadlock naming both kinds exists to remove",
+				member.kind, err)
+		}
 	}
 
 	close(released)
