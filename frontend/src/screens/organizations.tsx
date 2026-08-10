@@ -77,6 +77,7 @@ import {
   CompanyChips,
   CompanyDescription,
   CompanyPrimaryActions,
+  CompanyStanding,
   CompanyPulse,
 } from "./companyheader";
 import { TodayOnThisAccount } from "./companytoday";
@@ -1980,6 +1981,10 @@ function CompanyPage({
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={<CompanyPrimaryActions org={org} />}
+      // Lifecycle and owner, at the top right beside the verbs. Passing this
+      // also moves the action row up into the header, which is the company
+      // page's shape and no other record's.
+      controls={<CompanyStanding org={org} />}
       // NO rail and NO aside: the page is a header, a full-width work column
       // and a grid of cards inside it (mockup State D). A context column beside
       // the grid would be a third place to look for facts the grid already

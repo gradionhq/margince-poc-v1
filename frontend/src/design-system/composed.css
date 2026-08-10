@@ -173,6 +173,26 @@
   gap: 12px;
   margin-bottom: 4px;
 }
+/* The company header carries a description, a chip row and a pulse line under
+ * the name, which makes the identity block several times taller than the mark
+ * beside it. Centring then floats the avatar to the middle of that stack,
+ * beside the chips rather than beside the name it belongs to. */
+.record-head-wide {
+  align-items: flex-start;
+}
+.record-head-wide .record-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* Inside the header the verbs are a right-aligned row at the top, not the
+ * full-width strip they are on every other record. */
+.record-head-wide .record-controls .record-actions {
+  margin: 0;
+  justify-content: flex-end;
+}
 .record-head .record-id {
   flex: 1;
 }
