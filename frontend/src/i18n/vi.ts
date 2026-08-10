@@ -968,6 +968,7 @@ export const vi = {
   "timeline.received": "Đã nhận",
   "timeline.textMore": "Đọc",
   "timeline.textLess": "Thu gọn",
+  "timeline.gap": "Không có gì xảy ra từ {from} đến {to}.",
   "co.profileField.display_name": "Tên công ty",
   "co.profileField.offer_summary": "Họ bán gì",
   "co.profileField.icp": "Họ bán cho ai",

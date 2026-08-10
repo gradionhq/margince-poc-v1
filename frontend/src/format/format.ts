@@ -77,6 +77,70 @@ export function formatDateTime(
   }).format(new Date(utcIso));
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const WITHIN_LAST_WEEK_MS = 7 * 86_400_000;
+
+// zonedYear reads the calendar year an instant falls on IN the given zone —
+// "this year" is a question about the reader's calendar, not the machine's.
+function zonedYear(date: Date, zone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+  }).format(date);
+}
+
+// formatTimelineTimestamp is the short form a timeline row's clock reads: a
+// weekday name is enough to place something from the last few days, the
+// month carries the rest of the year, and only a date whose time was never
+// known drops the clock entirely rather than implying a midnight that was
+// never recorded.
+//
+// `now` is a parameter, not `new Date()` read here, for the same reason
+// `timelinePeriod` takes one — a test fixes both ends and the boundary
+// stays assertable instead of drifting with the day it happens to run.
+export function formatTimelineTimestamp(
+  atIso: string,
+  locale: Locale,
+  zone: string,
+  now: Date,
+): string {
+  assertIanaZone(zone);
+  if (DATE_ONLY.test(atIso)) {
+    // The instant has no time of day to render — display it in UTC so the
+    // calendar date named in the string is the calendar date shown, rather
+    // than shifting a day at midnight in a zone west of UTC.
+    return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+      timeZone: "UTC",
+      day: "numeric",
+      month: "short",
+    }).format(new Date(`${atIso}T00:00:00Z`));
+  }
+  const at = new Date(atIso);
+  if (Math.abs(now.getTime() - at.getTime()) < WITHIN_LAST_WEEK_MS) {
+    return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+      timeZone: zone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(at);
+  }
+  if (zonedYear(at, zone) === zonedYear(now, zone)) {
+    return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+      timeZone: zone,
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(at);
+  }
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+    timeZone: zone,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(at);
+}
+
 // Idle/SLA spans display as ABSOLUTE durations (no naive calendar diff —
 // architecture/10 §2): the input is a millisecond span already computed
 // upstream from two UTC instants.

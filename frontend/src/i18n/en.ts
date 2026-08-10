@@ -967,6 +967,7 @@ export const en = {
   "timeline.received": "Received",
   "timeline.textMore": "Read it",
   "timeline.textLess": "Show less",
+  "timeline.gap": "Nothing happened between {from} and {to}.",
   "co.profileField.display_name": "Company name",
   "co.profileField.offer_summary": "What they sell",
   "co.profileField.icp": "Who they sell to",

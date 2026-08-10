@@ -7,6 +7,7 @@ import {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatTimelineTimestamp,
 } from "./format";
 
 // B-EP09.17/18/19 acceptance: locale changes the RENDERING of the same stored
@@ -74,6 +75,53 @@ describe("date/time formatting (B-EP09.17/19)", () => {
   it("renders idle spans as absolute durations, not calendar diffs", () => {
     expect(formatDuration(62 * 86_400_000, "en")).toMatch(/62/);
     expect(formatDuration(5 * 3_600_000, "en")).toMatch(/5/);
+  });
+});
+
+describe("formatTimelineTimestamp (timeline row clock)", () => {
+  // `now` is fixed alongside every `atIso` fixture: the boundary between
+  // branches is a function of both, never of the day the suite happens to run.
+  const now = new Date("2026-08-06T12:00:00Z");
+
+  it("within the last 7 days renders a weekday and a time, not a date", () => {
+    expect(
+      formatTimelineTimestamp(
+        "2026-08-04T14:05:00Z",
+        "en",
+        "Europe/Berlin",
+        now,
+      ),
+    ).toBe("Tue 16:05");
+  });
+
+  it("elsewhere in the same year renders the day, the month and a time", () => {
+    expect(
+      formatTimelineTimestamp(
+        "2026-07-02T14:40:00Z",
+        "en",
+        "Europe/Berlin",
+        now,
+      ),
+    ).toBe("2 Jul, 16:40");
+  });
+
+  it("falls back to a date with no clock when only a date is known", () => {
+    // "2026-07-10" carries no time of day — showing one would claim a
+    // midnight nobody recorded.
+    expect(
+      formatTimelineTimestamp("2026-07-10", "en", "Europe/Berlin", now),
+    ).toBe("10 Jul");
+  });
+
+  it("a year gap carries the year, since the reader can no longer assume it", () => {
+    expect(
+      formatTimelineTimestamp(
+        "2024-11-03T09:00:00Z",
+        "en",
+        "Europe/Berlin",
+        now,
+      ),
+    ).toBe("3 Nov 2024");
   });
 });
 

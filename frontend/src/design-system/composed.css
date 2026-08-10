@@ -386,51 +386,114 @@
 .tl-period-wrap:first-child .tl-period {
   margin-block-start: var(--space-2);
 }
-.timeline li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--borderSubtle);
+
+/* The spine: a vertical rule running the height of a row, behind its node.
+   Every row is a spine segment, so the rule is drawn per-row rather than
+   once for the whole list — a period heading breaking the list into
+   separate <ul>s would otherwise break the line too. */
+.tl-period-rows > li,
+.tl-group-members > li,
+.timeline > li.tl-gap {
+  position: relative;
+  display: block;
+  padding: 12px 0 12px 42px;
+  border-bottom: 0;
+}
+.tl-period-rows > li::before,
+.tl-group-members > li::before,
+.timeline > li.tl-gap::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--borderSubtle);
+}
+/* The very last row on the page has nothing below it to connect to: the
+   spine stops at its own node instead of running off the end of the list.
+   A class set from the render loop, not a :last-child selector — the actual
+   last row is nested inside its own period wrapper, so CSS alone cannot see
+   which <li> that is. */
+.tl-period-rows > li.tl-row-last::before,
+.tl-group-members > li.tl-row-last::before {
+  bottom: auto;
+  height: 26px;
 }
 .timeline .tl-actions {
-  margin-left: auto;
   display: flex;
   gap: 6px;
 }
-.timeline li:last-child {
-  border-bottom: 0;
-}
 .timeline .tl-icon {
-  width: 26px;
-  height: 26px;
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: 27px;
+  height: 27px;
   border-radius: var(--r-full);
-  background: var(--bgCard);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
   display: grid;
   place-items: center;
   color: var(--textMeta);
-  flex: none;
 }
 .timeline .tl-icon svg {
   width: 13px;
   height: 13px;
 }
+/* Indigo means AI authorship and nothing else (ADR-0040) — gated on the
+   row's provenance, never on which kind of activity it is. */
+.timeline .tl-icon.tl-icon-ai {
+  color: var(--aiText);
+  border-color: var(--aiMed);
+  background: var(--aiLight);
+}
 .timeline .tl-body {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
+.timeline .tl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .timeline .tl-title {
   font-size: var(--text-sm);
-  color: var(--textContent);
+  font-weight: var(--w-semibold);
+  color: var(--textPrimary);
 }
 .timeline .tl-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   color: var(--textMeta);
+}
+/* Pushed to the row's far edge, apart from the meta chips beside the title —
+   the one thing on a row a reader scans for without reading the rest of it. */
+.timeline .tl-when {
+  margin-inline-start: auto;
+  font-family: var(--f-mono);
+  font-size: var(--text-3xs);
+  color: var(--textTertiary);
+  white-space: nowrap;
+}
+/* Demoted below the body rather than floated to the row's right edge — an
+   action is something to do about what the row said, read after it. */
+.timeline .tl-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+/* A gap marker names a silence, not an event: no title, no meta, no
+   timestamp — just the one line the row exists to say. */
+.timeline .tl-quiet {
+  font-size: var(--text-2xs);
+  color: var(--textTertiary);
+  font-style: italic;
 }
 
 /* Lead segregation (§3.5): the lead surface is visibly apart from the
@@ -557,18 +620,19 @@
 
 /* Two tracks on one spine: what we sent, and what came back. The rail colour
    is the fast read; .tl-direction says the same thing in words, so the
-   distinction never rests on telling two hues apart. */
-.timeline > li.tl-out,
-.timeline > li.tl-in {
+   distinction never rests on telling two hues apart. The accent sits OUTSIDE
+   the row's own padding box (border, not padding), so it never competes with
+   the 42px the node already reserves. */
+.tl-group-members > li.tl-out,
+.tl-group-members > li.tl-in {
   border-inline-start: 2px solid transparent;
-  padding-inline-start: var(--space-3);
 }
 
-.timeline > li.tl-out {
+.tl-group-members > li.tl-out {
   border-inline-start-color: var(--accentMed);
 }
 
-.timeline > li.tl-in {
+.tl-group-members > li.tl-in {
   border-inline-start-color: var(--borderStrong);
 }
 

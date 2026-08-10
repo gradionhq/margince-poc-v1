@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   CheckSquare,
+  Clock,
   Mail,
   MessageCircle,
   PencilLine,
@@ -10,7 +11,12 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
-import { formatDate, formatDuration, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMoney,
+  formatTimelineTimestamp,
+} from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button } from "./atoms";
@@ -365,6 +371,7 @@ export function RecordView({
   timelineFooter,
   timelineNotice,
   zone,
+  now = new Date(),
   children,
 }: Readonly<{
   name: string;
@@ -417,6 +424,11 @@ export function RecordView({
   // section honest instead of rendering an empty list that reads as "no activity".
   timelineNotice?: ReactNode;
   zone: string;
+  // The instant the timeline's relative rows (this week, "Tue 14:05") are
+  // read against. Defaults to the real clock — a caller only supplies this
+  // to fix the reading instant for a test, the same reason `timelinePeriod`
+  // takes one rather than calling `new Date()` itself.
+  now?: Date;
   children?: ReactNode;
 }>) {
   const t = useT();
@@ -463,10 +475,11 @@ export function RecordView({
                   <GroupedTimelineList
                     groups={timelineGroups}
                     zone={zone}
+                    now={now}
                     onOpenThread={onOpenThread}
                   />
                 ) : (
-                  <TimelineList entries={timeline} zone={zone} />
+                  <TimelineList entries={timeline} zone={zone} now={now} />
                 ))}
               {timelineFooter}
             </section>
@@ -568,6 +581,32 @@ function directionClass(direction: TimelineEntry["direction"]): string {
   return direction === "inbound" ? "tl-in" : "";
 }
 
+// rowClass joins a row's direction accent with the one modifier that ends the
+// spine at its node — computed here rather than in CSS's :last-child, because
+// the DOM's actual last row is not always the last element a :last-child
+// selector would see (a period heading wraps each row in its own list item).
+function rowClass(direction: TimelineEntry["direction"], isLast: boolean) {
+  return [directionClass(direction), isLast ? "tl-row-last" : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
+const SILENCE_THRESHOLD_MS = 21 * 86_400_000;
+
+// silentSpan names the gap between two chronologically adjacent moments, when
+// it is wide enough that the account looks quiet rather than merely between
+// events. Takes the two boundary instants directly rather than the entries
+// that carry them, so the flat list and the grouped list (whose real
+// boundary is a group's oldest/newest MEMBER, not its representative row)
+// share the one rule.
+function silentSpan(
+  olderIso: string,
+  newerIso: string,
+): { olderIso: string; newerIso: string } | null {
+  const span = new Date(newerIso).getTime() - new Date(olderIso).getTime();
+  return span > SILENCE_THRESHOLD_MS ? { olderIso, newerIso } : null;
+}
+
 /**
  * timelinePeriod buckets an entry by how a reader thinks about when it
  * happened: this week, last week, or the month it fell in. A run of thirty
@@ -610,27 +649,48 @@ export function timelinePeriod(
 function TimelineList({
   entries,
   zone,
-}: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
+  now,
+}: Readonly<{ entries: TimelineEntry[]; zone: string; now: Date }>) {
   const t = useT();
   const { locale } = useLocale();
-  const now = new Date();
   let lastHeading: string | null = null;
   return (
     <ul className="timeline">
-      {entries.map((entry) => {
+      {entries.flatMap((entry, index) => {
         const heading = periodHeading(entry.atIso, now, t, locale);
         // The heading is drawn when the period CHANGES, so a run of rows in
         // one week carries one label rather than repeating it per row.
         const show = heading !== lastHeading;
         lastHeading = heading;
-        return (
+        const isLast = index === entries.length - 1;
+        const row = (
           <li key={`p-${entry.id}`} className="tl-period-wrap">
             {show && <p className="tl-period">{heading}</p>}
             <ul className="tl-period-rows">
-              <TimelineRow entry={entry} zone={zone} />
+              <TimelineRow
+                entry={entry}
+                zone={zone}
+                now={now}
+                isLast={isLast}
+              />
             </ul>
           </li>
         );
+        // Entries are newest-first, so the quiet stretch this row closes off
+        // sits between it and the OLDER neighbour still to come.
+        const older = entries[index + 1];
+        const gap = older && silentSpan(older.atIso, entry.atIso);
+        return gap
+          ? [
+              row,
+              <TimelineGapRow
+                key={`gap-${entry.id}`}
+                olderIso={gap.olderIso}
+                newerIso={gap.newerIso}
+                zone={zone}
+              />,
+            ]
+          : [row];
       })}
     </ul>
   );
@@ -650,42 +710,73 @@ function TimelineList({
 export function GroupedTimelineList({
   groups,
   zone,
+  now,
   onOpenThread,
 }: Readonly<{
   groups: readonly TimelineGroup[];
   zone: string;
+  now: Date;
   // Fetches the rest of a conversation the page holds only part of. Absent for
   // a caller that cannot complete it — a bulk group has no thread to ask for.
   onOpenThread?: (threadKey: string) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const now = new Date();
   let lastHeading: string | null = null;
   return (
     <ul className="timeline">
-      {groups.map((group) => {
+      {groups.flatMap((group, index) => {
         // The group is dated by its newest member, which is where it sits in
         // the chronology and therefore which period it belongs to.
         const heading = periodHeading(group.entries[0].atIso, now, t, locale);
         const show = heading !== lastHeading;
         lastHeading = heading;
-        return (
+        const isLast = index === groups.length - 1;
+        const row = (
           <li key={`p-${group.id}`} className="tl-period-wrap">
             {show && <p className="tl-period">{heading}</p>}
             <ul className="tl-period-rows">
               {group.kind === "single" ? (
-                <TimelineRow entry={group.entries[0]} zone={zone} />
+                <TimelineRow
+                  entry={group.entries[0]}
+                  zone={zone}
+                  now={now}
+                  isLast={isLast}
+                />
               ) : (
                 <TimelineGroupRow
                   group={group}
                   zone={zone}
+                  now={now}
+                  isLast={isLast}
                   onOpenThread={onOpenThread}
                 />
               )}
             </ul>
           </li>
         );
+        // The silent stretch a group closes off runs from its own OLDEST
+        // member to the next (older) group's NEWEST — the span its members
+        // do not already fill, not the gap between the two representative
+        // rows the collapsed view happens to show.
+        const olderGroup = groups[index + 1];
+        const gap =
+          olderGroup &&
+          silentSpan(
+            olderGroup.entries[0].atIso,
+            group.entries[group.entries.length - 1].atIso,
+          );
+        return gap
+          ? [
+              row,
+              <TimelineGapRow
+                key={`gap-${group.id}`}
+                olderIso={gap.olderIso}
+                newerIso={gap.newerIso}
+                zone={zone}
+              />,
+            ]
+          : [row];
       })}
     </ul>
   );
@@ -727,13 +818,24 @@ function groupCountLabel(
     : t("timeline.group.thread", { count });
 }
 
+// aiNodeClass tints a row's node indigo when — and only when — an agent
+// authored it (ADR-0040): indigo means AI authorship here and nothing else,
+// so this reads the entry's provenance, never its activity kind.
+function aiNodeClass(provenance: Provenance): string {
+  return provenance.kind === "agent" ? "tl-icon tl-icon-ai" : "tl-icon";
+}
+
 function TimelineGroupRow({
   group,
   zone,
+  now,
+  isLast,
   onOpenThread,
 }: Readonly<{
   group: TimelineGroup;
   zone: string;
+  now: Date;
+  isLast: boolean;
   onOpenThread?: (threadKey: string) => void;
 }>) {
   const { locale } = useLocale();
@@ -743,16 +845,22 @@ function TimelineGroupRow({
   const Icon = TIMELINE_ICON[newest.kind];
   const threadKey = newest.threadKey;
   return (
-    <li className={directionClass(newest.direction)}>
-      <span className="tl-icon">
+    <li className={rowClass(newest.direction, isLast)}>
+      <span className={aiNodeClass(newest.provenance)}>
         <Icon aria-hidden />
       </span>
       <div className="tl-body">
-        <span className="tl-title">{newest.title}</span>
-        <span className="tl-meta">
-          <span className="tl-group-count">{groupCountLabel(group, t)}</span>
-          <span>{formatDate(newest.atIso, locale, zone)}</span>
-          <ProvenanceTag provenance={newest.provenance} />
+        <div className="tl-head">
+          <span className="tl-title">{newest.title}</span>
+          <span className="tl-meta">
+            <span className="tl-group-count">{groupCountLabel(group, t)}</span>
+            <ProvenanceTag provenance={newest.provenance} />
+          </span>
+          <span className="tl-when">
+            {formatTimelineTimestamp(newest.atIso, locale, zone, now)}
+          </span>
+        </div>
+        <div className="tl-foot">
           <Button small aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? t("timeline.group.collapse") : t("timeline.group.expand")}
           </Button>
@@ -771,11 +879,17 @@ function TimelineGroupRow({
                 {t("timeline.group.mayContinue")}
               </span>
             ))}
-        </span>
+        </div>
         {open && (
           <ul className="timeline tl-group-members">
-            {group.entries.map((entry) => (
-              <TimelineRow key={entry.id} entry={entry} zone={zone} />
+            {group.entries.map((entry, index) => (
+              <TimelineRow
+                key={entry.id}
+                entry={entry}
+                zone={zone}
+                now={now}
+                isLast={index === group.entries.length - 1}
+              />
             ))}
           </ul>
         )}
@@ -792,13 +906,20 @@ function TimelineGroupRow({
 export function TimelineRow({
   entry,
   zone,
-}: Readonly<{ entry: TimelineEntry; zone: string }>) {
+  now,
+  isLast,
+}: Readonly<{
+  entry: TimelineEntry;
+  zone: string;
+  now: Date;
+  isLast: boolean;
+}>) {
   const { locale } = useLocale();
   const t = useT();
   const Icon = TIMELINE_ICON[entry.kind];
   return (
-    <li className={directionClass(entry.direction)}>
-      <span className="tl-icon">
+    <li className={rowClass(entry.direction, isLast)}>
+      <span className={aiNodeClass(entry.provenance)}>
         <Icon aria-hidden />
       </span>
       {/* A div, not a span: a change row's detail is a field diff whose
@@ -806,25 +927,64 @@ export function TimelineRow({
                 inside phrasing content. The row lays out identically, because
                 .tl-body is a flex column either way. */}
       <div className="tl-body">
-        <span className="tl-title">{entry.title}</span>
+        <div className="tl-head">
+          <span className="tl-title">{entry.title}</span>
+          <span className="tl-meta">
+            {/* The direction is said in words as well as drawn, so it does
+                    not depend on telling two accent colours apart. */}
+            {entry.direction && (
+              <span className="tl-direction">
+                {entry.direction === "outbound"
+                  ? t("timeline.sent")
+                  : t("timeline.received")}
+              </span>
+            )}
+            {entry.via}
+            <ProvenanceTag provenance={entry.provenance} />
+          </span>
+          <span className="tl-when">
+            {formatTimelineTimestamp(entry.atIso, locale, zone, now)}
+          </span>
+        </div>
         {entry.body && <TimelineText text={entry.body} />}
         {entry.detail}
-        <span className="tl-meta">
-          {/* The direction is said in words as well as drawn, so it does
-                    not depend on telling two accent colours apart. */}
-          {entry.direction && (
-            <span className="tl-direction">
-              {entry.direction === "outbound"
-                ? t("timeline.sent")
-                : t("timeline.received")}
-            </span>
-          )}
-          <span>{formatDate(entry.atIso, locale, zone)}</span>
-          <ProvenanceTag provenance={entry.provenance} />
-          {entry.via}
+        {entry.actions && (
+          <div className="tl-foot">
+            <span className="tl-actions">{entry.actions}</span>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * TimelineGapRow is the silence a run of dated rows would otherwise hide: two
+ * entries far enough apart that the account went quiet between them, not
+ * merely between events. It carries no body and no footer — there is nothing
+ * that happened to show — so it renders the same node-and-spine shape with
+ * one italic line naming the span it covers.
+ */
+function TimelineGapRow({
+  olderIso,
+  newerIso,
+  zone,
+}: Readonly<{ olderIso: string; newerIso: string; zone: string }>) {
+  const { locale } = useLocale();
+  const t = useT();
+  return (
+    <li className="tl-gap">
+      <span className="tl-icon">
+        <Clock aria-hidden />
+      </span>
+      <div className="tl-body">
+        <span className="tl-quiet">
+          {t("timeline.gap", {
+            from: formatDate(olderIso, locale, zone),
+            to: formatDate(newerIso, locale, zone),
+          })}
         </span>
       </div>
-      {entry.actions && <span className="tl-actions">{entry.actions}</span>}
     </li>
   );
 }
