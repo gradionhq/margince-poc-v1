@@ -493,7 +493,10 @@ up)
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
     echo "FAIL: $label api did not become ready — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
+    # The FE too: it is started BEFORE the api now (the api reads its view
+    # documents from it), so bailing out here would leave vite holding the port
+    # and the next `make dev` would report it as already in use.
+    kill "$be_pid" "$fe_pid" 2>/dev/null || true
     exit 1
   fi
   # No demo records: `make dev` brings up a COLD START — the installation the
