@@ -60,7 +60,7 @@ func buildListPrelude(
 		return nil, err
 	}
 
-	p := &listPrelude{sorted: sorted, limit: storekit.ClampLimit(limit), where: []string{offerTemplateWhereSeed}}
+	p := &listPrelude{sorted: sorted, limit: storekit.ClampLimit(limit), where: []string{whereSeed}}
 	p.arg = func(v any) int { p.args = append(p.args, v); return len(p.args) }
 
 	// A row-scoped record narrows to what this reader may see. The

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
@@ -72,25 +73,52 @@ var organizationListFields = map[string]string{
 // organizationDomainClause narrows the page to the account that lists one
 // domain, or "" when the caller named none.
 //
-// The value is folded the way organization_domain stores it (normalizeDomain),
-// so a caller's capitalization decides nothing — and it is compared against
-// LIVE domain rows only, which is both what the page itself attaches and what
-// `uq_org_domain` indexes. A domain released by one account and taken by
-// another must answer with the account that holds it now.
+// The value is reduced by the SAME parse the write path applies
+// (parseOrgDomains → values.ParseDomain), so a caller who pasted
+// `https://www.acme.example/careers` out of a signature asks about the host
+// the column actually holds. A value that reduces to no host at all matches
+// nothing, which is the honest answer to a domain that is not one — the
+// caller asked about an account by something no account can list.
+//
+// Domain-row liveness follows the caller's own archived question. A live page
+// compares against live domain rows: the account that holds the domain NOW is
+// the one a lookup means, and `uq_org_domain` indexes exactly those. But
+// archiving an account archives its domain rows in the same transaction, so
+// pinning liveness here would make `include_archived=true&domain=…` a page
+// that can never contain the archived account that held it — an empty answer
+// reading "nobody ever had this", which is the same confident wrong answer
+// this filter exists to prevent, inverted.
 //
 // EXISTS rather than a join: an account lists several domains, and a join
 // would return it once per row the keyset cursor would then page over as if
 // they were distinct accounts.
-func organizationDomainClause(domain *string, arg func(any) int) string {
+func organizationDomainClause(domain *string, includeArchived bool, arg func(any) int) string {
 	if domain == nil {
 		return ""
+	}
+	live := " AND d.archived_at IS NULL"
+	if includeArchived {
+		live = ""
 	}
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM organization_domain d
 		WHERE d.workspace_id = organization.workspace_id
 		  AND d.organization_id = organization.id
-		  AND d.domain = $%d AND d.archived_at IS NULL)`,
-		arg(normalizeDomain(*domain)))
+		  AND d.domain = $%d`+live+`)`,
+		arg(foldDomainQuery(*domain)))
+}
+
+// foldDomainQuery reduces a caller's domain to the host organization_domain
+// stores, or to a value no row can carry when it names no host. It answers a
+// string rather than a parse error because a filter that cannot match is a
+// page with nothing in it, not a request the surface should refuse: the
+// caller named an account by something, and no account has it.
+func foldDomainQuery(raw string) string {
+	parsed, err := values.ParseDomain(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.String()
 }
 
 // ListOrganizations is the row-scoped organization list read:
@@ -128,7 +156,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			if in.Classification != nil {
 				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
 			}
-			if clause := organizationDomainClause(in.Domain, arg); clause != "" {
+			if clause := organizationDomainClause(in.Domain, in.IncludeArchived, arg); clause != "" {
 				where = append(where, clause)
 			}
 			// A value outside the enum is a client mistake, not a selection

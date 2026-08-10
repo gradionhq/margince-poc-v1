@@ -44,19 +44,6 @@ const defaultOfferTemplateLocale = "de-DE"
 // (create, update) reference it.
 const offerTemplateIsDefaultField = "is_default"
 
-// offerTemplateWhereSeed and liveRowsClause are the list/read
-// query-builder's repeated SQL fragments, named once so this file's own
-// occurrences aren't raw duplicated literals (the same fragments recur,
-// unnamed, in the package's older files — that backlog is untouched here).
-//
-// liveRowsClause carries no offer-template prefix because it says nothing
-// about them: it is this module's one spelling of "rows nothing has
-// archived", and the pipeline catalog narrows through it too.
-const (
-	offerTemplateWhereSeed = "1=1"
-	liveRowsClause         = " AND archived_at IS NULL"
-)
-
 // DuplicateTemplateNameError reports a live-row name collision
 // (offer_template_name_unique). The pre-check ahead of INSERT/UPDATE is
 // the clean common-case path and carries ExistingID cheaply; a

@@ -117,6 +117,43 @@ func TestTheOrganizationListNarrowsByDomain(t *testing.T) {
 	}
 }
 
+// Archiving an account archives its domain rows in the same transaction, so a
+// domain filter pinned to live rows could never answer the caller who asked
+// for archived accounts BY domain: the page would come back empty, reading
+// "no account ever held this". The two dials are one question.
+func TestTheDomainFilterFindsAnArchivedAccountWhenAskedForOne(t *testing.T) {
+	e := Setup(t)
+	held, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{
+		DisplayName: "Gone", Domains: []people.OrgDomainInput{{Domain: "gone.example", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("seeding the account: %v", err)
+	}
+	if _, err := e.People.ArchiveOrganization(e.Admin(), ids.From[ids.OrganizationKind](ids.UUID(held.Id))); err != nil {
+		t.Fatalf("archiving the account: %v", err)
+	}
+
+	asked := "gone.example"
+	live, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Domain: &asked})
+	if err != nil {
+		t.Fatalf("listing live organizations by the domain: %v", err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("the live page returned %d accounts, want none — the holder is archived", len(live))
+	}
+
+	withArchived, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{
+		Domain: &asked, IncludeArchived: true,
+	})
+	if err != nil {
+		t.Fatalf("listing archived organizations by the domain: %v", err)
+	}
+	if len(withArchived) != 1 || withArchived[0].Id != held.Id {
+		t.Fatalf("include_archived with a domain returned %d accounts, want the archived holder — a page that "+
+			"cannot contain it answers 'nobody ever held this'", len(withArchived))
+	}
+}
+
 func TestTheActivityListNarrowsToTheOpenTasksOneAssigneeHolds(t *testing.T) {
 	e := Setup(t)
 	due := time.Now().Add(24 * time.Hour)

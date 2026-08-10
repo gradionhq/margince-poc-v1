@@ -18,7 +18,7 @@ package people
 // module holds in another table rather than in a column of its own. What this
 // set decides is narrower: which names a TOOL publishes. Every one of them is
 // rendered into the tool listing each step of a run re-sends, so growing it is
-// the catalog-budget decision (gradionhq/margince-poc-v1#737), not something a
+// the catalog-budget decision (#737, and #828 for these two), not something a
 // store learning to bind one more filter settles on its own.
 
 import (

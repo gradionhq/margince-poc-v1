@@ -58,10 +58,10 @@ const (
 	// of what the contract declares a read may be narrowed by.
 	contractParamsSource = "internal/contracts/api_gen.go"
 
-	// overlayShadowSource holds the overlay-mode read shadows. It is named as a
-	// file rather than swept for, because the shadows are what the second
-	// obligation is about and they live in exactly one place by design.
-	overlayShadowSource = "internal/compose/overlayread.go"
+	// overlayModeDispatch is the method every read shadow opens with — "does
+	// this request read the mirror?" — and therefore what identifies one
+	// without naming the file it happens to live in.
+	overlayModeDispatch = "overlayReadMode"
 
 	// contractsPackageAlias is how every handler spells the generated contract
 	// package, which is what makes a params type recognisable in a signature.
@@ -133,25 +133,60 @@ func TestEveryDeclaredNarrowingParameterReachesItsRead(t *testing.T) {
 // the second obligation — #579's fitness function.
 func TestEveryDeclaredNarrowingParameterIsForwardedOrRefusedByItsOverlayShadow(t *testing.T) {
 	declared := narrowingParametersByType(t)
-	shadows := paramsHandlersIn(parseGoFile(t, overlayShadowSource), declared, skipClosures)
-	if len(shadows) < wantMinimumOverlayShadows {
-		t.Fatalf("%s holds %d read shadows taking a narrowing params value, want at least %d — the walk "+
-			"is reading the wrong shape and would judge nothing",
-			overlayShadowSource, len(shadows), wantMinimumOverlayShadows)
-	}
-
-	for _, shadow := range shadows {
-		for _, missed := range shadow.unread {
-			if overlayDialsTheMirrorAnswersTheSameWayEitherWay.Waived(t, missed) {
-				continue
+	shadows := 0
+	for _, file := range overlayShadowScope().Files(t) {
+		for _, shadow := range paramsHandlersIn(file, declared, skipClosures) {
+			shadows++
+			for _, missed := range shadow.unread {
+				if overlayDialsTheMirrorAnswersTheSameWayEitherWay.Waived(t, missed) {
+					continue
+				}
+				t.Errorf("%s: %s neither forwards `%s` to the mirror nor refuses it, so in overlay mode the "+
+					"dial is dropped and the whole mirrored set comes back as though it had been applied — "+
+					"add it to the shadow's refused parameters, or pass it through",
+					file.Path, shadow.name, missed)
 			}
-			t.Errorf("%s: %s neither forwards `%s` to the mirror nor refuses it, so in overlay mode the "+
-				"dial is dropped and the whole mirrored set comes back as though it had been applied — "+
-				"add it to the shadow's refused parameters, or pass it through",
-				overlayShadowSource, shadow.name, missed)
 		}
 	}
+	if shadows < wantMinimumOverlayShadows {
+		t.Fatalf("the walk found %d read shadows taking a narrowing params value, want at least %d — it is "+
+			"reading the wrong shape and would judge nothing", shadows, wantMinimumOverlayShadows)
+	}
 	overlayDialsTheMirrorAnswersTheSameWayEitherWay.AssertAllMatched(t)
+}
+
+// overlayShadowScope finds the read shadows by what they DO — dispatch on
+// overlay mode — rather than by the file they sit in today.
+//
+// The native obligation proves its roots with a Scope for a stated reason: a
+// root naming the wrong tree finds nothing objectionable and reads exactly
+// like a clean one. Naming the shadow file directly would have made this half
+// the same unproven claim, one obligation apart: a shadow added in another
+// compose file would be judged by nobody, and its dropped dial would look
+// exactly like no dropped dial.
+func overlayShadowScope() gatekit.Scope {
+	return gatekit.Scope{
+		Roots:   []string{composeTier},
+		Subject: func(_ string, file *ast.File) bool { return callsOverlayModeDispatch(file) },
+	}
+}
+
+// callsOverlayModeDispatch reports whether a file holds a read shadow: a
+// function that asks whether this request reads the mirror. Every shadow
+// begins that way, and nothing else in the tier does.
+func callsOverlayModeDispatch(file *ast.File) bool {
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if method, isMethod := call.Fun.(*ast.SelectorExpr); isMethod && method.Sel.Name == overlayModeDispatch {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // TestTheDeclaredFilterWalkReportsADroppedParameterAndNothingElse is the gate's
@@ -187,6 +222,15 @@ func TestTheDeclaredFilterWalkReportsADroppedParameterAndNothingElse(t *testing.
 		{
 			"a shadow that names the dial only in its delegation closure is reported", skipClosures,
 			`shadow(func() { h.native(w, r, params) })`,
+			[]string{"tag"},
+		},
+		{
+			// The search shadow's shape: it delegates with a plain call rather
+			// than through a closure, so it is the WHOLESALE allowance — not
+			// the closure rule — that would exempt it from the obligation, and
+			// it would be exempted from all of it at once.
+			"a shadow that delegates without a closure is judged all the same", skipClosures,
+			`if !overlay { h.native(w, r, params); return }; mirror(params.Q)`,
 			[]string{"tag"},
 		},
 		{
@@ -318,7 +362,18 @@ func paramsArgument(fn *ast.FuncDecl, declared map[string][]declaredFilter) (ide
 // passed every field to whatever maps them, and a body that parses the raw
 // query string owns every parameter in it — which is how the report handlers
 // read the reserved `by`/`agg` keys alongside a free-form vocabulary the
-// generated struct cannot spell.
+// generated struct cannot spell. Both are broader than their justification:
+// ANY call taking the value counts, so a debug log naming `params` would
+// exempt a handler. They are the native obligation's allowances and they are
+// stated here rather than narrowed, because a walk that guessed which calls
+// "really" bind would be the unreliable half of this gate.
+//
+// Neither is granted to a SHADOW. Handing the params value on is what an
+// overlay shadow does to reach the native handler — its OTHER branch — so
+// accepting it there would exempt every shadow from the obligation by the
+// shape they all share. The Search shadow proved this the direct way: it
+// delegates with a plain call rather than through a closure, so under the
+// closure rule alone it was judged on nothing at all.
 func parameterReferences(body *ast.BlockStmt, ident string, policy closurePolicy) (read map[string]bool, wholesale bool) {
 	// A handler that discards the generated struct (`_ crmcontracts.XParams`)
 	// reads no field by name, but it may still own the raw query string — so
@@ -335,7 +390,9 @@ func parameterReferences(body *ast.BlockStmt, ident string, policy closurePolicy
 				read[node.Sel.Name] = true
 			}
 		case *ast.CallExpr:
-			wholesale = wholesale || readsRawQuery(node) || passesWhole(node, ident)
+			if policy == descendIntoClosures {
+				wholesale = wholesale || readsRawQuery(node) || passesWhole(node, ident)
+			}
 		}
 		return true
 	})

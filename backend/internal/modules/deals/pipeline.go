@@ -117,8 +117,14 @@ func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontract
 
 // ListPipelines answers the pipeline catalog, live rows only unless the
 // caller asks for the archived ones too (the contract's include_archived).
-// An archived pipeline still carries deals and history, so an admin
-// reviewing where a closed deal was worked has to be able to see it.
+//
+// No operation on this contract archives a pipeline, so the dial changes
+// nothing a deployment's own endpoints can produce (#829 carries the choice:
+// give the state a writer, or retire the parameter). It is bound rather than
+// dropped because the column and this read's filter on it are what decide the
+// answer, and a row in that state — from a fork's migration, from an ops
+// repair — is then reachable by the parameter that names it instead of being
+// invisible to every caller.
 //
 // Its STAGES stay live-only either way: include_archived names the rows this
 // list answers about, and a stage's own archival is what listStages' copy of
@@ -127,14 +133,14 @@ func (s *Store) ListPipelines(ctx context.Context, archived storekit.ArchivedFil
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
 	}
-	live := ""
+	archivedFilter := ""
 	if archived == storekit.LiveOnly {
-		live = ` WHERE archived_at IS NULL`
+		archivedFilter = liveRowsClause
 	}
 	var out []crmcontracts.Pipeline
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM pipeline`+live+` ORDER BY position, created_at`)
+			`SELECT id FROM pipeline WHERE `+whereSeed+archivedFilter+` ORDER BY position, created_at`)
 		if err != nil {
 			return err
 		}

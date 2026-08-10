@@ -69,7 +69,10 @@ var personListFields = map[string]string{
 // vocabulary is unique by (`uq_tag_name` over lower(name)), which also means a
 // name identifies at most one tag whether or not it has since been archived:
 // the link is the fact this filter answers, and retiring the word from the
-// picker does not un-tag the people who carry it.
+// picker does not un-tag the people who carry it. A record's own tag SECTION
+// deliberately answers otherwise (compose/org360 shows live tags only):
+// displaying a retired word beside a record is clutter, while failing to find
+// the people who carry it is a wrong answer.
 //
 // EXISTS rather than a join: a person carries many tags, and a join would
 // return them once per matching link — rows the keyset cursor would then page

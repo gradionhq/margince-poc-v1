@@ -18,6 +18,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
+// whereSeed opens a list/read WHERE chain so every optional narrowing
+// appends uniformly — the chain is never empty even when no filter applies.
+const whereSeed = "1=1"
+
+// liveRowsClause narrows a read to the rows nothing has archived. It lives
+// beside the store every one of this module's reads runs through, because
+// three of them append it — the offer-template list, the project read and the
+// pipeline catalog — and a reader of any one should find it without knowing
+// which record type happened to name it first.
+const liveRowsClause = " AND archived_at IS NULL"
+
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
