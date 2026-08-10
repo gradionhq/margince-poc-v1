@@ -81,11 +81,26 @@ func publishedDocumentURIs(t *testing.T) map[string]bool {
 	return published
 }
 
-// A tool that names a document this deployment does not serve has sent its
+// A tool that names a document the HOSTED surface does not serve has sent its
 // caller somewhere there is nothing — the dead end list_pipelines was created to
 // close, one surface along. It is worse than saying nothing, because a caller
 // that reads the pointer spends a call proving it wrong.
-func TestEveryDocumentAToolNamesIsOneTheSurfacePublishes(t *testing.T) {
+//
+// HOSTED, and the qualifier is the point rather than pedantry. Two surfaces
+// serve these descriptions and only one of them serves documents: an MCP client
+// reaches resources/read, and the Surface-B runner has no document seam at all.
+// So a run reads "published at margince://schema/record-fields" and cannot fetch
+// it.
+//
+// That asymmetry is deliberate today and costs a run nothing, which is why this
+// gate does not fail over it: the runner is offered no resource step form
+// either, so it cannot spend a turn discovering the pointer is unreachable —
+// the text is inert rather than a dead end. Giving it the seam was measured and
+// made things worse (#737), so the gap is a decision rather than an oversight.
+//
+// What would make it an oversight is a reader believing this gate covers both
+// surfaces. It does not, and the name says so.
+func TestEveryDocumentAToolNamesIsOneTheHostedSurfacePublishes(t *testing.T) {
 	published := publishedDocumentURIs(t)
 	for uri, namedBy := range namedDocuments(servedSurface(t).Specs()) {
 		if !published[uri] {
