@@ -150,15 +150,51 @@ function announce(): number {
  */
 function applyTheme(hostContext: unknown): void {
   const stated = asText(asRecord(hostContext).theme);
-  document.documentElement.dataset.theme =
-    stated !== "" ? stated : platformTheme();
+  if (stated !== "") {
+    stateTheme(stated);
+    return;
+  }
   // A host that stated nothing has delegated to the platform, so a reader who
   // flips their system appearance mid-session is followed rather than left on
   // the theme that was current when the panel opened. A host that DID state one
   // has decided, and its decision is not second-guessed.
-  if (stated === "") {
-    darkPreference()?.addEventListener("change", followPlatform);
-  }
+  document.documentElement.dataset.theme = platformTheme();
+  darkPreference()?.addEventListener("change", followPlatform);
+}
+
+/**
+ * followHostChange applies a host-context change notification.
+ *
+ * ITS PARAMS ARE THE CONTEXT ITSELF, not a `hostContext` member — unlike the
+ * initialize RESULT, which nests one. Reading it the same way as the result is
+ * the mistake this function exists to not make: the theme then never resolves,
+ * and every notification looks like a host that stated nothing.
+ *
+ * AND A PARTIAL UPDATE IS PARTIAL. The host sends one of these whenever
+ * anything about the frame changes — a resize notification carrying only
+ * `containerDimensions` arrives right after every open — so "no theme stated"
+ * here means "not mentioned", NOT "delegated to the platform". Treating the two
+ * the same is worse than ignoring the notification altogether: it overwrites
+ * the theme the handshake correctly resolved, moments after it resolved it.
+ */
+function followHostChange(context: unknown): void {
+  const stated = asText(asRecord(context).theme);
+  if (stated === "") return;
+  stateTheme(stated);
+}
+
+/**
+ * stateTheme applies a theme the host has DECIDED, and stops following the
+ * platform.
+ *
+ * The unsubscribe is what keeps a later statement from being undone: a view
+ * that opened against a host stating nothing subscribes to the platform, and
+ * if that host then states a theme, an OS appearance change afterwards would
+ * otherwise repaint over the host's own decision.
+ */
+function stateTheme(theme: string): void {
+  document.documentElement.dataset.theme = theme;
+  darkPreference()?.removeEventListener("change", followPlatform);
 }
 
 /** followPlatform repaints on a platform appearance change. Named rather than
@@ -236,15 +272,19 @@ function handle(event: MessageEvent): void {
     completeHandshake(event, message);
     return;
   }
-  // The host telling us it has been redrawn — a theme switch, a display-mode
-  // change. Followed rather than ignored: a view that read the theme once at
+  // The host telling us something about the frame changed — a theme switch, a
+  // resize. Followed rather than ignored: a view that read the theme once at
   // initialise sits in the old palette until it is closed and reopened, inside
   // a host that has already repainted around it.
+  //
+  // `params` is handed over WHOLE, because it IS the context here rather than
+  // carrying one under `hostContext` the way the initialize result does. That
+  // difference, and the partial-update rule, live in followHostChange.
   if (
     message.method === "ui/notifications/host-context-changed" &&
     initialized
   ) {
-    applyTheme(asRecord(message.params).hostContext);
+    followHostChange(message.params);
     return;
   }
   // A result BEFORE the handshake is dropped rather than rendered. The view has

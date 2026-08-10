@@ -358,10 +358,14 @@ describe("the bridge refuses what it must", () => {
 });
 
 describe("the bridge follows the host it is drawn inside", () => {
-  it("repaints when the host says its context changed", async () => {
-    // A host that switches theme notifies rather than re-initialising. A view
-    // that read the theme once at initialise sits in the old palette until it
-    // is closed and reopened, inside a host that has already repainted.
+  // The notification's `params` IS the context — unlike the initialize RESULT,
+  // which nests one under `hostContext`. Captured off the Inspector's wire:
+  //   {"method":"ui/notifications/host-context-changed",
+  //    "params":{"theme":"dark","styles":{…}}}
+  // Reading it the way the result is read makes every notification look like a
+  // host that stated nothing, which is the shape the first attempt at this got
+  // wrong — and the test got it wrong the same way, so it passed.
+  it("repaints from the notification's own params when the host states a theme", async () => {
     const parent = stubParent();
     await loadBridge(parent.win);
     deliver(parent.win, "https://host.example", {
@@ -374,8 +378,59 @@ describe("the bridge follows the host it is drawn inside", () => {
     deliver(parent.win, "https://host.example", {
       jsonrpc: "2.0",
       method: "ui/notifications/host-context-changed",
-      params: { hostContext: { theme: "dark" } },
+      params: { theme: "dark" },
     });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  // The one that matters most, because getting it wrong is worse than ignoring
+  // the notification altogether. The host sends a context change whenever
+  // anything about the frame changes — a resize carrying only
+  // containerDimensions arrives right after EVERY open — so an update that does
+  // not mention the theme must leave it alone. Treated as "stated nothing" it
+  // falls back to the platform and overwrites the theme the handshake had just
+  // resolved correctly, moments after it resolved it.
+  it("leaves the theme alone when a context change does not mention one", async () => {
+    stubDarkPreference(false); // platform light, so a wrong fallback is visible
+    const parent = stubParent();
+    await loadBridge(parent.win);
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      id: parent.sent[0].msg.id,
+      result: { hostContext: { theme: "dark" } },
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      method: "ui/notifications/host-context-changed",
+      params: { containerDimensions: { width: 712, height: 750 } },
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  // A host that stated nothing at handshake delegated to the platform. Once it
+  // DOES state a theme, its decision stands — an OS appearance change afterwards
+  // must not repaint over it.
+  it("stops following the platform once the host states a theme", async () => {
+    const platform = stubDarkPreference(false);
+    const parent = stubParent();
+    await loadBridge(parent.win);
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      id: parent.sent[0].msg.id,
+      result: { hostContext: {} },
+    });
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    deliver(parent.win, "https://host.example", {
+      jsonrpc: "2.0",
+      method: "ui/notifications/host-context-changed",
+      params: { theme: "dark" },
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    platform.flip(true);
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
@@ -385,7 +440,7 @@ describe("the bridge follows the host it is drawn inside", () => {
     deliver(parent.win, "https://host.example", {
       jsonrpc: "2.0",
       method: "ui/notifications/host-context-changed",
-      params: { hostContext: { theme: "dark" } },
+      params: { theme: "dark" },
     });
     expect(document.documentElement.dataset.theme).not.toBe("dark");
   });
