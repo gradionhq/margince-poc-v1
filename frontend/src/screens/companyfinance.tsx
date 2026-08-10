@@ -242,6 +242,7 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
             <th>{t("finance.col.invoice")}</th>
             <th>{t("finance.col.issued")}</th>
             <th>{t("finance.col.due")}</th>
+            <th>{t("finance.col.paid")}</th>
             <th>{t("finance.col.amount")}</th>
             <th>{t("finance.col.status")}</th>
           </tr>
@@ -274,11 +275,33 @@ function InvoiceRow({
       <td>
         {invoice.due_at ? formatDate(invoice.due_at, locale, RECORD_ZONE) : "—"}
       </td>
+      {/* When it was actually settled. A dash is "not yet", which is a
+          different reading from a date — and the one the status beside it
+          explains. */}
+      <td>
+        {invoice.paid_at
+          ? formatDate(invoice.paid_at, locale, RECORD_ZONE)
+          : "—"}
+      </td>
       <td>{formatMoney(invoice.gross_minor, invoice.currency, locale)}</td>
       <td>
         <Badge tone={STATUS_TONE[invoice.status]}>
           {t(STATUS_LABEL[invoice.status])}
-        </Badge>
+        </Badge>{" "}
+        {/* HOW late, beside whether it was. "Paid" and "paid 8 days late" are
+            different facts about a customer, and the second is the one a rep
+            reads a payment history for. Zero and negative say nothing worth a
+            line: on time is what the status already said. */}
+        {invoice.days_late != null && invoice.days_late > 0 && (
+          <span className="t-caption">
+            {t(
+              invoice.status === "paid"
+                ? "finance.paidDaysLate"
+                : "finance.overdueDays",
+              { days: invoice.days_late },
+            )}
+          </span>
+        )}
       </td>
     </tr>
   );

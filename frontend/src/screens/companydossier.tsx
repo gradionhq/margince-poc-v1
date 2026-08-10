@@ -119,6 +119,7 @@ export function DossierPanel({
               key={section.kind}
               sentences={section.sentences}
               onOpenRecord={onOpenRecord}
+              citations="collected"
             />
           ))}
           <p className="co-part-foot">
