@@ -188,8 +188,12 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
       }))}
       canEdit={canUpdate && !readOnlyReason}
       readOnlyReason={readOnlyReason}
+      // The account's standing is the one value in this block a reader looks
+      // for first, and both mockups draw it as the header's prominent
+      // control. An accent badge is that weight; the grey one beside Owner
+      // read as another piece of metadata.
       render={(value) => (
-        <Badge>{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
+        <Badge tone="accent">{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
       )}
       onSave={(next) =>
         patch({
@@ -603,6 +607,10 @@ export function CompanyPulse({
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  const provenance = provenanceOf(org.captured_by, viewerId);
+  // The reader's own hand-typed entry: the one provenance that reports nothing
+  // they do not already know.
+  const selfTyped = provenance.kind === "human" && provenance.self;
   const strength = view?.strength;
   // Withheld or absent, the line says nothing at all: "never contacted" read
   // off missing data is a business conclusion the page has no basis for, and
@@ -638,11 +646,19 @@ export function CompanyPulse({
         </>
       )}
       {/* Where the RECORD came from — a different question from who owns it,
-          and the reason both now carry a word saying which is which. */}
-      <ProvenanceTag
-        provenance={provenanceOf(org.captured_by, viewerId)}
-        renderUser={(userId) => <EntityRef kind="user" id={userId} />}
-      />
+          and the reason both carry a word saying which is which.
+
+          Not when the reader typed it THEMSELVES. "Typed by you" on your own
+          entry is the one case that tells nobody anything, and it rode the
+          pulse line of every hand-created account. An agent, a connector or an
+          unknown source all still say so: which of those wrote a record is the
+          governance reading this tag exists for. */}
+      {!selfTyped && (
+        <ProvenanceTag
+          provenance={provenance}
+          renderUser={(userId) => <EntityRef kind="user" id={userId} />}
+        />
+      )}
       {/* What is waiting on a human decision here, and the way to make it.
           The count was a badge that led nowhere: a reader told that 27
           decisions are owed and given no way to pay them learns only that the
