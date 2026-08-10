@@ -21,10 +21,22 @@
   display: none;
 }
 
+/*
+ * One avatar size for the whole transcript, and it is the design system's own
+ * `.avatar` chip: 28px. The thread used to run three — a 24px speaker circle,
+ * a bare 16px glyph for the reader, and a 28px monogram at the rail's foot for
+ * the same reader — so the column read as three unrelated components stacked.
+ * `--mw-avatar` is the one knob; the speaker below and the reader's `.avatar`
+ * both answer to it.
+ */
+.ob-conv-thread {
+  --mw-avatar: 28px;
+}
+
 .ob-conv-narration {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-3);
   max-width: 80%;
   width: fit-content;
 }
@@ -32,13 +44,17 @@
 /* The asymmetric corner is what tells you who spoke, and it survives a
  * greyscale screenshot in a way a fill colour does not: the AI's bubble is
  * notched at the top LEFT, towards its speaker mark, and the reader's is
- * notched at the bottom right. Nothing about who said what rests on colour. */
+ * notched at the bottom right. Nothing about who said what rests on colour.
+ *
+ * A solid fill and no hairline: the bubble is a shape, and an outline around a
+ * filled shape draws the same edge twice. --bgCard rather than --bgElevated
+ * because the column it sits in is already elevated — a bubble the same colour
+ * as its surface has to borrow the border back to exist at all. */
 .ob-conv-narration p {
   margin: 0;
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--borderSubtle);
   border-radius: var(--space-1) var(--r-lg) var(--r-lg) var(--r-lg);
-  background: var(--bgElevated);
+  background: var(--bgCard);
   color: var(--textContent);
   font: var(--fw-regular) var(--fs-body) / var(--lh-relaxed) var(--f-body);
 }
@@ -47,12 +63,11 @@
   flex: none;
   display: grid;
   place-items: center;
-  inline-size: var(--space-6);
-  block-size: var(--space-6);
+  inline-size: var(--mw-avatar);
+  block-size: var(--mw-avatar);
   border-radius: var(--r-full);
   background: var(--aiLight);
   color: var(--aiText);
-  font: var(--fw-semibold) var(--fs-meta) / var(--lh-tight) var(--f-display);
 }
 
 /* Live narration reveals word by word. The animated copy is aria-hidden
@@ -86,7 +101,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--space-3);
   align-self: flex-end;
   max-width: 80%;
   width: fit-content;
@@ -102,11 +117,12 @@
   font: var(--fw-medium) var(--fs-body) / var(--lh-relaxed) var(--f-body);
 }
 
-.ob-conv-user svg {
-  flex: none;
-  inline-size: var(--space-4);
-  block-size: var(--space-4);
-  margin-block-start: var(--space-2);
+/* The reader's own chip, on the same rung as the speaker's. `.avatar` carries
+   its own 28px, so this only has to hold it against the shared knob when that
+   knob changes. */
+.ob-conv-user .avatar {
+  inline-size: var(--mw-avatar);
+  block-size: var(--mw-avatar);
 }
 
 .ob-conv-outcome {
@@ -1993,7 +2009,11 @@
    the card chrome goes. The pane already draws the surface. */
 
 .ob-conv-confirm.ob-triage {
-  max-width: 72rem;
+  /* The scene above already sets the reading measure. A second one 2rem apart
+     did not narrow the board so much as un-centre it: the scene centred itself
+     in the pane and the board then sat flush left inside that, leaving a strip
+     of dead pane on one side only. */
+  max-width: none;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -2007,21 +2027,6 @@
   font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-display);
   line-height: var(--lh-tight);
-}
-
-/* Clears the pinned continue bar's own height before it arrives: without
-   this, the bar's sticky window spends its last stretch of travel floating
-   OVER whatever content precedes it instead of after it, and that content
-   becomes unreachable right when the bar is closest to it. Targets whichever
-   child ends up second-to-last — the bar itself is always the last, but
-   what sits before it varies (the coverage tail, the failed-confirm alert,
-   or nothing past the board itself) — so this survives all of them rather
-   than naming one. Sized generously against the bar's own rendered height
-   (progress + status + button, one padded row) rather than pixel-exact,
-   since a little extra empty scroll is harmless and a little too little
-   hides content. */
-.ob-conv-confirm.ob-triage > :nth-last-child(2) {
-  margin-bottom: calc(var(--space-6) * 3);
 }
 
 /* The identity summary that leads the review: a brand mark and the name,
@@ -2162,7 +2167,16 @@
    own bounds and only ever floats over ITS OWN content. */
 .ob-triage-continue {
   position: sticky;
-  bottom: 0;
+  /* Flush with the pane's own foot, not floating a gutter above it.
+
+     A sticky element is held inside the scroller's CONTENT box, so a bar with
+     `bottom: 0` in a pane that pads its content came to rest exactly one
+     bottom-padding above the pane's edge — a strip of daylight under a pinned
+     bar, which reads as a card that came loose rather than a foot the surface
+     is standing on. Offsetting the stick line by that same padding puts the bar
+     on the edge. Sideways it stays exactly where it is; the fill that spans the
+     pane is drawn by the ::before below. */
+  bottom: calc(-1 * var(--ob-pane-pad-block, 0px));
   /* Above the section map (z-index 1), which is itself above the rows. The
      pinned action is the last thing on this surface that may be obscured. */
   z-index: 3;
@@ -2173,18 +2187,38 @@
   padding: var(--space-3) 0;
   border-top: 1px solid var(--borderSubtle);
   background: var(--bgElevated);
+  /*
+   * The fill runs the width of the pane while the bar's own box does not — the
+   * progress, the sentence and the button stay on exactly the measure every row
+   * above them uses, and only the surface under them reaches the edges.
+   *
+   * Drawn with shadows rather than a bled-out element because the bar pins
+   * inside a centred reading column inside a padded pane: the distance to the
+   * pane's edge is two unknowns deep and moves with the window. A box that
+   * simply overshot would have to be clipped by the pane, and a pane that clips
+   * horizontally while scrolling vertically is a horizontal scroll container
+   * whatever it is asked to be — a sideways scroll into empty space, one
+   * trackpad flick away. A shadow never joins the scrollable region at all.
+   *
+   * Two of them: the surface, and the hairline one pixel above it so the rule
+   * reaches the same edges the fill does. `clip-path` then cuts both back to
+   * the bar's own height — without it the spread would paint over the rows the
+   * bar is pinned in front of.
+   */
+  box-shadow:
+    0 0 0 100vw var(--bgElevated),
+    0 -1px 0 100vw var(--borderSubtle);
+  clip-path: inset(-1px -100vw 0);
 }
 
-/* Whatever a scene puts directly above the bar keeps the bar's own rendered
-   height (progress + status + button, one padded row) clear beneath it, or
-   the bar spends the last stretch of its sticky travel cutting that content
-   in half — precisely when the reader has scrolled to it. Empty scroll at the
-   foot of a surface costs nothing; hidden content costs the confirm. The
-   triage board states the same clearance for itself further down, because it
-   nests the bar a level deeper than a scene does. */
-.ob-scene > :has(+ .ob-triage-continue) {
-  margin-block-end: var(--space-16);
-}
+/* No clearance is reserved above the bar, and none is needed: the bar is
+   STICKY, so it holds its own height in normal flow at the foot of the
+   surface. Scrolled to the end it is simply the last row, with everything
+   above it clear; on the way there it floats over content that is still below
+   the fold and that the same scroll is about to bring out from under it. The
+   reserved block that used to sit here was therefore pure surplus — a screen's
+   worth of empty surface that the reader hit after the last row and had to
+   scroll through to reach nothing. */
 
 .ob-triage-continue-bar {
   inline-size: 8rem;
@@ -2250,67 +2284,89 @@
   z-index: 1;
 }
 
+/*
+ * The map reads as an inline menu: full-width rows of one height, a fill that
+ * follows the pointer, and a marked row for where you are. It used to be a
+ * column of bare text with a tint behind the WHOLE section — sublist and all —
+ * which made the section you are in look like a selected block rather than a
+ * selected row, and left the rows themselves with no hit area a reader could
+ * see before committing to a click.
+ */
 .ob-triage-nav-list {
   display: flex;
   flex-direction: column;
-  /* The rhythm that carries hierarchy where no second colour or heading
-     rule will: a full section-to-section gap here, a tight one (on
-     .ob-triage-nav-sublist below) between a section and its own fields.
-     The eye reads the wide gap as "new section" without being told. */
-  gap: var(--space-3);
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* The section name is the jump to it — the nav navigates, it does not
-   merely label. It reads as a heading over its own fields: full-strength
-   text colour and a heavier weight than the field list below it carries,
-   rather than the muted, same-weight text that made a section and a field
-   indistinguishable before. The one status it carries is whether work
-   remains; a settled section shows no badge at all. Horizontal padding is
-   permanent, not something the active state adds — so the tint below never
-   shifts the row's own layout when it appears or drops. */
+/* Menu rhythm rather than card rhythm: rows sit close enough to read as one
+   list, and the extra step between sections is what still says "new section"
+   now that the tint no longer wraps a whole one. */
+.ob-triage-nav-list > li + li {
+  margin-block-start: var(--space-1);
+}
+
+/* The section name is the jump to it — the map navigates, it does not merely
+   label. Horizontal padding is permanent, not something the active state adds,
+   so the tint below never shifts the row's own layout when it appears or
+   drops. */
 .ob-triage-nav-link {
+  position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 0;
   border-radius: var(--r-sm);
   background: none;
-  color: var(--textPrimary);
+  color: var(--textContent);
   cursor: pointer;
   font-family: var(--f-body);
-  font-size: var(--fs-body);
-  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   letter-spacing: var(--tracking-normal);
   text-align: start;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .ob-triage-nav-link:hover {
+  background: var(--bgHover);
   color: var(--textPrimary);
 }
 
+/* Inset, so the ring is drawn inside a row that already fills its column
+   rather than outside it, where it would collide with the row above. */
 .ob-triage-nav-link:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-sm);
+  outline-offset: -2px;
 }
 
-/* "You are here" is a tint across the whole section entry — its jump
-   button AND the named list under it — rather than a rule against the
-   button alone, which reads as a stray mark once a sub-list sits below it
-   with no rule of its own. One signal, quieter than the outstanding marks
-   above it (the danger icon, the count pill): orientation, not a call to
-   action. Targeting the `<li>` through `:has()` means a settled section
-   (no pill, just the check) and the first/last entries all get the exact
-   same treatment — nothing here depends on what else the row carries. */
-.ob-triage-nav-list > li:has(> .ob-triage-nav-link[aria-current="true"]) {
-  border-radius: var(--r-sm);
+/* Where you are, said three ways so none of them carries it alone: the fill,
+   the weight, and a bar on the leading edge that survives both a greyscale
+   screenshot and a reader who cannot separate a 9%-alpha tint from the surface
+   under it. Orientation, not a call to action — which is why it stays quieter
+   than the outstanding marks on the same row (the danger icon, the count
+   pill). */
+.ob-triage-nav-link[aria-current="true"] {
   background: var(--accentLight);
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+.ob-triage-nav-link[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-1);
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-radius: var(--r-full);
+  background: var(--accent);
 }
 
 .ob-triage-group {
@@ -2386,14 +2442,8 @@
 .ob-triage-nav-sublist {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  padding-block: 0;
-  /* The button's own inset (space-2) plus a further indent (space-4), so a
-     named field reads as nested under its section rather than merely below
-     it — the same left edge the active tint's padding respects on the
-     other side. */
-  padding-inline: calc(var(--space-2) + var(--space-4)) var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding: 0;
   list-style: none;
 }
 
@@ -2403,10 +2453,16 @@
 .ob-triage-nav-item {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-1) 0;
+  /* The indent is the row's own padding, not the list's: the fill has to run
+     the full width of the menu the way the section rows above it do, and a
+     list that inset its children would have cut a channel down one side of
+     every hover. */
+  padding: var(--space-1) var(--space-3) var(--space-1)
+    calc(var(--space-3) + var(--space-5));
   border: 0;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--textMeta);
   cursor: pointer;
@@ -2414,6 +2470,9 @@
   font-size: var(--fs-meta);
   font-weight: var(--fw-regular);
   text-align: start;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .ob-triage-nav-item svg {
@@ -2423,13 +2482,13 @@
 }
 
 .ob-triage-nav-item:hover {
+  background: var(--bgHover);
   color: var(--textPrimary);
 }
 
 .ob-triage-nav-item:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-sm);
+  outline-offset: -2px;
 }
 
 /* The blocking shape only: required AND empty is the one case red is for,
@@ -2441,7 +2500,10 @@
 /* Past the named limit, a plain count rather than a taller list — the nav
    must not grow past the section it navigates. */
 .ob-triage-nav-more {
-  padding: var(--space-1) 0;
+  /* The same indent its clickable siblings carry, so the overflow count lines
+     up with the fields it is counting rather than with the section above. */
+  padding: var(--space-1) var(--space-3) var(--space-1)
+    calc(var(--space-3) + var(--space-5));
   color: var(--textMeta);
   font-family: var(--f-body);
   font-size: var(--fs-meta);
@@ -2809,65 +2871,95 @@
 /* The facts section: grouped by type, each group a quiet sub-heading over
    its own dense list — visible content now, not a disclosure a reader has
    to know to open. */
+/*
+ * A fact type is an accordion item, and it now looks like one before it is
+ * clicked. It used to be an uppercase eyebrow with a small triangle glued to
+ * the front of the word — the whole row was a control, and nothing about it
+ * said so, so a folded type read as a heading whose list had gone missing.
+ *
+ * What makes it legible: a bordered row with a surface of its own, a caret in
+ * a fixed slot at the leading edge, a count pill at the trailing edge, and a
+ * hover fill over the whole strip so the hit area is the strip.
+ */
 .ob-triage-fact-type {
-  margin-top: var(--space-6);
-}
-
-.ob-triage-fact-type:first-of-type {
   margin-top: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  overflow: hidden;
 }
 
-/* The head is a `summary`, so it carries the whole type: its name, its count,
-   and — for a type long enough to be folded shut — the only way to open it.
-   The UA marker is dropped in both spellings the engines still disagree on,
-   and replaced by a caret of our own that has somewhere to point. */
 .ob-triage-fact-type-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-2);
-  color: var(--textMeta);
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: var(--fs-eyebrow);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-eyebrow);
+  letter-spacing: var(--tracking-normal);
   list-style: none;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 
 .ob-triage-fact-type-head::-webkit-details-marker {
   display: none;
 }
 
-/* A caret on the type's NAME rather than at the row's end, where the count
-   already sits — a reader looking for what opens the list looks at the label
-   they would click, not across the gap at the number. Two glyphs rather than
-   one rotated by 90°: a rotated chevron is drawn from a box the type scale
-   made short, and the rotation pushes its tips outside it. */
-.ob-triage-fact-type-head > span:first-child::before {
-  content: "▸";
-  margin-inline-end: var(--space-1);
+.ob-triage-fact-type-head:hover {
+  background: var(--bgHover);
 }
 
-.ob-triage-fact-type[open]
-  .ob-triage-fact-type-head
-  > span:first-child::before {
-  content: "▾";
-}
-
-.ob-triage-fact-type-head:hover,
 .ob-triage-fact-type-head:focus-visible {
-  color: var(--textPrimary);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
+/* The caret leads the row and turns where a caret turns. A fixed square holds
+   it, so the type's name starts on the same x whether the item is open or
+   shut — a glyph that changes width moves the label under the reader's eye. */
+.ob-triage-fact-type-head::before {
+  content: "";
+  inline-size: 8px;
+  block-size: 8px;
+  flex: none;
+  border-inline-end: 1.5px solid var(--textMeta);
+  border-block-end: 1.5px solid var(--textMeta);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.ob-triage-fact-type[open] .ob-triage-fact-type-head::before {
+  transform: rotate(45deg);
+}
+
+/* The count is the part that has to survive the fold: it is what tells the
+   reader how much is behind a shut item, so it sits in a chip of its own at
+   the row's far end rather than trailing the name as plain text. */
+.ob-triage-fact-type-head > span:last-child {
+  margin-inline-start: auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+}
+
+/* The panel the head opens, inset from the head's own edges so the rows read
+   as contents of the item rather than a second list that happens to follow
+   it. The rule at the top is the seam between the two. */
 .ob-triage-fact-rows {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   margin: 0;
-  padding: 0;
+  padding: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
   list-style: none;
 }
 
@@ -2959,7 +3051,7 @@
   .ob-triage-nav-list {
     flex-direction: row;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-1);
   }
 
   /* Each section's named list stays under its own button rather than
