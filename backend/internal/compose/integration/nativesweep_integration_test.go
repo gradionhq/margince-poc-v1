@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,26 +34,32 @@ import (
 // seedSweepable puts two records of each searchable type in the workspace,
 // each carrying the same word, so a sweep has more of every type than any
 // small page can hold.
-func seedSweepable(t *testing.T, e *SearchEnv) {
+//
+// Through the module writers rather than INSERTs: the rows a sweep pages over
+// have to be the rows production makes, and a fixture that writes its own
+// would prove the walk against a shape no writer produces.
+func seedSweepable(t *testing.T, e *Env) {
 	t.Helper()
 	for _, name := range []string{"Sweepable One", "Sweepable Two"} {
-		e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		           VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
-		e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		           VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
-		e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
-		           VALUES ($1, $2, $3, 'working', 'inbound', 10, 'human:x')`, name)
+		e.SeedPerson(t, name, nil)
+		e.SeedOrg(t, name, nil)
+		lead := name
+		if _, _, err := e.People.CreateLead(e.Admin(), people.CreateLeadInput{
+			FullName: &lead, Status: "working", Source: "manual",
+		}); err != nil {
+			t.Fatalf("seeding lead %q: %v", name, err)
+		}
 	}
 }
 
 // sweepingProvider is the composite provider over this fixture's pool — the
 // one `search_records` reaches.
-func sweepingProvider(e *SearchEnv) *compose.Provider {
+func sweepingProvider(e *Env) *compose.Provider {
 	return compose.NewProvider(e.Pool)
 }
 
 func TestTheNativeSweepAnswersAtMostTheLimitItWasAskedFor(t *testing.T) {
-	e := SetupSearch(t)
+	e := Setup(t)
 	seedSweepable(t, e)
 	ctx := e.Admin()
 
@@ -73,7 +80,7 @@ func TestTheNativeSweepAnswersAtMostTheLimitItWasAskedFor(t *testing.T) {
 }
 
 func TestTheNativeSweepPagesThroughEveryTypeWithoutRepeating(t *testing.T) {
-	e := SetupSearch(t)
+	e := Setup(t)
 	seedSweepable(t, e)
 	ctx := e.Admin()
 	provider := sweepingProvider(e)
@@ -120,7 +127,7 @@ func TestTheNativeSweepPagesThroughEveryTypeWithoutRepeating(t *testing.T) {
 }
 
 func TestTheNativeSweepAnswersTheTypesASeatMayReadRatherThanRefusingAll(t *testing.T) {
-	e := SetupSearch(t)
+	e := Setup(t)
 	seedSweepable(t, e)
 
 	// A seat with organization read and nothing else. The sweep it asks for
@@ -169,7 +176,7 @@ func TestTheNativeSweepAnswersTheTypesASeatMayReadRatherThanRefusingAll(t *testi
 // otherwise resume "past" a position this provider cannot place and answer a
 // complete empty page to a caller holding a real token.
 func TestTheNativeSweepRefusesACursorFromAStreamItDoesNotSearch(t *testing.T) {
-	e := SetupSearch(t)
+	e := Setup(t)
 	seedSweepable(t, e)
 
 	foreign, err := storekit.EncodeSweepCursor(storekit.SweepCursor{
