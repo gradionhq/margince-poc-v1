@@ -22,7 +22,11 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type HTMLElement, parse } from "node-html-parser";
-import type { Plugin } from "vite";
+import { build, type Plugin } from "vite";
+
+/** This directory, for resolving the sibling files below whatever cwd a caller
+ *  happens to have. */
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const SPDX = "SPDX-License-Identifier: BUSL-1.1";
 const COPYRIGHT = "SPDX-FileCopyrightText: 2026 Gradion";
@@ -31,13 +35,7 @@ const COPYRIGHT = "SPDX-FileCopyrightText: 2026 Gradion";
  *  module works identically under vitest, under a vite build and under the dev
  *  server, none of which agree about JSON import assertions. */
 const VOCABULARY: Record<string, string[]> = JSON.parse(
-  readFileSync(
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "../src/mcp-apps/forbidden.json",
-    ),
-    "utf8",
-  ),
+  readFileSync(resolve(HERE, "../src/mcp-apps/forbidden.json"), "utf8"),
 );
 
 /** Element names a self-contained document has no business carrying. */
@@ -263,6 +261,93 @@ export function inlineViews(): Plugin {
       refuse(inlined);
     },
   };
+}
+
+/** The path each view is served at, in dev and in production alike. */
+const VIEW_PATH = /^\/mcp-apps\/([a-z0-9-]+)\.html$/;
+
+/**
+ * serveMcpApps answers `/mcp-apps/<view>.html` on the DEV server with the same
+ * bytes the production build emits.
+ *
+ * WHY THIS EXISTS. The dev server never runs `rollupOptions.input` or
+ * `generateBundle`, so without it a request for a view falls through the SPA
+ * fallback to a dev index.html carrying `src=` module scripts and
+ * `/@vite/client` — both on the admission check's list by name. The api would
+ * then refuse every document and both views would be permanently unadvertised in
+ * every dev stack.
+ *
+ * IT RUNS THE REAL BUILD rather than reassembling the dev module graph, which is
+ * the only way "the same bytes" is a fact instead of an intention: the transform
+ * pipeline in dev rewrites imports and injects the HMR client, so a document
+ * stitched from it would differ from the built one in exactly the ways the check
+ * refuses. A build takes about a tenth of a second and the api fetches each view
+ * once at startup, so nothing here is on a hot path.
+ *
+ * `apply: "serve"` is load-bearing: this plugin lives in vite.config.ts so
+ * `make dev` reaches it, and it must contribute NOTHING to the SPA's build.
+ */
+export function serveMcpApps(): Plugin {
+  return {
+    name: "mcp-apps:serve-views",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const named = VIEW_PATH.exec(
+          new URL(req.url ?? "/", "http://localhost").pathname,
+        );
+        if (named === null) {
+          next();
+          return;
+        }
+        buildOneView(named[1]).then(
+          (document) => {
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.setHeader("Cache-Control", "no-cache");
+            res.end(document);
+          },
+          (err: unknown) => {
+            // 500 with the reason, never a quietly-served bad document: a dev
+            // server that hands over something the api will refuse teaches
+            // exactly the wrong lesson about why the view never appeared.
+            res.statusCode = err instanceof ViewNotFound ? 404 : 500;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end(
+              `mcp-apps: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          },
+        );
+      });
+    },
+  };
+}
+
+/** ViewNotFound separates "no such view" from "this view would not build",
+ *  because the two deserve different statuses and different reading. */
+class ViewNotFound extends Error {}
+
+async function buildOneView(name: string): Promise<string> {
+  const output = await build({
+    configFile: resolve(HERE, "../vite.mcp-apps.config.ts"),
+    mode: name,
+    logLevel: "warn",
+    // Nothing reaches the disk: the document is answered from memory, so a dev
+    // request can never leave a stale artifact where the production build writes.
+    build: { write: false },
+  }).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    throw message.includes("is not a view") ? new ViewNotFound(message) : err;
+  });
+  const bundles = Array.isArray(output) ? output : [output];
+  for (const bundle of bundles) {
+    if (!("output" in bundle)) continue;
+    for (const emitted of bundle.output) {
+      if (emitted.type === "asset" && emitted.fileName.endsWith(".html")) {
+        return String(emitted.source);
+      }
+    }
+  }
+  throw new Error(`the build of ${name} emitted no document`);
 }
 
 /** refuse throws unless the document is admissible, naming every reason. A view
