@@ -41,7 +41,11 @@ func asCatalogueReader(ws ids.UUID, objects ...string) context.Context {
 // The ties below are resolved by the ORDER BY's trailing created_at DESC, id
 // DESC, so a boolean column with two rows on the same side still has one right
 // answer. Every seeded row therefore carries an explicit creation instant
-// rather than whatever clock the insert ran under.
+// rather than whatever clock the insert ran under. The house updated_at
+// trigger fires BEFORE UPDATE only, so a seeded modification instant survives
+// the insert — and each row is given one that disagrees with its creation
+// instant, so a list reading the wrong timestamp column fails rather than
+// coincidentally agreeing.
 const (
 	seedEarliest = "2026-01-01T00:00:00Z"
 	seedMiddle   = "2026-01-02T00:00:00Z"
@@ -54,11 +58,11 @@ func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 
 	// Seeded so that creation order disagrees with every sort below: a list
 	// still ordering by created_at would return the same page each time.
-	const seedProduct = `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at)
-	                     VALUES ($1, $2, $3, $4, 'day', $5, 'EUR', 0, $6, 'ui', 'human:x', $7)`
-	e.Seed(t, seedProduct, "Middle", "SKU-M", 5000, true, seedMiddle)
-	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest)
-	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest)
+	const seedProduct = `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at)
+	                     VALUES ($1, $2, $3, $4, 'day', $5, 'EUR', 0, $6, 'ui', 'human:x', $7, $8)`
+	e.Seed(t, seedProduct, "Middle", "SKU-M", 5000, true, seedMiddle, seedEarliest)
+	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest, seedMiddle)
+	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest, seedLatest)
 
 	store := deals.NewStore(e.Pool)
 	for _, tc := range []struct {
@@ -74,6 +78,9 @@ func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 		// newest-first.
 		{sort: "active", order: []string{"Apex", "Middle", "Zenith"}},
 		{sort: "created_at", order: []string{"Zenith", "Middle", "Apex"}},
+		{sort: "-created_at", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "updated_at", order: []string{"Middle", "Apex", "Zenith"}},
+		{sort: "-updated_at", order: []string{"Zenith", "Apex", "Middle"}},
 	} {
 		sortField := tc.sort
 		all := len(tc.order)
@@ -89,11 +96,11 @@ func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := asCatalogueReader(e.WS, "offer_template")
 
-	const seedTemplate = `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, created_at)
-	                      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, $6)`
-	e.Seed(t, seedTemplate, "Middle", "de-DE", false, seedMiddle)
-	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest)
-	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest)
+	const seedTemplate = `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, created_at, updated_at)
+	                      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, $6, $7)`
+	e.Seed(t, seedTemplate, "Middle", "de-DE", false, seedMiddle, seedEarliest)
+	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest, seedMiddle)
+	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest, seedLatest)
 
 	store := deals.NewStore(e.Pool)
 	for _, tc := range []struct {
@@ -106,6 +113,10 @@ func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 		// Zenith is the only default template; the other two fall back to
 		// newest-first.
 		{sort: "is_default", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "created_at", order: []string{"Zenith", "Middle", "Apex"}},
+		{sort: "-created_at", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "updated_at", order: []string{"Middle", "Apex", "Zenith"}},
+		{sort: "-updated_at", order: []string{"Zenith", "Apex", "Middle"}},
 	} {
 		sortField := tc.sort
 		all := len(tc.order)
