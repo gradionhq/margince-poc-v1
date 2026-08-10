@@ -155,9 +155,10 @@ func (f *Fetcher) Fetch(ctx context.Context, uri string) (string, error) {
 		// Drained up to the cap and closed. The drain is what lets a connection
 		// be reused, and it is BOUNDED on purpose: an origin answering more than
 		// the cap costs this process a fresh connection next time rather than an
-		// unbounded read, which is the right way round. Neither result is worth
-		// reporting — the body has already been judged, or refused.
+		// unbounded read, which is the right way round.
+		//craft:ignore swallowed-errors best-effort drain: the body has already been read or refused, so a drain error changes nothing about the fetch result
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDocumentBytes))
+		//craft:ignore swallowed-errors best-effort close: the capped read above may leave the body mid-stream, so a close error carries no signal for the fetch result
 		_ = resp.Body.Close()
 	}()
 	if err := requireHTMLDocument(resp, target); err != nil {
