@@ -3510,6 +3510,30 @@ func (e GrowthFitBand) Valid() bool {
 	}
 }
 
+// Defines values for GrowthFitSubScoreDimension.
+const (
+	GrowthFitSubScoreDimensionAccess             GrowthFitSubScoreDimension = "access"
+	GrowthFitSubScoreDimensionCompanySize        GrowthFitSubScoreDimension = "company_size"
+	GrowthFitSubScoreDimensionIndustryFit        GrowthFitSubScoreDimension = "industry_fit"
+	GrowthFitSubScoreDimensionTransformationNeed GrowthFitSubScoreDimension = "transformation_need"
+)
+
+// Valid indicates whether the value is a known member of the GrowthFitSubScoreDimension enum.
+func (e GrowthFitSubScoreDimension) Valid() bool {
+	switch e {
+	case GrowthFitSubScoreDimensionAccess:
+		return true
+	case GrowthFitSubScoreDimensionCompanySize:
+		return true
+	case GrowthFitSubScoreDimensionIndustryFit:
+		return true
+	case GrowthFitSubScoreDimensionTransformationNeed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthDimensionRating.
 const (
 	HealthDimensionRatingAtRisk HealthDimensionRating = "at_risk"
@@ -7814,16 +7838,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	Active WebhookSubscriptionState = "active"
-	Paused WebhookSubscriptionState = "paused"
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case Active:
+	case WebhookSubscriptionStateActive:
 		return true
-	case Paused:
+	case WebhookSubscriptionStatePaused:
 		return true
 	default:
 		return false
@@ -11838,6 +11862,27 @@ type FxRateListResponse struct {
 // "we could not tell" — those are opposite conclusions.
 type GrowthFitBand string
 
+// GrowthFitSubScore One dimension of the growth-fit assessment, with the reason for its score.
+//
+// The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+// this model was built to replace, and a reader must be able to see what it was read from.
+type GrowthFitSubScore struct {
+	// Dimension The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+	Dimension GrowthFitSubScoreDimension `json:"dimension"`
+
+	// Evidence The records behind the reason, on the same footing as every other claim. A sub-score citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20).
+	Evidence *[]OrganizationBriefEvidence `json:"evidence,omitempty"`
+
+	// Reason One sentence saying what this score was read from.
+	Reason string `json:"reason"`
+
+	// Score 0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19) — the band is the verdict, and these are what it was read from.
+	Score int `json:"score"`
+}
+
+// GrowthFitSubScoreDimension The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+type GrowthFitSubScoreDimension string
+
 // HealthDimension One named part of the relationship's health, with the reason for its rating.
 //
 // The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
@@ -13817,6 +13862,19 @@ type OrganizationGrowthFit struct {
 
 	// RecommendedAngle The single suggested approach. A recommendation, and labelled as one.
 	RecommendedAngle *OrganizationBriefSentence `json:"recommended_angle,omitempty"`
+
+	// SubScores The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+	// same evidence the band is assessed from, each with a 0-100 score and the reason for
+	// it, so a reader who disagrees with the verdict can see which input carried it.
+	//
+	// ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+	// zeroes and never a partial set, because a dimension scored 0 is a claim about the
+	// company where an absent one is a fact about the reading (DOSS-AC-18).
+	//
+	// This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+	// composite that survives its own missing inputs; nothing here sums or averages these
+	// four into one figure (DOSS-AC-19), and the band remains the verdict.
+	SubScores *[]GrowthFitSubScore `json:"sub_scores,omitempty"`
 
 	// Whitespace What we sell that this company does not yet buy.
 	Whitespace *[]OrganizationBriefSentence `json:"whitespace,omitempty"`

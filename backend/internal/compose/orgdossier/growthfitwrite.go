@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -39,8 +40,11 @@ type Completer interface {
 }
 
 const growthFitSystem = `You assess how well one company fits what WE sell, from a JSON summary of that company and a description of our own offering.
-Return ONLY a JSON object: {"band":"strong|moderate|weak","positive_factors":[CLAIM],"negative_factors":[CLAIM],"whitespace":[CLAIM],"objections":[CLAIM],"recommended_angle":CLAIM}.
+Return ONLY a JSON object: {"band":"strong|moderate|weak","sub_scores":[SUBSCORE],"positive_factors":[CLAIM],"negative_factors":[CLAIM],"whitespace":[CLAIM],"objections":[CLAIM],"recommended_angle":CLAIM}.
 A CLAIM is {"text":"...","nature":"fact|assessment|recommendation","evidence":[{"entity_type":"organization|fact|profile_field","entity_id":"..."}]}.
+A SUBSCORE is {"dimension":"industry_fit|company_size|transformation_need|access","score":0-100,"reason":"...","evidence":[...]}.
+Give exactly those four dimensions, once each, and no others. industry_fit is how well their industry matches who we sell to. company_size is whether they are the size we serve. transformation_need is how much they appear to need what we do. access is how reachable the people who decide are.
+A sub-score is the band taken apart, not a second opinion: score each dimension from the same evidence, and give the reason in one sentence. Never total them — a separate step decides the band.
 Judge only on evidence. Do NOT report a band of "unknown" and do not comment on how much data you were given — a separate step counts that and can overrule your band. Give the band the evidence you have actually supports.
 Label every claim. A FACT restates something the summary says and cites the record it came from. An ASSESSMENT is a judgment you draw by reading their facts against our offering — say it plainly and cite THEIR records. A RECOMMENDATION is one concrete move.
 positive_factors and negative_factors are why they do or do not fit. whitespace is what we sell that they do not appear to buy yet. objections are what they are likely to push back with. recommended_angle is the single best approach, and is always a recommendation.
@@ -84,12 +88,62 @@ func encodeInput(in Input) string {
 
 // growthFitClaims is the model's answer, before any of it is believed.
 type growthFitClaims struct {
-	Band             string            `json:"band"`
-	PositiveFactors  []claims.Sentence `json:"positive_factors"`
-	NegativeFactors  []claims.Sentence `json:"negative_factors"`
-	Whitespace       []claims.Sentence `json:"whitespace"`
-	Objections       []claims.Sentence `json:"objections"`
-	RecommendedAngle *claims.Sentence  `json:"recommended_angle"`
+	Band             string              `json:"band"`
+	SubScores        []GrowthFitSubScore `json:"sub_scores"`
+	PositiveFactors  []claims.Sentence   `json:"positive_factors"`
+	NegativeFactors  []claims.Sentence   `json:"negative_factors"`
+	Whitespace       []claims.Sentence   `json:"whitespace"`
+	Objections       []claims.Sentence   `json:"objections"`
+	RecommendedAngle *claims.Sentence    `json:"recommended_angle"`
+}
+
+// growthFitDimensions is the closed set a sub-score may name (DOSS-AC-17). A
+// model that invents a fifth has answered a question nobody asked, and a
+// surface that labels and orders four cannot render it.
+var growthFitDimensions = map[string]bool{
+	"industry_fit":        true,
+	"company_size":        true,
+	"transformation_need": true,
+	"access":              true,
+}
+
+// keepSubScores drops every sub-score the assembly cannot stand behind
+// (DOSS-AC-20).
+//
+// Three ways to fail, and each is a different lie: a dimension outside the
+// four is a question nobody asked; a score outside 0-100 is not the scale it
+// claims to be; and a reason citing nothing the assembly knows is the same
+// ungrounded claim `claims.Keep` drops everywhere else. The rest stand — one
+// bad dimension does not discredit the three that cited real records.
+//
+// A repeated dimension keeps the FIRST: a surface renders four rows, and a
+// second score for one of them would render as a fifth or silently replace a
+// reading the reader already has.
+func keepSubScores(
+	in []GrowthFitSubScore,
+	known map[claims.Evidence]bool,
+) []GrowthFitSubScore {
+	var out []GrowthFitSubScore
+	seen := map[string]bool{}
+	for _, sub := range in {
+		if !growthFitDimensions[sub.Dimension] || seen[sub.Dimension] {
+			continue
+		}
+		if sub.Score < 0 || sub.Score > 100 || strings.TrimSpace(sub.Reason) == "" {
+			continue
+		}
+		grounded := claims.Keep(
+			[]claims.Sentence{{Text: sub.Reason, Evidence: sub.Evidence}},
+			known, knownNature, natureFact,
+		)
+		if len(grounded) == 0 {
+			continue
+		}
+		seen[sub.Dimension] = true
+		sub.Evidence = grounded[0].Evidence
+		out = append(out, sub)
+	}
+	return out
 }
 
 // WriteGrowthFit assesses the company, degrading to the deterministic floor on
@@ -211,6 +265,7 @@ func ParseGrowthFit(reply string, in Input) (crmcontracts.GrowthFitBand, GrowthF
 	// present a recommendation as an established fact about the company, which
 	// is the distinction the whole nature vocabulary exists to keep.
 	kept := GrowthFitClaims{
+		SubScores:       keepSubScores(parsed.SubScores, known),
 		PositiveFactors: keepNatures(parsed.PositiveFactors, known, observations),
 		NegativeFactors: keepNatures(parsed.NegativeFactors, known, observations),
 		Whitespace:      keepNatures(parsed.Whitespace, known, observations),
