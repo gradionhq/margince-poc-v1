@@ -10,6 +10,7 @@
 UPDATE workspace w SET capture_auto_enrich = (s.value)::boolean
   FROM setting s
  WHERE s.key = 'capture.auto_enrich'
+   AND jsonb_typeof(s.value) = 'boolean'
    AND w.archived_at IS NULL;
 
 DROP TABLE IF EXISTS setting;
