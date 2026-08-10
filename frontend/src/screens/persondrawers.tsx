@@ -20,6 +20,19 @@ import {
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 
+// Only http(s) may become a link. A provider-supplied URL is untrusted input,
+// and a javascript: or data: href executes the moment a reader clicks it.
+function isWebUrl(href: string): boolean {
+  try {
+    const scheme = new URL(href).protocol;
+    return scheme === "https:" || scheme === "http:";
+  } catch {
+    // Not parseable as an absolute URL. A relative href would resolve against
+    // OUR origin, which a provider's source document never is.
+    return false;
+  }
+}
+
 // The three surfaces the person page opens over itself: the composer, the
 // research drawer, and the meeting brief.
 //
@@ -268,18 +281,30 @@ export function PersonResearchDrawer({
                 <div>
                   <p className="pe-claim-body">{claim.body}</p>
                   <div className="pe-chiprow">
-                    {claim.sources.map((source) => (
-                      <a
-                        key={source.url}
-                        className="pe-memory-channel"
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {source.label}
-                        <ExternalLink size={12} aria-hidden="true" />
-                      </a>
-                    ))}
+                    {/* A source URL comes from a THIRD-PARTY provider, so it
+                        is untrusted: an unchecked href admits javascript: and
+                        data: schemes, which execute on click. Only http(s)
+                        becomes a link; anything else renders as inert text so
+                        the reader still sees what was claimed, without a
+                        clickable payload. */}
+                    {claim.sources.map((source) =>
+                      isWebUrl(source.url) ? (
+                        <a
+                          key={source.url}
+                          className="pe-memory-channel"
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {source.label}
+                          <ExternalLink size={12} aria-hidden="true" />
+                        </a>
+                      ) : (
+                        <span key={source.url} className="pe-memory-channel">
+                          {source.label}
+                        </span>
+                      ),
+                    )}
                     <Badge
                       tone={claim.confidence === "high" ? "success" : "warn"}
                     >

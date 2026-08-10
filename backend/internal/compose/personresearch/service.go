@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -126,7 +127,11 @@ func wireClaims(claims []persondata.Claim) []crmcontracts.PersonResearchClaim {
 	for i, claim := range claims {
 		sources := make([]crmcontracts.PersonResearchSource, 0, len(claim.Sources))
 		for _, source := range claim.Sources {
-			if source.URL == "" {
+			if !webURL(source.URL) {
+				// A provider's URL is untrusted. Only http(s) leaves this
+				// service: a javascript: or data: source would be a payload
+				// the client renders as a link, and refusing it here means
+				// every consumer is safe rather than each one remembering.
 				continue
 			}
 			sources = append(sources, crmcontracts.PersonResearchSource{
@@ -181,6 +186,15 @@ func toClaimInputs(claims []crmcontracts.SavePersonResearchClaim) []people.Resea
 		})
 	}
 	return out
+}
+
+// webURL admits only the two schemes a citation can honestly carry.
+func webURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "https" || parsed.Scheme == "http"
 }
 
 func ptr[T any](v T) *T { return &v }

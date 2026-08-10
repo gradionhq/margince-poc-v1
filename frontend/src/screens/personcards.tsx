@@ -38,14 +38,24 @@ export function PersonBriefCard({
             {brief.sentences.map((sentence) => sentence.text).join(" ")}
           </p>
           <div className="pe-chiprow">
-            {brief.sentences.flatMap((sentence) =>
-              sentence.evidence.map((cited) => (
-                <SourceChip
-                  key={`${cited.entity_type}-${cited.entity_id}`}
-                  kind={cited.entity_type}
-                />
-              )),
-            )}
+            {/* One chip per distinct source, not per citation: several
+                sentences routinely cite the same thread, and rendering the
+                chip once per mention would repeat it and collide on its key. */}
+            {[
+              ...new Map(
+                brief.sentences.flatMap((sentence) =>
+                  sentence.evidence.map(
+                    (cited) =>
+                      [
+                        `${cited.entity_type}-${cited.entity_id}`,
+                        cited,
+                      ] as const,
+                  ),
+                ),
+              ).entries(),
+            ].map(([key, cited]) => (
+              <SourceChip key={key} kind={cited.entity_type} />
+            ))}
           </div>
         </>
       )}
