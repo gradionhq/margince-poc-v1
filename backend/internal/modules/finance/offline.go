@@ -37,6 +37,12 @@ const OfflineProviderName = "offline_demo"
 // NOT time.Now(). A generator keyed on today produces a different ledger every
 // day for a customer nobody touched, so every sync would rewrite every row —
 // and the sync's whole job is to notice what actually changed.
+//
+// The cost of that choice is that the ledger ages: the figures are computed
+// over windows measured back from NOW, so as the calendar leaves the epoch
+// behind, fewer and fewer generated invoices fall inside them. Anything that
+// asserts a FIGURE over this ledger therefore reads it at a clock pinned to
+// this epoch, or it is measuring how long ago the epoch was.
 var offlineEpoch = time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
 
 // OfflineProvider generates one workspace's demonstration ledger.
@@ -74,29 +80,24 @@ type archetype struct {
 	// disputeRate is how often an invoice is disputed, per thousand.
 	disputeRate int
 	// openTail is how many of the most recent invoices are still unpaid — the
-	// open balance a real account always carries.
-	//
-	// Bounded by what the timeliness window needs. Monthly invoices mean the
-	// 180-day window holds six, and FIN-FORM-3 refuses a median below five
-	// settled ones — so a tail of three would leave a generated customer
-	// demonstrating the refusal rather than the figure, which is the opposite
-	// of what a demo ledger is for. A dispute inside the window costs another,
-	// which is why the slow archetype's tail is the smallest.
+	// open balance a real account always carries, and the reading the card
+	// leads with. It grows with the archetype because a slower payer sitting on
+	// more open money is one of the differences the card exists to show.
 	openTail int
 }
 
 var archetypes = []archetype{
 	{name: "prompt", lateLow: -6, lateHigh: 2, disputeRate: 0, openTail: 1},
-	{name: "ordinary", lateLow: -2, lateHigh: 12, disputeRate: 30, openTail: 1},
-	{name: "slow", lateLow: 5, lateHigh: 38, disputeRate: 40, openTail: 1},
+	{name: "ordinary", lateLow: -2, lateHigh: 12, disputeRate: 30, openTail: 2},
+	{name: "slow", lateLow: 5, lateHigh: 38, disputeRate: 40, openTail: 3},
 }
 
 // InvoicesFor generates one customer's ledger.
 //
-// Eighteen months of monthly invoices, with at least five settled inside the
-// timeliness window — which is the sample floor FIN-FORM-3 refuses below, so
-// a generated customer that fell short would demonstrate the refusal rather
-// than the figure.
+// Eighteen months of fortnightly invoices, which leaves about a dozen settled
+// inside the timeliness window — comfortably clear of the five FIN-FORM-3
+// refuses below, so a generated customer demonstrates the figure rather than
+// the refusal.
 func (p *OfflineProvider) InvoicesFor(
 	_ context.Context, externalCustomerID string,
 ) (SourceLedger, error) {
@@ -115,12 +116,12 @@ func (p *OfflineProvider) InvoicesFor(
 	var out SourceLedger
 	// Oldest first, so the settled ones the timeliness window reads sit at the
 	// front and the open tail is genuinely the recent end.
-	for month := offlineMonths - 1; month >= 0; month-- {
-		issued := offlineEpoch.AddDate(0, -month, 0)
+	for period := offlineInvoices - 1; period >= 0; period-- {
+		issued := offlineEpoch.AddDate(0, 0, -period*offlineCadenceDays)
 		due := issued.AddDate(0, 0, paymentTermDays)
 		invoice := SourceInvoice{
-			ExternalID: fmt.Sprintf("%s-INV-%04d", externalCustomerID, offlineMonths-month),
-			Number:     fmt.Sprintf("INV-%s-%03d", issued.Format("2006"), offlineMonths-month),
+			ExternalID: fmt.Sprintf("%s-INV-%04d", externalCustomerID, offlineInvoices-period),
+			Number:     fmt.Sprintf("INV-%s-%03d", issued.Format("2006"), offlineInvoices-period),
 			IssuedOn:   issued,
 			DueOn:      &due,
 			Currency:   currency,
@@ -130,7 +131,7 @@ func (p *OfflineProvider) InvoicesFor(
 		invoice.TaxMinor = net * vatPercent / 100
 		invoice.GrossMinor = invoice.NetMinor + invoice.TaxMinor
 
-		if month < kind.openTail {
+		if period < kind.openTail {
 			// The recent end is still open. This is what gives every account a
 			// non-zero open balance, which is the reading the card leads with.
 			out.Invoices = append(out.Invoices, invoice)
@@ -153,10 +154,25 @@ func (p *OfflineProvider) InvoicesFor(
 }
 
 const (
-	// offlineMonths is the ledger's depth. Eighteen months puts well over the
-	// five settled invoices the timeliness floor needs inside the 180-day
-	// window, with room for an open tail.
-	offlineMonths = 18
+	// offlineInvoices and offlineCadenceDays are the ledger's depth and its
+	// billing rhythm: thirty-nine fortnights is eighteen months of invoices.
+	//
+	// The CADENCE is what puts a real sample inside the timeliness window, and
+	// it is fortnightly rather than monthly for that reason alone. FIN-FORM-3
+	// refuses a median below five settled invoices (FIN-PARAM-3) inside the
+	// 180-day window (FIN-PARAM-2); monthly billing offers barely six
+	// candidates there, so an open tail plus one dispute leaves a generated
+	// customer demonstrating the refusal rather than the figure. A fortnight
+	// offers about a dozen, which clears the floor with room for both.
+	//
+	// The DEPTH is what the trailing 365-day figure reads, and eighteen months
+	// covers it with a year of history to spare.
+	offlineInvoices    = 39
+	offlineCadenceDays = 14
+	// creditNoteDelayDays is how long after an invoice its credit note is
+	// issued. The note is a generated date like any other, so it may not land
+	// after the epoch — see creditNoteFor.
+	creditNoteDelayDays = 14
 	// paymentTermDays is the terms every generated invoice carries. One value
 	// rather than a range: the card measures lateness against the due date, so
 	// varying the terms would vary the reading without varying the behaviour.
@@ -184,11 +200,26 @@ func settle(invoice *SourceInvoice, kind archetype, rng *rand.Rand, due time.Tim
 // creditNoteFor issues one credit note against an older invoice, because a
 // ledger with none would never exercise FIN-FORM-1's negative term — and a
 // figure that has never been reduced is a figure nobody has checked.
+//
+// The target must be old enough that the note still lands on or before the
+// epoch. A note dated after it would be a generated row that moved past the
+// fixed point the whole ledger is measured back from — which is the one thing
+// this generator promises not to do.
 func creditNoteFor(
 	invoices []SourceInvoice, customerID string, rng *rand.Rand,
 ) SourceInvoice {
-	target := invoices[rng.IntN(len(invoices))]
-	issued := target.IssuedOn.AddDate(0, 0, 14)
+	// Oldest first (InvoicesFor builds them that way), so the eligible targets
+	// are a PREFIX of the ledger — and the oldest invoice, eighteen months
+	// back, always qualifies, which is what makes this count at least one.
+	eligible := 0
+	for _, inv := range invoices {
+		if inv.IssuedOn.AddDate(0, 0, creditNoteDelayDays).After(offlineEpoch) {
+			break
+		}
+		eligible++
+	}
+	target := invoices[rng.IntN(eligible)]
+	issued := target.IssuedOn.AddDate(0, 0, creditNoteDelayDays)
 	// A partial credit, not a full reversal: a full one is indistinguishable
 	// from a void, and the card should show a reduced total rather than a
 	// disappeared invoice.
