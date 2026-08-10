@@ -302,12 +302,12 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 	}
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		// Sample "today" inside the transaction: a wait for a pooled
-		// connection across UTC midnight must not list yesterday's cutoff.
 		base, err := s.baseCurrency(ctx, tx)
 		if err != nil {
 			return err
 		}
+		// Sample "today" inside the transaction: a wait for a pooled
+		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
 			FROM fx_rate
@@ -355,12 +355,12 @@ func (s *Store) EffectiveFxRateInTx(ctx context.Context, tx pgx.Tx, fromCurrency
 	return rate, asOf, true, nil
 }
 
-// WorkspaceBaseCurrency returns the workspace base currency — the ToCurrency
+// BaseCurrency returns the installation's reporting currency — the ToCurrency
 // every fx_rate row converts into. The FX refresh producer needs it to price
 // an empty sheet (which has no row to read the base off), so it carries the
 // same admin/ops read gate as the sheet itself; the base IS part of the
 // fx_rate read surface (every row's ToCurrency).
-func (s *Store) WorkspaceBaseCurrency(ctx context.Context) (string, error) {
+func (s *Store) BaseCurrency(ctx context.Context) (string, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
 		return "", err
 	}

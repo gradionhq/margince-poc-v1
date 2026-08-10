@@ -220,9 +220,38 @@ func resetWithin(ctx context.Context, tx execQuerier) error {
 	if err := dropCustomFieldColumns(ctx, tx); err != nil {
 		return err
 	}
+	if err := seedInstallationIdentity(ctx, tx); err != nil {
+		return err
+	}
 	// Every table is empty now, which is the only moment a table that did not
 	// exist when EnsureSchema ran can be given a real baseline.
 	return baselineNewTables(ctx, tx, unbaselined)
+}
+
+// seedInstallationIdentity restores the installation's own settings rows after
+// the sweep, because a data reset does not un-install the installation.
+//
+// Production draws exactly this line: identity.ResetConfig deletes the
+// CONFIGURATION settings and spares the identity ones, for the same reason
+// preservedWorkspaceColumns spares name/base_currency/timezone — "a reset
+// wipes an installation's DATA, it does not re-create the installation".
+// Bootstrap is what writes these on a real first boot, and fixtures build
+// their workspace by raw SQL instead, so without this every fixture starts as
+// an installation with no currency and the money readers refuse (issue #521).
+//
+// EUR matches what every fixture puts in workspace.base_currency. A test that
+// wants them to DISAGREE writes the setting itself — which is the only way to
+// prove which of the two copies a reader consults while both exist.
+func seedInstallationIdentity(ctx context.Context, q execQuerier) error {
+	if _, err := q.Exec(ctx, `
+		INSERT INTO setting (key, value) VALUES
+			('installation.name', '"Test Installation"'::jsonb),
+			('installation.base_currency', '"EUR"'::jsonb),
+			('installation.timezone', '"UTC"'::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
+		return fmt.Errorf("seeding the installation's identity settings: %w", err)
+	}
+	return nil
 }
 
 // baselineNewTables records the empty size of tables that appeared after

@@ -67,11 +67,21 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 			return &OfferEmptyError{}
 		}
 
-		rate, rateDate, err := freezeFx(ctx, tx, s.baseCurrency, current.Currency, time.Now().UTC())
+		// Resolved ONCE for the whole send: the frozen rate and the issuer
+		// snapshot must name the same basis, and two reads of the setting in
+		// one transaction are two READ COMMITTED snapshots — a concurrent
+		// change between them would price the offer in one currency and
+		// record it in another. Nothing has frozen a rate at the first send,
+		// so the settings freeze probe does not close that window either.
+		base, err := s.baseCurrency(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rate, rateDate, err := s.freezeFx(ctx, tx, base, current.Currency, time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("freeze fx at send: %w", err)
 		}
-		buyer, issuer, err := sendSnapshots(ctx, tx, s.baseCurrency, current)
+		buyer, issuer, err := s.sendSnapshots(ctx, tx, base, current)
 		if err != nil {
 			return err
 		}
@@ -120,7 +130,7 @@ func offerSentPayload(current crmcontracts.Offer, rate string) crmcontracts.Publ
 // sendSnapshots captures the buyer and issuer legal blocks at send time:
 // the sent document stays truthful even when the org or workspace is
 // later renamed.
-func sendSnapshots(ctx context.Context, tx pgx.Tx, baseCurrencyOf BaseCurrencyFunc,
+func (s *Store) sendSnapshots(ctx context.Context, tx pgx.Tx, baseCurrency string,
 	offer crmcontracts.Offer,
 ) (buyer, issuer map[string]any, err error) {
 	if offer.BuyerOrgId != nil {
@@ -139,15 +149,9 @@ func sendSnapshots(ctx context.Context, tx pgx.Tx, baseCurrencyOf BaseCurrencyFu
 			}
 		}
 	}
-	// The issuer's currency comes from the same seam the offer's frozen rate
-	// does. Reading it from the column here while freezeFx reads the setting
-	// would let a snapshot record one basis for an offer priced in another.
-	// The NAME is still a column read — it moves with the rest of the
-	// installation identity in the next slice of ADR-0091 phase 4.
-	baseCurrency, err := baseCurrencyOf(ctx, tx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("snapshot issuer base currency: %w", err)
-	}
+	// The currency is the caller's resolved base, not a second read: the
+	// snapshot must record the basis this offer was actually priced in. The
+	// NAME is still a column read (issue #521).
 	var wsName string
 	if err := tx.QueryRow(ctx,
 		`SELECT name FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).
@@ -189,7 +193,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		}
 
 		dealID := ids.From[ids.DealKind](ids.UUID(current.DealId))
-		dealChanged, err := syncDealAmountFromOffer(ctx, tx, s.baseCurrency, dealID, current)
+		dealChanged, err := s.syncDealAmountFromOffer(ctx, tx, dealID, current)
 		if err != nil {
 			return err
 		}
@@ -232,7 +236,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 // It returns the deal columns the sync actually wrote, so the caller's paired
 // deal.updated reports the complete delta — on a closed deal that includes the
 // re-frozen fx_rate_to_base/fx_rate_date, not just amount_minor/currency.
-func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, baseCurrency BaseCurrencyFunc,
+func (s *Store) syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx,
 	dealID ids.DealID, offer crmcontracts.Offer,
 ) (map[string]any, error) {
 	// The row lock makes the status read and the amount write below one
@@ -256,8 +260,12 @@ func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, baseCurrency BaseCu
 		}
 		return changed, nil
 	}
+	base, err := s.baseCurrency(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	// deal_closed_at guarantees closedAt on a non-open row.
-	rate, rateDate, err := freezeFx(ctx, tx, baseCurrency, offer.Currency, *closedAt)
+	rate, rateDate, err := s.freezeFx(ctx, tx, base, offer.Currency, *closedAt)
 	if err != nil {
 		return nil, fmt.Errorf("re-freeze fx for closed deal on accept: %w", err)
 	}

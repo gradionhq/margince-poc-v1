@@ -35,6 +35,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -92,7 +93,7 @@ func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent strin
 	return &flipWriters{
 		pool:       pool,
 		people:     people.NewStore(pool),
-		deals:      deals.NewStore(pool, InstallationBaseCurrency()),
+		deals:      deals.NewStore(pool, identity.BaseCurrencyOf),
 		activities: activities.NewStore(pool),
 		ms:         ms,
 		identities: migration.NewRunStore(pool),

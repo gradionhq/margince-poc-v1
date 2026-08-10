@@ -31,6 +31,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -68,7 +69,7 @@ func setupCloseDate(t *testing.T) *closeDateEnv {
 	}
 	quiet := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	e.svc = approvals.NewService(e.Pool)
-	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool, InstallationBaseCurrency())))
+	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool, identity.BaseCurrencyOf)))
 	e.corrector = deals.NewCloseDateCorrector(e.Pool, closeDateStager{svc: e.svc}, quiet)
 	return e
 }

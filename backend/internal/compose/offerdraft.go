@@ -50,6 +50,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -155,7 +156,7 @@ type offerDrafter struct {
 // path, this option only adds the evidence-gated staged lines on top.
 func WithOfferDraft(brain completer, retriever retrieval.Retriever) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		store := deals.NewStore(pool, InstallationBaseCurrency())
+		store := deals.NewStore(pool, identity.BaseCurrencyOf)
 		s.offerDrafter = &offerDrafter{brain: brain, deals: store, rateCard: store, context: retriever}
 	}
 }

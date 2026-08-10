@@ -46,7 +46,7 @@ func (h Handlers) ListFxRates(w http.ResponseWriter, r *http.Request, params crm
 	// The base currency comes from the workspace, not from row zero: a
 	// workspace that has entered no rates still has a base, and inferring it
 	// from the first row leaves that case with nothing to show (AAD-AC-N-1).
-	base, err := h.store.WorkspaceBaseCurrency(r.Context())
+	base, err := h.store.BaseCurrency(r.Context())
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

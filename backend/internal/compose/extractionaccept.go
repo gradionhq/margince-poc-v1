@@ -30,6 +30,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -86,7 +87,7 @@ func NewExtractionAccept(pool *pgxpool.Pool, extractor extraction.Extractor) *Ex
 	return &ExtractionAccept{
 		pool:        pool,
 		attachments: activities.NewStore(pool),
-		deals:       deals.NewStore(pool, InstallationBaseCurrency()),
+		deals:       deals.NewStore(pool, identity.BaseCurrencyOf),
 		extractor:   extractor,
 	}
 }

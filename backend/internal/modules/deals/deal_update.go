@@ -58,7 +58,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInpu
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = updateDealInTx(ctx, tx, s.baseCurrency, id, in, active)
+		out, err = s.updateDealInTx(ctx, tx, id, in, active)
 		return err
 	})
 	return out, err
@@ -88,12 +88,12 @@ func (s *Store) UpdateDealTx(ctx context.Context, tx pgx.Tx, id ids.DealID, in U
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	return updateDealInTx(ctx, tx, s.baseCurrency, id, in, active)
+	return s.updateDealInTx(ctx, tx, id, in, active)
 }
 
 // updateDealInTx is UpdateDeal's transactional body, shared by the
 // store-opened (UpdateDeal) and caller-opened (UpdateDealTx) entry points.
-func updateDealInTx(ctx context.Context, tx pgx.Tx, baseCurrency BaseCurrencyFunc,
+func (s *Store) updateDealInTx(ctx context.Context, tx pgx.Tx,
 	id ids.DealID, in UpdateDealInput, active []fieldcatalog.Column,
 ) (crmcontracts.Deal, error) {
 	if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
@@ -115,7 +115,7 @@ func updateDealInTx(ctx context.Context, tx pgx.Tx, baseCurrency BaseCurrencyFun
 		return current, nil
 	}
 
-	if err := applyMoneyInvariants(ctx, tx, baseCurrency, current, in, p); err != nil {
+	if err := s.applyMoneyInvariants(ctx, tx, current, in, p); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 

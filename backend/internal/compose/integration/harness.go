@@ -77,20 +77,6 @@ func Setup(t *testing.T) *Env {
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Authz', 'authz', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	// The installation's base currency, as a setting row (ADR-0090/A135). It
-	// is seeded HERE, beside the workspace insert, because the two are one
-	// fact: this harness builds the installation by raw SQL, so migration
-	// 0191's backfill — which keys on a workspace that already exists — never
-	// saw it, and bootstrap's seed never ran either.
-	//
-	// It must match the column above. The readers are mid-migration off that
-	// column (ADR-0091 phase 4), so a suite whose two copies disagree is
-	// measuring the drift rather than the behaviour under test.
-	if _, err := owner.Exec(ctx,
-		`INSERT INTO setting (key, value) VALUES ('installation.base_currency', '"EUR"'::jsonb)
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
-		t.Fatal(err)
-	}
 	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
 		if _, err := owner.Exec(ctx,
 			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,

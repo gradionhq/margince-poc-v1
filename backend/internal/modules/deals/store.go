@@ -5,6 +5,7 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -43,6 +44,17 @@ type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
 // NewStore binds the store to the pool every tenant query runs through, and
 // to the seam that answers what the installation reports in.
 func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
+	if baseCurrency == nil {
+		// An un-injected seam fails CLOSED at the first money operation
+		// rather than dereferencing nil inside an open transaction. The
+		// field's doc calls the seam required; this is what makes that a
+		// check rather than a claim. A panic would say it earlier, but this
+		// module may not raise one (the craft gate's panic-in-domain rule).
+		baseCurrency = func(context.Context, pgx.Tx) (string, error) {
+			return "", errors.New("deals: no base-currency seam was injected; " +
+				"compose wires identity.BaseCurrencyOf into this store")
+		}
+	}
 	return &Store{pool: pool, clock: time.Now, baseCurrency: baseCurrency}
 }
 

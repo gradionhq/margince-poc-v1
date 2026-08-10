@@ -31,9 +31,10 @@ import (
 var dealCFVPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
-		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
-		"deal":         {Create: true, Read: true, Update: true, Delete: true},
-		"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
+		"custom_field":          {Create: true, Read: true, Update: true, Delete: true},
+		"deal":                  {Create: true, Read: true, Update: true, Delete: true},
+		"pipeline":              {Create: true, Read: true, Update: true, Delete: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

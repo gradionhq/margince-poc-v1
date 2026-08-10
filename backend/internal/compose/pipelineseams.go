@@ -24,13 +24,14 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // pipelineLister answers list_pipelines from the workspace's live pipeline
 // configuration.
 func pipelineLister(pool *pgxpool.Pool) agents.PipelineLister {
-	store := deals.NewStore(pool, InstallationBaseCurrency())
+	store := deals.NewStore(pool, identity.BaseCurrencyOf)
 	return func(ctx context.Context) ([]agents.Pipeline, error) {
 		rows, err := store.ListPipelines(ctx)
 		if err != nil {

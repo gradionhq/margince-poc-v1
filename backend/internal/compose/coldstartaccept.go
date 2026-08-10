@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -60,9 +61,9 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
-	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool, InstallationBaseCurrency())))
+	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool, identity.BaseCurrencyOf)))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
-	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool, InstallationBaseCurrency())))
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool, identity.BaseCurrencyOf)))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(pool)))
 	return svc
 }

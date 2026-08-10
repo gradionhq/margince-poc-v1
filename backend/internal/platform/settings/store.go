@@ -299,9 +299,7 @@ func RequireTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
 	var raw json.RawMessage
 	err := tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, e.Key()).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return zero, fmt.Errorf("settings: %s has no stored value, and this reader may not "+
-			"assume the registered default: set it on the installation settings screen: %w",
-			e.Key(), apperrors.ErrNotFound)
+		return zero, UnsetValue{Setting: e.Key()}
 	}
 	if err != nil {
 		return zero, fmt.Errorf("settings: reading %s: %w", e.Key(), err)

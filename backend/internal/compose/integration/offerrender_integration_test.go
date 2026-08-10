@@ -46,9 +46,10 @@ import (
 var offerRenderDeskPerms = principal.Permissions{
 	RoleKeys: []string{"deal_desk"},
 	Objects: map[string]principal.ObjectGrant{
-		"deal":           {Create: true, Read: true, Update: true},
-		"offer":          {Create: true, Read: true, Update: true},
-		"offer_template": {Create: true, Read: true},
+		"deal":                  {Create: true, Read: true, Update: true},
+		"offer":                 {Create: true, Read: true, Update: true},
+		"offer_template":        {Create: true, Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -386,10 +387,11 @@ func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferI
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"deal_desk"},
 			Objects: map[string]principal.ObjectGrant{
-				"pipeline":       {Create: true, Read: true},
-				"deal":           {Create: true, Read: true, Update: true},
-				"offer":          {Create: true, Read: true, Update: true},
-				"offer_template": {Create: true, Read: true},
+				"pipeline":              {Create: true, Read: true},
+				"deal":                  {Create: true, Read: true, Update: true},
+				"offer":                 {Create: true, Read: true, Update: true},
+				"offer_template":        {Create: true, Read: true},
+				"installation_settings": {Read: true},
 			},
 			RowScope: principal.RowScopeAll,
 		},

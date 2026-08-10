@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -39,7 +40,7 @@ func NewProvider(pool *pgxpool.Pool) *Provider {
 		// The fieldcatalog seam mirrors the HTTP wiring (server.go): the
 		// MCP surface's record verbs carry cf_* values too.
 		people:     people.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		deals:      deals.NewProvider(pool, InstallationBaseCurrency()).WithFieldCatalog(customfields.NewService(pool, nil)),
+		deals:      deals.NewProvider(pool, identity.BaseCurrencyOf).WithFieldCatalog(customfields.NewService(pool, nil)),
 		activities: activities.NewProvider(pool),
 		reports:    newReportEngine(pool),
 	}

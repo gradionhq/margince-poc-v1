@@ -196,9 +196,10 @@ func TestAnUploadedDocumentReachesTheAccountLibrary(t *testing.T) {
 var docUploadPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Read: true, Update: true},
-		"deal":         {Read: true, Update: true},
-		"person":       {Read: true},
+		"organization":          {Read: true, Update: true},
+		"deal":                  {Read: true, Update: true},
+		"person":                {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
