@@ -162,6 +162,12 @@ const (
 	objActivity = "activity"
 	objDeal     = "deal"
 	objOrg      = "organization"
+	objPipeline = "pipeline"
+	// objInstallSettings gates the read of the installation's own values —
+	// name, base currency, timezone. Every fixture that reads deals or
+	// accounts carries it, because those reads resolve the basis they are
+	// reported in (issue #521), and 0191 grants it to all five seeded roles.
+	objInstallSettings = "installation_settings"
 )
 
 // permissions fixtures mirror the RBAC matrix rows the suites
@@ -170,10 +176,10 @@ var (
 	RepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson:               {Create: true, Read: true, Update: true},
-			objDeal:                 {Create: true, Read: true, Update: true},
-			"pipeline":              {Read: true},
-			"installation_settings": {Read: true},
+			objPerson:          {Create: true, Read: true, Update: true},
+			objDeal:            {Create: true, Read: true, Update: true},
+			objPipeline:        {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
@@ -187,22 +193,22 @@ var (
 	AccountRepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objOrg:                  {Read: true},
-			objPerson:               {Create: true, Read: true, Update: true},
-			objDeal:                 {Create: true, Read: true, Update: true},
-			objActivity:             {Create: true, Read: true, Update: true},
-			"pipeline":              {Read: true},
-			"tag":                   {Read: true},
-			"list":                  {Read: true},
-			"installation_settings": {Read: true},
+			objOrg:             {Read: true},
+			objPerson:          {Create: true, Read: true, Update: true},
+			objDeal:            {Create: true, Read: true, Update: true},
+			objActivity:        {Create: true, Read: true, Update: true},
+			objPipeline:        {Read: true},
+			"tag":              {Read: true},
+			"list":             {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
 	ReadOnlyPerms = principal.Permissions{
 		RoleKeys: []string{"read_only"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson: {Read: true}, objDeal: {Read: true}, "pipeline": {Read: true},
-			"installation_settings": {Read: true},
+			objPerson: {Read: true}, objDeal: {Read: true}, objPipeline: {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -220,7 +226,7 @@ var (
 			objDeal:     {Create: true, Read: true, Update: true, Delete: true},
 			"lead":      {Create: true, Read: true, Update: true, Delete: true},
 			objActivity: {Create: true, Read: true, Update: true, Delete: true},
-			"pipeline":  {Create: true, Read: true, Update: true, Delete: true},
+			objPipeline: {Create: true, Read: true, Update: true, Delete: true},
 			// computed_field is read-only for every system role, admin
 			// included (RD-AC-7: no runtime formula-authoring surface
 			// exists) — identity/internal/policy.go's real seed, mirrored
@@ -239,9 +245,9 @@ var (
 			// installation_settings mirrors 0191's real seed: readable by every
 			// system role, updatable by admin/ops. Money readers resolve the
 			// base currency through this gate.
-			"installation_settings": {Read: true, Update: true},
-			"project":               {Create: true, Read: true, Update: true, Delete: true},
-			"relationship":          {Create: true, Read: true, Update: true, Delete: true},
+			objInstallSettings: {Read: true, Update: true},
+			"project":          {Create: true, Read: true, Update: true, Delete: true},
+			"relationship":     {Create: true, Read: true, Update: true, Delete: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
