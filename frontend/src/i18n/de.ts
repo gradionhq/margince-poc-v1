@@ -587,10 +587,13 @@ export const de = {
   "co.strip.fin.noConnection": "Buchhaltung verbinden",
   "co.strip.fin.unmapped": "Noch keinem Kunden zugeordnet",
   "co.strip.fin.syncing": "Wird synchronisiert…",
-  "co.strip.fin.stale":
-    "Letzte Synchronisierung fehlgeschlagen — Wert evtl. veraltet",
   "co.strip.fin.withheld":
     "Du darfst die Finanzdaten dieses Accounts nicht sehen",
+  "co.strip.fin.staleFigure":
+    "Zuletzt vor längerer Zeit synchronisiert — Datum prüfen",
+  "co.strip.fin.errorFigure":
+    "Letzte Synchronisierung fehlgeschlagen — evtl. nicht aktuell",
+  "co.strip.fin.nothingBilled": "Noch nichts in Rechnung gestellt",
   "co.strip.fin.error": "Konnte nicht gelesen werden",
   "co.strip.fin.loading": "Wird geladen…",
   "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",

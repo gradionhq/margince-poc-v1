@@ -583,8 +583,11 @@ export const vi = {
   "co.strip.fin.noConnection": "Kết nối phần mềm kế toán",
   "co.strip.fin.unmapped": "Chưa khớp với khách hàng nào",
   "co.strip.fin.syncing": "Đang đồng bộ…",
-  "co.strip.fin.stale": "Đồng bộ gần nhất thất bại — số liệu có thể đã cũ",
   "co.strip.fin.withheld": "Bạn không có quyền xem tài chính của tài khoản này",
+  "co.strip.fin.staleFigure": "Đồng bộ lần cuối đã lâu — hãy kiểm tra ngày",
+  "co.strip.fin.errorFigure":
+    "Đồng bộ gần nhất thất bại — có thể không còn đúng",
+  "co.strip.fin.nothingBilled": "Chưa xuất hóa đơn nào",
   "co.strip.fin.error": "Không đọc được",
   "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",

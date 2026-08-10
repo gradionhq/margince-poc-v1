@@ -2150,6 +2150,7 @@ function FinanceStat({
   const withheld = isError && problemCodeOf(error) === "permission_denied";
   const amount =
     reading === "netInvoiced" ? data?.net_invoiced : data?.open_balance;
+  const caveat = staleDetailKey(data?.state);
   // No figure is not €0, and the six reasons there is none are not one reason.
   // "Connect your accounting" is wrong advice for a connection that exists and
   // is syncing, stale, errored or unmatched — it sends the reader to set up
@@ -2174,13 +2175,37 @@ function FinanceStat({
     <StatCard
       label={t(`co.strip.${reading}`)}
       value={formatMoney(amount.amount_minor, amount.currency, locale)}
-      // A stale figure is shown WITH its caveat rather than withheld: the last
-      // known number is usually the right one, and hiding it tells the reader
-      // less than showing it with a date would.
-      detail={data?.state === "stale" ? t("co.strip.fin.stale") : undefined}
+      // A figure that is not current is shown WITH its caveat rather than
+      // withheld: the last known number is usually the right one, and hiding
+      // it tells the reader less than showing it qualified would.
+      //
+      // The two cases say DIFFERENT things, which is why they are not one
+      // branch. `stale` is a sync that SUCCEEDED, just long enough ago that
+      // the date matters. `error` is the last good answer after an attempt
+      // that failed. Calling either one the other is a wrong claim about
+      // whether anything is broken.
+      detail={caveat && t(caveat)}
       source={data?.provider ? <Badge>{data.provider}</Badge> : undefined}
     />
   );
+}
+
+// The caveat on a figure that IS shown but is not current. Undefined when the
+// figure is current and needs none.
+function staleDetailKey(
+  state?: components["schemas"]["FinanceSummaryState"],
+): MessageKey | undefined {
+  switch (state) {
+    case "stale":
+      return "co.strip.fin.staleFigure";
+    case "error":
+      return "co.strip.fin.errorFigure";
+    case "syncing":
+      // The first pass has not finished, so what is shown may be partial.
+      return "co.strip.fin.syncing";
+    default:
+      return undefined;
+  }
 }
 
 // Why there is no figure, in the reader's terms. Each state has its own fix,
@@ -2214,9 +2239,15 @@ function financeDetailKey({
     case "syncing":
       return "co.strip.fin.syncing";
     case "stale":
-      return "co.strip.fin.stale";
+      return "co.strip.fin.staleFigure";
     case "error":
       return "co.strip.fin.error";
+    case "connected":
+      // A live, mapped source that produced no figure. Nothing is broken and
+      // there is nothing to set up — we have simply never billed them, or no
+      // invoice could be converted. Setup advice here sends the reader to fix
+      // a connection that is already working.
+      return "co.strip.fin.nothingBilled";
     default:
       // no_connection, and the read that never answered. Both mean there is
       // no source to read, which is the one case the setup advice fits.

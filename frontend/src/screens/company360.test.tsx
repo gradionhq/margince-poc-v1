@@ -1765,21 +1765,6 @@ describe("the money slot says WHY it has no figure", () => {
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
-  // A stale figure is SHOWN with its caveat. The last known number is usually
-  // the right one, and withholding it tells the reader less than showing it.
-  it("keeps a stale figure on screen and marks it stale", async () => {
-    stub(view({ state_strip: customer }), 200, org, {
-      organization_id: "o-1",
-      state: "stale",
-      provider: "offline_demo",
-      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
-    });
-    renderCompany();
-    await strip();
-    expect(await screen.findByText(/186,420/)).toBeTruthy();
-    expect(await screen.findByText(/Last sync failed/)).toBeTruthy();
-  });
-
   // A denial and a setup gap are opposite problems. Sending a reader whose
   // role cannot see finance to a settings page asks them to fix the one thing
   // they have no way to fix from there.
@@ -1815,6 +1800,50 @@ describe("the money slot says WHY it has no figure", () => {
     renderCompany();
     const region = await strip();
     expect(await screen.findByText("Could not be read")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  // `stale` and `error` are opposite claims about whether anything is broken.
+  // The contract: stale is a sync that SUCCEEDED long enough ago that the date
+  // matters; error is the last good answer after an attempt that FAILED.
+  it("calls a stale figure old, not failed", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "stale",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText(/186,420/)).toBeTruthy();
+    expect(await screen.findByText(/Last synced a while ago/)).toBeTruthy();
+    expect(screen.queryByText(/sync failed/)).toBeNull();
+  });
+
+  // Without this the last good figure renders bare, reading as current.
+  it("marks a figure from a failed sync as possibly not current", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "error",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect(await screen.findByText(/186,420/)).toBeTruthy();
+    expect(await screen.findByText(/Last sync failed/)).toBeTruthy();
+  });
+
+  // A live, mapped source that produced no figure is not a missing setup.
+  it("says nothing was invoiced rather than telling them to connect", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(await screen.findByText("Nothing invoiced yet")).toBeTruthy();
     expect(region.textContent).not.toMatch(/Connect your accounting/);
   });
 
