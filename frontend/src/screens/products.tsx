@@ -160,17 +160,20 @@ export function ProductsScreen() {
           {
             key: "name",
             header: t("product.name"),
+            sort: "name",
             cell: (p: Product) => p.name,
             fixed: true,
           },
           {
             key: "sku",
             header: t("product.sku"),
+            sort: "sku",
             cell: (p: Product) => p.sku ?? "",
           },
           {
             key: "price",
             header: t("product.unitPrice"),
+            sort: "unit_price_minor",
             cell: (p: Product) => (
               <span className="t-mono">
                 {formatMoney(p.unit_price_minor, p.currency, locale)}
@@ -181,6 +184,7 @@ export function ProductsScreen() {
           {
             key: "active",
             header: t("product.active"),
+            sort: "active",
             cell: (p: Product) =>
               p.archived_at ? (
                 <Badge tone="danger">{t("product.archived")}</Badge>

@@ -26,8 +26,10 @@ func ParseLeadStatus(raw string) (LeadStatus, error) {
 	case LeadStatusNew, LeadStatusWorking, LeadStatusPromoted, LeadStatusDisqualified:
 		return s, nil
 	}
-	return "", &values.ParseError{Field: "status", Code: "invalid_lead_status",
-		Message: "status is one of new, working, promoted, disqualified"}
+	return "", &values.ParseError{
+		Field: leadStatusColumn, Code: "invalid_lead_status",
+		Message: "status is one of new, working, promoted, disqualified",
+	}
 }
 
 // Open reports whether the lead is still workable — the one spelling of

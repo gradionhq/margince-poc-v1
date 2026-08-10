@@ -1,11 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render as rtlRender,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -93,8 +88,10 @@ describe("OfferTemplatesScreen", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<OfferTemplatesScreen />);
     await userEvent.click(await screen.findByTestId("new-record"));
-    await waitFor(() => screen.getByLabelText(/Name/));
-    await userEvent.type(screen.getByLabelText(/Name/), "Standard DE");
+    // The column header is a sort button named "Sort by Name" now, so the
+    // form field is asked for as a textbox rather than by a loose text match.
+    const nameField = await screen.findByRole("textbox", { name: /Name/ });
+    await userEvent.type(nameField, "Standard DE");
     await userEvent.click(screen.getByText("Create"));
     expect(
       await screen.findByText(
