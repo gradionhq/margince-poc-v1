@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { ConfidenceLevel, Provenance } from "./trust";
@@ -121,6 +122,12 @@ export function EvidenceMark({
         onClick={() => setOpen((was) => !was)}
       >
         {value}
+        {/* The glyph makes a derived value legible at a glance rather than on
+            inspection. The underline alone answers "is this derived" only for
+            a reader who already suspects it and hovers to check; scanning a
+            column of values, nothing stood out to hover. It is the same mark
+            everywhere the system speaks, so a reader learns it once. */}
+        <Sparkles className="evmark-glyph" aria-hidden size={11} />
       </button>
       {open && (
         // A named section rather than a dialog: this is a disclosure beside
