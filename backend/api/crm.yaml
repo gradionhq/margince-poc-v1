@@ -12377,6 +12377,26 @@ components:
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
+    HealthDimension:
+      type: object
+      description: |
+        One named part of the relationship's health, with the reason for its rating.
+
+        The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+        this model replaced — a reader must be able to see what it was read from and disagree.
+      required: [rating, reason]
+      properties:
+        rating:
+          type: string
+          enum: [strong, good, at_risk]
+          description: >-
+            Three values, not a scale. A dimension that cannot be computed is ABSENT rather than
+            rated `unknown`: absence is a fact about the reading, where a rating is a claim about
+            the account.
+        reason:
+          type: string
+          description: One sentence naming what this rating was read from.
+
     Organization360Health:
       type: object
       description: |
@@ -12390,6 +12410,32 @@ components:
         Every part is nullable and absent when it cannot be computed — never zero, which would
         be a claim about the account rather than about what was readable.
       properties:
+        relationship:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether we are in contact and both sides are talking. Read from the strength roll-up
+            and the reply balance below (PO-AC-N-10).
+        commercial:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: Whether work is moving — open pipeline and whether it is stalling.
+        payment:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether they pay, and on time. Absent on an account with no finance connection or
+            too few settled invoices to say — which is different from paying badly.
+        # There is deliberately no `overall` here, and no `adoption` dimension.
+        #
+        # The VERDICT is the worst of the three dimensions (PO-AC-N-11), and this
+        # payload can only carry two of them: payment comes from the finance
+        # mirror, which is another module and which a module never imports. A
+        # verdict computed here would be a worst-of that had never seen payment —
+        # exactly the "a strong relationship hides a payment problem" failure the
+        # rule exists to prevent — so it is composed on the surface that reads
+        # both, and this section does not pretend to it.
+        #
+        # `adoption` is absent for a different reason: nothing measures whether a
+        # customer uses what they bought, and a permanently unknown row teaches a
+        # reader that unknown is a normal reading (ADR-0095/A146).
         days_since_last_inbound:
           type: [integer, 'null']
           description: Null when they have never written, which is different from writing long ago.

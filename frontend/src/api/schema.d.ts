@@ -8166,6 +8166,21 @@ export interface components {
             last_viewed_at: string;
         };
         /**
+         * @description One named part of the relationship's health, with the reason for its rating.
+         *
+         *     The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+         *     this model replaced — a reader must be able to see what it was read from and disagree.
+         */
+        HealthDimension: {
+            /**
+             * @description Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+             * @enum {string}
+             */
+            rating: "strong" | "good" | "at_risk";
+            /** @description One sentence naming what this rating was read from. */
+            reason: string;
+        };
+        /**
          * @description How the relationship stands, in the parts a reader can act on (AC-company-3).
          *
          *     It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
@@ -8177,6 +8192,12 @@ export interface components {
          *     be a claim about the account rather than about what was readable.
          */
         Organization360Health: {
+            /** @description Whether we are in contact and both sides are talking. Read from the strength roll-up and the reply balance below (PO-AC-N-10). */
+            relationship?: components["schemas"]["HealthDimension"];
+            /** @description Whether work is moving — open pipeline and whether it is stalling. */
+            commercial?: components["schemas"]["HealthDimension"];
+            /** @description Whether they pay, and on time. Absent on an account with no finance connection or too few settled invoices to say — which is different from paying badly. */
+            payment?: components["schemas"]["HealthDimension"];
             /** @description Null when they have never written, which is different from writing long ago. */
             days_since_last_inbound?: number | null;
             /** @description Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured. */
