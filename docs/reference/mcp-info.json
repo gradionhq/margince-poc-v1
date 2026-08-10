@@ -8,11 +8,11 @@
     "enrich"
   ],
   "totals": {
-    "tools": 35,
-    "resources": 4,
-    "tool_catalog_bytes": 98095,
-    "resource_catalog_bytes": 1668,
-    "approx_wire_tokens_total": 24940,
+    "tools": 37,
+    "resources": 7,
+    "tool_catalog_bytes": 105004,
+    "resource_catalog_bytes": 2770,
+    "approx_wire_tokens_total": 26943,
     "largest_tool_bytes": 4151,
     "largest_tool": "run_report"
   },
@@ -3132,6 +3132,302 @@
         "title": "Prepare for a meeting"
       },
       {
+        "_meta": {
+          "ui": {
+            "resourceUri": "ui://margince/handoff.html",
+            "visibility": [
+              "model",
+              "app"
+            ]
+          }
+        },
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "Prepare a delivery handoff"
+        },
+        "description": "Assemble what the delivery side of one project needs from the sales side: who owns it, who to call at the client, what was sold, by when, and what is already promised — with a named gap for each of those the records do not answer. It reports what the records say and reads nothing outside them; each gap names the field it was read off. It is scoped to the records the caller may see, so a gap means the field is empty as far as THEY can see, and a bounded list withholds the gaps that claim something is absent rather than guessing them. It changes nothing — preparing a handover is not performing one. Use catch_me_up_on when the question is what has been happening on the account rather than what a handover is missing, and read_record for the project's own stored fields alone. The project_id, and each gap's source field — the gaps are what a follow-up fills in. (Governance: runs immediately; requires passport scope \"read\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "project_id": {
+              "description": "The project being handed to delivery",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "type": "object"
+        },
+        "name": "prepare_handoff",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "as_of": {
+                  "type": "string"
+                },
+                "deals": {
+                  "items": {
+                    "properties": {
+                      "amount_minor": {
+                        "type": "integer"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "deal_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "deal_id",
+                      "name",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "gaps": {
+                  "items": {
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "open_commitments": {
+                  "items": {
+                    "properties": {
+                      "about": {
+                        "items": {
+                          "properties": {
+                            "entity_id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "entity_type": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "entity_id",
+                            "entity_type"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "assignee_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "assignee_name": {
+                        "type": "string"
+                      },
+                      "days_overdue": {
+                        "type": "integer"
+                      },
+                      "due_at": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "task_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "about",
+                      "state",
+                      "subject",
+                      "task_id"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "organization_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "owner_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "type": "string"
+                },
+                "phase": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "stakeholders": {
+                  "items": {
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "person_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "role": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "person_id"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "target_end_date": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "as_of",
+                "deals",
+                "gaps",
+                "name",
+                "open_commitments",
+                "organization_id",
+                "phase",
+                "project_id",
+                "stakeholders"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Prepare a delivery handoff"
+      },
+      {
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": false,
@@ -4558,6 +4854,193 @@
         "title": "Resolve people and companies"
       },
       {
+        "_meta": {
+          "ui": {
+            "resourceUri": "ui://margince/commitments.html",
+            "visibility": [
+              "model",
+              "app"
+            ]
+          }
+        },
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "Review open commitments"
+        },
+        "description": "Answer \"what have we promised and not delivered?\": the open tasks across the workspace, earliest due date first and undated ones last, each with the person who owes it, when it came due and the record it was made about. A promise appears here only because someone recorded it as a task — what was agreed in a meeting and never written down is absent — so this is what the workspace has on record, not everything owed. It is scoped to the records the caller may see. Use whats_slipping_this_week when the question is which DEALS are at risk rather than which promises are outstanding, and catch_me_up_on for everything that has happened on one record. Each item carries task_id and, where there is one, assignee_id. Every state is judged against as_of, so carry that too if you report the answer later. (Governance: runs immediately; requires passport scope \"read\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignee_id": {
+              "description": "Narrow to one owner's promises; omit for everyone's",
+              "format": "uuid",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Cap the set; omit for 50, the server-side ceiling",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "review_commitments",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "as_of": {
+                  "type": "string"
+                },
+                "commitments": {
+                  "items": {
+                    "properties": {
+                      "about": {
+                        "items": {
+                          "properties": {
+                            "entity_id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "entity_type": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "entity_id",
+                            "entity_type"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "assignee_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "assignee_name": {
+                        "type": "string"
+                      },
+                      "days_overdue": {
+                        "type": "integer"
+                      },
+                      "due_at": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "task_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "about",
+                      "state",
+                      "subject",
+                      "task_id"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "as_of",
+                "commitments"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Review open commitments"
+      },
+      {
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": true,
@@ -5610,6 +6093,15 @@
         "title": "Update a record"
       },
       {
+        "_meta": {
+          "ui": {
+            "resourceUri": "ui://margince/pipeline-review.html",
+            "visibility": [
+              "model",
+              "app"
+            ]
+          }
+        },
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": true,
@@ -5984,6 +6476,60 @@
         "name": "relationship_map_view",
         "title": "Who knows this contact",
         "uri": "ui://margince/relationship-map.html"
+      },
+      {
+        "_meta": {
+          "ui": {
+            "csp": {
+              "baseUriDomains": [],
+              "connectDomains": [],
+              "frameDomains": [],
+              "resourceDomains": []
+            },
+            "prefersBorder": true
+          }
+        },
+        "description": "The promises still outstanding, oldest first, with who owes each one and how far past due it is.",
+        "mimeType": "text/html;profile=mcp-app",
+        "name": "commitments_view",
+        "title": "Open commitments",
+        "uri": "ui://margince/commitments.html"
+      },
+      {
+        "_meta": {
+          "ui": {
+            "csp": {
+              "baseUriDomains": [],
+              "connectDomains": [],
+              "frameDomains": [],
+              "resourceDomains": []
+            },
+            "prefersBorder": true
+          }
+        },
+        "description": "What the delivery side is being given for one project, with each gap beside the fact it is about.",
+        "mimeType": "text/html;profile=mcp-app",
+        "name": "handoff_view",
+        "title": "Delivery handoff",
+        "uri": "ui://margince/handoff.html"
+      },
+      {
+        "_meta": {
+          "ui": {
+            "csp": {
+              "baseUriDomains": [],
+              "connectDomains": [],
+              "frameDomains": [],
+              "resourceDomains": []
+            },
+            "prefersBorder": true
+          }
+        },
+        "description": "The deals at risk this week, worst first, with the evidence each risk claim rests on.",
+        "mimeType": "text/html;profile=mcp-app",
+        "name": "pipeline_review_view",
+        "title": "Pipeline review",
+        "uri": "ui://margince/pipeline-review.html"
       }
     ],
     "resultType": "complete",
@@ -5993,6 +6539,9 @@
     "margince://schema/query": "{\"version\":\"v1\",\"grammar\":{\"predicates\":\"{\\\"field\\\": \\u003cname below\\u003e, \\\"op\\\": \\u003cop the field admits\\u003e, \\\"value\\\": \\u003coperand\\u003e} — or \\\"values\\\": [...] for \\\"in\\\". Clauses are combined with AND.\",\"semantic_target\":\"\\\"similar_to\\\": \\u003cfree text\\u003e — one similarity clause, ranked by the hybrid retriever.\",\"traversal\":\"\\\"traverse\\\": {\\\"relation\\\": \\u003crelation below\\u003e, \\\"where\\\": [...]} — exactly one hop. A second hop is refused; ask it as its own query.\",\"limit\":\"\\\"limit\\\": 1..200; omit for the default page.\",\"refusal\":\"Anything outside this vocabulary is refused with a typed clarification naming what was not understood. Nothing is coerced, and no plan is narrowed to the part that was recognised.\"},\"targets\":[],\"unavailable\":[{\"op\":\"within_radius\",\"answers\":\"distance_ranking_unavailable\",\"because\":\"records carry no normalized coordinates yet; ask for a city or region as an exact predicate instead.\"}]}",
     "margince://schema/record-fields": "{\"version\":\"1\",\"notation\":\"A key with no `?` is REQUIRED by the contract; `?` marks one the body may omit. A name not listed is not a field: it is refused by name, never stored silently.\",\"create_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, direction?: \\\"inbound\\\"|\\\"outbound\\\", due_at?: rfc3339, duration_seconds?: integer, kind: \\\"email\\\"|\\\"call\\\"|\\\"meeting\\\"|\\\"note\\\"|\\\"task\\\"|\\\"whatsapp\\\"|\\\"telegram\\\", links?: [{entity_id: uuid, entity_type: \\\"person\\\"|\\\"organization\\\"|\\\"deal\\\"|\\\"lead\\\"}], meeting_status?: \\\"booked\\\"|\\\"held\\\"|\\\"no_show\\\"|\\\"canceled\\\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, name: string, organization_id?: uuid, owner_id?: uuid, pipeline_id: uuid, project_id?: uuid, source?: string, stage_id: uuid}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, linkedin_url?: string, owner_id?: uuid, project_id?: uuid, source?: string, source_id?: string, source_system?: string, status?: \\\"new\\\"|\\\"working\\\"|\\\"promoted\\\"|\\\"disqualified\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\", source?: string}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, emails?: [{email: email, email_type?: \\\"work\\\"|\\\"personal\\\"|\\\"other\\\", is_primary?: boolean, position?: integer}], first_name?: string, full_name: string, last_name?: string, owner_id?: uuid, phones?: [{is_primary?: boolean, phone: string, phone_type?: \\\"work\\\"|\\\"mobile\\\"|\\\"home\\\"|\\\"other\\\", position?: integer}], social?: object, source?: string, title?: string}\",\"project\":\"{description?: string, key?: string, name: string, organization_id: uuid, owner_id?: uuid, source?: string, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{counterparty_org_id?: uuid, deal_id?: uuid, ended_at?: YYYY-MM-DD, is_current_primary?: boolean, kind: \\\"employment\\\"|\\\"deal_stakeholder\\\"|\\\"project_stakeholder\\\"|\\\"partner_of\\\"|\\\"referred_by\\\"|\\\"co_sell_with\\\", organization_id?: uuid, person_id?: uuid, project_id?: uuid, role?: string, source?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"`source` is accepted but overwritten — this surface stamps its own provenance.\",\"A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else on this surface yields them, and neither is defaultable.\",\"A person's employer is a relationship, not a field on the person: record_type=relationship with kind=employment, person_id and organization_id. Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — employment: person + organization; deal_stakeholder: deal + person; project_stakeholder: project + person; partner_of, referred_by and co_sell_with: organization + counterparty_org_id. An edge is not searchable, so keep the id a relationship write returns.\",\"An activity is not searchable — search_records does not serve it — so keep the id an activity write returns; read_record answers it by that id.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]},\"update_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, due_at?: rfc3339, is_done?: boolean, occurred_at?: rfc3339, remind_at?: rfc3339, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, forecast_category?: \\\"commit\\\"|\\\"best_case\\\"|\\\"pipeline\\\"|\\\"omitted\\\", fx_rate_date?: YYYY-MM-DD, fx_rate_to_base?: string, lost_reason?: string, name?: string, organization_id?: uuid, owner_id?: uuid, partner_org_id?: uuid, project_id?: uuid, status?: \\\"open\\\"|\\\"won\\\"|\\\"lost\\\", wait_until?: YYYY-MM-DD}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, owner_id?: uuid, project_id?: uuid, score?: integer, score_override_reason?: string, status?: \\\"new\\\"|\\\"working\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name?: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, lifecycle?: \\\"unknown\\\"|\\\"target\\\"|\\\"prospect\\\"|\\\"opportunity\\\"|\\\"customer\\\"|\\\"former_customer\\\"|\\\"disqualified\\\", linkedin_url?: string, owner_id?: uuid, parent_org_id?: uuid, relationship_types?: [\\\"customer\\\"|\\\"partner\\\"|\\\"supplier\\\"|\\\"investor\\\"|\\\"portfolio_company\\\"|\\\"competitor\\\"|\\\"other\\\"], size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\"}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, first_name?: string, full_name?: string, last_name?: string, owner_id?: uuid, social?: object, title?: string}\",\"project\":\"{description?: string, ended_at?: YYYY-MM-DD, key?: string, name?: string, owner_id?: uuid, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{ended_at?: YYYY-MM-DD, is_current_primary?: boolean, role?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"A person's employer is NOT a field here: employment is a relationship, created and archived as record_type=relationship — its endpoints are what it IS, so they cannot be patched.\",\"An activity's links are NOT patchable, here or by any tool on this surface: this write changes what an activity says, never who it is about.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]}}",
     "ui://margince/account-brief.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",
+    "ui://margince/commitments.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",
+    "ui://margince/handoff.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",
+    "ui://margince/pipeline-review.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",
     "ui://margince/relationship-map.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)"
   }
 }

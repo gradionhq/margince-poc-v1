@@ -134,6 +134,18 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		// its answer still has to keep the shape this server advertises.
 		{"prep_for_meeting", `{"record_type":"activity","record_id":"` + activity.String() + `"}`},
 		{"whats_slipping_this_week", `{}`},
+		// The open-promise review, unnarrowed and narrowed to one owner. The
+		// narrowed one is the answer worth holding: `as_of` and each item's
+		// `state` are what a reader judges lateness by, and a narrowing that
+		// reached no SQL still returns a well-formed set — of everyone's
+		// promises.
+		{"review_commitments", `{}`},
+		{"review_commitments", `{"limit":5}`},
+		// The delivery briefing. The project seeded above has no owner and no
+		// target end date, so this is the answer WITH gaps in it — the shape a
+		// caller acts on, and the one where a missing `gaps` member would read
+		// as work cleared for handover.
+		{"prepare_handoff", `{"project_id":"` + project.String() + `"}`},
 		{"at_risk_relationships", `{}`},
 		{"who_knows", `{"person_id":"` + person.String() + `"}`},
 		{"account_coverage", `{"deal_id":"` + deal.String() + `"}`},

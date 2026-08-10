@@ -86,6 +86,17 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// native tables. It takes no arguments: the queue a caller may read is
 		// the one belonging to the human they act for.
 		"read_brief": `{}`,
+		// The open-promise review. Its rows are task ACTIVITIES, and a mirrored
+		// workspace's timeline holds no task projection — so unguarded it
+		// answers "nothing is outstanding" out of a table holding none of its
+		// rows, which is the one wrong answer to this question that reads as
+		// good news.
+		"review_commitments": `{}`,
+		// The delivery handoff. A project is a native record with no incumbent
+		// analogue at all, so the refusal is the declared answer rather than a
+		// degradation — and it has to land before the project read, or a
+		// mirrored workspace learns not-found instead of "not available here".
+		"prepare_handoff": fmt.Sprintf(`{"project_id":%q}`, anchor),
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.
@@ -123,6 +134,13 @@ func nativeToolReaderPerms() principal.Permissions {
 		objects[object] = grant
 	}
 	objects["pipeline"] = principal.ObjectGrant{Read: true}
+	// The delivery briefing reads a project, the deals rolled up to it, the
+	// stakeholder EDGES on it and the promises about it. Granted here for the
+	// reason this whole builder exists: without them the native-path assertion
+	// fails with "permission denied", which passes for a reason that has
+	// nothing to do with system-of-record mode.
+	objects["project"] = principal.ObjectGrant{Read: true}
+	objects["relationship"] = principal.ObjectGrant{Read: true}
 	lead := objects["lead"]
 	lead.Read, lead.Update, lead.Delete = true, true, true
 	objects["lead"] = lead
@@ -413,6 +431,12 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 		// rather than seeded.
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
 		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
+		// The delivery briefing is anchored on a project id, and the anchor
+		// above is minted rather than seeded. Not-found is the served answer
+		// here, and the RIGHT one: the project read runs first and its refusal
+		// is returned unchanged, so a native workspace saying "no such project"
+		// is the mode guard having stood aside exactly as it should.
+		"prepare_handoff": true,
 		// A rep with no assembled brief: read_brief re-reads a persisted run and
 		// never ranks, so "none has been generated" is what it owes rather than
 		// an empty queue that reads as a quiet morning.

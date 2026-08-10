@@ -101,6 +101,23 @@ function send(message: Record<string, unknown>): void {
   window.parent.postMessage({ jsonrpc: "2.0", ...message }, target);
 }
 
+/**
+ * announce opens the handshake.
+ *
+ * THE MEMBER NAMES ARE THE EXTENSION'S, NOT THE CORE PROTOCOL'S. A view
+ * announces itself with `appInfo` and `appCapabilities`; `clientInfo` and
+ * `capabilities` are what an MCP CLIENT sends on the transport below, and they
+ * are the obvious wrong guess because every other handshake in this system
+ * spells them that way. A host validating the request against the extension's
+ * schema refuses the wrong pair outright — the view then loads, sandboxes, and
+ * sits blank forever, because a refused initialise produces no error anywhere
+ * the document can show.
+ *
+ * `appCapabilities` is deliberately EMPTY. Every member of it — tools the host
+ * may call, display modes, experimental features — is a capability these views
+ * do not have and must not claim: a view here is a renderer, and the widest
+ * part of this extension's surface is the part where it stops being one.
+ */
 function announce(): number {
   const id = nextID++;
   send({
@@ -108,8 +125,8 @@ function announce(): number {
     method: "ui/initialize",
     params: {
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "margince-view", version: "1" },
+      appInfo: { name: "margince-view", version: "1" },
+      appCapabilities: {},
     },
   });
   return id;
@@ -133,15 +150,51 @@ function announce(): number {
  */
 function applyTheme(hostContext: unknown): void {
   const stated = asText(asRecord(hostContext).theme);
-  document.documentElement.dataset.theme =
-    stated !== "" ? stated : platformTheme();
+  if (stated !== "") {
+    stateTheme(stated);
+    return;
+  }
   // A host that stated nothing has delegated to the platform, so a reader who
   // flips their system appearance mid-session is followed rather than left on
   // the theme that was current when the panel opened. A host that DID state one
   // has decided, and its decision is not second-guessed.
-  if (stated === "") {
-    darkPreference()?.addEventListener("change", followPlatform);
-  }
+  document.documentElement.dataset.theme = platformTheme();
+  darkPreference()?.addEventListener("change", followPlatform);
+}
+
+/**
+ * followHostChange applies a host-context change notification.
+ *
+ * ITS PARAMS ARE THE CONTEXT ITSELF, not a `hostContext` member — unlike the
+ * initialize RESULT, which nests one. Reading it the same way as the result is
+ * the mistake this function exists to not make: the theme then never resolves,
+ * and every notification looks like a host that stated nothing.
+ *
+ * AND A PARTIAL UPDATE IS PARTIAL. The host sends one of these whenever
+ * anything about the frame changes — a resize notification carrying only
+ * `containerDimensions` arrives right after every open — so "no theme stated"
+ * here means "not mentioned", NOT "delegated to the platform". Treating the two
+ * the same is worse than ignoring the notification altogether: it overwrites
+ * the theme the handshake correctly resolved, moments after it resolved it.
+ */
+function followHostChange(context: unknown): void {
+  const stated = asText(asRecord(context).theme);
+  if (stated === "") return;
+  stateTheme(stated);
+}
+
+/**
+ * stateTheme applies a theme the host has DECIDED, and stops following the
+ * platform.
+ *
+ * The unsubscribe is what keeps a later statement from being undone: a view
+ * that opened against a host stating nothing subscribes to the platform, and
+ * if that host then states a theme, an OS appearance change afterwards would
+ * otherwise repaint over the host's own decision.
+ */
+function stateTheme(theme: string): void {
+  document.documentElement.dataset.theme = theme;
+  darkPreference()?.removeEventListener("change", followPlatform);
 }
 
 /** followPlatform repaints on a platform appearance change. Named rather than
@@ -219,6 +272,21 @@ function handle(event: MessageEvent): void {
     completeHandshake(event, message);
     return;
   }
+  // The host telling us something about the frame changed — a theme switch, a
+  // resize. Followed rather than ignored: a view that read the theme once at
+  // initialise sits in the old palette until it is closed and reopened, inside
+  // a host that has already repainted around it.
+  //
+  // `params` is handed over WHOLE, because it IS the context here rather than
+  // carrying one under `hostContext` the way the initialize result does. That
+  // difference, and the partial-update rule, live in followHostChange.
+  if (
+    message.method === "ui/notifications/host-context-changed" &&
+    initialized
+  ) {
+    followHostChange(message.params);
+    return;
+  }
   // A result BEFORE the handshake is dropped rather than rendered. The view has
   // not been told the theme or the display mode yet, so rendering then shows the
   // human a panel drawn against defaults the host already corrected — and
@@ -277,6 +345,68 @@ export function percent(value: unknown): string {
 export function count(value: unknown): string {
   const n = asFiniteNumber(value);
   return n === null ? ABSENT : String(n);
+}
+
+/**
+ * money renders an amount the way the product renders one: integer MINOR units
+ * scaled by the currency's own minor-unit count, never by a hard-coded 100.
+ *
+ * THE SCALING RULE IS THE ONE src/format/format.ts APPLIES, deliberately —
+ * ask Intl how many fraction digits the currency has and divide by that power
+ * of ten. JPY stores 1234 minor units and means ¥1,234; a view that divided by
+ * 100 everywhere would render ¥12.34 for it, and the same class of mistake in
+ * the other direction is what made an account brief report every deal a
+ * hundred times too large.
+ *
+ * It is a second implementation rather than an import because formatMoney
+ * takes the SPA's Locale, and reaching for that would pull the translation
+ * machinery into a document that is inlined whole and served to a third-party
+ * host. So the locale is the host runtime's own, and the rule that must not
+ * drift — the scale — is stated here in the same terms.
+ *
+ * An amount that is not a finite number, or a currency Intl does not know,
+ * renders as the em dash. Intl throws on an unknown currency code, and a view
+ * that threw mid-render would leave the reader a blank panel.
+ *
+ * SO DOES AN AMOUNT OUTSIDE THE SAFE INTEGER RANGE. The field is an int64 on
+ * the wire and a double by the time this sees it, so a value past 2^53 has
+ * already been rounded to a number that is not the one that was stored. There
+ * is nothing to recover — the digits are gone before this function is called —
+ * and the choice is between an em dash and a money figure that is quietly
+ * wrong. A reader can act on the first.
+ */
+export function money(amountMinor: unknown, currency: unknown): string {
+  const minor = asFiniteNumber(amountMinor);
+  const code = asText(currency);
+  if (minor === null || code === "" || !Number.isSafeInteger(minor))
+    return ABSENT;
+  try {
+    const formatter = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+    });
+    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+    return formatter.format(minor / 10 ** digits);
+  } catch {
+    return ABSENT;
+  }
+}
+
+/**
+ * day renders an instant as the calendar day it falls on IN UTC, which is the
+ * same day the server's own evidence snippets name.
+ *
+ * UTC and not the reader's zone, because the two would disagree: the answer
+ * says a promise is overdue, and a date rendered in a zone the server did not
+ * judge in can read as "due tomorrow" beside the word "overdue". One clock,
+ * one day, and the state beside it is true of the date shown.
+ */
+export function day(value: unknown): string {
+  const text = asText(value);
+  if (text === "") return ABSENT;
+  const at = new Date(text);
+  if (Number.isNaN(at.getTime())) return ABSENT;
+  return at.toISOString().slice(0, 10);
 }
 
 /**

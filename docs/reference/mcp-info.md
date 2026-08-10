@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 35 |
-| Resources | 4 |
-| Tool catalog | 95.8 KB |
-| Resource catalog | 1.6 KB |
-| Approx. wire tokens | 24940 |
+| Tools | 37 |
+| Resources | 7 |
+| Tool catalog | 102.5 KB |
+| Resource catalog | 2.7 KB |
+| Approx. wire tokens | 26943 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -26,14 +26,17 @@ budget in `agenttooldescriptions_test.go`.
 
 ## Index
 
-### Resources (4)
+### Resources (7)
 
 - [`margince://schema/query`](#query_vocabulary) — Workspace query vocabulary
 - [`margince://schema/record-fields`](#record_fields) — Record write vocabulary
 - [`ui://margince/account-brief.html`](#account_brief_view) — Morning brief
 - [`ui://margince/relationship-map.html`](#relationship_map_view) — Who knows this contact
+- [`ui://margince/commitments.html`](#commitments_view) — Open commitments
+- [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
+- [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (35)
+### Tools (37)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -56,6 +59,7 @@ budget in `agenttooldescriptions_test.go`.
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.1 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
+| [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.5 KB |
@@ -64,13 +68,14 @@ budget in `agenttooldescriptions_test.go`.
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
+| [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.0 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.5 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 2.6 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
-| [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes |  | 2.3 KB |
+| [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
 | [`who_knows`](#who_knows) | Who knows this contact | yes | [`ui://margince/relationship-map.html`](#relationship_map_view) | 2.2 KB |
 
 ## Resources
@@ -128,6 +133,84 @@ The ranked brief queue, with the factor decomposition each item ranked on.
 **Who knows this contact**
 
 The colleagues who know a contact, warmest first, with the interactions behind each warmth band.
+
+<details><summary>Sandbox policy (<code>_meta.ui</code>)</summary>
+
+```json
+{
+  "ui": {
+    "csp": {
+      "baseUriDomains": [],
+      "connectDomains": [],
+      "frameDomains": [],
+      "resourceDomains": []
+    },
+    "prefersBorder": true
+  }
+}
+```
+
+</details>
+
+### commitments_view
+
+`ui://margince/commitments.html` · text/html;profile=mcp-app
+
+**Open commitments**
+
+The promises still outstanding, oldest first, with who owes each one and how far past due it is.
+
+<details><summary>Sandbox policy (<code>_meta.ui</code>)</summary>
+
+```json
+{
+  "ui": {
+    "csp": {
+      "baseUriDomains": [],
+      "connectDomains": [],
+      "frameDomains": [],
+      "resourceDomains": []
+    },
+    "prefersBorder": true
+  }
+}
+```
+
+</details>
+
+### handoff_view
+
+`ui://margince/handoff.html` · text/html;profile=mcp-app
+
+**Delivery handoff**
+
+What the delivery side is being given for one project, with each gap beside the fact it is about.
+
+<details><summary>Sandbox policy (<code>_meta.ui</code>)</summary>
+
+```json
+{
+  "ui": {
+    "csp": {
+      "baseUriDomains": [],
+      "connectDomains": [],
+      "frameDomains": [],
+      "resourceDomains": []
+    },
+    "prefersBorder": true
+  }
+}
+```
+
+</details>
+
+### pipeline_review_view
+
+`ui://margince/pipeline-review.html` · text/html;profile=mcp-app
+
+**Pipeline review**
+
+The deals at risk this week, worst first, with the evidence each risk claim rests on.
 
 <details><summary>Sandbox policy (<code>_meta.ui</code>)</summary>
 
@@ -3444,6 +3527,305 @@ Get ready for a specific meeting: the same assembled picture as a catch-up, plus
 
 </details>
 
+### prepare_handoff
+
+**Prepare a delivery handoff**
+
+Assemble what the delivery side of one project needs from the sales side: who owns it, who to call at the client, what was sold, by when, and what is already promised — with a named gap for each of those the records do not answer. It reports what the records say and reads nothing outside them; each gap names the field it was read off. It is scoped to the records the caller may see, so a gap means the field is empty as far as THEY can see, and a bounded list withholds the gaps that claim something is absent rather than guessing them. It changes nothing — preparing a handover is not performing one. Use catch_me_up_on when the question is what has been happening on the account rather than what a handover is missing, and read_record for the project's own stored fields alone. The project_id, and each gap's source field — the gaps are what a follow-up fills in. (Governance: runs immediately; requires passport scope "read".)
+
+Renders its result in [`ui://margince/handoff.html`](#handoff_view), visible to `model`, `app`.
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "description": "The project being handed to delivery",
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "as_of": {
+          "type": "string"
+        },
+        "deals": {
+          "items": {
+            "properties": {
+              "amount_minor": {
+                "type": "integer"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "deal_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "deal_id",
+              "name",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "gaps": {
+          "items": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "source"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "key": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "open_commitments": {
+          "items": {
+            "properties": {
+              "about": {
+                "items": {
+                  "properties": {
+                    "entity_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "entity_type": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "entity_id",
+                    "entity_type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "assignee_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "assignee_name": {
+                "type": "string"
+              },
+              "days_overdue": {
+                "type": "integer"
+              },
+              "due_at": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "about",
+              "state",
+              "subject",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "organization_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "owner_name": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "stakeholders": {
+          "items": {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "person_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "person_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "target_end_date": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "deals",
+        "gaps",
+        "name",
+        "open_commitments",
+        "organization_id",
+        "phase",
+        "project_id",
+        "stakeholders"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### progress_deal
 
 **Progress a deal with a note**
@@ -4943,6 +5325,196 @@ Find out whether the people and companies named in something you are holding alr
 
 </details>
 
+### review_commitments
+
+**Review open commitments**
+
+Answer "what have we promised and not delivered?": the open tasks across the workspace, earliest due date first and undated ones last, each with the person who owes it, when it came due and the record it was made about. A promise appears here only because someone recorded it as a task — what was agreed in a meeting and never written down is absent — so this is what the workspace has on record, not everything owed. It is scoped to the records the caller may see. Use whats_slipping_this_week when the question is which DEALS are at risk rather than which promises are outstanding, and catch_me_up_on for everything that has happened on one record. Each item carries task_id and, where there is one, assignee_id. Every state is judged against as_of, so carry that too if you report the answer later. (Governance: runs immediately; requires passport scope "read".)
+
+Renders its result in [`ui://margince/commitments.html`](#commitments_view), visible to `model`, `app`.
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "assignee_id": {
+      "description": "Narrow to one owner's promises; omit for everyone's",
+      "format": "uuid",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Cap the set; omit for 50, the server-side ceiling",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "as_of": {
+          "type": "string"
+        },
+        "commitments": {
+          "items": {
+            "properties": {
+              "about": {
+                "items": {
+                  "properties": {
+                    "entity_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "entity_type": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "entity_id",
+                    "entity_type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "assignee_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "assignee_name": {
+                "type": "string"
+              },
+              "days_overdue": {
+                "type": "integer"
+              },
+              "due_at": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "about",
+              "state",
+              "subject",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "as_of",
+        "commitments"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### run_report
 
 **Run a report**
@@ -6060,6 +6632,8 @@ Change stored field values on a record that already exists — a corrected title
 **What's slipping this week**
 
 Answer "what is slipping?": the deals going quiet or running past their expected close date, ranked worst first, each with the evidence that says so. It reports only deals whose risk can be evidenced from their own fields — a deal nobody can point at a reason for is absent rather than guessed — and it is scoped to the deals the caller may see. Use run_report for the pipeline as a whole (totals, counts, breakdowns), and at_risk_relationships when the question is who a deal rests on rather than whether it is moving. Keep each deal_id if you intend to act; draft_follow_ups_for works over this same ranked set without you re-deriving it. (Governance: runs immediately; requires passport scope "read".)
+
+Renders its result in [`ui://margince/pipeline-review.html`](#pipeline_review_view), visible to `model`, `app`.
 
 <details><summary>Input schema</summary>
 

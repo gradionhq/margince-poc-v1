@@ -162,6 +162,12 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
+	RegisterCommitmentTool(r, func(context.Context, CommitmentQuery) (CommitmentSweep, error) {
+		return CommitmentSweep{}, nil
+	})
+	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
+		return HandoffFacts{}, nil
+	})
 	RegisterNetworkTools(r,
 		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },

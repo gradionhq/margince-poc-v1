@@ -172,13 +172,18 @@ func TestTheAppExtensionIsAdvertisedOnlyToTheEraThatCanNegotiateIt(t *testing.T)
 	}
 }
 
-// The sandbox policy reaches the host on the LISTING, unconditionally. The
-// extension's premise is that a host may fetch and review a view before any
-// tool call, so a policy withheld until negotiation would leave a prefetching
-// host holding a document it has no rules for.
+// The sandbox policy reaches the host on the LISTING, on every view listed.
+// The extension's premise is that a host may fetch and review a view before
+// any tool call, so a policy withheld until the first call would leave a
+// prefetching host holding a document it has no rules for.
+//
+// Asked as an APP-DECLARING request, which is the only client this promise is
+// about: a client that declared it cannot render a view is not shown one at
+// all, so a policy on the document would be rules for something it will never
+// draw.
 func TestTheListingCarriesEveryViewsSandboxPolicy(t *testing.T) {
 	d := dispatcherServingAView(t)
-	body, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	body, err := json.Marshal(rpcRendering(t, d, "resources/list", "").Result)
 	if err != nil {
 		t.Fatalf("encoding resources/list: %v", err)
 	}
@@ -212,7 +217,7 @@ func TestTheListingCarriesEveryViewsSandboxPolicy(t *testing.T) {
 // surface is a policy that depends on the order it happened to ask in.
 func TestTheReadCarriesTheSamePolicyAsTheListing(t *testing.T) {
 	d := dispatcherServingAView(t)
-	read, err := json.Marshal(rpc(t, d, "resources/read", `{"uri":"`+viewURI+`"}`).Result)
+	read, err := json.Marshal(rpcRendering(t, d, "resources/read", `{"uri":"`+viewURI+`"}`).Result)
 	if err != nil {
 		t.Fatalf("encoding resources/read: %v", err)
 	}
@@ -408,5 +413,78 @@ func TestTheExtensionIsNotAdvertisedWhenNoViewIsHeld(t *testing.T) {
 	d.viewHeld = func(string) bool { return false }
 	if d.appsServed() {
 		t.Error("a server holding no view still advertises the App extension, so a host will prefetch a 404")
+	}
+}
+
+// rpcRendering is one request from a client that declared it can render a
+// view. The App members — the documents themselves and their policies — exist
+// for this client and no other.
+func rpcRendering(t *testing.T, d *Dispatcher, method, params string) rpcResponse {
+	t.Helper()
+	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method}
+	if params != "" {
+		req.Params = json.RawMessage(params)
+	}
+	return d.handle(agentHolding(principal.ScopeRead), req, framing{modern: true, apps: true})
+}
+
+// A client that did not declare the App extension is served the resource
+// surface exactly as it was before any view existed — which is the promise
+// apps.go's header makes, and which the tool listing kept while the document
+// catalogue did not.
+//
+// The two halves are asserted TOGETHER because the failure that matters is the
+// one where they disagree: a catalogue that hid a view while the read still
+// served it would let a client learn a document exists by asking for a URI it
+// was never shown.
+func TestAClientThatCannotRenderAViewIsNeitherShownOneNorServedOne(t *testing.T) {
+	d := dispatcherServingAView(t)
+
+	listed, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	if err != nil {
+		t.Fatalf("encoding resources/list: %v", err)
+	}
+	if strings.Contains(string(listed), viewURI) {
+		t.Errorf("the legacy era is advertised a view it has no way to declare for:\n%s", listed)
+	}
+
+	read := rpc(t, d, "resources/read", `{"uri":"`+viewURI+`"}`)
+	if read.Error == nil {
+		t.Fatalf("the legacy era read a view document: %v", read.Result)
+	}
+	if read.Error.Code != resourceNotFound {
+		t.Errorf("reading a withheld view answered %d, want %d — the same answer an "+
+			"unknown URI gets, or the refusal itself reports the document exists",
+			read.Error.Code, resourceNotFound)
+	}
+}
+
+// And an ORDINARY document is unaffected by the same filter. The gate is about
+// what a client can render, not about narrowing the catalogue in general — a
+// build that filtered everything would pass the assertions above for the wrong
+// reason.
+func TestAnOrdinaryDocumentIsStillServedToAClientWithNoViewSupport(t *testing.T) {
+	d := dispatcherServingAView(t).WithResources(stubResources{
+		published: []mcp.Resource{{
+			URI: "margince://schema/query", Name: "query_vocabulary", Title: "Vocabulary",
+			Description: "what you may ask", MIMEType: "application/json",
+			RequiredScope: principal.ScopeRead,
+		}},
+		contents: map[string]mcp.ResourceContents{
+			"margince://schema/query": {
+				URI: "margince://schema/query", MIMEType: "application/json", Text: `{}`,
+			},
+		},
+	})
+
+	listed, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	if err != nil {
+		t.Fatalf("encoding resources/list: %v", err)
+	}
+	if !strings.Contains(string(listed), "margince://schema/query") {
+		t.Errorf("an ordinary document was withheld from a client with no view support:\n%s", listed)
+	}
+	if read := rpc(t, d, "resources/read", `{"uri":"margince://schema/query"}`); read.Error != nil {
+		t.Errorf("an ordinary document could not be read without declaring the App extension: %v", read.Error)
 	}
 }

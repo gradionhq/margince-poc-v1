@@ -116,7 +116,7 @@ func TestPublishedMCPSurfaceMatchesWhatAClientIsServed(t *testing.T) {
 	// artifact — resources/list carries identity, mime type and sandbox policy,
 	// never the document — and every one of those is a constant of the build, so
 	// the stand-in's bytes are nowhere in the published page.
-	views := primedViews(t, bothViews())
+	views := primedViews(t, everyDeclaredView())
 	tools := mcpResult(t, "tools/list", views)
 	resources := mcpResult(t, "resources/list", views)
 	doc := mcpInfoDocument(t, tools, resources)

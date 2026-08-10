@@ -49,6 +49,18 @@ const (
 	AccountBriefURI = "ui://margince/account-brief.html"
 	// RelationshipMapURI renders who_knows's colleagues.
 	RelationshipMapURI = "ui://margince/relationship-map.html"
+	// CommitmentsURI renders review_commitments's open promises.
+	CommitmentsURI = "ui://margince/commitments.html"
+	// HandoffURI renders prepare_handoff's briefing and its gaps.
+	HandoffURI = "ui://margince/handoff.html"
+	// PipelineReviewURI renders whats_slipping_this_week's ranked deals.
+	//
+	// It registers NO tool of its own. A `render_*` name on this surface is a
+	// document hung off a tool that already answers, not a second verb — the
+	// two that shipped before it are the same, and a tool here would cost a
+	// listing slot and an admission surface to display an answer the caller
+	// already has.
+	PipelineReviewURI = "ui://margince/pipeline-review.html"
 )
 
 // view is one published document's identity. The document itself is not here:
@@ -79,6 +91,41 @@ var catalog = []view{
 		title:       "Who knows this contact",
 		description: "The colleagues who know a contact, warmest first, with the interactions behind each warmth band.",
 	},
+	{
+		uri:         CommitmentsURI,
+		name:        "commitments_view",
+		title:       "Open commitments",
+		description: "The promises still outstanding, oldest first, with who owes each one and how far past due it is.",
+	},
+	{
+		uri:         HandoffURI,
+		name:        "handoff_view",
+		title:       "Delivery handoff",
+		description: "What the delivery side is being given for one project, with each gap beside the fact it is about.",
+	},
+	{
+		uri:         PipelineReviewURI,
+		name:        "pipeline_review_view",
+		title:       "Pipeline review",
+		description: "The deals at risk this week, worst first, with the evidence each risk claim rests on.",
+	},
+}
+
+// DeclaredViews is every view this build declares, as URI → the title its
+// document carries.
+//
+// It exists so a caller that has to stand in for the web tier — the
+// composition layer's sweeps do — can serve exactly what this build declares
+// rather than a list somebody keeps in step by hand. A hand-listed pair was
+// the shape here before, and a third view added to the catalog would have
+// left it quietly serving two: the sweep would still pass, over a deployment
+// missing the view it was added to check.
+func DeclaredViews() map[string]string {
+	out := make(map[string]string, len(catalog))
+	for _, v := range catalog {
+		out[v.uri] = v.title
+	}
+	return out
 }
 
 // sandbox is the policy every view here declares, and the ONE place it is

@@ -184,6 +184,12 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, errSeamReached },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", errSeamReached })
+	RegisterCommitmentTool(r, func(context.Context, CommitmentQuery) (CommitmentSweep, error) {
+		return CommitmentSweep{}, errSeamReached
+	})
+	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
+		return HandoffFacts{}, errSeamReached
+	})
 	RegisterNetworkTools(r,
 		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, errSeamReached },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
