@@ -1461,8 +1461,6 @@ export const de = {
   "today.deal.count": "{count} offene Deals",
   "today.deal.mixedCurrency": "In unterschiedlichen Währungen — siehe Pipeline",
   "today.draft.to": "Follow-up an {name} entwerfen",
-  "today.draft.notYet":
-    "Entwürfe aus dem Account gibt es noch nicht — nutze E-Mail schreiben",
   "evidence.confirm": "Bestätigen",
   "evidence.correct": "Korrigieren",
   "evidence.save": "Speichern",

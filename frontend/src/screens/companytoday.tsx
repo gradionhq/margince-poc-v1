@@ -98,6 +98,7 @@ export function TodayOnThisAccount({
   loading,
   failed,
   onPrepareMeeting,
+  onDraftTo,
 }: Readonly<{
   view?: Organization360;
   loading: boolean;
@@ -106,6 +107,10 @@ export function TodayOnThisAccount({
   // one of them is a fact about the account.
   failed: boolean;
   onPrepareMeeting?: (activityId: string) => void;
+  // Starting a message from the account. Named separately from
+  // onPrepareMeeting because the two open the composer on different grounds:
+  // one anchors on a meeting, this one on the account and its recipient.
+  onDraftTo?: (personId: string) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -139,6 +144,7 @@ export function TodayOnThisAccount({
     when: (at: string) => formatDateTime(at, locale, RECORD_ZONE),
     locale,
     onPrepareMeeting,
+    onDraftTo,
   });
 
   return (
@@ -189,7 +195,12 @@ export function TodayOnThisAccount({
               </li>
             ))}
           </ul>
-          <TodayActions view={view} t={t} onPrepareMeeting={onPrepareMeeting} />
+          <TodayActions
+            view={view}
+            t={t}
+            onPrepareMeeting={onPrepareMeeting}
+            onDraftTo={onDraftTo}
+          />
         </div>
       )}
       <TodayWithheld view={view} />
@@ -201,18 +212,21 @@ export function TodayOnThisAccount({
 //
 // "Draft follow-up to <name>" names the strongest contact, because a button
 // that says who it will write to is a decision the reader can check before
-// pressing it. It is DISABLED until account drafting exists (DRAFT-WIRE-N-1):
-// a composer that opens with nothing drafted is worse than a button that says
-// why it cannot yet, and the reason is on the button rather than in a tooltip
-// nobody hovers.
+// pressing it. It opens the composer grounded on the ACCOUNT rather than on a
+// message, which is why it passes the recipient rather than an activity.
 function TodayActions({
   view,
   t,
   onPrepareMeeting,
+  onDraftTo,
 }: Readonly<{
   view: Organization360;
   t: TodayContext["t"];
   onPrepareMeeting?: (activityId: string) => void;
+  // Starting a message from the account. Named separately from
+  // onPrepareMeeting because the two open the composer on different grounds:
+  // one anchors on a meeting, this one on the account and its recipient.
+  onDraftTo?: (personId: string) => void;
 }>) {
   const recipient = [...(view.people?.data ?? [])].sort(byStrengthThenId)[0];
   const meeting = view.next_meeting;
@@ -221,12 +235,10 @@ function TodayActions({
   }
   return (
     <div className="today-actions">
-      {recipient && (
+      {recipient && onDraftTo && (
         <Button
           variant="primary"
-          disabled
-          title={t("today.draft.notYet")}
-          onClick={undefined}
+          onClick={() => onDraftTo(recipient.person_id)}
         >
           {t("today.draft.to", { name: firstName(recipient.full_name) })}
         </Button>
@@ -235,9 +247,6 @@ function TodayActions({
         <Button onClick={() => onPrepareMeeting(meeting.activity_id)}>
           {t("today.meeting.prepare")}
         </Button>
-      )}
-      {recipient && (
-        <p className="today-actions-note">{t("today.draft.notYet")}</p>
       )}
     </div>
   );
@@ -573,6 +582,10 @@ type TodayContext = {
   // reader's locale rather than a pre-formatted string.
   locale: Locale;
   onPrepareMeeting?: (activityId: string) => void;
+  // Starting a message from the account. Named separately from
+  // onPrepareMeeting because the two open the composer on different grounds:
+  // one anchors on a meeting, this one on the account and its recipient.
+  onDraftTo?: (personId: string) => void;
 };
 
 type Organization360Contact = NonNullable<

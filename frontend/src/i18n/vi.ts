@@ -1456,8 +1456,6 @@ export const vi = {
   "today.deal.count": "{count} deal đang mở",
   "today.deal.mixedCurrency": "Khác đơn vị tiền tệ — xem ở pipeline",
   "today.draft.to": "Soạn thư theo dõi gửi {name}",
-  "today.draft.notYet":
-    "Chưa soạn thư được từ trang tài khoản — hãy dùng Viết email",
   "evidence.confirm": "Xác nhận",
   "evidence.correct": "Sửa",
   "evidence.save": "Lưu",

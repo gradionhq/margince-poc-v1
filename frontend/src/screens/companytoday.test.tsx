@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { TodayOnThisAccount } from "./companytoday";
@@ -31,7 +31,11 @@ const BASE: Organization360 = {
 
 function show(
   view?: Organization360,
-  opts: { loading?: boolean; failed?: boolean } = {},
+  opts: {
+    loading?: boolean;
+    failed?: boolean;
+    onDraftTo?: (personId: string) => void;
+  } = {},
 ) {
   render(
     <LocaleProvider initial="en">
@@ -39,6 +43,7 @@ function show(
         view={view}
         loading={opts.loading ?? false}
         failed={opts.failed ?? false}
+        onDraftTo={opts.onDraftTo}
       />
     </LocaleProvider>,
   );
@@ -311,9 +316,11 @@ describe("the tiles, and which record each one picks", () => {
     expect(screen.getByText("Assessment")).toBeTruthy();
   });
 
-  // The composer cannot draft from an account yet (DRAFT-WIRE-N-1). A button
-  // that opens a composer with nothing in it is worse than one that says why.
-  it("offers the draft verb disabled, with the reason on the page", () => {
+  // The button names the recipient it will write to, and hands that person to
+  // the composer: an account-started message has no thread to anchor on, so
+  // the recipient is what grounds it.
+  it("hands the named recipient to the composer", () => {
+    const drafted = vi.fn();
     show({
       ...BASE,
       people: {
@@ -335,10 +342,9 @@ describe("the tiles, and which record each one picks", () => {
         ],
         page: { has_more: false, next_cursor: null },
       },
-    });
-    const draft = screen.getByRole("button", { name: /Draft follow-up/ });
-    expect(draft.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText(/not built yet/)).toBeTruthy();
+    }, { onDraftTo: drafted });
+    fireEvent.click(screen.getByRole("button", { name: /Draft follow-up/ }));
+    expect(drafted).toHaveBeenCalledWith(CONTACT.person_id);
   });
 });
 

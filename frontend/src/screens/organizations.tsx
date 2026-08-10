@@ -1917,6 +1917,10 @@ function CompanyPage({
   const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
     null,
   );
+  // Starting a message FROM the account, with no prior message to answer. The
+  // composer grounds it in the account itself, which is why it needs the
+  // recipient named rather than an activity to anchor on (ADR-0087 §1).
+  const [draftToPersonId, setDraftToPersonId] = useState<string | null>(null);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -2036,6 +2040,7 @@ function CompanyPage({
           taskUpdate={taskUpdate}
           onOpenTask={openTask}
           onCompose={setReplyToActivityId}
+          onDraftTo={setDraftToPersonId}
           onLogTask={() => setTaskFormOpen(true)}
           onOpenRecord={receipt.open}
         />
@@ -2064,6 +2069,19 @@ function CompanyPage({
           kind="email"
           open
           onClose={() => setReplyToActivityId(null)}
+        />
+      )}
+      {/* The same composer, started from the account instead of from a
+          message. No activityId, so it grounds on the account and the named
+          recipient rather than on a thread. */}
+      {draftToPersonId && (
+        <ComposeModal
+          entityType="organization"
+          entityId={org.id}
+          personId={draftToPersonId}
+          kind="email"
+          open
+          onClose={() => setDraftToPersonId(null)}
         />
       )}
       {taskFormOpen && (
@@ -2157,6 +2175,7 @@ function CompanyOverviewStack({
   taskUpdate,
   onOpenTask,
   onCompose,
+  onDraftTo,
   onLogTask,
   onOpenRecord,
 }: Readonly<{
@@ -2168,6 +2187,7 @@ function CompanyOverviewStack({
   taskUpdate: ReturnType<typeof useTaskUpdate>;
   onOpenTask: (step: { activity_id: string }) => void;
   onCompose: (activityId: string) => void;
+  onDraftTo: (personId: string) => void;
   onLogTask: () => void;
   // Where a cited chip leads. Owned by the page, because the grid below this
   // stack cites the same records and two owners would mean two receipts open
@@ -2183,6 +2203,7 @@ function CompanyOverviewStack({
         loading={loading}
         failed={failed}
         onPrepareMeeting={onCompose}
+        onDraftTo={onDraftTo}
       />
       {/* Then what the account looks like right now, in its own words and
           ours. These three read the same evidence and cite it the same way, so

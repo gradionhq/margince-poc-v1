@@ -1448,8 +1448,6 @@ export const en = {
   "today.deal.count": "{count} open deals",
   "today.deal.mixedCurrency": "In different currencies — see the pipeline",
   "today.draft.to": "Draft follow-up to {name}",
-  "today.draft.notYet":
-    "Drafting from the account is not built yet — use Write email",
   "evidence.confirm": "Confirm",
   "evidence.correct": "Correct",
   "evidence.save": "Save",
