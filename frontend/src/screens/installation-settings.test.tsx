@@ -148,4 +148,26 @@ describe("InstallationSettingsCard", () => {
     )) as HTMLInputElement;
     expect(name.disabled).toBe(false);
   });
+
+  // An editable field must LOOK editable. `.input` is what carries the border,
+  // fill and padding that separate a control from the static text beside it, so
+  // a field that renders without it reads as a caption: the value is there, the
+  // affordance is not, and an operator concludes the setting is read-only. The
+  // class is the observable proof the control came from the design system
+  // rather than being hand-rolled again.
+  it("renders every field as a design-system input", async () => {
+    const { fetchMock } = backendFor(SETTINGS_EDITOR);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InstallationSettingsCard />);
+
+    for (const label of [
+      /organization name/i,
+      /reporting timezone/i,
+      /base currency/i,
+    ]) {
+      const control = await screen.findByLabelText(label);
+      expect(control.className.split(/\s+/)).toContain("input");
+    }
+  });
 });
