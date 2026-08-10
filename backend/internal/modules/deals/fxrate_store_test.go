@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -71,7 +73,7 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range admitted {
 		t.Run("admits "+name, func(t *testing.T) {
-			if _, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in); err != nil {
+			if _, err := NewStore(nil, unreachableBaseCurrency).prepareFxRate(fxRateCtx(g), in); err != nil {
 				t.Fatalf("prepareFxRate = %v, want admitted", err)
 			}
 		})
@@ -86,10 +88,18 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range refused {
 		t.Run("refuses "+name, func(t *testing.T) {
-			_, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in)
+			_, err := NewStore(nil, unreachableBaseCurrency).prepareFxRate(fxRateCtx(g), in)
 			if !errors.Is(err, apperrors.ErrPermissionDenied) {
 				t.Fatalf("prepareFxRate = %v, want ErrPermissionDenied", err)
 			}
 		})
 	}
+}
+
+// unreachableBaseCurrency stands in for the installation-settings seam in the
+// tests above. prepareFxRate is the connection-free half of the fx write — it
+// admits or refuses before any value is resolved — so reaching this is a
+// signal that the split moved, not a fixture that needs a currency.
+func unreachableBaseCurrency(context.Context, pgx.Tx) (string, error) {
+	return "", errors.New("prepareFxRate resolved the base currency; it is meant to run before any connection")
 }

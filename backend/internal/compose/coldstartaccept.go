@@ -60,9 +60,9 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
-	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool)))
+	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool, InstallationBaseCurrency())))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
-	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool)))
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool, InstallationBaseCurrency())))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(pool)))
 	return svc
 }

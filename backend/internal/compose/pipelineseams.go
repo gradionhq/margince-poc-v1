@@ -30,7 +30,7 @@ import (
 // pipelineLister answers list_pipelines from the workspace's live pipeline
 // configuration.
 func pipelineLister(pool *pgxpool.Pool) agents.PipelineLister {
-	store := deals.NewStore(pool)
+	store := deals.NewStore(pool, InstallationBaseCurrency())
 	return func(ctx context.Context) ([]agents.Pipeline, error) {
 		rows, err := store.ListPipelines(ctx)
 		if err != nil {

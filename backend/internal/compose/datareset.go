@@ -283,7 +283,7 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 			Type: principal.PrincipalSystem, ID: "system",
 		})
 		seedCtx = principal.WithCorrelationID(seedCtx, ids.NewV7())
-		if err := configuredSeed(h.seeds, deals.NewHandlers(h.pool))(seedCtx, tx); err != nil {
+		if err := configuredSeed(h.seeds, deals.NewHandlers(h.pool, InstallationBaseCurrency()))(seedCtx, tx); err != nil {
 			return err
 		}
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -122,7 +123,7 @@ func Setup(t *testing.T) *Env {
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool)
+	e.Deals = deals.NewStore(pool, identity.BaseCurrencyOf)
 	e.Activities = activities.NewStore(pool)
 	return e
 }

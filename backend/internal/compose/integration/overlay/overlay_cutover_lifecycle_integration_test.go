@@ -36,6 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -227,7 +228,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 		t.Fatalf("seeding the clean workspace admin: %v", err)
 	}
 	cleanCtx := flipAdminCtx(ws, user.UUID)
-	if err := deals.NewHandlers(f.pool).SeedWorkspaceDefaults(cleanCtx); err != nil {
+	if err := deals.NewHandlers(f.pool, identity.BaseCurrencyOf).SeedWorkspaceDefaults(cleanCtx); err != nil {
 		t.Fatalf("seeding the clean workspace's default pipeline: %v", err)
 	}
 	return cleanCtx

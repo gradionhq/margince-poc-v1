@@ -119,5 +119,5 @@ func (c companyEnricher) EnrichCompany(
 func lifecycleSeams(pool *pgxpool.Pool) (activityRelinker, leadDisqualifier, projectPhaseAdvancer) {
 	return activityRelinker{store: activities.NewStore(pool)},
 		leadDisqualifier{store: people.NewStore(pool)},
-		projectPhaseAdvancer{store: deals.NewStore(pool)}
+		projectPhaseAdvancer{store: deals.NewStore(pool, InstallationBaseCurrency())}
 }

@@ -225,7 +225,7 @@ const atRiskScanLimit = 25
 // order that list returns them, and the sweep stops at the cap rather than
 // sampling: a deterministic prefix can be explained to a rep, a sample cannot.
 func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
-	store := deals.NewStore(pool)
+	store := deals.NewStore(pool, InstallationBaseCurrency())
 	return func(ctx context.Context) (agents.AtRiskReport, error) {
 		var out agents.AtRiskReport
 		openStatus := network.DealStatusOpen

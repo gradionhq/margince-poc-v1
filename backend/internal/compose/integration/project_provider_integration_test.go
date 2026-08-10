@@ -21,13 +21,16 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-func projectProvider(e *Env) *deals.Provider { return deals.NewProvider(e.Pool) }
+func projectProvider(e *Env) *deals.Provider {
+	return deals.NewProvider(e.Pool, identity.BaseCurrencyOf)
+}
 
 // The seam's create-read-update-archive round trip, with the provenance the
 // agent path stamps.

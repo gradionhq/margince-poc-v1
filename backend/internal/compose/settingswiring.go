@@ -147,7 +147,5 @@ func yamlPaths(t reflect.Type, prefix string) map[string]bool {
 // registered default, because these callers are converting and freezing money
 // against the answer.
 func InstallationBaseCurrency() func(context.Context, pgx.Tx) (string, error) {
-	return func(ctx context.Context, tx pgx.Tx) (string, error) {
-		return settings.RequireTx(ctx, tx, identity.BaseCurrency)
-	}
+	return identity.BaseCurrencyOf
 }

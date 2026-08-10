@@ -27,10 +27,23 @@ type Store struct {
 	// clock is the "today" source for effective-dated writes (fx_rate);
 	// injected so append-forward date validation is deterministic in tests.
 	clock func() time.Time
+	// baseCurrency resolves the installation's reporting currency
+	// (ADR-0090/A135). REQUIRED by the constructor: this module FREEZES a
+	// conversion rate onto closed deals, so a store that only looked
+	// constructed would write a basis it cannot take back.
+	baseCurrency BaseCurrencyFunc
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, clock: time.Now}
+// BaseCurrencyFunc resolves the installation's reporting currency inside a
+// transaction the caller already holds. Compose supplies the one real
+// implementation: deals may not import the module that owns the setting, so
+// the edge is injected rather than imported (ADR-0054).
+type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
+
+// NewStore binds the store to the pool every tenant query runs through, and
+// to the seam that answers what the installation reports in.
+func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
+	return &Store{pool: pool, clock: time.Now, baseCurrency: baseCurrency}
 }
 
 // WithClock overrides the "today" source (tests only). Returns the store

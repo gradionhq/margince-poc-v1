@@ -281,7 +281,9 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 // — a deal closed amountless has no frozen rate at all, so adding an
 // amount later would trip deal_closed_fx. Same-day rate lookup as at
 // close, so roll-ups stay reproducible.
-func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch) error {
+func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, baseCurrency BaseCurrencyFunc,
+	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+) error {
 	resultingAmount := current.AmountMinor
 	if in.AmountMinor != nil {
 		resultingAmount = in.AmountMinor
@@ -304,7 +306,7 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	if string(current.Status) != "open" && resultingAmount != nil &&
 		(in.AmountMinor != nil || in.Currency != nil) {
 		// deal_closed_at guarantees ClosedAt on a non-open row.
-		rate, rateDate, err := freezeFx(ctx, tx, *resultingCurrency, *current.ClosedAt)
+		rate, rateDate, err := freezeFx(ctx, tx, baseCurrency, *resultingCurrency, *current.ClosedAt)
 		if err != nil {
 			return fmt.Errorf("re-freeze fx for closed deal: %w", err)
 		}

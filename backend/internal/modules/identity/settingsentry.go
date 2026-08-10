@@ -13,10 +13,13 @@ package identity
 // through the product, which is the gap ADR-0085 §7 names.
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 )
@@ -104,4 +107,19 @@ var BaseCurrency = settings.Define[string](
 // Definitions is identity's contribution to the settings registry.
 func Definitions() []settings.Definition {
 	return []settings.Definition{Name, Timezone, BaseCurrency}
+}
+
+// BaseCurrencyOf resolves the installation's reporting currency inside a
+// transaction the caller already holds.
+//
+// It lives here because identity OWNS the setting: the modules that convert
+// money may not import this package, so compose injects this function into
+// them (ADR-0054) — but the one spelling of "how the base currency is read"
+// belongs with the entry that declares it, not copied into each wiring site.
+//
+// RequireTx rather than Get: an absent row refuses instead of reading as the
+// registered default, because every caller of this is converting or freezing
+// money against the answer.
+func BaseCurrencyOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, BaseCurrency)
 }

@@ -155,7 +155,7 @@ type offerDrafter struct {
 // path, this option only adds the evidence-gated staged lines on top.
 func WithOfferDraft(brain completer, retriever retrieval.Retriever) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		store := deals.NewStore(pool)
+		store := deals.NewStore(pool, InstallationBaseCurrency())
 		s.offerDrafter = &offerDrafter{brain: brain, deals: store, rateCard: store, context: retriever}
 	}
 }
