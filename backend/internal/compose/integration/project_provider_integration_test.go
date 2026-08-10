@@ -187,8 +187,9 @@ func principalReadOnlyProject() principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"project":      {Read: true},
-			"organization": {Read: true},
+			"project":               {Read: true},
+			"organization":          {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	}

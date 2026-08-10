@@ -248,16 +248,18 @@ func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing
 	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			"activity":     {Read: true},
+			"organization":          {Read: true},
+			"activity":              {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})
 	noActivities := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			"person":       {Read: true},
+			"organization":          {Read: true},
+			"person":                {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})

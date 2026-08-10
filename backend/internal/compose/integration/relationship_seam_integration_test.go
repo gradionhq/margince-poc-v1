@@ -80,9 +80,10 @@ func relationshipReaderPerms() principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"person":       {Create: true, Read: true, Update: true, Delete: true},
-			"organization": {Create: true, Read: true, Update: true, Delete: true},
-			"relationship": {Create: true, Read: true, Update: true, Delete: true},
+			"person":                {Create: true, Read: true, Update: true, Delete: true},
+			"organization":          {Create: true, Read: true, Update: true, Delete: true},
+			"relationship":          {Create: true, Read: true, Update: true, Delete: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	}

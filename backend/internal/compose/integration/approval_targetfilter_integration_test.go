@@ -34,9 +34,10 @@ import (
 var siteReadPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Create: true, Read: true, Update: true},
-		"person":       {Create: true, Read: true, Update: true},
-		"lead":         {Create: true, Read: true, Update: true},
+		"organization":          {Create: true, Read: true, Update: true},
+		"person":                {Create: true, Read: true, Update: true},
+		"lead":                  {Create: true, Read: true, Update: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
@@ -198,8 +199,9 @@ func TestApprovalListFilteredStillPrunesUndecidableKinds(t *testing.T) {
 	noLeads := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true, Update: true},
-			"person":       {Read: true},
+			"organization":          {Read: true, Update: true},
+			"person":                {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})

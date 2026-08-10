@@ -147,27 +147,36 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 		if err != nil {
 			return err
 		}
-		// An unchanged value is a no-op — but ONLY once a row exists to be
-		// unchanged. Without that second condition, writing a setting its
-		// registered default already reports (currentJSON falls back to it)
-		// short-circuits before the INSERT, so the row is never materialized
-		// and the write reports success. That is unrecoverable for the
-		// readers that refuse an absent row (RequireTx): the settings screen
-		// shows the default, the operator re-saves it, nothing changes, and
-		// every money path keeps refusing. Reachable wherever 0191's
-		// conditional backfill wrote nothing (issue #521).
-		if stored && string(canonical) == string(next) {
+		// Three cases, and the middle one is why `stored` is consulted at all.
+		//
+		// A value that differs is a real change: probe the freeze, then write.
+		// A value that matches AND has a row behind it is a no-op: an
+		// idempotent PATCH must not litter the ledger.
+		// A value that matches with NO row behind it still writes. An absent
+		// row READS as the registered default (currentJSON falls back to it),
+		// so without this an operator re-saving the default on an
+		// installation missing its rows would write nothing and be told it
+		// succeeded, while every reader that refuses an absent row
+		// (RequireTx) kept refusing — with no way to repair it through the
+		// product. Reachable wherever 0191's conditional backfill wrote
+		// nothing (issue #521).
+		unchanged := string(canonical) == string(next)
+		if stored && unchanged {
 			return nil
 		}
-		// Probed only for a REAL change: re-asserting the value a frozen
-		// setting already holds is a no-op, and refusing it would make an
-		// idempotent PATCH fail for a caller changing something else.
-		frozen, why, err := def.Frozen(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("settings: probing %s: %w", key, err)
-		}
-		if frozen {
-			return FrozenValue{Setting: key, Reason: why}
+		if !unchanged {
+			// Probed only for a REAL change: re-asserting the value a frozen
+			// setting already holds is a no-op, and refusing it would make an
+			// idempotent PATCH fail for a caller changing something else —
+			// which is equally true when the no-op is what materializes the
+			// row, so the probe stays inside this branch.
+			frozen, why, err := def.Frozen(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("settings: probing %s: %w", key, err)
+			}
+			if frozen {
+				return FrozenValue{Setting: key, Reason: why}
+			}
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO setting (key, value) VALUES ($1, $2)

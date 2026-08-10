@@ -508,8 +508,9 @@ func TestAttainmentNeedsTheInstallationSettingsReadGrant(t *testing.T) {
 	ungranted := principal.Permissions{
 		RoleKeys: []string{"admin"},
 		Objects: map[string]principal.ObjectGrant{
-			"quota": {Create: true, Read: true, Update: true, Delete: true},
-			"deal":  {Read: true},
+			"quota":                 {Create: true, Read: true, Update: true, Delete: true},
+			"deal":                  {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}

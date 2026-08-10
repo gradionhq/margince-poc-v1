@@ -94,7 +94,9 @@ func TestTheFxSheetListsRatesIntoTheSettingsBaseCurrency(t *testing.T) {
 func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
-	ctx := e.Admin()
+	// The desk fixture, because sending an offer needs the offer grants and
+	// the installation_settings read the issuer name now goes through.
+	ctx := e.As(e.Rep1, nil, offerRenderDeskPerms)
 	e.WsExec(t, `UPDATE setting SET value = '"Margince Live"'::jsonb WHERE key = 'installation.name'`)
 	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND name = 'Authz'`, e.WS); n != 1 {
 		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.name is not Authz")

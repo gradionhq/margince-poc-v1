@@ -145,9 +145,10 @@ func rollupOrgReadPerms(scope principal.RowScope) principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			"deal":         {Read: true},
-			"activity":     {Read: true},
+			"organization":          {Read: true},
+			"deal":                  {Read: true},
+			"activity":              {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: scope,
 	}
@@ -407,6 +408,7 @@ func TestOrgRollupRootGates(t *testing.T) {
 			RoleKeys: []string{"rep"},
 			Objects: map[string]principal.ObjectGrant{
 				"organization": {Read: true}, "activity": {Read: true},
+				"installation_settings": {Read: true},
 			},
 			RowScope: principal.RowScopeTeam,
 		},
@@ -414,6 +416,7 @@ func TestOrgRollupRootGates(t *testing.T) {
 			RoleKeys: []string{"rep"},
 			Objects: map[string]principal.ObjectGrant{
 				"organization": {Read: true}, "deal": {Read: true},
+				"installation_settings": {Read: true},
 			},
 			RowScope: principal.RowScopeTeam,
 		},

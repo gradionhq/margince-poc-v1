@@ -61,8 +61,9 @@ var offerRenderDeskPerms = principal.Permissions{
 var offerRenderReadOnlyPerms = principal.Permissions{
 	RoleKeys: []string{"read_only"},
 	Objects: map[string]principal.ObjectGrant{
-		"deal":  {Read: true},
-		"offer": {Read: true},
+		"deal":                  {Read: true},
+		"offer":                 {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -432,7 +433,7 @@ func TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound(t *testing.T)
 
 	noOfferGrant := principal.Permissions{
 		RoleKeys: []string{"no_offer"},
-		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}, "installation_settings": {Read: true}},
 		RowScope: principal.RowScopeAll,
 	}
 	denied := e.As(e.Rep2, []ids.UUID{e.Team1}, noOfferGrant)

@@ -22,8 +22,9 @@ import (
 var signalReaderPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Create: true, Read: true},
-		"signal":       {Create: true, Read: true},
+		"organization":          {Create: true, Read: true},
+		"signal":                {Create: true, Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
