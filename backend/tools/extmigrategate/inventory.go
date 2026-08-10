@@ -13,7 +13,7 @@ import (
 
 // relationsInExt lists everything the ext schema holds. The gate runs against
 // a throwaway database whose ext schema is empty before the migrations apply
-// (0204 creates the schema and nothing in it), so every row here is the unit's
+// (0206 creates the schema and nothing in it), so every row here is the unit's
 // doing — including rows the unit does not own, which is itself a refusal.
 func relationsInExt(ctx context.Context, conn *pgx.Conn) ([]relation, error) {
 	rows, err := conn.Query(ctx, `

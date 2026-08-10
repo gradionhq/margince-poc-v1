@@ -94,7 +94,13 @@ func TestEveryHandWrittenGoFileCarriesTheLicenseHeader(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			// extensions/ now holds installed dependency trees (a unit's
+			// frontend layer is a workspace package). Nothing in one is
+			// hand-written, and walking it is thousands of files of pure cost.
+			if d.IsDir() && d.Name() == "node_modules" {
+				return fs.SkipDir
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || !d.Type().IsRegular() {
 				return nil
 			}
 			b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree

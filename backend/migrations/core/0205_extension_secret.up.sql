@@ -1,4 +1,4 @@
--- 0203: an extension's own secret namespace (ADR-0069).
+-- 0205: an extension's own secret namespace (ADR-0069).
 --
 -- extension_secret maps an extension's own key names onto keyvault refs.
 -- keyvault mints opaque refs and scopes them to a workspace in the ref's

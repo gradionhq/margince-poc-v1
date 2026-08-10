@@ -494,7 +494,7 @@ mutation-verified; and a tree-wide trap was recorded on the way — an owner con
 >
 > The gap was found twice independently. Codex's whole-branch review found the shipped reference
 > migration *claiming* the stronger property in a comment operators would copy; Fable's found the same
-> claim in the table-owner sentence. Both were corrected in place, and `0204_ext_schema.up.sql` now says
+> claim in the table-owner sentence. Both were corrected in place, and `0206_ext_schema.up.sql` now says
 > where the role exists and where it does not — including in the in-database `COMMENT`, which an operator
 > reads with `\dn+` and has no way to check against the repository.
 

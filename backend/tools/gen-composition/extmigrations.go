@@ -244,7 +244,7 @@ func declaredTables(unit, namespace, rel, sql string) ([]string, error) {
 }
 
 // extSchema is the one schema an extension's migrations may create in; the
-// core owns public (see migrations/core/0204_ext_schema.up.sql).
+// core owns public (see migrations/core/0206_ext_schema.up.sql).
 const extSchema = "ext"
 
 // maskNonCode blanks SQL comments and quoted literals, preserving byte

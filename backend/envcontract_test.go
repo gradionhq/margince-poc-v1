@@ -90,7 +90,19 @@ func walkTextFiles(t *testing.T, root string, visit func(path, text string)) {
 		if err != nil {
 			return err
 		}
+		// A unit's frontend layer is a pnpm workspace package, so extensions/
+		// now contains an installed dependency tree — thousands of files this
+		// sweep has no business reading, and symlinked DIRECTORIES that are not
+		// IsDir() and so reach the ReadFile below as "is a directory".
+		if d.IsDir() && d.Name() == "node_modules" {
+			return fs.SkipDir
+		}
 		if d.IsDir() {
+			return nil
+		}
+		// Belt and braces for the same reason: a symlink is not a regular file,
+		// and this sweep reads text a human wrote.
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		b, err := os.ReadFile(path) // #nosec G304 G122 -- path comes from walking a fixed root inside the trusted source tree
