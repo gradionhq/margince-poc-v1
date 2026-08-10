@@ -3,8 +3,8 @@
 
 package agents
 
-// The field names create_record and update_record actually accept, per
-// record_type, rendered into the tools' input schemas.
+// What create_record and update_record accept, per record_type: the shapes the
+// two tools are gated on, and the refusal a key outside them earns.
 //
 // Without them the `fields` argument is an opaque object and the only way to
 // learn a name is to guess and read the error: a real session spent three
@@ -17,14 +17,17 @@ package agents
 // listed here, because a hand-copied list is a second source of truth that
 // drifts the moment crm.yaml changes — and it would drift silently, in a
 // description no test reads. internal/contracts is generated from crm.yaml, so
-// reflecting off it means the tool describes exactly what the decoder accepts.
+// reflecting off it means the tool refuses exactly what the decoder refuses.
+//
+// The shapes themselves are PUBLISHED rather than recited into the two tools'
+// input schemas — see recordfieldsdoc.go, which renders them as a document and
+// says why the tools name it instead of carrying it.
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,220 +87,37 @@ func contractFieldNames(t reflect.Type) []string {
 	return names
 }
 
-// describesField reports whether any record type in shapes accepts name.
-func describesField(shapes map[datasource.EntityType]reflect.Type, name string) bool {
-	for _, shape := range shapes {
-		if slices.Contains(contractFieldNames(shape), name) {
-			return true
-		}
-	}
-	return false
-}
-
-// describeRecordFields renders the per-record_type field SHAPES for a tool's
-// `fields` description, in a fixed record_type order so the schema text is
-// byte-stable across processes (a description that reshuffles per boot reads
-// as a changed tool to a client that caches it).
+// recordFieldsDescription is the `fields` description both write tools carry.
 //
-// Shapes, not names. A name list says `domains` and `links` in the same breath
-// as `industry` and `subject`, and the first two are arrays of objects — the
-// list gives a caller no way to see the difference, and two reported sessions
-// guessed wrong and stopped. The shapes come from recordshapes_gen.go, which is
-// generated from crm.yaml so the enum VALUES and the required keys come along;
-// the Go structs this package reflects cannot yield either.
-func describeRecordFields(shapes map[datasource.EntityType]reflect.Type, rendered map[string]string) string {
-	// EntityTypes() fixes the order, so the text is byte-stable and a new
-	// entity type shows up here instead of being quietly left undescribed.
-	order := datasource.EntityTypes()
-	var b strings.Builder
-	b.WriteString("The crm.yaml body for the record_type. Field shapes below — a key with no `?` is ")
-	b.WriteString("REQUIRED, `?` marks an optional one, and a name not listed is NOT stored (see the ")
-	b.WriteString("end of this description): ")
-	for i, recordType := range order {
-		if _, ok := shapes[recordType]; !ok {
-			continue
-		}
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(string(recordType))
-		b.WriteString(": ")
-		b.WriteString(rendered[string(recordType)])
-	}
-	b.WriteString(". ")
-	writeFieldAdvisories(&b, shapes)
-	return b.String()
-}
-
-// writeFieldAdvisories appends the things a caller CANNOT see from a field list:
-// which fields lie, which are not fields at all, and which key shape reaches a
-// custom field. Each is keyed on a field the shapes actually declare, so an
-// advisory appears on the tool it is true of — the create tool and the patch tool
-// disagree about several of them, and the wrong advice is worse than none.
-func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	b.WriteString("A task is record_type=activity with kind=task. ")
-	writeProvenanceStampAdvisory(b, shapes)
-	writeDealPipelineAdvisory(b, shapes)
-	writeRelationshipAdvisory(b, shapes)
-	writeActivityReachAdvisories(b, shapes)
-	writeCustomFieldAdvisories(b, shapes)
-}
-
-// writeProvenanceStampAdvisory says that naming `source` does not set it.
+// It NAMES the vocabulary rather than reciting it. Reciting it cost 18% of the
+// whole tool listing — every record type's shape and every advisory, in two
+// tools, held by every client on every session and re-sent on every step of
+// every Surface-B run — to answer a question one call asks once. The document is
+// the same text, published at RecordFieldsURI, and margince://schema/query
+// already establishes that a vocabulary belongs there.
 //
-// Only where the shapes actually carry the field. On create it is accepted and
-// then overwritten, so believing it took effect would be wrong; on update no
-// request type has it at all, so it is REFUSED as an unknown key — opposite
-// advice, and the shared sentence used to give the create one to both. Derived
-// from the shapes so it cannot drift from which tool this is.
-func writeProvenanceStampAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	if describesField(shapes, "source") {
-		b.WriteString("`source` is accepted but overwritten — this surface stamps its own provenance. ")
-	}
-}
-
-// writeDealPipelineAdvisory says where the two ids a deal cannot be born without
-// come from. Naming them as required (which the mapping does) without saying
-// that is what made create_record/deal unusable: a caller was told exactly what
-// it needed and had nowhere to get it. Keyed on the field, so this sentence
-// appears on the tool whose shapes actually declare it and not on the patch tool.
-func writeDealPipelineAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	if describesField(shapes, "pipeline_id") {
-		b.WriteString("A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else ")
-		b.WriteString("on this surface yields them, and neither is defaultable. ")
-	}
-}
-
-// writeRelationshipAdvisory says what a relationship needs, because an edge's
-// requirements are per-KIND and invisible from a flat field list: `kind`,
-// `person_id`, `organization_id`, `deal_id` and `project_id` all read as equal
-// optional siblings, and they are not. Which pair is required is decided by the
-// kind and enforced by a database CHECK, so a caller working from names alone
-// sends a plausible pair and gets a shape refusal it could not have predicted.
+// What stays is what a caller needs BEFORE it can decide to go and read: that
+// the document exists, and what happens to a key this tool does not know. The
+// second half is why the first is safe — rejectUnknownFields refuses by name and
+// answers with the whole accepted list, so a caller that writes without reading
+// is corrected rather than left to guess again.
 //
-// Keyed on an ENDPOINT FIELD, not on the record type, because both shape maps
-// carry relationship — the patch tool serves it too. Only the create shape
-// declares `counterparty_org_id`, so that is the honest test for "can the caller
-// name an endpoint at all", which is what the pairing rule is about.
-func writeRelationshipAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	if describesField(shapes, "counterparty_org_id") {
-		b.WriteString("A person's employer is a relationship, not a field on the person: ")
-		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
-		// REQUIRES, not "and rejects any other". The schema's shape CHECKs pin the
-		// pair each kind must have and forbid the endpoints that would contradict
-		// it, but they do not forbid every irrelevant one — an employment edge will
-		// accept a stray counterparty_org_id. Promising more than the constraints
-		// deliver would be a description a caller could disprove.
-		b.WriteString("Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — ")
-		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
-		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
-		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
-		// An edge is not searchable: search_records' record_type enum has no
-		// relationship, and there is no list-relationships tool. So the id a write
-		// returns is the only handle on the edge this surface will give out.
-		//
-		// It deliberately does NOT say "no read tool serves an edge" — read_record
-		// answers a relationship by id even though its enum does not advertise one
-		// (the contract has no single-relationship GET), and a description a caller
-		// can disprove in one call costs more than the silence it replaced.
-		b.WriteString("An edge is not searchable, so keep the id a relationship write returns. ")
-	} else {
-		// The patch tool still owes the reader the pointer, because a person's
-		// employer is the field they will look for first and not find.
-		b.WriteString("A person's employer is NOT a field here: employment is a relationship, ")
-		b.WriteString("created and archived as record_type=relationship — its endpoints are what it ")
-		b.WriteString("IS, so they cannot be patched. ")
-	}
-}
-
-// writeActivityReachAdvisories appends what an activity write does and does not
-// let a caller reach afterwards: whether the record is searchable, and whether
-// its links can be moved later.
+// It NAMES the document rather than ordering a read, and that difference is
+// measured rather than stylistic. Phrased as an instruction — "Read <uri>
+// first" — a weak binding obeyed it eagerly: ministral spent its one graded turn
+// fetching the vocabulary in scenarios with no write coming at all, including
+// ones whose right answer was to stop.
 //
-// The record type gates both advisories; the `links` field decides WHICH one.
-// Both shape maps carry activity, so a record-type test alone put patch-only
-// advice on the create tool too — which DOES accept links. Same mistake as the
-// endpoint advisory, in its sibling.
-func writeActivityReachAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	// An activity is not searchable, and only the EDGE was ever told
-	// this. search_records' record_type enum has no activity, so an activity is
-	// retrievable afterwards only through the id its write returned — the same
-	// hazard the relationship advisory names, on the record type this surface
-	// creates far more often. Keyed on the create shapes (which carry `links`),
-	// because it is the write that hands out the only handle.
-	if describesField(shapes, "links") {
-		b.WriteString("An activity is not searchable — search_records does not serve it — so keep the id ")
-		b.WriteString("an activity write returns; read_record answers it by that id. ")
-	}
-	// The other field a caller reasonably expects and will not find. An activity
-	// DOES carry links — log_activity and create_record both take them — so being
-	// told the field is unknown, with no pointer, reads as "this is impossible"
-	// rather than "this is a different verb".
-	_, hasActivity := shapes[datasource.EntityActivity]
-	if hasActivity && !describesField(shapes, "links") {
-		// Says what is true and stops. Naming the relink action would be
-		// directing the reader at something this surface does not serve: it is
-		// a REST operation with no tool behind it, so an agent told to use it
-		// has been given an instruction it cannot follow — worse than the
-		// silence, because it reads as a route.
-		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
-		b.WriteString("this tool changes what an activity says, never who it is about. ")
-	}
-}
-
-// writeCustomFieldAdvisories appends how an extra key is read, which of the two
-// fates it meets, and which record types carry no custom fields at all.
-func writeCustomFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	// Two different fates, and the sentence used to describe neither. It said
-	// every extra key is "silently discarded", which is wrong in both
-	// directions: a key that is not cf_-prefixed is REFUSED by name (this file's
-	// rejectUnknownFields), so an agent was told to distrust a success it would
-	// never receive — while the one case that IS silently dropped, a cf_ key
-	// whose custom field is not active, was the half the sentence glossed over.
-	// A UAT run found exactly that: cf_employee_count answered 200 with a full
-	// record body and the value nowhere in it.
-	b.WriteString("Extra keys must be named cf_<slug> and are read as custom-field values; ")
-	b.WriteString("any other key is REFUSED by name, so an unknown field is never a silent ")
-	b.WriteString("loss. A cf_ key whose custom field is not ACTIVE in this workspace is the ")
-	b.WriteString("one that is: the write reports success and drops the value, so re-read the ")
-	b.WriteString("record if you are unsure a cf_ value landed.")
-	// …but not for every record type, and the exception is this surface's own
-	// decision: a type takes custom fields only if its contract shape carries the
-	// additionalProperties bag a cf_ value travels in, and activity and
-	// relationship carry none. Promising carriage there would send an agent to
-	// write a key the strict decoder refuses.
-	//
-	// DERIVED from the shapes, not listed: the exclusion is a property of the
-	// generated contract, and agents may not import customfields to ask it
-	// (a module never imports a sibling). So the same question its FieldObjects
-	// gate asks — is there a catch-all — is asked here, of the shapes in hand.
-	if without := typesWithoutCustomFieldCarriage(shapes); without != "" {
-		b.WriteString(" No custom fields on " + without + ": those types carry no cf_ values at all, ")
-		b.WriteString("so a cf_ key there is refused rather than stored.")
-	}
-}
-
-// typesWithoutCustomFieldCarriage names the record types in shapes whose contract
-// body has no additionalProperties catch-all, in EntityTypes() order so the text
-// is byte-stable. Empty when every type in shapes carries one.
-//
-// The catch-all is a `json:"-"` MAP field — oapi-codegen's rendering of
-// additionalProperties — and its presence is exactly "can this shape hold a key
-// the schema does not name", which is what a cf_ value needs.
-func typesWithoutCustomFieldCarriage(shapes map[datasource.EntityType]reflect.Type) string {
-	var without []string
-	for _, recordType := range datasource.EntityTypes() {
-		shape, ok := shapes[recordType]
-		if !ok {
-			continue
-		}
-		if field, found := shape.FieldByName("AdditionalProperties"); found && field.Type.Kind() == reflect.Map {
-			continue
-		}
-		without = append(without, string(recordType))
-	}
-	return strings.Join(without, " or ")
-}
+// It says a wrong guess is REFUSED, and deliberately does not say how many calls
+// recovering takes. Unknown-key and shape validation are separate gates and
+// neither reports more than one fault, so two distinct mistakes cost two calls —
+// a UAT run proved exactly that. Promising one would be a sentence a caller can
+// disprove, which costs more than the silence it replaced.
+const recordFieldsDescription = "The crm.yaml body for the record_type. The fields each " +
+	"record_type takes, which of them are REQUIRED, and their shapes are published at " +
+	RecordFieldsURI + " — that document, not this description, is what says what a write may " +
+	"name. An extra key must be cf_<slug> for a custom field; any other key is refused BY NAME " +
+	"and never dropped in silence, so a wrong guess is answered with the vocabulary rather than lost."
 
 // customFieldPrefix is the only shape an extra key may take: the
 // customfields engine derives every column it adds as cf_<slug>, so a key

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -263,34 +264,46 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 	}
 }
 
-// The two providers a hosted request actually reaches publish under disjoint URI
-// SCHEMES, which is what makes a collision between them impossible rather than
-// merely absent today.
+// No provider a hosted request reaches can claim another's URI, which is what
+// makes a collision between them impossible rather than merely absent today.
 //
-// Asserted structurally because it can be: the vocabulary publishes under
-// `margince://` and a view under `ui://`, and neither needs a database to say so.
-// A collision would otherwise be invisible — the fan-out resolves one by order
-// and the losing document becomes unreachable with nothing reporting it, and the
-// read would serve one provider's bytes under the other's sandbox policy.
-func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
-	// Derived from the transport's own list, so a THIRD provider is measured the
+// Asserted structurally because it can be: the two schema documents publish
+// fixed constants under `margince://`, every view publishes under `ui://`, and
+// none of that needs a database to say so. A collision would otherwise be
+// invisible — the fan-out resolves one by order and the losing document becomes
+// unreachable with nothing reporting it, and the read would serve one provider's
+// bytes under the other's sandbox policy.
+func TestTheProductionProvidersClaimDisjointURIs(t *testing.T) {
+	// Derived from the transport's own list, so a FOURTH provider is measured the
 	// commit it is wired rather than the commit somebody remembers this test.
 	wired := mcpResourceProviders(nil, primedViews(t, bothViews()))
-	if len(wired) != 2 {
-		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the "+
-			"vocabulary and the views. Add the new one's scheme below before it can collide with a view", len(wired))
+	if len(wired) != 3 {
+		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the query "+
+			"vocabulary, the write vocabulary and the views. Add the new one's URI below before it can collide "+
+			"with one of them", len(wired))
 	}
 	for _, r := range primedViews(t, bothViews()).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
-			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with the query "+
-				"vocabulary, and the fan-out would resolve that silently by composition order", r.URI, mcp.AppURIScheme)
+			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with a schema "+
+				"document, and the fan-out would resolve that silently by composition order", r.URI, mcp.AppURIScheme)
 		}
 	}
-	// The vocabulary's own scheme, named as the constant the other side of the
-	// fan-out uses. If it ever publishes under `ui://` this fails here rather
-	// than as a document that quietly stopped being served.
-	if strings.HasPrefix(search.QuerySchemaURI, mcp.AppURIScheme) {
-		t.Errorf("the query vocabulary publishes %s, inside the view scheme %s", search.QuerySchemaURI, mcp.AppURIScheme)
+	// The two schema documents share the `margince://` scheme, so between THEM
+	// the claim is about the whole URI and not its prefix — and neither may
+	// wander into the view scheme, where a prefix is all that separates them
+	// from a document served under a sandbox policy.
+	schemas := map[string]string{
+		"the query vocabulary": search.QuerySchemaURI,
+		"the write vocabulary": agents.RecordFieldsURI,
+	}
+	for name, uri := range schemas {
+		if strings.HasPrefix(uri, mcp.AppURIScheme) {
+			t.Errorf("%s publishes %s, inside the view scheme %s", name, uri, mcp.AppURIScheme)
+		}
+	}
+	if search.QuerySchemaURI == agents.RecordFieldsURI {
+		t.Errorf("both vocabularies publish %s; the fan-out serves whichever was composed first and the other "+
+			"is unreachable — a caller reading it gets the wrong document, not an error", search.QuerySchemaURI)
 	}
 }
 
