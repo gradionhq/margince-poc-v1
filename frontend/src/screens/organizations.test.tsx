@@ -1919,6 +1919,26 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     }
   });
 
+  // The drawer opens INTO the rail's column. Both composers do — the header's
+  // Write-email and the one anchored on a message — so the rail stands down
+  // for either, and comes back when the drawer closes.
+  it("stands the rail down while a composer holds its column", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Write email" }));
+    await waitFor(() => expect(container.querySelector(".co-rail")).toBeNull());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+  });
+
   // A call or a note often carries no subject. Counting only the subjected
   // rows would draw "nothing logged with them yet" on an account that has been
   // called five times — a false statement about the account, made from a fact

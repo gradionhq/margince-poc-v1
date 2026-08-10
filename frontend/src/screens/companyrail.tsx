@@ -34,6 +34,7 @@ export function CompanyRail({
   writable,
   onOpenRecord,
   withPeople,
+  composerOpen,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
@@ -46,7 +47,14 @@ export function CompanyRail({
   onOpenRecord?: (entityType: string, entityId: string) => void;
   // False where the page's own body is already the roster in full.
   withPeople: boolean;
+  // A composer drawer is open in this column. The rail stands down entirely
+  // rather than narrowing: squeezed to a third of its width it is a column of
+  // broken cards, and no mockup draws the two side by side.
+  composerOpen: boolean;
 }>) {
+  if (composerOpen) {
+    return null;
+  }
   return (
     // A plain div: RecordView's own <aside> is the landmark around this, and a
     // second labelled region inside it would give a reader two names for one

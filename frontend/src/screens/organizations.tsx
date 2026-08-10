@@ -1944,9 +1944,33 @@ function CompanyPage({
   // account instead of a thread (ADR-0087 §1). Two pieces of state would let
   // both open at once, which is two composers over each other.
   const [composing, setComposing] = useState<ComposeAnchor | null>(null);
+  // The header's own Write-email drawer. Separate state from `composing`,
+  // which anchors on a message or a person — but the same consequence for the
+  // layout, because both open into the rail's column.
+  const [writingEmail, setWritingEmail] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const receipt = useCitedReceipt();
+  // The rail, or nothing while a composer holds its column. Both drawers open
+  // into this space, so a rail beside them would be two things in one place —
+  // and absent rather than narrowed, because a rail squeezed to a third of its
+  // width is a column of broken cards.
+  const rail = (
+    <CompanyRail
+      orgId={org.id}
+      view={view}
+      locale={locale}
+      writable={!org.archived_at}
+      onOpenRecord={receipt.open}
+      // The People tab IS the roster in full, so the rail's summary of it
+      // stands down rather than repeating it beside itself.
+      withPeople={tab !== "people"}
+      // Either composer holds this column, and the rail does not care which.
+      // Passed rather than branched on here so the page keeps one decision
+      // about the rail instead of two.
+      composerOpen={Boolean(composing) || writingEmail}
+    />
+  );
   const { slots, showChanges: filterToChanges } = useChronologySlots({
     org,
     view,
@@ -1994,7 +2018,13 @@ function CompanyPage({
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
-      actions={<CompanyPrimaryActions org={org} />}
+      actions={
+        <CompanyPrimaryActions
+          org={org}
+          composerOpen={writingEmail}
+          onComposerOpen={setWritingEmail}
+        />
+      }
       // Lifecycle and owner, at the top right beside the verbs. Passing this
       // also moves the action row up into the header, which is the company
       // page's shape and no other record's.
@@ -2009,20 +2039,7 @@ function CompanyPage({
       // mockup draws. Absent rather than narrowed: a rail squeezed to a third
       // of its width is a column of broken cards.
       asideLabel={t("record.accountContext")}
-      aside={
-        composing ? undefined : (
-          <CompanyRail
-            orgId={org.id}
-            view={view}
-            locale={locale}
-            writable={!org.archived_at}
-            onOpenRecord={receipt.open}
-            // The People tab IS the roster in full, so the rail's summary of
-            // it stands down rather than repeating it beside itself.
-            withPeople={tab !== "people"}
-          />
-        )
-      }
+      aside={rail}
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
