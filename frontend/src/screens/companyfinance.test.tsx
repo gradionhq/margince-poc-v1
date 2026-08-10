@@ -1,11 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render as rtlRender,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -81,7 +76,11 @@ describe("the finance card is absent only where FIN-AC-3 says so", () => {
     async (lifecycle) => {
       stub();
       render(<CompanyFinanceCard orgId="o-1" lifecycle={lifecycle} />);
-      await waitFor(() => expect(screen.getByText(/Finance/)).toBeTruthy());
+      // A figure only the LOADED body draws. The card's title renders on the
+      // loading skeleton too, so asserting on it would pass before the read
+      // lands — and would then prove only that the lifecycle set said no,
+      // which is the set's own truth table restated.
+      expect(await screen.findByText("€186,420.00")).toBeTruthy();
     },
   );
 
@@ -90,7 +89,7 @@ describe("the finance card is absent only where FIN-AC-3 says so", () => {
   it("renders when the lifecycle is not known", async () => {
     stub();
     render(<CompanyFinanceCard orgId="o-1" />);
-    await waitFor(() => expect(screen.getByText(/Finance/)).toBeTruthy());
+    expect(await screen.findByText("€186,420.00")).toBeTruthy();
   });
 
   // FIN-AC-3's second half: a former customer's figures are history, and the
@@ -99,15 +98,24 @@ describe("the finance card is absent only where FIN-AC-3 says so", () => {
   it("labels a former customer's money historical", async () => {
     stub();
     render(<CompanyFinanceCard orgId="o-1" lifecycle="former_customer" />);
-    await waitFor(() =>
-      expect(screen.getByText("Finance · historical")).toBeTruthy(),
-    );
+    expect(await screen.findByText("Finance · historical")).toBeTruthy();
+  });
+
+  // The label belongs to every state the card can be in, not only the loaded
+  // one. `error` matters most: it keeps showing the last good figures, so a
+  // title reading "Finance" there puts money from a finished relationship
+  // under a heading that claims it is current.
+  it("keeps the historical label while the read is still in flight", () => {
+    stub();
+    render(<CompanyFinanceCard orgId="o-1" lifecycle="former_customer" />);
+    expect(screen.getByText("Finance · historical")).toBeTruthy();
   });
 
   it("leaves a current customer's card unqualified", async () => {
     stub();
     render(<CompanyFinanceCard orgId="o-1" lifecycle="customer" />);
-    await waitFor(() => expect(screen.getByText("Finance")).toBeTruthy());
+    expect(await screen.findByText("€186,420.00")).toBeTruthy();
+    expect(screen.getByText("Finance")).toBeTruthy();
     expect(screen.queryByText("Finance · historical")).toBeNull();
   });
 });
