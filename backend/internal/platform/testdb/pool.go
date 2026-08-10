@@ -53,11 +53,12 @@ var (
 //	pool_max_conn_idle_time   a package that spiked hands its connections back
 //	                          promptly instead of holding its high-water mark
 //	                          for the rest of the run.
-//	default_query_exec_mode   see the note on the statement cache below.
+//	default_query_exec_mode   the one mode a connection may outlive a schema
+//	                          change under — see the note on Pool.
 var testPoolParams = map[string]string{
 	"pool_min_conns":          "0",
 	"pool_max_conn_idle_time": "30s",
-	"default_query_exec_mode": "cache_describe",
+	"default_query_exec_mode": "describe_exec",
 }
 
 // Pool returns the process-wide pool for dsn, opening it on first use. Keyed by
@@ -68,24 +69,31 @@ var testPoolParams = map[string]string{
 // which is what makes it shared. Callers must not close it — a closed shared pool
 // fails every later test in the package with a use-after-close that names nothing.
 //
-// The exec mode is the price of sharing. pgx's default prepares each statement on
-// the server under a name and reuses that plan for the life of the connection,
-// which is safe only while a connection cannot outlive the schema it was planned
-// against. Here it can, and this schema changes constantly: the customfields
-// engine ALTERs record tables mid-test, the reset drops those columns again, and
-// ApplyRiverSchema creates River's tables the first time a suite asks for a real
-// worker. A named plan that survives any of those draws SQLSTATE 0A000 "cached
-// plan must not change result type" in whichever suite runs next — a failure with
-// nothing in it pointing back at the DDL that caused it.
+// What sharing costs is the statement cache, and describe_exec is the price.
 //
-// cache_describe holds no server-side plan, so that error has nowhere to come
-// from. What it caches is the client-side statement description — parameter OIDs
-// and result format codes — while Parse, Bind, Describe(portal) and Execute still
-// go to the server on every execution, so result field descriptions are always
-// the live ones. pgx documents the cached description itself as assumed stable
-// (a "SELECT *" whose column count changes under it may fail); that is a loud
-// bind or decode error rather than a wrong row, and no store in this tree selects
-// a star.
+// pgx caches per connection, and every one of its caching modes assumes the schema
+// it cached against still stands. Here it does not: the customfields engine ALTERs
+// record tables mid-test, the reset drops those columns again, ApplyRiverSchema
+// creates River's tables, and a migration recreates the vector extension — which
+// changes the OID of a type that `$n::vector` makes the server infer for a bound
+// parameter. A cache that outlives any of those fails in whichever suite runs
+// next, as SQLSTATE 0A000 "cached plan must not change result type" or XX000
+// "cache lookup failed for type N", naming nothing that points back at the DDL
+// responsible.
+//
+// Only describe_exec is immune, because it caches nothing: it re-describes on
+// every execution, which is exactly what pgx documents it for. The two cheaper
+// modes were both tried and both failed under the sharded lane — the default's
+// named plans on 0A000, cache_describe's cached parameter OIDs on the type-OID
+// form. Clearing the caches at each reset instead also works and is not worth it:
+// pgxpool.Reset measured 254s and DeallocateAll 215s but perturbs acquisition
+// ordering enough to surface stragglers, against 244s here.
+//
+// So the lane does NOT run production's exec mode, and that is the one fidelity
+// gap in this pool. It costs a round trip per query on a round-trip-bound lane —
+// 244s against the 190s an unsound cache_describe managed. The alternative is
+// giving up the sharing, which is worth measuring before assuming this trade is
+// the best one available.
 func Pool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if !schemaReady.Load() {
 		return nil, ErrSchemaNotReady
