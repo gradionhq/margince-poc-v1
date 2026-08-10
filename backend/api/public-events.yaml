@@ -54,6 +54,8 @@ components:
         - person.merged
         - person.updated
         - person.restored
+        - conversation_claim.captured
+        - conversation_claim.changed
         - organization.created
         - organization.archived
         - organization.merged
@@ -817,6 +819,58 @@ components:
         exists for person); the schema is published so the type is a
         valid subscription target and the coverage gate can name it
         explicitly rather than silently omitting it.
+      additionalProperties: false
+
+    PublicEventConversationClaimCaptured:
+      type: object
+      x-event-type: conversation_claim.captured
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for conversation_claim.captured — something promised, asked or
+        decided in a captured conversation was written to the record
+        (ADR-0097 D1). The entity is the PERSON the claim is about: a
+        subscriber reacting to what a contact said wants the contact, and the
+        claim id rides the payload for the reader that needs the row itself.
+      required:
+        - claim_id
+        - kind
+      properties:
+        claim_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          description: >-
+            Which of the eight claim kinds this is — the ConversationClaimKind
+            vocabulary of the CRM contract. Carried as a plain string rather
+            than a second copy of that enum: the two documents generate into one
+            Go package, and a duplicated enum there is two spellings of one
+            vocabulary that can drift apart.
+      additionalProperties: false
+
+    PublicEventConversationClaimChanged:
+      type: object
+      x-event-type: conversation_claim.changed
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for conversation_claim.changed — a human typed over the
+        machine, or dismissed a claim outright. Published because a correction
+        is SHARED truth, unlike a moment dismissal: a downstream reader holding
+        the old claim needs to know it no longer stands.
+      required:
+        - claim_id
+        - status
+      properties:
+        claim_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: >-
+            The claim's status after the correction — open, done or dismissed.
+            A plain string for the same reason as `kind` above.
       additionalProperties: false
 
     PublicEventOrganizationCreated:
