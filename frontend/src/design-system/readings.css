@@ -1,0 +1,73 @@
+/* Meter — a proportion as a bar. Shared by StrengthCard
+ * (screens/strength.tsx), onboarding (screens/onboarding.tsx) and the
+ * company page's completeness readings. */
+.meterbar {
+  height: 8px;
+  background: var(--bgCard);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  margin: 10px 0 8px;
+}
+.meterbar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--away));
+  border-radius: var(--r-full);
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* A reading whose low end is the bad one carries its own colour, so the bar
+ * agrees with the band badge the caller draws beside it. Flat, not a
+ * gradient: the second colour of a gradient reads as a second meaning. */
+.meterbar-warn span {
+  background: var(--warn);
+}
+.meterbar-danger span {
+  background: var(--danger);
+}
+
+/* Sparkline — the shape of a short series, no axes and no grid. `none` on the
+ * fill keeps the polyline a line; `preserveAspectRatio: none` lets it stretch
+ * to whatever width the card gives it while the stroke stays 2px, because
+ * vector-effect keeps the stroke out of the scaling. */
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 32px;
+}
+.sparkline polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Chip — one attribute of a record with the icon naming its kind. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  background: var(--bgElevated);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.chip svg {
+  color: var(--textMeta);
+  flex: none;
+}
+.chip-link {
+  text-decoration: none;
+}
+.chip-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-link:hover svg {
+  color: var(--accent);
+}

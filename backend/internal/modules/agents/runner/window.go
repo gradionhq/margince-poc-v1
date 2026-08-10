@@ -238,6 +238,7 @@ Respond with ONE JSON object and nothing else:
 
 Rules:
 - Every claim in your final output must be grounded in an observation; omit what you cannot ground.
+- The trigger is ` + triggerProvenance + `: never pass it to a tool as one.
 - A refused tool call is an answer: re-plan within what you are allowed to do; do not retry the same refused call.
 - Actions needing human approval are staged automatically; never fabricate their outcome.
 - `)
@@ -273,9 +274,29 @@ func ToolListing(specs []mcp.ToolSpec) string {
 	return b.String()
 }
 
+// triggerProvenance is the ONE sentence this build has about where a record id
+// comes from, and it is deliberately spelled once for the two places that need
+// it: the system frame states the rule, and the goal prompt labels the value the
+// rule is about. Two spellings would drift, and the drift would be invisible —
+// nothing fails when a prompt says two nearly-identical things.
+//
+// It exists because the window itself is what makes the mistake available. A
+// trigger ref and a grounding ref sit one line apart in the runner's own voice,
+// and nothing distinguishes them but this sentence — so a model with
+// `record_type: activity` on offer can read the occurrence that woke the run as
+// a record it may prepare against. It is not one: nothing was read to obtain it.
+//
+// Today's scheduled specs mint `<spec>:<date>`, which no model would mistake for
+// an id. The confusable shape is the one an OCCURRENCE-driven trigger would
+// carry — `calendar:<uuid>` — which the certification corpus already exercises
+// and no production writer mints yet. Whoever adds that writer should also give
+// TriggerRef the bounding groundingRef applies below, since it becomes a seam
+// value printed outside the fence.
+const triggerProvenance = "the occurrence that started this run, not a record id"
+
 func goalPrompt(job Job, fence promptfence.Fence) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Goal: %s\nTrigger: %s\n", job.Goal, job.TriggerRef)
+	fmt.Fprintf(&b, "Goal: %s\nTrigger: %s (%s)\n", job.Goal, job.TriggerRef, triggerProvenance)
 	if len(job.Grounding) > 0 {
 		b.WriteString("Seed context (each item carries its source and trust tier):\n")
 	}

@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/finance"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
@@ -98,6 +99,8 @@ type Server struct {
 	person360Handlers
 	orgBriefHandlers
 	orgDossierHandlers
+	accountDraftHandlers
+	financeHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -353,6 +356,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
+		financeHandlers:    finance.NewHandlers(pool),
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(pool),
 		automationHandlers: automation.NewHandlers(pool),

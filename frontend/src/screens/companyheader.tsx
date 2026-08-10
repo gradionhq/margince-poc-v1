@@ -1,12 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
+import { type ReactElement, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
-import { InlineChoice } from "../design-system/inlinechoice";
+import { InlineChoice, InlineText } from "../design-system/inlinechoice";
+import { Chip } from "../design-system/readings";
 import { ProvenanceTag } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -443,15 +445,124 @@ export function CompanyActionBadges({
   );
 }
 
-export function companySubtitle(org: Organization): string | undefined {
-  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
-  const parts = [
-    org.industry,
-    primary?.domain,
-    org.size_band,
-    org.legal_name,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+// CompanyDescription is the one-line "what this company does" under the title,
+// editable where it is read (plan §4.1). Absent, it is still pressable — an
+// unwritten description is the case a rep most wants to fix, and a line that
+// only appears once it exists can never be started.
+export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const canUpdate = useCan("organization", "update");
+  const readOnlyReason = useCompanyReadOnlyReason(org);
+  const patch = useCompanyFieldPatch(org);
+  const value = org.description ?? "";
+  // Nothing written and nothing the reader could write: the line is not
+  // rendered at all rather than as an empty row with a placeholder they
+  // cannot act on.
+  if (!value && (!canUpdate || readOnlyReason)) {
+    return null;
+  }
+  return (
+    <p className="co-description">
+      {/* Keyed by the record, so navigating to another company while the line
+          is open REMOUNTS the control rather than re-pointing it. Without the
+          key the draft typed for company A survives, and pressing Save then
+          writes it to company B with nothing on screen saying so — the same
+          trap the composer is keyed against. */}
+      <InlineText
+        key={org.id}
+        label={t("co.description.label")}
+        value={value}
+        placeholder={t("co.description.placeholder")}
+        maxLength={COMPANY_DESCRIPTION_MAX}
+        canEdit={canUpdate && !readOnlyReason}
+        readOnlyReason={readOnlyReason}
+        onSave={(next) => patch({ description: next || null })}
+      />
+    </p>
+  );
+}
+
+// The column's own CHECK bound (core 0203). Stated here so the field stops the
+// reader at the limit rather than letting the server refuse the save.
+const COMPANY_DESCRIPTION_MAX = 500;
+
+// CompanyChips is the header's row of facts: where the company is on the web,
+// where it is on the map, what it does and how big it is (plan §4.1). It
+// replaces the joined subtitle string it grew out of — five values crushed
+// into one dot-separated line, where the two that are links did not read as
+// links and none of them said which was which.
+export function CompanyChips({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  // `website_url` is derived server-side from the primary domain row, and an
+  // overlay-mirrored company carries the domain without it. Falling back to
+  // the row keeps the chip on those records rather than silently dropping the
+  // one identifying fact the reader had before.
+  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
+  const website =
+    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined);
+  const location = [org.address?.city, org.address?.country]
+    .filter(Boolean)
+    .join(", ");
+  const chips: ReactElement[] = [];
+  if (website) {
+    chips.push(
+      <Chip key="website" icon={Globe} href={website}>
+        {displayHost(website)}
+      </Chip>,
+    );
+  }
+  if (org.linkedin_url) {
+    chips.push(
+      <Chip key="linkedin" icon={Link2} href={org.linkedin_url}>
+        {t("co.chip.linkedin")}
+      </Chip>,
+    );
+  }
+  if (location) {
+    chips.push(
+      <Chip key="location" icon={MapPin}>
+        {location}
+      </Chip>,
+    );
+  }
+  if (org.industry) {
+    chips.push(
+      <Chip key="industry" icon={Tag}>
+        {org.industry}
+      </Chip>,
+    );
+  }
+  if (org.size_band) {
+    chips.push(
+      <Chip key="size" icon={Users}>
+        {t("co.chip.employees", { band: org.size_band })}
+      </Chip>,
+    );
+  }
+  if (chips.length === 0) {
+    return null;
+  }
+  return (
+    // A list, so the row announces how many facts it carries and a reader can
+    // step through them — a bare div with a label announces the label and then
+    // runs the five chips together as one string.
+    <ul className="co-chiprow" aria-label={t("co.chip.rowLabel")}>
+      {chips.map((chip) => (
+        <li key={chip.key}>{chip}</li>
+      ))}
+    </ul>
+  );
+}
+
+// The scheme is noise in a chip: every one of these is https, and "https://"
+// costs eight characters of a row that has five things to fit. A URL we cannot
+// parse is shown whole rather than silently dropped.
+function displayHost(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 // CompanyPulse is the one-line state of the relationship: how warm it is and

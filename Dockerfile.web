@@ -35,7 +35,7 @@ WORKDIR /src/backend
 RUN GOWORK=/src/go.work go run ./tools/gen-composition
 
 # ── Stage 2: build ───────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 RUN corepack enable
 

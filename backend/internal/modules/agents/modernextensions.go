@@ -11,10 +11,10 @@ package agents
 // owns what a request declared WITHIN that era, and what a method whose contract
 // depends on an undeclared one answers.
 //
-// One extension exists today (io.modelcontextprotocol/tasks). The shape here is
-// still per-extension rather than a single boolean, because the negotiation is
-// the same mechanism for every one of them and the second would otherwise be
-// bolted onto the first's spelling.
+// TWO extensions exist today (io.modelcontextprotocol/tasks and
+// io.modelcontextprotocol/ui), and they share one reader. The per-extension
+// wrappers stay, because each names the consequence of getting ITS answer
+// wrong, and those consequences are not the same.
 
 import "encoding/json"
 
@@ -31,26 +31,55 @@ const extensionTasks = "io.modelcontextprotocol/tasks"
 // It fails CLOSED, and the asymmetry is the point: reading a declaration that
 // is not there hands a client a task handle it will never poll, stranding an
 // approved effect that the human believes they released. Missing one that IS
-// there costs the caller the plain refusal every client already handles. So
-// anything but a JSON object under the extension's own key — absent, null, a
-// string, a capabilities object with no `extensions` member at all — is read as
-// "not declared".
+// there costs the caller the plain refusal every client already handles.
 func declaresTasks(capabilities json.RawMessage) bool {
+	return declaresExtension(capabilities, extensionTasks)
+}
+
+// declaresExtension reports whether this request's capabilities declare one
+// named extension, and is the shared mechanism every extension negotiates
+// through.
+//
+// It fails CLOSED for every one of them: anything but a JSON object under the
+// extension's own key — absent, null, a string, a capabilities object with no
+// `extensions` member at all — is read as "not declared". Each caller documents
+// what its own false costs.
+//
+// The extension name is a PARAMETER rather than a set of hand-spelled readers,
+// so the exactness below is written once. It was one reader when only Tasks
+// existed, and the second extension would otherwise have been bolted onto the
+// first's spelling of it.
+func declaresExtension(capabilities json.RawMessage, extension string) bool {
+	_, present := declaredExtension(capabilities, extension)
+	return present
+}
+
+// declaredExtension answers the declaration BODY as well as its presence, for an
+// extension whose negotiation carries a payload rather than being a bare
+// acknowledgement — the App extension declares the content types the client can
+// render, and a caller that only knew "it was declared" could not check them.
+//
+// present is false for everything declaresExtension refuses, and the returned
+// bytes are meaningless then.
+func declaredExtension(capabilities json.RawMessage, extension string) (json.RawMessage, bool) {
 	// Decoded through a MAP, and matched exactly, for the reason metaOf gives
 	// about the reserved `_meta` keys: encoding/json matches struct members
 	// case-insensitively, so a struct field would read `"Extensions"` — or
-	// `"EXTENSIONS"` — as this declaration. A client that mis-cased it would be
-	// handed a handle it never claimed to understand, and the approved effect
-	// behind it would strand.
+	// `"EXTENSIONS"` — as a declaration. A client that mis-cased it would be
+	// handed a capability it never claimed to understand.
 	var declared map[string]json.RawMessage
 	if err := json.Unmarshal(capabilities, &declared); err != nil {
-		return false
+		return nil, false
 	}
 	var extensions map[string]json.RawMessage
 	if err := json.Unmarshal(declared["extensions"], &extensions); err != nil {
-		return false
+		return nil, false
 	}
-	return isJSONObject(extensions[extensionTasks])
+	body := extensions[extension]
+	if !isJSONObject(body) {
+		return nil, false
+	}
+	return body, true
 }
 
 // missingClientCapability refuses a method whose whole contract depends on a

@@ -46,12 +46,26 @@ import (
 // records, and the roster is readable by any authenticated member. Only
 // undecided ghosts count, because a workspace whose queue is clear should cost
 // one query rather than one query per member.
+//
+// UNDECIDED means the MATCHER has not settled it — `unmatched` or `suggested`.
+// It deliberately does not mean "no human has settled it", and the difference
+// matters: the ghost row records only the matcher's outcome plus `confirmed`,
+// which the accept effect writes back. A REFUSAL is not written here at all —
+// it lives in the approval, which is where this design puts the pending state,
+// and StageUnlessDeclined is what consults it. So this enumeration also reaches
+// members whose every question has already been refused, and the staging pass it
+// feeds correctly proposes nothing for them.
+//
+// Enumerating `unmatched` alone was narrower than the work. An owner whose
+// ghosts had ALL been matched to `suggested` was never reached, so a suggestion
+// that missed its proposal had no later pass that could rescue it and stayed
+// invisible for the row's lifetime.
 func ghostOwners(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
 	var out []ids.UUID
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT DISTINCT owner_user_id FROM linkedin_connection
-			 WHERE match_status = 'unmatched' AND tombstoned_at IS NULL`)
+			 WHERE match_status IN ('unmatched', 'suggested') AND tombstoned_at IS NULL`)
 		if err != nil {
 			return fmt.Errorf("compose: listing the members with ghosts to match: %w", err)
 		}

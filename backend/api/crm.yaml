@@ -1703,6 +1703,87 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/draft-email:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations, AI]
+      operationId: draftAccountEmail
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Draft an email to this account, grounded in its records.
+      description: |
+        The drafting half of the account-started email pair (ADR-0087/A132). `POST /emails`
+        sends a new conversation from a company with no anchor activity; this writes the
+        first draft of one. `POST /activities/{id}/draft-email` is its reply-side twin and
+        needs an activity to answer — an account-started message has none, and the product
+        refuses to fabricate a placeholder activity to get one.
+
+        **It changes no record.** No field on the account, no activity, no voice-learning
+        signal, and nothing is sent. Sending stays `POST /emails`, with its own consent
+        gate, approval token and idempotency key; the absence of those three parameters
+        here is the guarantee rather than a convenience.
+
+        Two things it does write, and both are about the CALL rather than the account:
+        the workspace's AI usage meter and the model-call audit row, exactly as every
+        other model-backed read on this page does. A drafting call a workspace cannot see
+        in its own budget would be worse than one it can.
+
+        **Grounded, per viewer.** The draft is written from the caller's own 360, assembled
+        inside the normal gates, so it can only mention records that caller could open
+        themselves. Grounding order is A132's: the caller's intent, then the recipient and
+        our relationship with them, then the deal and what we last committed to, then the
+        recent conversation, then the dossier, then the writer's voice. Every input but
+        the intent is untrusted text and is fenced.
+
+        `reasoning` is a SIBLING of the body, never part of it: the composer renders it as
+        the "Based on" line and the "Why this draft?" chips, and a body that explained
+        itself would be a body the rep has to edit before sending.
+
+        When no model lane is configured, or the workspace's AI budget is exhausted, the
+        draft degrades to a deterministic one rather than failing — `generated_by` says
+        which wrote it.
+
+        Human-only: drafting spends the workspace's model budget on prose for a person to
+        send under their own name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [person_id]
+              properties:
+                person_id:
+                  type: string
+                  format: uuid
+                  description: >-
+                    Who the draft is addressed to. Required: a draft with no recipient has no
+                    relationship to ground itself in, and the one thing this endpoint adds over
+                    an empty compose box is that it knows who it is writing to. Must be a
+                    contact the caller can see on this account.
+                deal_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: Which open deal the message is about. Absent draws on the account as a whole.
+                intent:
+                  type: [string, 'null']
+                  maxLength: 400
+                  description: >-
+                    Optional steering in the caller's own words ("shorter", "warmer", "ask for
+                    Tuesday"). The one input that is NOT untrusted — the caller typed it — and
+                    so the only one outside the fence.
+      responses:
+        '200':
+          description: The draft, and what it was written from.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountEmailDraft' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/view-ack:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -1892,6 +1973,36 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RelationshipStrength' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organizations/{id}/finance-summary:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations, Finance]
+      operationId: getOrganizationFinanceSummary
+      summary: Does this customer actually pay us, and on time?
+      description: |
+        The finance card's whole read (FIN-WIRE-1, ADR-0083/A128): what we have
+        invoiced, what is still open, and how they pay — plus the handful of recent
+        invoices the card shows.
+
+        **`state` is the answer, not a decoration.** A page that renders figures
+        without it cannot tell "they owe nothing" from "no accounting source is
+        connected", and those are opposite facts about a customer. Every figure is
+        absent rather than zero when it cannot be computed (FIN-AC-2): €0 open is a
+        claim that they are square with us, and it must be earned.
+
+        Read-only, like everything in the mirror. The connection is managed
+        elsewhere; this endpoint only reads what the last sync brought back.
+      responses:
+        '200':
+          description: The account's finance summary, in whatever state it is in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFinanceSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -11617,6 +11728,14 @@ components:
             *which companies are we selling to* exclude it unless `include_anchor` is set, and it
             cannot be archived or merged. A caller that offers company actions should tell it apart.
         legal_name: { type: [string, 'null'] }
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: >-
+            One human-written line saying what the company does, shown under the title on the
+            company page. A column rather than a governed custom field for the same reason
+            `linkedin_url` is one: it is part of what a company IS and every installation wants
+            it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
         industry: { type: [string, 'null'] }
         size_band:
           type: [string, 'null']
@@ -11707,6 +11826,7 @@ components:
       properties:
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: One human-written line saying what the company does. }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }
@@ -11728,6 +11848,7 @@ components:
           pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: 'One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses.' }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }
@@ -12114,6 +12235,119 @@ components:
       properties:
         entity_type: { type: string, enum: [deal, activity, person, organization, fact, profile_field] }
         entity_id: { type: string, format: uuid }
+
+    OrganizationFinanceSummary:
+      type: object
+      description: |
+        What the accounting mirror knows about one customer (ADR-0083/A128).
+
+        Every figure is nullable and ABSENT when it cannot be computed, never zero
+        (FIN-AC-2). "€0 open" says the customer is square with us; "no figure" says
+        we do not know. A card that renders the second as the first tells a rep an
+        account is healthy on the strength of a missing connector.
+      required: [organization_id, state]
+      properties:
+        organization_id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/FinanceSummaryState' }
+        provider:
+          type: [string, 'null']
+          description: >-
+            Which accounting source this came from, in the source's own words
+            ("offline_demo"). Rendered as a label beside the figures so a reader
+            knows what they are looking at; absent when nothing is connected.
+        last_synced_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the last successful sync finished. Null when none has.
+        net_invoiced:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: >-
+            Issued minus credited over the last 365 days (FIN-FORM-1). Named "net
+            invoiced" rather than "revenue": the source supports issued amounts, not
+            a ledger revenue figure, and calling one the other is the kind of small
+            wrong label a reader plans against.
+        open_balance:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: What is still open across unpaid invoices (FIN-FORM-2).
+        overdue:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: The share of the open balance already past its due date.
+        median_days_after_due:
+          type: [integer, 'null']
+          description: >-
+            The median days between an invoice's DUE date and its settlement over
+            the window (FIN-FORM-3) — how late they pay, not how long they take.
+            Negative reads as early. Deliberately not issue-to-settlement: an
+            invoice paid on the last day of 30-day terms is punctual, and a figure
+            that called it "30 days to pay" would read as slow.
+
+            Absent when too few invoices have settled to say — a median of one
+            invoice is an anecdote, not a payment habit.
+        payment_behaviour:
+          type: array
+          description: >-
+            Days-late per settled invoice, oldest first, for the sparkline. Never
+            padded with zeroes, because a zero here reads as "paid exactly on
+            time".
+
+            Absent under the same sample floor the median observes: a shape drawn
+            from one invoice would state a payment habit the number beside it
+            refuses to.
+          items: { type: integer }
+        recent_invoices:
+          type: array
+          maxItems: 5
+          description: The five most recent invoices (FIN-LIM-4); `truncated` says whether there are more.
+          items: { $ref: '#/components/schemas/FinanceInvoice' }
+        truncated:
+          type: boolean
+          description: True when the account has more invoices than `recent_invoices` carries.
+
+    FinanceSummaryState:
+      type: string
+      enum: [no_connection, unmapped, syncing, connected, stale, error]
+      description: |
+        Why the figures are what they are — the six cases a company page must keep
+        apart, because five of them look identical if you only render the numbers.
+
+        `no_connection` — no accounting source is configured for this installation.
+        `unmapped` — a source is connected, but nobody has said which of its
+        customers this organization is. The figures are absent, and the fix is a
+        mapping rather than a sync.
+        `syncing` — the first pass has not finished; figures may be partial.
+        `connected` — the figures are current.
+        `stale` — the last sync succeeded, but long enough ago that the reader
+        should see the date beside the number.
+        `error` — the last attempt failed. What is shown is the last good answer,
+        and the reader is told it is not current.
+
+    FinanceInvoice:
+      type: object
+      description: One mirrored invoice, in the currency it was issued in.
+      required: [id, issued_at, status, currency, gross_minor, open_minor]
+      properties:
+        id: { type: string, format: uuid }
+        number:
+          type: [string, 'null']
+          description: The source's own invoice number, absent when it does not issue one.
+        issued_at: { type: string, format: date }
+        due_at: { type: [string, 'null'], format: date }
+        paid_at:
+          type: [string, 'null']
+          format: date-time
+          description: When it was settled in full. Null while anything is still open.
+        status:
+          type: string
+          enum: [draft, open, partially_paid, paid, overdue, disputed, credited, void]
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        gross_minor: { type: integer, format: int64, description: The invoiced total in minor units. }
+        open_minor: { type: integer, format: int64, description: What is still unpaid on it. }
+        days_late:
+          type: [integer, 'null']
+          description: >-
+            Days between the due date and settlement, or between the due date and
+            today while it is still open. Absent when the invoice carries no due
+            date — lateness against no deadline is not a reading.
 
     RecordViewAck:
       type: object
@@ -14086,6 +14320,85 @@ components:
         voice_profile_version: { type: [integer, 'null'], readOnly: true, minimum: 1, description: 'The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it.' }
         draft_ref: { type: [string, 'null'], readOnly: true, description: 'Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it.' }
 
+    AccountEmailDraft:
+      type: object
+      description: |
+        A draft written from an account's records, and what it was written from
+        (ADR-0087/A132). Never sent by drafting; send via `POST /emails`.
+
+        It is `EmailDraft` plus the two things an account-started draft owes that a reply
+        does not: `reasoning`, because a rep who did not choose the message it answers
+        needs to see what the draft is standing on, and `generated_by`, because the
+        deterministic floor is a real outcome here rather than an error.
+      required: [subject, body, reasoning, generated_by, ai_generated]
+      properties:
+        subject: { type: string }
+        body:
+          type: string
+          description: >-
+            Plain text, end to end. There is no rich-text storage format, no paste
+            sanitiser and no HTML+text send pair, so a formatted draft would be a wire
+            change rather than a toolbar.
+        to: { type: array, items: { type: string, format: email } }
+        reasoning:
+          type: array
+          description: |
+            What the draft was written from, as separate claims rather than a sentence in
+            the body. A SIBLING of the body on purpose (DRAFT-AC-N-4): a body that
+            explains itself is a body the rep has to edit before sending, and the two
+            surfaces the composer draws from this — the "Based on" line and the "Why this
+            draft?" chips — need the parts, not the prose.
+
+            Empty when the account gave the draft nothing to stand on beyond the
+            recipient. An honest empty list, never an invented reason.
+          items: { $ref: '#/components/schemas/AccountDraftReason' }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        ai_generated:
+          type: boolean
+          readOnly: true
+          description: 'Art. 50 AI-assisted disclosure: true when a model produced this draft. Stamped on the drafting call, never persisted.'
+        ai_disclosure:
+          type: [string, 'null']
+          readOnly: true
+          description: The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.
+        voice_profile_version:
+          type: [integer, 'null']
+          readOnly: true
+          minimum: 1
+          description: The Voice DNA profile version that styled this draft; null when no ready profile shaped it.
+        draft_ref:
+          type: [string, 'null']
+          readOnly: true
+          description: >-
+            Opaque reference identifying this served draft. Null here: recording a draft for
+            voice learning is a WRITE, and this operation performs none.
+
+    AccountDraftReason:
+      type: object
+      description: |
+        One thing the draft was written from, named so the reader can check it rather than
+        take the draft on trust. Structured rather than a phrase, because the composer
+        renders the same reason twice — once in the "Based on" line and once as a chip —
+        and a string would have to be parsed to do that.
+      required: [kind, label]
+      properties:
+        kind:
+          type: string
+          enum: [intent, recipient, relationship, deal, commitment, conversation, dossier]
+          description: |
+            Which grounding input this came from, in A132's order.
+
+            `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+            and how we stand with them. `deal` — the open opportunity the message is about.
+            `commitment` — something one side said they would do. `conversation` — what was
+            recently said. `dossier` — what the company is, from its own recorded facts.
+          x-extension: false
+        label:
+          type: string
+          description: The reason in the reader's words, short enough to render as a chip.
+        evidence_ref:
+          $ref: '#/components/schemas/OrganizationBriefEvidence'
+
     SendEmailRequest:
       type: object
       required: [subject, body, to, consent_purpose]
@@ -14904,7 +15217,7 @@ components:
          automation, voice_profile, product, offer, signal, saved_view, custom_field,
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
-         channel_connection, import_run, installation_settings]
+         channel_connection, import_run, installation_settings, finance]
 
     RbacAction:
       type: string

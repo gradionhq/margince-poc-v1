@@ -221,7 +221,7 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
 	switch req.Method {
 	case methodToolsList:
-		resp.Result = map[string]any{"tools": s.toolList(ctx)}
+		resp.Result = map[string]any{"tools": s.toolList(ctx, fr)}
 	case methodToolsCall:
 		resp.Result = s.call(ctx, req.Params, fr)
 	case methodResourcesList:
@@ -357,6 +357,17 @@ func (s *Dispatcher) capabilities(modern bool) map[string]any {
 		// never hands out a handle, and a client that saw the extension
 		// advertised would be entitled to expect one.
 		capabilities["extensions"] = map[string]any{extensionTasks: map[string]any{}}
+	}
+	// The App extension, on the same terms and for the same reason: a host told
+	// this server serves views is entitled to a document to prefetch, so the
+	// claim is derived from the assembled surface rather than declared.
+	if modern && s.appsServed() {
+		extensions, claimed := capabilities["extensions"].(map[string]any)
+		if !claimed {
+			extensions = map[string]any{}
+			capabilities["extensions"] = extensions
+		}
+		extensions[extensionUI] = map[string]any{}
 	}
 	return capabilities
 }

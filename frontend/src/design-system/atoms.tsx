@@ -412,6 +412,7 @@ export function Modal({
   onClose,
   labelledBy,
   size = "default",
+  placement = "center",
   children,
 }: Readonly<{
   open: boolean;
@@ -420,6 +421,11 @@ export function Modal({
   // "wide" roomier variant for content-dense dialogs (code/YAML previews);
   // "default" keeps the compact form width every confirm/create modal uses.
   size?: "default" | "wide";
+  // "right" anchors the dialog to the right edge, full height — the drawer
+  // form the composer and the evidence receipt use, where the record behind
+  // stays visible as context rather than being covered by a centred box.
+  // `size` does not apply to it: a drawer's width comes from the viewport.
+  placement?: "center" | "right";
   children: ReactNode;
 }>) {
   const dialog = useRef<HTMLDivElement | null>(null);
@@ -469,7 +475,7 @@ export function Modal({
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
     <div
-      className="overlay"
+      className={placement === "right" ? "overlay overlay-right" : "overlay"}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -481,7 +487,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={size === "wide" ? "modal modal-wide" : "modal"}
+        className={modalClass(size, placement)}
         ref={dialog}
         // Focusable so a dialog whose body is pure text still receives focus
         // when it opens, rather than leaving it on the page behind.
@@ -492,6 +498,15 @@ export function Modal({
     </div>,
     document.body,
   );
+}
+
+// A right-anchored dialog draws its width from the viewport, so the `size`
+// variants — which exist to widen a centred box — do not apply to it.
+function modalClass(size: "default" | "wide", placement: "center" | "right") {
+  if (placement === "right") {
+    return "modal modal-drawer";
+  }
+  return size === "wide" ? "modal modal-wide" : "modal";
 }
 
 // Keep Tab inside the dialog. `aria-modal` tells a screen reader the rest of

@@ -346,9 +346,12 @@ func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (versio
 	if in.TargetID.IsZero() || !TargetVersionCheckable(in.TargetType) {
 		return 0, false, nil
 	}
-	// A kind whose target is context rather than operand binds to nothing:
-	// see contextTargetKinds for why pinning it was worse than not pinning it.
-	if TargetIsContextOnly(in.Kind) {
+	// Two declared waivers, both meaning "this kind stages with no pin", and
+	// each says a different thing about why: the target is context rather than
+	// operand (contextTargetKinds), or it is the operand and the pin still binds
+	// nothing the human judged (unpinnedKinds). Both are read here because this
+	// is the one place a pin is taken.
+	if TargetIsContextOnly(in.Kind) || TargetVersionUnpinned(in.Kind) {
 		return 0, false, nil
 	}
 	current, err := targetVersion(ctx, tx, in.TargetType, in.TargetID)

@@ -199,8 +199,13 @@ var tableOwners = map[string]string{
 	"workflow_run": "internal/modules/automation",
 	"automation":   "internal/modules/automation",
 	// signals (the warm-room signal spine + its append-only resolution log)
-	"signal":            "internal/modules/signals",
-	"signal_resolution": "internal/modules/signals",
+	"finance_connection":        "internal/modules/finance",
+	"finance_external_customer": "internal/modules/finance",
+	"finance_customer_link":     "internal/modules/finance",
+	"finance_invoice":           "internal/modules/finance",
+	"finance_payment":           "internal/modules/finance",
+	"signal":                    "internal/modules/signals",
+	"signal_resolution":         "internal/modules/signals",
 	// collections
 	"list":        "internal/modules/collections",
 	"list_member": "internal/modules/collections",

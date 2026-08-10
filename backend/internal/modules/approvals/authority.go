@@ -38,6 +38,14 @@ type grantRequirement struct {
 	Action principal.Action
 }
 
+// kindLinkedInMatch is the staged kind for "this imported connection is this
+// contact". This module makes three separate statements about it — the grants
+// deciding it needs, that only the member it was staged for may decide it, and
+// that it declines the version pin — and a typo across them would leave the
+// kind half-governed with nothing saying so. Compose owns the registration
+// spelling; the compose-side waiver fitness tests bind the two together.
+const kindLinkedInMatch = "linkedin_match"
+
 // decisionGrants maps each stageable kind onto the RBAC its effect needs given
 // the KIND ALONE; approving requires every one of them. A kind whose grant also
 // depends on what the staging points at carries that half in
@@ -122,7 +130,7 @@ var decisionGrants = map[string][]grantRequirement{
 	// Approving a LinkedIn match links an imported connection to a contact and
 	// writes that contact's LinkedIn address — a person write, so deciding it
 	// needs the grant the write itself takes.
-	"linkedin_match": {{tablePerson, principal.ActionUpdate}},
+	kindLinkedInMatch: {{tablePerson, principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it
@@ -250,7 +258,7 @@ const (
 // A step-up is the other: "may this agent keep reading" is a question about ONE
 // connection, and the only person who can answer it is the human whose authority
 // that connection borrows.
-var selfOnlyKinds = map[string]bool{"linkedin_match": true, KindQuotaRelease: true}
+var selfOnlyKinds = map[string]bool{kindLinkedInMatch: true, KindQuotaRelease: true}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would

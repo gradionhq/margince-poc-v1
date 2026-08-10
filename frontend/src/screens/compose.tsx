@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { navigate } from "../app/router";
 import {
   Badge,
   Button,
@@ -25,6 +26,7 @@ import {
   problemMessageOf,
   throwProblem,
 } from "./common";
+import { useOrganization360 } from "./company360";
 import { useConsentPurposes } from "./consent";
 import { useVoiceProfile } from "./voice-profile";
 import "./compose.css";
@@ -165,10 +167,194 @@ export function RelinkModal({
   );
 }
 
+// Fill the form from a served draft, without ever clobbering a field the rep
+// already edited.
+//
+// The reference, the disclosure and the reasons all describe the WORDS they
+// were served with, so all three ride on exactly the condition that applies
+// the body. A re-draft over text the rep already wrote keeps that text —
+// adopting the newer reference would report a stranger's draft as the rep's
+// own edit of it, the newer disclosure would credit a model with words a
+// human typed, and the newer reasons would explain a draft nobody is looking
+// at.
+function fillFromDraft(
+  result: Extract<DraftResult, { available: true }>,
+  form: Readonly<{
+    subject: string;
+    body: string;
+    toEmpty: boolean;
+    setSubject: (next: string) => void;
+    setBody: (next: string) => void;
+    setTo: (next: string[]) => void;
+    setDraftRef: (next: string | null) => void;
+    setProvenance: (next: DraftProvenance) => void;
+    setReasoning: (next: components["schemas"]["AccountDraftReason"][]) => void;
+  }>,
+) {
+  const drafted = result.draft;
+  if (!form.subject) {
+    form.setSubject(drafted.subject);
+  }
+  if (!form.body) {
+    form.setBody(drafted.body);
+    form.setDraftRef(drafted.draft_ref ?? null);
+    form.setProvenance({
+      // Absent reads as false, which the contract says outright: a missing
+      // flag may not silently become a missing disclosure, but it also may
+      // not claim a model wrote text no model touched.
+      ai_generated: drafted.ai_generated ?? false,
+      ai_disclosure: drafted.ai_disclosure,
+      voice_profile_version: drafted.voice_profile_version,
+    });
+    form.setReasoning(result.reasoning ?? []);
+  }
+  if (form.toEmpty && drafted.to?.length) {
+    form.setTo(drafted.to);
+  }
+}
+
+// The reply-side draft: it answers the message it is anchored to, so it needs
+// nothing but that activity and the caller's optional steering.
+async function draftFromActivity({
+  activityId,
+  intent,
+  t,
+}: Readonly<{
+  activityId: string;
+  intent: string;
+  t: ReturnType<typeof useT>;
+}>): Promise<DraftResult> {
+  const { data, error, response } = await api.POST(
+    "/activities/{id}/draft-email",
+    {
+      params: { path: { id: activityId } },
+      body: intent.trim() ? { intent: intent.trim() } : {},
+    },
+  );
+  if (response.status === 501) return { available: false as const };
+  // Success is the real 2xx WITH a draft body, never merely the absence of an
+  // error: openapi-fetch reports a falsy `error` (and undefined `data`) for a
+  // bodiless non-2xx (a gateway 502/503/504), which would otherwise fall
+  // through as a fabricated draft and crash the fill on undefined fields.
+  if (!response.ok || !data) {
+    throwProblem(error || { title: t("compose.actionFailed") });
+  }
+  return { available: true as const, draft: data };
+}
+
+// The account-started draft (ADR-0087/A132). It grounds itself in the account
+// rather than in a message, so it needs the recipient named before it can say
+// anything — that is the one thing this path knows that an empty compose box
+// does not.
+//
+// It answers the same `{available, draft}` shape the reply path does, so the
+// fill below cannot tell them apart and the two origins cannot drift into
+// different clobber rules.
+async function draftFromAccount({
+  entityType,
+  entityId,
+  recipientId,
+  dealId,
+  intent,
+  t,
+}: Readonly<{
+  entityType: RelinkKind;
+  entityId: string;
+  recipientId: string;
+  dealId: string;
+  intent: string;
+  t: ReturnType<typeof useT>;
+}>): Promise<DraftResult> {
+  // Only a company page can ground one: a person or a deal has no 360 to
+  // write from, and grounding a message to a contact in some nearby account
+  // would be a conversation the rep never chose.
+  if (entityType !== "organization" || !recipientId) {
+    return { available: false as const };
+  }
+  const { data, error, response } = await api.POST(
+    "/organizations/{id}/draft-email",
+    {
+      params: { path: { id: entityId } },
+      body: {
+        person_id: recipientId,
+        ...(dealId ? { deal_id: dealId } : {}),
+        ...(intent.trim() ? { intent: intent.trim() } : {}),
+      },
+    },
+  );
+  if (response.status === 501) return { available: false as const };
+  if (!response.ok || !data) {
+    throwProblem(error || { title: t("compose.actionFailed") });
+  }
+  return { available: true as const, draft: data, reasoning: data.reasoning };
+}
+
+// What either drafting path answers.
+//
+// The two wire shapes are not the same — only the account draft carries
+// `reasoning` and `generated_by` — so this names the fields the fill actually
+// reads and nothing else. Intersecting the two contract types instead would
+// make every optional field of one optional on both, and the fill would stop
+// noticing when a required field went missing.
+type DraftResult =
+  | { available: false }
+  | {
+      available: true;
+      draft: Pick<EmailDraft, "subject" | "body" | "to"> &
+        Partial<
+          Pick<
+            EmailDraft,
+            | "draft_ref"
+            | "ai_generated"
+            | "ai_disclosure"
+            | "voice_profile_version"
+          >
+        >;
+      // Present only on the account-started path; a reply explains itself by
+      // the message it is answering.
+      reasoning?: components["schemas"]["AccountDraftReason"][];
+    };
+
+// The account-started path's own state: who the draft is grounded on, which
+// open deal it is about, and what the server said it wrote from.
+//
+// Held together because the three move together — a new recipient invalidates
+// the reasons as surely as an emptied body does — and held OUT of ComposeModal
+// because that component already carries the send, the consent gate, the
+// refusal vocabulary and the voice-rejection flow.
+function useAccountGrounding(
+  personId: string | undefined,
+  onGroundingChanged: () => void,
+) {
+  const [recipientId, setRecipientId] = useState(personId ?? "");
+  const [dealId, setDealId] = useState("");
+  const [reasoning, setReasoning] = useState<
+    components["schemas"]["AccountDraftReason"][]
+  >([]);
+  // Changing who the draft is to, or which deal it is about, retires the draft
+  // that was written for the previous pair. Leaving it would show a message
+  // addressed to B carrying A's words, A's disclosure and A's reasons — and
+  // re-drafting could not repair it, because the fill never clobbers a
+  // non-empty field.
+  const reground = (apply: (next: string) => void) => (next: string) => {
+    apply(next);
+    setReasoning([]);
+    onGroundingChanged();
+  };
+  return {
+    recipientId,
+    setRecipientId: reground(setRecipientId),
+    dealId,
+    setDealId: reground(setDealId),
+    reasoning,
+    setReasoning,
+  };
+}
+
 // A freeform email-chip input: typed address + Enter/comma (or blur) adds a
 // chip, the X icon removes it. No client-side email regex beyond type=email —
-// the server is the authority (422 on a malformed address), so this never rejects
-// what the backend might accept.
+// the server is the authority (422 on a malformed address), so this never
+// rejects what the backend might accept.
 function RecipientField({
   label,
   values,
@@ -217,6 +403,144 @@ function RecipientField({
         }}
         onBlur={add}
       />
+    </div>
+  );
+}
+
+// The account-started path's two choices: who this is to, and which open deal
+// it is about.
+//
+// Both are read off the account's own 360 rather than a fresh search, for the
+// reason the whole draft is: the endpoint grounds itself in the caller's view
+// of the account, so a contact this picker offers that the view does not carry
+// would be one the draft then refuses.
+function AccountDraftContext({
+  orgId,
+  recipientId,
+  onRecipientChange,
+  dealId,
+  onDealChange,
+}: Readonly<{
+  orgId: string;
+  recipientId: string;
+  onRecipientChange: (next: string) => void;
+  dealId: string;
+  onDealChange: (next: string) => void;
+}>) {
+  const t = useT();
+  const query = useOrganization360(orgId);
+  // An overlay workspace has no native 360 to ground from; the endpoint
+  // refuses there too, so the pickers simply have nothing to offer.
+  const view = query.data?.state === "ready" ? query.data.view : undefined;
+  const contacts = view?.people?.data ?? [];
+  const deals = view?.deals?.data ?? [];
+  // No contact on the account is an honest dead end for a GROUNDED draft, and
+  // saying so beats an empty picker the rep tries and cannot use. They can
+  // still type an address into To and write the mail themselves.
+  if (query.isSuccess && contacts.length === 0) {
+    return <p className="t-caption">{t("compose.noGroundableRecipient")}</p>;
+  }
+  return (
+    <>
+      <label className="t-body compose-check">
+        {t("compose.draftTo")}
+        <Select
+          aria-label={t("compose.draftTo")}
+          options={[
+            { value: "", label: t("compose.draftToUnset") },
+            ...contacts.map((contact) => ({
+              value: contact.person_id,
+              label: contact.full_name,
+            })),
+          ]}
+          value={recipientId}
+          onChange={onRecipientChange}
+        />
+      </label>
+      {deals.length > 0 && (
+        <label className="t-body compose-check">
+          {t("compose.relatedTo")}
+          <Select
+            aria-label={t("compose.relatedTo")}
+            options={[
+              { value: "", label: t("compose.relatedToNone") },
+              ...deals.map((deal) => ({
+                value: deal.deal_id,
+                label: deal.name,
+              })),
+            ]}
+            value={dealId}
+            onChange={onDealChange}
+          />
+        </label>
+      )}
+    </>
+  );
+}
+
+// A reason's chip opens the record it names. Only the two kinds that HAVE a
+// screen are routed: a fact or a profile field has a receipt rather than a
+// page, and this dialog is the wrong place to open one over.
+function openCited(entityType: string, entityId: string) {
+  if (entityType === "deal") {
+    navigate({ screen: "deals", id: entityId });
+  }
+  if (entityType === "person") {
+    navigate({ screen: "contacts", id: entityId });
+  }
+}
+
+// What the draft was written from, in the two shapes State D draws: a "Based
+// on" line naming the inputs in order, and a row of "Why this draft?" chips.
+//
+// Both render the SAME reasons — they are one answer read two ways, which is
+// why the server sends parts rather than a sentence. The line is for scanning
+// before reading the draft; the chips are for checking one input after.
+//
+// A reason carrying evidence is pressable and opens the record it names. One
+// without — the rep's own instruction — is flat, because there is nothing to
+// open and a chip that looks pressable and is not is worse than a plain one.
+function DraftReasons({
+  reasons,
+  onOpenRecord,
+}: Readonly<{
+  reasons: readonly components["schemas"]["AccountDraftReason"][];
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  if (reasons.length === 0) {
+    return null;
+  }
+  return (
+    <div className="compose-reasons">
+      <p className="t-caption">
+        {t("compose.basedOn", {
+          inputs: reasons.map((reason) => reason.label).join(" · "),
+        })}
+      </p>
+      <p className="t-caption">{t("compose.whyThisDraft")}</p>
+      <ul className="chips">
+        {reasons.map((reason) => (
+          <li key={`${reason.kind}:${reason.label}`}>
+            {reason.evidence_ref && onOpenRecord ? (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() =>
+                  onOpenRecord(
+                    reason.evidence_ref?.entity_type ?? "",
+                    reason.evidence_ref?.entity_id ?? "",
+                  )
+                }
+              >
+                {reason.label}
+              </button>
+            ) : (
+              reason.label
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -647,6 +971,62 @@ function MailSendNotices({
 // agent/passport path. The 409 consent gate is the whole reason this surface
 // exists: the default-deny suppression (A22/ADR-0011) has never been visible
 // to a user before.
+// The drafting call, both origins, lifted out of ComposeModal — which already
+// carries the send, the consent gate, the refusal vocabulary and the
+// voice-rejection flow, and was over the complexity bar with this inside it.
+//
+// The two paths answer the same shape on purpose, so the fill below cannot
+// tell them apart and the origins cannot drift into different clobber rules.
+function useDraftMutation({
+  activityId,
+  entityType,
+  entityId,
+  intent,
+  account,
+  onUnavailable,
+  onDrafted,
+  resetUnavailable,
+  t,
+}: Readonly<{
+  activityId?: string;
+  entityType: RelinkKind;
+  entityId: string;
+  intent: string;
+  account: ReturnType<typeof useAccountGrounding>;
+  onUnavailable: () => void;
+  onDrafted: (result: Extract<DraftResult, { available: true }>) => void;
+  resetUnavailable: () => void;
+  t: ReturnType<typeof useT>;
+}>) {
+  return useMutation({
+    mutationFn: async (): Promise<DraftResult> => {
+      resetUnavailable();
+      // A reply answers the message it is anchored to; an account-started
+      // message has none, so it is grounded in the account itself and needs
+      // the recipient named first.
+      if (activityId) {
+        return draftFromActivity({ activityId, intent, t });
+      }
+      return draftFromAccount({
+        entityType,
+        entityId,
+        recipientId: account.recipientId,
+        dealId: account.dealId,
+        intent,
+        t,
+      });
+    },
+    onSuccess: (result) => {
+      if (!result.available) {
+        onUnavailable();
+        return;
+      }
+      onDrafted(result);
+    },
+  });
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this modal was already at the ceiling; the account-started origin (ADR-0087/A132) adds three necessary branches — the recipient/deal pickers, the grounded-draft gate and the drawer placement. The drafting call, the form fill, the body edit and both draft controls are already extracted; what is left is one dialog's own wiring, and splitting the send/consent/refusal/voice flow apart from the fields it gates would scatter it.
 export function ComposeModal({
   activityId,
   entityType,
@@ -693,59 +1073,66 @@ export function ComposeModal({
   // the form stays usable: the model / mailer simply isn't configured (501).
   const [draftUnavailable, setDraftUnavailable] = useState(false);
   const [sendUnavailable, setSendUnavailable] = useState(false);
+  // Retiring the previous pair's draft is the composer's job, not the
+  // grounding hook's: the body, the recipients, the reference and the
+  // disclosure all live here.
+  //
+  // Only DRAFTED text is cleared. `draftRef` and `provenance` are set only by
+  // the fill, so their presence is what says the words on screen came from a
+  // draft rather than from the rep — and a rep who typed their own message
+  // and then picked a different contact must not lose it.
+  const account = useAccountGrounding(personId, () => {
+    if (!provenance && !draftRef) {
+      return;
+    }
+    setBody("");
+    setSubject("");
+    setTo([]);
+    setDraftRef(null);
+    setProvenance(null);
+  });
+  // Whether this composer can ground a draft in an account: an account-started
+  // message on a company page, over mail. A channel reply resolves its
+  // recipient server-side and has no draft endpoint at all.
+  const groundable =
+    !activityId && entityType === "organization" && !isTelegram;
 
-  const draft = useMutation({
-    mutationFn: async () => {
-      setDraftUnavailable(false);
-      // Drafting is anchored: the grounded account-started draft is ADR-0087
-      // §3 and is not built yet. Reporting it unavailable is the honest answer
-      // — the rep writes the mail themselves and still sends it — where
-      // drafting against some nearby activity would ground the message in a
-      // conversation the rep never chose.
-      if (!activityId) return { available: false as const };
-      const { data, error, response } = await api.POST(
-        "/activities/{id}/draft-email",
-        {
-          params: { path: { id: activityId } },
-          body: intent.trim() ? { intent: intent.trim() } : {},
-        },
-      );
-      if (response.status === 501) return { available: false as const };
-      // Success is the real 2xx WITH a draft body, never merely the absence of
-      // an error: openapi-fetch reports a falsy `error` (and undefined `data`)
-      // for a bodiless non-2xx (a gateway 502/503/504), which would otherwise
-      // fall through as a fabricated draft and crash the fill on undefined
-      // fields. Requiring `data` here also re-narrows it for the fill below.
-      if (!response.ok || !data) {
-        throwProblem(error || { title: t("compose.actionFailed") });
-      }
-      return { available: true as const, draft: data };
-    },
-    onSuccess: (result) => {
-      if (!result.available) {
-        setDraftUnavailable(true);
-        return;
-      }
-      const drafted = result.draft;
-      // Never clobber a field the user already edited.
-      if (!subject) setSubject(drafted.subject);
-      if (!body) {
-        // The reference and the disclosure both describe the words they were
-        // served with, so both ride on exactly the condition that applies
-        // them. A re-draft over text the rep already wrote keeps that text —
-        // adopting the newer reference would report a stranger's draft as the
-        // rep's own edit of it, and adopting the newer disclosure would credit
-        // a model, and a voice version, with words a human typed.
-        setBody(drafted.body);
-        setDraftRef(drafted.draft_ref ?? null);
-        setProvenance({
-          ai_generated: drafted.ai_generated,
-          ai_disclosure: drafted.ai_disclosure,
-          voice_profile_version: drafted.voice_profile_version,
-        });
-      }
-      if (to.length === 0 && drafted.to?.length) setTo(drafted.to);
-    },
+  // An emptied body no longer holds the served draft, so everything that
+  // describes those words goes with it: the reference would bind the next
+  // send's outcome to text the rep deleted, the disclosure would announce a
+  // model draft over an empty field, and the reasons would explain a draft
+  // that is no longer there. The fill re-adopts all three on the next draft.
+  const editBody = (next: string) => {
+    setBody(next);
+    if (next) {
+      return;
+    }
+    setDraftRef(null);
+    setProvenance(null);
+    account.setReasoning([]);
+  };
+
+  const draft = useDraftMutation({
+    activityId,
+    entityType,
+    entityId,
+    intent,
+    account,
+    onUnavailable: () => setDraftUnavailable(true),
+    onDrafted: (result) =>
+      fillFromDraft(result, {
+        subject,
+        body,
+        toEmpty: to.length === 0,
+        setSubject,
+        setBody,
+        setTo,
+        setDraftRef,
+        setProvenance,
+        setReasoning: account.setReasoning,
+      }),
+    resetUnavailable: () => setDraftUnavailable(false),
+    t,
   });
 
   // Rejecting a draft is a judgment the rep makes, so it has its own control
@@ -853,7 +1240,51 @@ export function ComposeModal({
   // may only ever name the words on screen, never words typed while it was
   // away.
   const rejectionInFlight = discard.isPending;
-
+  // The two draft controls, assembled here so the JSX below reads as a layout
+  // rather than as a list of conditions.
+  //
+  // An account-started draft grounds itself on the recipient, so there is
+  // nothing to draft until one is chosen: the button is disabled with the
+  // picker directly above it, rather than running and coming back with a
+  // refusal about a field already on screen.
+  const draftControl = {
+    run: () => draft.mutate(),
+    pending: draft.isPending,
+    disabled:
+      draft.isPending ||
+      rejectionInFlight ||
+      (groundable && !account.recipientId),
+    error: draft.isError ? problemMessageOf(draft.error, t) : null,
+  };
+  // The mirror of the send gate: a rejection may not be started against a
+  // draft already on its way out.
+  // The account-started path's two additions to the form, built here so the
+  // JSX below reads as a layout rather than as a list of conditions.
+  //
+  // The pickers come FIRST because a grounded draft with no recipient has no
+  // relationship to stand on; the reasons come above the body because they are
+  // what the body is standing on, and a reader checks the inputs before the
+  // prose rather than after it.
+  const accountContext = groundable ? (
+    <AccountDraftContext
+      orgId={entityId}
+      recipientId={account.recipientId}
+      onRecipientChange={account.setRecipientId}
+      dealId={account.dealId}
+      onDealChange={account.setDealId}
+    />
+  ) : null;
+  const accountReasons = (
+    <DraftReasons reasons={account.reasoning} onOpenRecord={openCited} />
+  );
+  const discardControl = rejectable
+    ? {
+        run: () => discard.mutate(rejectable),
+        pending: discard.isPending,
+        disabled: send.isPending,
+        error: discard.isError ? problemMessageOf(discard.error, t) : null,
+      }
+    : null;
   return (
     <ConfirmModal
       open={open}
@@ -869,6 +1300,10 @@ export function ComposeModal({
       // five-line porthole — and the Send button has to sit above the fold,
       // not below a scroll.
       size="wide"
+      // A DRAWER for the account-started message, so the account it is about
+      // stays on screen beside it (mockup State D). A reply keeps the centred
+      // box: its context is the thread in the dialog, not the page behind.
+      placement={groundable ? "right" : "center"}
       confirmLabel={t("compose.send")}
       confirmDisabled={!canSend || rejectionInFlight}
       onConfirm={() => send.mutate()}
@@ -876,6 +1311,7 @@ export function ComposeModal({
       error={sendError}
     >
       <div className="compose-fields">
+        {accountContext}
         {/* AI drafting is mail-only — there is no draft-message endpoint, and
             a channel reply's recipient is resolved server-side, so neither
             the draft controls nor the To/Cc/Subject fields apply to it. */}
@@ -883,26 +1319,8 @@ export function ComposeModal({
           <MailOnlyFields
             intent={intent}
             onIntentChange={setIntent}
-            draft={{
-              run: () => draft.mutate(),
-              pending: draft.isPending,
-              disabled: draft.isPending || rejectionInFlight,
-              error: draft.isError ? problemMessageOf(draft.error, t) : null,
-            }}
-            discard={
-              rejectable
-                ? {
-                    run: () => discard.mutate(rejectable),
-                    pending: discard.isPending,
-                    // The mirror of the send gate: a rejection may not be
-                    // started against a draft already on its way out.
-                    disabled: send.isPending,
-                    error: discard.isError
-                      ? problemMessageOf(discard.error, t)
-                      : null,
-                  }
-                : null
-            }
+            draft={draftControl}
+            discard={discardControl}
             draftUnavailable={draftUnavailable}
             provenance={provenance}
             voiceMaturity={voiceProfile.data?.maturity}
@@ -915,25 +1333,14 @@ export function ComposeModal({
             rejectionInFlight={rejectionInFlight}
           />
         )}
+        {accountReasons}
         <Textarea
           className="compose-body"
           aria-label={t("compose.body")}
           placeholder={t("compose.body")}
           value={body}
           disabled={rejectionInFlight}
-          onChange={(event) => {
-            const next = event.target.value;
-            setBody(next);
-            // An emptied body no longer holds the served draft, and the fill
-            // rule above will re-adopt on the next draft. Keeping the old
-            // reference across the gap would bind the next send's outcome to
-            // words the rep deleted, and keeping the disclosure would announce
-            // a model draft over an empty field the rep is about to fill.
-            if (!next) {
-              setDraftRef(null);
-              setProvenance(null);
-            }
-          }}
+          onChange={(event) => editBody(event.target.value)}
         />
 
         <label className="t-body compose-check">

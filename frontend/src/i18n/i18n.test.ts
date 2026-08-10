@@ -20,6 +20,13 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
   "today.meeting.headline",
+  // Two names and a separator, or a name and an amount: every word is a
+  // placeholder and the only literal is punctuation.
+  "today.route.headline",
+  "today.deal.headline",
+  // An em dash standing in for a figure nobody can compute yet. A glyph, not a
+  // word — the sentence explaining it is the detail line beside it.
+  "co.strip.financeUnknown",
   // Brand and provider names: proper nouns, not translated in any locale.
   "connectors.provGmail",
   "connectors.provGcal",
@@ -28,6 +35,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.s4.provGoogle",
   "ob.s4.provMicrosoft",
   "ob.conv.connect.linkedinName",
+  "co.chip.linkedin",
   "auth.coreProviderAnthropic",
   "auth.coreProviderGemini",
   "auth.coreProviderOllama",

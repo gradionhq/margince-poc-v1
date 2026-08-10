@@ -39,12 +39,13 @@ arrive through props, translated by the caller with `t()`.
 | `SegmentedControl` | A small closed set of options, all visible at once | `atoms.tsx` | ✅ |
 | `RecordPicker` | Search → candidates → pick, for choosing an existing record | `recordpicker.tsx` | ✅ |
 | `PassportSelect` / `ScopeChips` | Which agent passport, and the scopes it carries | `passportselect.tsx` | — |
-| `Modal` | The one dialog: portalled, Escape-closing, Tab kept inside | `atoms.tsx` | ✅ |
+| `Modal` | The one dialog: portalled, Escape-closing, Tab kept inside. `placement="right"` is the drawer form — full height on the right edge, the record behind still legible; on a phone both are the same full-screen sheet | `atoms.tsx` | ✅ |
 | `ConfirmModal` | A dialog that asks before something irreversible | `confirmmodal.tsx` | ✅ |
 | `OverflowMenu` | The verbs a record offers but a reader rarely wants | `atoms.tsx` | ✅ |
 | `Disclosure` | A section the reader opens when they want it | `atoms.tsx` | ✅ |
 | `Card` / `EmptyState` / `SectionHeader` / `Skeleton` / `Kbd` | Page furniture: surface, nothing-here, heading row, loading placeholder, key cap | `atoms.tsx` | ✅ |
 | `StatCard` / `AttainmentRing` | One reading with the basis it was drawn from; the server's attainment band as an arc | `atoms.tsx` | ✅ |
+| `Meter` / `Sparkline` / `Chip` | A proportion as a bar (pass `value` and `max`, never a percentage), a short series as a bare polyline, and one attribute of a record as an icon pill — a `Chip` is a fact, a `Badge` is a status | `readings.tsx` | ✅ |
 | `DataTable` | A simple column/row table with optional row navigation | `atoms.tsx` | ✅ |
 | `EvidenceMark` | The ONE §4 provenance affordance: a dotted underline on a value a person did not type, opening to where it came from | `evidencemark.tsx` | ✅ |
 | `AutonomyDot` | The 🟢/🟡 autonomy semantics as a token component — never an emoji glyph | `trust.tsx` | ✅ |

@@ -86,3 +86,19 @@
   border-radius: var(--r-sm);
   background: var(--dangerBg);
 }
+
+/* What the draft was written from, above the body it explains. The reasons
+   are the same answer read twice — a line for scanning before the draft, and
+   chips for checking one input after — so they share a block rather than
+   sitting in two places the reader has to connect. */
+.compose-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--bgCard);
+  border-radius: var(--r-md);
+}
+.compose-reasons .chips {
+  margin: 0;
+}

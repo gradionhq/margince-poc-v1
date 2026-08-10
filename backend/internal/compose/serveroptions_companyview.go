@@ -22,9 +22,28 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 )
+
+// WithAccountDraft binds the lane that writes an account-started email
+// (ADR-0087/A132) — the drafting half of the pair whose sending half is
+// POST /emails.
+//
+// Without it the endpoint still answers, from the deterministic floor: a
+// deployment running no model still has a rep who pressed "Write email", and
+// a short opener they edit beats a refusal.
+//
+// It takes no pool, unlike every other option here. That is the zero-write
+// guarantee expressed as a dependency: drafting reads the caller's 360 and
+// writes nothing, so there is nothing for a transaction to do.
+func WithAccountDraft(brain completer) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		svc := accountdraft.NewService(s.org360Svc, brain)
+		s.accountDraftHandlers = accountdraft.NewHandlers(svc, s.sorDispatch.isOverlay)
+	}
+}
 
 // WithAccountBrief binds the summarize lane both of the company view's
 // grounded-prose surfaces are written by — the standing brief and the

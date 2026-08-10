@@ -126,7 +126,7 @@ func TestResolveModelPathRoutingFileArmSurfacesLoadError(t *testing.T) {
 // TestColdStartOptionsRespectsResolvedPath proves coldStartOptions is a
 // pure consumer of the resolved path now: nil in, nil out (the 501
 // posture); a bound path in, the cold-start/scrape/brief/dossier/growth-fit/reply
-// set out.
+// set out, plus the account-started draft.
 func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 	if got := coldStartOptions(nil, ""); got != nil {
 		t.Fatalf("coldStartOptions(nil) = %d options, want 0", len(got))
@@ -135,9 +135,10 @@ func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}
-	if got := coldStartOptions(modelPath, ""); len(got) != 7 {
+	if got := coldStartOptions(modelPath, ""); len(got) != 8 {
 		t.Fatalf(
-			"coldStartOptions(bound path) = %d options, want 7 (cold-start, scrape, morning brief, account brief, company dossier, growth fit, reply draft)",
+			"coldStartOptions(bound path) = %d options, want 8 (cold-start, scrape, morning brief, "+
+				"account brief, company dossier, growth fit, reply draft, account draft)",
 			len(got))
 	}
 }
