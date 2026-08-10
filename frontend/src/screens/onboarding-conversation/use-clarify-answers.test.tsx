@@ -525,6 +525,41 @@ describe("useClarifyAnswers — the siblings one legal pick settles", () => {
     expect(result.current.answers).toEqual([]);
   });
 
+  // The block is settled by a PICK that resolved to a candidate — the one
+  // event that fills all three fields at once. `LEGAL_BLOCK` also holds the
+  // address and the register number, so reading the set alone let an answer
+  // about either of those close the questions about the other two while
+  // filling nothing behind them.
+  it("stays out of the way when the authorized answer settles one field rather than a whole entity", async () => {
+    stubAuthorizedReply();
+    const { result } = setupHook(
+      [gradionEntity],
+      addressClarify,
+      undefined,
+      EMPTY_DRAFT,
+      [entityClarify],
+    );
+
+    act(() => {
+      result.current.answerClarify(
+        addressClarify.id,
+        gradionEntity.registered_address ?? "",
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.answers).toContainEqual(
+        expect.objectContaining({ clarifyId: addressClarify.id }),
+      ),
+    );
+    // The address is answered; which company this is remains an open question.
+    expect(
+      result.current.answers.some(
+        (answer) => answer.clarifyId === entityClarify.id,
+      ),
+    ).toBe(false);
+  });
+
   it("never overwrites what a person already said about one of them", async () => {
     stubAuthorizedReply();
     const { result } = setupHook(

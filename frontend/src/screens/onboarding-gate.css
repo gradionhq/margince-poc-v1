@@ -767,12 +767,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ob-scan-ticker-entry {
-    animation: none;
-  }
-}
-
 /* ===== breakpoints ====================================================== */
 
 @media (max-width: 899px) {
@@ -814,7 +808,8 @@
      present and complete on the first frame. */
   .ob-gate > *,
   .ob-scan-phase-text,
-  .ob-scan-tile {
+  .ob-scan-tile,
+  .ob-scan-ticker-entry {
     animation: none;
   }
   /* The two liveness loops are pure motion, so under reduced motion they resolve

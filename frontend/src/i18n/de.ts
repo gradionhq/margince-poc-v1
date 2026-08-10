@@ -2114,9 +2114,9 @@ export const de = {
   "ob.s4.googleBtn": "Zugriff auf mein Gmail erlauben",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
-    "Nur Lesezugriff. Du bestätigst bei Google und kannst jederzeit trennen.",
+    "Liest deine Mails und sendet nur, was du freigibst. Du bestätigst bei Google und kannst jederzeit trennen.",
   "ob.s4.googleUnverified":
-    "Zeigt Google „nicht verifizierte App“, wähl Erweitert → Fortfahren. Margince liest nur.",
+    "Zeigt Google „nicht verifizierte App“, wähl Erweitert → Fortfahren. Ohne deine Freigabe geht nichts raus.",
   "ob.s4.googleOkTitle": "Gmail verbunden",
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",

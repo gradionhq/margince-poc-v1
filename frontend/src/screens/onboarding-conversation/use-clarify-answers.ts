@@ -167,11 +167,22 @@ export function useClarifyAnswers({
   // A sibling the human has already answered or dismissed keeps THEIR record:
   // a retirement is what the machine concluded, and it never overwrites what a
   // person said about the same question.
+  //
+  // The caller passes the entity, and passing one is the whole permission: the
+  // block is settled by a PICK that resolved to a candidate, which is the only
+  // event that fills all three fields at once. Reading `LEGAL_BLOCK` alone was
+  // too wide — the set holds the address and the register number too, so an
+  // authorized answer to either of those retired the questions about the other
+  // two while filling nothing behind them.
   const retireLegalSiblings = useCallback(
-    (answeredId: string) => {
+    (answeredId: string, entity: LegalEntity | undefined) => {
       const questions = proposalRef.current?.open_questions ?? [];
       const answered = questions.find((question) => question.id === answeredId);
-      if (answered === undefined || !LEGAL_BLOCK.has(answered.field)) {
+      if (
+        entity === undefined ||
+        answered === undefined ||
+        !LEGAL_BLOCK.has(answered.field)
+      ) {
         return;
       }
       setAnswers((current) => {
@@ -229,13 +240,17 @@ export function useClarifyAnswers({
         isCompanyField(selection.field, values) &&
         values[selection.field] !== selection.value;
       if (authorized.length > 0) {
+        // Resolved once and handed to both: the entity that carries the block
+        // into the draft is the same one whose arrival settles the sibling
+        // questions, so neither can be true without the other.
+        const entity = pickedLegalEntity(selection, legalEntitiesRef.current);
         applyAuthorizedChoice(
           authorized,
-          pickedLegalEntity(selection, legalEntitiesRef.current),
+          entity,
           applyChanges,
           applyLegalEntity,
         );
-        retireLegalSiblings(selection.clarifyId);
+        retireLegalSiblings(selection.clarifyId, entity);
       } else if (changeNeeded) {
         rollback(selection.clarifyId);
         setFailure({ kind: "unconfirmed" });

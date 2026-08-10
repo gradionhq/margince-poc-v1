@@ -2089,9 +2089,9 @@ export const en = {
   "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
-    "Read-only access. You approve it on Google's own screen, and can disconnect any time.",
+    "Reads your mail, and sends only what you approve. You grant it on Google's own screen, and can disconnect any time.",
   "ob.s4.googleUnverified":
-    "If Google warns about an “unverified app”, choose Advanced → Continue. Margince only reads.",
+    "If Google warns about an “unverified app”, choose Advanced → Continue. Nothing sends without your approval.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",

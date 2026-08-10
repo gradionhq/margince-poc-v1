@@ -2103,9 +2103,9 @@ export const vi = {
   "ob.s4.googleBtn": "Cho phép truy cập Gmail của tôi",
   "ob.s4.soon": "Sắp có",
   "ob.s4.googleHint":
-    "Chỉ đọc. Bạn duyệt trên màn hình của Google và ngắt kết nối lúc nào cũng được.",
+    "Đọc thư của bạn và chỉ gửi những gì bạn duyệt. Bạn cấp quyền trên màn hình của Google và ngắt kết nối lúc nào cũng được.",
   "ob.s4.googleUnverified":
-    "Nếu Google báo “ứng dụng chưa xác minh”, chọn Nâng cao → Tiếp tục. Margince chỉ đọc.",
+    "Nếu Google báo “ứng dụng chưa xác minh”, chọn Nâng cao → Tiếp tục. Không gì được gửi nếu bạn chưa duyệt.",
   "ob.s4.googleOkTitle": "Đã kết nối Gmail",
   "ob.s4.googleOkBody":
     "Việc thu thập đang chạy nền — email mới lên timeline trong khoảng một phút, và từ giờ tự giữ đồng bộ.",

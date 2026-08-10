@@ -89,15 +89,23 @@ describe("the onboarding type scale", () => {
     });
   }
 
-  // The `font:` shorthand carries size, weight and leading at once, so a raw
-  // one slips past all four checks above.
+  // The `font:` shorthand carries family, size, weight and leading at once, so
+  // a raw one slips past all four checks above.
+  //
+  // Subtracting the tokens and requiring nothing to remain, rather than looking
+  // for digits: half the shorthand's vocabulary is keywords, so a digit hunt
+  // waved through `font: italic small-caps bold large/normal serif` — six raw
+  // values and not a numeral among them.
   it("spells every font shorthand as tokens", () => {
     for (const sheet of sheets) {
       const css = readFileSync(sheet, "utf8");
       for (const declaration of declarationsOf(css, /\bfont\s*:\s*[^;}]+/g)) {
+        const value = declaredValue(declaration);
+        const leftovers = value
+          .replace(/var\(--(?:f|fs|fw|lh)-[\w-]+\)/g, "")
+          .replace(/[\s/]/g, "");
         expect(
-          /^font\s*:\s*inherit\s*$/.test(declaration.trim()) ||
-            !/[0-9]/.test(declaration.replace(/var\([^)]*\)/g, "")),
+          value === "inherit" || leftovers === "",
           `${sheet.split("/").slice(-2).join("/")}: "${declaration.trim()}" — use the type tokens from tokens.css`,
         ).toBe(true);
       }
