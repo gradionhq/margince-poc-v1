@@ -13,10 +13,9 @@ flip. `extensions/crm-demo` is the **reference unit** and exercises every capabi
 unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
 agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
 
-The one capability a unit still **cannot** own is a frontend: `gen-composition` refuses an
-`extensions/<name>/frontend/` directory on sight. A unit gets a route and a generic descriptor card
-automatically; a bespoke screen for a unit is written in the **core** tree, which makes removal a
-two-place operation (see [Ship it](#ship-it)).
+A unit owns **all six** surfaces, frontend included: `extensions/<name>/frontend/` is a pnpm workspace
+package whose default export the SPA mounts at `#/ext/<name>`. A unit that ships none still gets a
+route and a generic descriptor card automatically.
 
 Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
 a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
@@ -294,6 +293,53 @@ key, err := rt.Secrets().Get(ctx, "signing") // errors.Is(err, extension.ErrSecr
 Declaring grants and stores nothing — it is a request recorded in the manifest. Keys are your unit's own
 bare names, namespaced for you; there is no method that takes another unit's name.
 
+## Own a screen — `frontend/`
+
+Ship `extensions/<name>/frontend/package.json` and the module it names. The package is a workspace
+member, so it may bring its own dependencies; `pnpm install` from the repo root links it.
+
+```json
+{
+  "name": "@margince-ext/<name>",
+  "private": true,
+  "type": "module",
+  "main": "screen.tsx",
+  "peerDependencies": {
+    "@margince/frontend": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
+    "react": "^19.2.0"
+  }
+}
+```
+
+Four rules, each refused at generation because each fails somewhere worse otherwise:
+
+- **`@margince-ext/<name>`, matching the directory.** One workspace holds every enabled unit, so a
+  shared name is two members claiming one identity and pnpm resolves whichever it saw last.
+- **`private: true`.** A workspace member that is not private is one `pnpm publish -r` from a registry.
+- **`main` names a module that exists**, and its **default export** is the screen.
+- **React, react-dom and `@tanstack/react-query` are PEERS, never dependencies.** Each keeps state the
+  host owns — React's hook dispatcher, react-query's QueryClient context — and a second copy is a
+  second, empty one. This is the rule that fails at *run time* if you get it wrong: hooks throw with a
+  message naming neither the unit nor the cause, or the first `useQuery` reports no QueryClient on a
+  page that plainly has one.
+
+**Import the core only through `@margince/frontend/<subpath>`** — `design-system`, `api`, `app`, as
+published by `frontend/package.json`'s `exports` map. That map is this side's
+`//margince:extension-surface`: the Go tier gets its boundary from the compiler, a bundler gives none,
+so `frontend/scripts/check-ext-imports.sh` is the boundary. It refuses a relative path escaping your
+unit, an unpublished subpath, and any bare specifier your own `package.json` does not declare —
+`devDependencies` count for test files only, so a screen cannot pull a test runner into the bundle.
+
+The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
+unit exactly as they sweep core.
+
+**Ship your copy with your screen.** Put one flat JSON object per locale in
+`frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extCrmDemo.notes.add`. The composer merges
+them into the one catalogue, so `useT()` resolves your keys and core's through the same lookup. Supply
+**every** locale the installation ships (en, de, vi) or generation refuses: a reader of the missing one
+gets a blank screen. Keys outside your namespace are refused too — a unit does not rewrite core copy.
+
 ## Own scheduled jobs
 
 Declare **two kinds** in `api/jobs.yaml`: a cadenced `dispatcher` that fans out over the live fleet, and a
@@ -396,15 +442,9 @@ you add to the unit later are silently ignored too. (`git add -f` stages the fil
 directory ignored, so it is not a substitute for the exception.) A purely local, per-installation unit
 is *meant* to stay ignored: its presence in the working tree already enables it for that install.
 
-**Removing a unit is a removal in two places**, for as long as its screen lives in core (see
-`frontend/src/screens/ext/index.tsx`). `git rm -r extensions/<name>` alone leaves that screen calling
-routes the merged contract no longer publishes, and `make fe-typecheck-composed` fails. Remove the
-screen and its entry in the same commit. Use `git rm`, not `mv` or `rm`: `make drift` compares the
-working tree against the INDEX, so an unstaged deletion of the committed
-`manifest.generated.json` fails the gate on a removal that is otherwise correct. Deleting the last
-entry leaves the registry an empty object, which the formatter wants on one line — finish with
-`pnpm -C frontend exec biome check --write src/screens/ext/index.tsx`, or `check-fe` fails on
-formatting alone. The full recipe is verified green; see [Ship it](#ship-it).
+**Removing a unit is a removal in ONE place** — the unit's own directory. Use `git rm`, not `mv` or
+`rm`: `make drift` compares the working tree against the INDEX, so an unstaged deletion of the
+committed `manifest.generated.json` fails the gate on a removal that is otherwise correct.
 
 Then commit **the complete unit directory** — every source and test file plus its module metadata
 (`go.mod`, and `go.sum` if it carries third-party dependencies) — together with the `.gitignore`
@@ -413,25 +453,23 @@ tracked `composition/` stub unchanged unless you are deliberately changing the v
 off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
 merge only when the gates are green.
 
-**Removing a unit is a two-place operation**, and this is the whole recipe — run end to end against
-`crm-demo`, with `make check-q` green afterwards:
+**Removal is the unit's directory and nothing else**, and this is the whole recipe — run end to end
+against `crm-demo`, with the gate green afterwards:
 
 ```bash
-git rm -r extensions/<name> \
-       frontend/src/screens/ext/<name>.tsx frontend/src/screens/ext/<name>.test.tsx
-# drop the unit's line (and its import) from frontend/src/screens/ext/index.tsx
-pnpm -C frontend exec biome check --write src/screens/ext/index.tsx
-git add -A && make check-q
+git rm -r extensions/<name>
+rm -rf extensions/<name>   # the IGNORED install output git rm leaves behind
+pnpm install               # prune the workspace member from the lockfile
+make check-q
 ```
 
-`git rm`, never `mv` or `rm`: a moved directory is still a directory under `extensions/`, and an
-unstaged deletion of the committed `manifest.generated.json` fails `make drift` on a removal that is
-otherwise correct. The biome step is not optional — deleting the last screen leaves
-`export const extensionScreens: ExtensionScreenRegistry = {\n};`, and the formatter wants `{}`.
+The `rm -rf` is not tidiness: `git rm` takes the tracked files and leaves `node_modules`, so the
+directory survives holding nothing a human wrote — and presence under `extensions/` IS enablement, so
+the composer still sees a unit. It says exactly that if you forget.
 
-Nothing else needs editing. In particular no core TEST needs touching: the one that used to hard-code
-the unit's path (`gen-composition`'s namespace-wall fixture pairing) skips when the unit is absent,
-because removing a unit must not require editing the core's tests. Removal
+`git rm`, never `mv`: a moved directory is still a directory under `extensions/`.
+
+No core file is edited, and no core TEST needs touching. Removal
 *disables* cleanly — routes 404, the inventory omits the unit, migrations skip it — but it does **not
 purge**: the unit's tables and rows, its `extension_secret` rows and any grants of its RBAC objects
 inside `role.permissions` all survive. There is no purge primitive yet (#628).

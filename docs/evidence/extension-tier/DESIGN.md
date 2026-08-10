@@ -780,10 +780,13 @@ composition must fail loudly rather than typecheck against a stale contract.
 
 ### 4.6 Frontend, the sixth surface — a unit ships its own package
 
-> **Status: designed, not yet built.** Unlike every section above it, this one was written *before* its
-> code rather than reconciled against it, so read it as intent. It is reconciled in place when the
-> slice lands, and until then §4.5's "as built" statements elsewhere in this document — §2.2's removal
-> cost, §4's surface table, §5's refusal row — remain the accurate description of the tree.
+> **Status: BUILT, and reconciled against the code.** This section was written before its slice and
+> has been corrected in place against what shipped. Where the design and the build disagreed, the build
+> won; what the build taught that the design did not predict is recorded at the end.
+>
+> The consequence for the rest of this document: §2.2's "removal is two places", §4's "the screen is a
+> **core** file" and §5's "except `frontend`, which is still refused" are now **superseded** — removal
+> is one place, the screen is the unit's, and `unbuiltCapabilityLayers` is empty.
 
 §4.5 declined to bundle unit-authored TSX because it had no answer to the supply-chain question. This
 section answers it: **a unit's frontend is a pnpm workspace package**, with its own `package.json` and
@@ -844,6 +847,35 @@ collide head-on the moment a unit has a dependency. `node_modules` is excluded f
 alongside the manifest that is already excluded, and for the same class of reason: it is resolved
 output, not unit source, and what pins it is the lockfile. The symlink refusal itself is unchanged
 everywhere else.
+
+**What the build taught that this design did not predict.** Six things, each now a comment where it
+bit:
+
+1. **The generated screen registry can import NOTHING.** It is written to two locations at different
+   depths and byte-identity forbids a specifier that differs between them; a bare one is no better,
+   because nothing resolves from `build/composition/`. The registry is emitted untyped and `App.tsx`
+   applies `ExtensionScreenRegistry` at the import site — the check moves rather than disappearing.
+2. **A unit is resolved by NAME through a path mapping, not installed as a dependency of the SPA.**
+   pnpm links a member into its *dependents'* `node_modules`, so installing it would mean
+   `frontend/package.json` listing every enabled unit — an upstream file adding a unit would edit,
+   which is the property this tier exists to protect. Workspace membership still earns its keep: it is
+   what installs and resolves a unit's OWN dependencies.
+3. **`@tanstack/react-query` is a hosted peer, not just React.** Its QueryClient lives in a React
+   context, so a unit with its own copy reads a different context than the provider the app mounted and
+   its first `useQuery` reports no QueryClient on a page that plainly has one.
+4. **Core's `useT` stays narrow; the widening lives on the surface.** `ReturnType<typeof useT>` is the
+   parameter type ~26 core helpers take a translator as, and widening the core return makes every
+   core-only test fake stop being assignable — for a capability no core helper uses.
+5. **`git rm -r` leaves the ignored install behind**, so a removed unit's directory survives holding
+   nothing a human wrote, and presence under `extensions/` is enablement. The composer now recognises
+   that shape and says what to do rather than reporting a missing `go.mod`.
+6. **Removing the LAST frontend-bearing unit** left the composed-tests project with no inputs, which
+   TypeScript treats as an error. The committed stub is included beside the glob, so the tier survives
+   a tree that uses none of it.
+
+**Proof, by doing it.** `git rm -r extensions/crm-demo` + `rm -rf` + `pnpm install`, no core file
+edited, `make check-fe` green — then the unit restored and green again. Findings 5 and 6 are both
+things only that exercise could have found.
 
 ## 5. Gates
 
