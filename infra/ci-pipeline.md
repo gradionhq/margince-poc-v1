@@ -249,19 +249,24 @@ Wiring details:
   exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
 - **`release.yml`** — on every push to `main` (and to `test`, where the flow is
-  exercised against the constellation deployment at test.margince.com), drafts
+  exercised against the constellation deployment at test.margince.com), cuts
   a margince-constellation release versioned `<year>.<build>` in the dist
   service — not a GitHub release: the release-management CLI cuts the
-  incremental patch over the push's range and uploads it with `draft-release`,
-  then the three role images are built through the bake file
+  incremental patch over the push's range and uploads it with `draft-release`
+  together with the three source-tree SBOMs regenerated at the release commit
+  (`make sbom` — the dist service verifies the SBOMs attest every file the
+  patch produces, so the possibly-lagging committed `sboms/` are never
+  uploaded), then the three role images are built through the bake file
   (`docker-bake.hcl`), pushed to the constellation registry
   (`registry.test.margince.com/margince/<role>`, authenticated as the
-  registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret),
-  and added to the draft as digest-pinned references with `add-artifacts`. Publishing the release is
-  deliberately not part of the workflow yet. The upload authenticates with the
+  registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
+  the draft as digest-pinned references with `add-artifacts`, and the release
+  is published with `publish-release`. The dist uploads authenticate with the
   dist publisher token (the `MARGINCE_DIST_PUBLISHER_TOKEN` secret). The two
   degenerate patch cases go opposite ways: a branch creation (all-zeros
   `before`) or a force-push (a `before` the fetched history no longer reaches)
-  has no ancestor to diff from, so the release drafts **without a patch**,
-  while a **manual dispatch** carries no push range at all and falls back to
-  the parent commit (`HEAD~1..HEAD`). Not a gate — it never blocks a merge.
+  has no ancestor to diff from, so the release drafts **without a patch** and
+  **stays an unpublished draft** (the dist completeness gate requires the
+  patch), while a **manual dispatch** carries no push range at all and falls
+  back to the parent commit (`HEAD~1..HEAD`). Not a gate — it never blocks a
+  merge.

@@ -7,11 +7,12 @@ name: release
 #
 # The flow, in order: draft the release versioned <year>.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
-# scheme) with the incremental patch attached, then build the three role
-# images through the bake file (docker-bake.hcl), push them to the
-# constellation registry, and add them to the draft as digest-pinned image
-# references. Publishing the release is deliberately NOT part of this
-# workflow yet.
+# scheme) with the incremental patch and the three freshly generated
+# source-tree SBOMs attached, then build the three role images through the
+# bake file (docker-bake.hcl), push them to the constellation registry, add
+# them to the draft as digest-pinned image references, and finally publish
+# the release. The dist service publishes only a complete draft (patch + all
+# three SBOMs), so a release that drafted without a patch stays a draft.
 #
 # Both the patch cut and the release upload go through the release-management
 # CLI (a closed-source tool built and published from
@@ -61,6 +62,7 @@ jobs:
       packages: read
     outputs:
       version: ${{ steps.draft.outputs.version }}
+      patched: ${{ steps.draft.outputs.patched }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,6 +75,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      # Fresh SBOMs at the release commit, through the full pinned pipeline
+      # (generate, normalize, supplement, parity, validate). The dist service
+      # verifies that the SBOMs attest the bytes of every file the patch
+      # produces; both are derived from the same commit, so they agree by
+      # construction — the committed sboms/ may lag the tree and must not be
+      # uploaded as release artifacts.
+      - name: Generate the SBOMs at the release commit
+        run: make sbom
       - name: Cut the patch and draft the release
         id: draft
         env:
@@ -118,8 +128,10 @@ jobs:
               "$RELEASE_MANAGEMENT_IMAGE" \
               create-patch -from "$base" -to "$AFTER" -repo . -out "$GITHUB_REF_NAME-$AFTER.patch"
             patch_args=(-patch "$GITHUB_REF_NAME-$AFTER.patch")
+            echo "patched=true" >> "$GITHUB_OUTPUT"
           else
             echo "No ancestor commit to diff from; drafting the release without a patch." >&2
+            echo "patched=false" >> "$GITHUB_OUTPUT"
           fi
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -128,7 +140,10 @@ jobs:
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
             "$RELEASE_MANAGEMENT_IMAGE" \
-            draft-release -version "$version" -revision "$AFTER" "${patch_args[@]}"
+            draft-release -version "$version" -revision "$AFTER" "${patch_args[@]}" \
+            -sbom-cyclonedx sboms/margince.cdx.json \
+            -sbom-spdx22 sboms/margince.spdx221.json \
+            -sbom-spdx30 sboms/margince.spdx300.json
 
   # Build the three role images through the bake file (docker-bake.hcl), push
   # them to ghcr, and add all three to the drafted release in ONE add-artifacts
@@ -205,3 +220,35 @@ jobs:
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
             "$RELEASE_MANAGEMENT_IMAGE" \
             add-artifacts -version "$VERSION" "${images[@]}"
+
+  # Publish only after the images are attached, so a published release always
+  # carries its images even though the dist completeness gate only requires
+  # the patch and the SBOMs. A release that drafted without a patch cannot
+  # pass that gate, so it deliberately stays a draft (the degenerate
+  # branch-creation/force-push case).
+  publish:
+    name: publish release
+    needs: [draft, docker-image]
+    if: needs.draft.outputs.patched == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Pull the private release-management image from ghcr.io with the
+      # default GITHUB_TOKEN.
+      packages: read
+    steps:
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Publish the release
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        run: |
+          docker run --rm \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            publish-release -version "$VERSION"
