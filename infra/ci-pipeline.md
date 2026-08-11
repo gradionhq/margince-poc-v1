@@ -267,7 +267,13 @@ Wiring details:
   uploaded), then the three role images are built through the bake file
   (`docker-bake.hcl`, linux/amd64 + linux/arm64 with `mode=max` provenance
   attestations — the builder stages cross-compile natively, only runtime
-  layers run emulated), pushed to the constellation registry
+  layers run emulated). The bake warms up from two Actions caches, because
+  the runner is ephemeral: `CACHE=gha` exports the layer cache per role
+  (its durable win is the dependency-download layer, which busts only on a
+  module-pin change), and buildkit-cache-dance + actions/cache carry the
+  BuildKit cache-mount contents (Go compile cache, pnpm store, tsc
+  `.tsbuildinfo`) across runs — mounts are not layers, so no layer cache
+  covers them. The images are pushed to the constellation registry
   (`registry.test.margince.com/margince/<role>`, authenticated as the
   registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
   the draft as digest-pinned references with `add-artifacts`, and the release

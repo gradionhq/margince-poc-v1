@@ -30,7 +30,9 @@ name: Release
 # no push range, so it falls back to the parent commit (HEAD~1..HEAD).
 on:
   push:
-    branches: [main]
+    # ci/docker-build-cache is verification scaffolding for the build-cache
+    # work — drop it from this list before that branch merges.
+    branches: [main, ci/docker-build-cache]
   workflow_dispatch:
 
 permissions:
@@ -183,6 +185,39 @@ jobs:
       # metadata file carries no pushed-manifest digest, and the digest is
       # exactly what the release records.
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # The runner is ephemeral, so every bake would otherwise start cold. Two
+      # caches bridge the runs, and they cover different things:
+      #   - CACHE=gha (docker-bake.hcl) exports the LAYER cache — its one
+      #     durable win is the dependency-download layer, which only busts
+      #     when a module pin changes. This step exposes the Actions cache
+      #     credentials buildx needs for type=gha.
+      #   - The cache MOUNTS (the Go compile cache, the pnpm store, tsc's
+      #     .tsbuildinfo) are not layers and no layer cache carries them;
+      #     actions/cache + buildkit-cache-dance below save and restore their
+      #     contents around the bake.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: Restore the BuildKit cache-mount contents
+        id: mount-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .buildx-mount-cache
+          # Keyed by commit so every run saves its (grown) caches; the
+          # restore-key makes any previous run's save the starting point.
+          key: buildx-mounts-${{ github.sha }}
+          restore-keys: |
+            buildx-mounts-
+      - name: Inject the cache-mount contents into the builder
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          utility-image: ghcr.io/containerd/busybox:1.36@sha256:7b3ccabffc97de872a30dfd234fd972a66d247c8cfc69b0550f276481852627c
+          cache-map: |
+            {
+              ".buildx-mount-cache/go-build": { "target": "/root/.cache/go-build", "id": "margince-gobuild" },
+              ".buildx-mount-cache/pnpm-store": { "target": "/pnpm-store", "id": "margince-pnpm-store" },
+              ".buildx-mount-cache/tsbuildinfo": { "target": "/app/frontend/node_modules/.tmp", "id": "margince-tsbuildinfo" },
+              ".buildx-mount-cache/corepack": { "target": "/root/.cache/node/corepack", "id": "margince-corepack" }
+            }
+          skip-extraction: ${{ steps.mount-cache.outputs.cache-hit }}
       # ghcr only for pulling the private release-management CLI image; the
       # baked images go to the constellation registry, authenticated as the
       # registry publisher (the token-auth realm's reserved identity, whose
@@ -201,6 +236,7 @@ jobs:
           REPO: registry.test.margince.com/margince
           VERSION: ${{ needs.draft.outputs.version }}
           PLATFORMS: linux/amd64,linux/arm64
+          CACHE: gha
           MARGINCE_BUILD_REVISION: ${{ github.sha }}
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |

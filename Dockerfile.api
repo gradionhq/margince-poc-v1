@@ -18,17 +18,35 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
+WORKDIR /src
+
+# Dependency manifests first, so the module download is a layer of its own:
+# it re-runs when a dependency pin changes, never on a source edit, and the
+# release workflow's exported layer cache turns it into a cross-run hit. The
+# modules live IN the layer (no cache mount here) for exactly that reason.
+# The composed workspace folds in extensions/* on top; anything those need
+# beyond this set is fetched in the build step below.
+COPY go.work go.work.sum ./
+COPY backend/go.mod backend/go.sum ./backend/
+COPY backend/tools/go.mod backend/tools/go.sum ./backend/tools/
+COPY cli/craft/go.mod ./cli/craft/
+COPY composition/go.mod composition/go.sum ./composition/
+RUN GOWORK=/src/go.work go mod download
+
 # The whole repo is the build context — the composed workspace references
 # ../backend, ../backend/tools, ../cli/craft and ../extensions/* by relative
 # path, so a partial copy would break gen-composition.
-WORKDIR /src
 COPY . .
 
 # Materialize build/composition/ from the enabled extension set. gen-composition
 # runs pinned to the ROOT workspace (it lives in the separate backend/tools
 # module and must resolve before the composition exists).
+# The compile cache rides a shared mount: the api, worker and web images all
+# compile the same dependency graph, and the release workflow persists the
+# mount across runs (see .github/workflows/release.yml).
 WORKDIR /src/backend
-RUN GOWORK=/src/go.work go run ./tools/gen-composition
+RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
+    GOWORK=/src/go.work go run ./tools/gen-composition
 
 # Build the api + migrate binaries under the COMPOSED workspace. migrate ships in
 # this image so the api entrypoint can apply the embedded migrations as the owner
@@ -40,7 +58,8 @@ RUN GOWORK=/src/go.work go run ./tools/gen-composition
 # which DISABLES the comparison rather than alarming on it.
 ARG MARGINCE_BUILD_REVISION=""
 ARG TARGETARCH
-RUN GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
+RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
+    GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
         go build -ldflags="-s -w -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=$MARGINCE_BUILD_REVISION" \
         -o /bin/margince-api ./cmd/api \
     && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \

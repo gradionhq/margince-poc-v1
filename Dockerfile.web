@@ -6,12 +6,12 @@
 # the D13 ingress routes /v1 (+ /healthz /readyz /metrics) to the api service and
 # / to this one, both under the same host.
 
-# The BuildKit cache mounts below only pay off on a builder whose daemon outlives
-# the build — the D13 Jenkins agent, which is what the deploy pipeline uses. On an
-# ephemeral runner (this repo's own `docker image (web)` CI job, a fresh
-# ubuntu-latest per run) they start empty every time and cost nothing; making
-# those builds faster would need an exported cache (cache-to/cache-from type=gha)
-# or a persistent builder, which is a separate change to the workflow.
+# The BuildKit cache mounts below pay off on a builder whose daemon outlives
+# the build — the D13 Jenkins agent the deploy pipeline uses. On the release
+# workflow's ephemeral runner they would start empty, so release.yml saves and
+# restores their contents across runs (buildkit-cache-dance + actions/cache)
+# and exports the layer cache (cache-to/cache-from type=gha, wired in
+# docker-bake.hcl). A plain local build ignores all of that and still works.
 
 # ── Stage 1: compose (ADR-0069) ──────────────────────────────────────────────
 # The SPA has two lanes, exactly like the Go roles: a VANILLA build resolves the
@@ -35,9 +35,21 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS composer
 RUN apk add --no-cache git
 
 WORKDIR /src
+
+# Same dependency-manifests-first layer and shared compile-cache mount as the
+# Go role images (see Dockerfile.api): the download layer survives source
+# edits, and the mount shares gen-composition's compiled objects with them.
+COPY go.work go.work.sum ./
+COPY backend/go.mod backend/go.sum ./backend/
+COPY backend/tools/go.mod backend/tools/go.sum ./backend/tools/
+COPY cli/craft/go.mod ./cli/craft/
+COPY composition/go.mod composition/go.sum ./composition/
+RUN GOWORK=/src/go.work go mod download
+
 COPY . .
 WORKDIR /src/backend
-RUN GOWORK=/src/go.work go run ./tools/gen-composition
+RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
+    GOWORK=/src/go.work go run ./tools/gen-composition
 
 # ── Stage 2: build ───────────────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM node:24-alpine AS builder

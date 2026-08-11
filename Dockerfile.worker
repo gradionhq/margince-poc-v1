@@ -17,13 +17,26 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
+
+# Same dependency-manifests-first layer and shared compile-cache mount as
+# Dockerfile.api — the two builders are byte-identical up to the final go
+# build, so BuildKit dedupes the stages within one bake.
+COPY go.work go.work.sum ./
+COPY backend/go.mod backend/go.sum ./backend/
+COPY backend/tools/go.mod backend/tools/go.sum ./backend/tools/
+COPY cli/craft/go.mod ./cli/craft/
+COPY composition/go.mod composition/go.sum ./composition/
+RUN GOWORK=/src/go.work go mod download
+
 COPY . .
 
 WORKDIR /src/backend
-RUN GOWORK=/src/go.work go run ./tools/gen-composition
+RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
+    GOWORK=/src/go.work go run ./tools/gen-composition
 
 ARG TARGETARCH
-RUN GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
+RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
+    GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
         go build -ldflags="-s -w" -o /bin/margince-worker ./cmd/worker
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────

@@ -36,6 +36,16 @@ variable "PLATFORMS" {
   default = ""
 }
 
+# "gha" exports/imports the layer cache through the GitHub Actions cache, one
+# scope per role. Only the release workflow sets it: type=gha needs the Actions
+# runtime credentials in the builder's environment (release.yml exposes them),
+# so anywhere else the empty default keeps the bake self-contained. mode=max
+# exports the builder stages too — the dependency-download layer is the one
+# worth the upload, the source-dependent layers after it miss on every commit.
+variable "CACHE" {
+  default = ""
+}
+
 target "role" {
   context   = "."
   platforms = PLATFORMS == "" ? [] : split(",", PLATFORMS)
@@ -48,16 +58,22 @@ target "api" {
   inherits   = ["role"]
   dockerfile = "Dockerfile.api"
   tags       = ["${REPO}/api:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-api"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-api,mode=max"] : []
 }
 
 target "web" {
   inherits   = ["role"]
   dockerfile = "Dockerfile.web"
   tags       = ["${REPO}/web:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-web"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-web,mode=max"] : []
 }
 
 target "worker" {
   inherits   = ["role"]
   dockerfile = "Dockerfile.worker"
   tags       = ["${REPO}/worker:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-worker"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-worker,mode=max"] : []
 }
