@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/draftcheck"
 	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -69,6 +70,12 @@ type replyActivityData struct {
 	// The envelope is embedded rather than nested so its fields sit flat
 	// beside the activity's, which is the shape the bound check reads.
 	draftfloor.Envelope
+
+	// Recipient is who the reply is TO, by first name. Without it the model
+	// greets the only name it has - the sender's - and addresses the draft to
+	// its own author. Empty is an answer: a draft with no recipient name opens
+	// without one rather than guessing.
+	Recipient string `json:"recipient,omitempty"`
 
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body,omitempty"`
@@ -142,21 +149,24 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 	// timestamp tells them apart.
 	state := d.conversationState(activity)
 	envelope := d.envelope.Resolve(ctx, body, state)
+	recipient := d.recipientName(ctx, ids.From[ids.ActivityKind](anchor))
 
 	fallbackSubject, fallbackBody := activities.DeterministicEmailDraft(activities.DraftContext{
-		Topic:    topic,
-		Body:     body,
-		Band:     state.Band,
-		Threaded: threaded,
+		Topic:     topic,
+		Body:      body,
+		Band:      state.Band,
+		Threaded:  threaded,
+		Recipient: recipient,
 	}, intent)
 	data := replyActivityData{
 		// Already bounded: NewEnvelope caps the two identity fields, which are
 		// the only ones that come from a text column rather than being
 		// server-derived and fixed-shape.
-		Envelope: envelope,
-		Subject:  boundedRunes(topic, replyActivityMaxRunes),
-		Body:     boundedRunes(body, replyActivityMaxRunes),
-		Intent:   boundedRunes(strings.TrimSpace(intent), replyActivityMaxRunes),
+		Envelope:  envelope,
+		Recipient: boundedRunes(recipient, recipientMaxRunes),
+		Subject:   boundedRunes(topic, replyActivityMaxRunes),
+		Body:      boundedRunes(body, replyActivityMaxRunes),
+		Intent:    boundedRunes(strings.TrimSpace(intent), replyActivityMaxRunes),
 	}
 
 	voice := d.loadVoice(ctx)
@@ -164,7 +174,7 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 	if err != nil {
 		// Drafting is an assistive read, not the authority to send. Preserve
 		// the deterministic floor and leave the routed ai_call failure visible.
-		d.log.WarnContext(ctx, "model reply draft unavailable; using deterministic draft", "err", err)
+		d.logger().WarnContext(ctx, "model reply draft unavailable; using deterministic draft", "err", err)
 		return activities.DraftResult{Subject: fallbackSubject, Body: fallbackBody}, nil
 	}
 	disclosure := signals.Art50Disclosure
@@ -176,6 +186,45 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		VoiceProfileVersion: voiceVersion,
 		DraftRef:            draftRef,
 	}, nil
+}
+
+// logger is the drafter's log, defaulting rather than being required: the
+// certification case constructs a drafter with a brain and nothing else,
+// because the draft path itself does no I/O — and a degrade path that panicked
+// on the nil logger would fail the run for a reason that has nothing to do with
+// the draft being measured.
+func (d replyDrafter) logger() *slog.Logger {
+	if d.log == nil {
+		return slog.Default()
+	}
+	return d.log
+}
+
+// recipientMaxRunes bounds the greeting name in the prompt. A first name is a
+// first name; this is generous for one, and it keeps the payload's every field
+// bounded the way the certification harness assumes.
+const recipientMaxRunes = 200
+
+// recipientName is who this reply is written to, or nothing.
+//
+// A failure to resolve the name degrades to no name rather than failing the
+// draft: the person may be outside this caller's scope, the activity may be
+// linked to nobody, and in both cases an unnamed greeting is the honest answer.
+// The reason is logged, so a lookup that breaks for some other cause is visible
+// rather than silently reading as "no recipient".
+func (d replyDrafter) recipientName(ctx context.Context, anchor ids.ActivityID) string {
+	if d.store == nil {
+		return ""
+	}
+	recipient, err := d.store.ReplyRecipientFor(ctx, anchor)
+	if err != nil {
+		d.logger().WarnContext(ctx, "reply recipient unavailable; drafting without a greeting name", "err", err)
+		return ""
+	}
+	if recipient.FirstName != "" {
+		return recipient.FirstName
+	}
+	return recipient.FullName
 }
 
 // conversationState places the message being answered on the silence axis.
@@ -216,7 +265,7 @@ func (d replyDrafter) loadVoice(ctx context.Context) voiceContext {
 	}
 	profile, version, ok, err := d.voice.ActiveVoiceForActor(ctx)
 	if err != nil {
-		d.log.WarnContext(ctx, "voice profile lookup failed; drafting without voice", "err", err)
+		d.logger().WarnContext(ctx, "voice profile lookup failed; drafting without voice", "err", err)
 		return voiceContext{}
 	}
 	return voiceContext{profile: profile, version: version, ok: ok}
@@ -228,14 +277,14 @@ func (d replyDrafter) loadVoice(ctx context.Context) voiceContext {
 // failure as a rejected learning signal.
 func (d replyDrafter) completeVoiced(ctx context.Context, anchor ids.UUID, data replyActivityData, voice voiceContext) (replyDraft, *int, *string, error) {
 	if !voice.ok {
-		draft, err := d.complete(ctx, data, nil)
+		draft, err := d.completeChecked(ctx, data, nil)
 		return draft, nil, nil, err
 	}
 	block := func(fence promptfence.Fence) string {
 		return voiceDraftPromptBlock(voice.profile.PersonalityMD, voice.version.VoiceProfileMD,
 			ai.VersionExemplars(voice.version), ai.DecodeVersionStats(voice.version), fence)
 	}
-	draft, err := d.complete(ctx, data, block)
+	draft, err := d.completeChecked(ctx, data, block)
 	if err != nil {
 		return replyDraft{}, nil, nil, err
 	}
@@ -261,7 +310,7 @@ func (d replyDrafter) completeVoiced(ctx context.Context, anchor ids.UUID, data 
 		// The voice-styled draft kept tripping the floor: serve the plain
 		// draft instead and let the failure feed the learning panel.
 		d.recordVoiceRejection(ctx, voice, anchor, draft)
-		plain, plainErr := d.complete(ctx, data, nil)
+		plain, plainErr := d.completeChecked(ctx, data, nil)
 		return plain, nil, nil, plainErr
 	}
 	d.recordVoiceDraft(ctx, voice, anchor, draft)
@@ -300,7 +349,7 @@ func (d replyDrafter) recordVoiceDraft(ctx context.Context, voice voiceContext, 
 	}
 	if err := d.voice.RecordDraftedSignal(ctx, voice.profile.ID, voice.version.ProfileVersion,
 		voiceDraftRef(voice, anchor, draft), draft.Body); err != nil {
-		d.log.WarnContext(ctx, "voice draft signal not recorded", "err", err)
+		d.logger().WarnContext(ctx, "voice draft signal not recorded", "err", err)
 	}
 }
 
@@ -310,11 +359,11 @@ func (d replyDrafter) recordVoiceRejection(ctx context.Context, voice voiceConte
 	}
 	ref := voiceDraftRef(voice, anchor, draft)
 	if err := d.voice.RecordDraftedSignal(ctx, voice.profile.ID, voice.version.ProfileVersion, ref, draft.Body); err != nil {
-		d.log.WarnContext(ctx, "voice rejection signal not recorded", "err", err)
+		d.logger().WarnContext(ctx, "voice rejection signal not recorded", "err", err)
 		return
 	}
 	if _, err := d.voice.RejectDraft(ctx, voice.profile.ID, ref); err != nil {
-		d.log.WarnContext(ctx, "voice rejection signal not recorded", "err", err)
+		d.logger().WarnContext(ctx, "voice rejection signal not recorded", "err", err)
 	}
 }
 
@@ -344,7 +393,7 @@ func replyDraftSystemFor(system string, fence promptfence.Fence) string {
 // DNA state selects the variant per call — a loaded profile supplies a block and
 // takes the voice prompt, no profile takes the plain one — and both remain the
 // same invocation site: same schema, same bounds, same data boundary.
-func replyDraftRequest(activity replyActivityData, voiceBlock voiceBlockFor) (model.Request, error) {
+func replyDraftRequest(activity replyActivityData, voiceBlock voiceBlockFor, correction string) (model.Request, error) {
 	payload, err := json.Marshal(activity)
 	if err != nil {
 		return model.Request{}, fmt.Errorf("compose: encode reply activity context: %w", err)
@@ -360,6 +409,10 @@ func replyDraftRequest(activity replyActivityData, voiceBlock voiceBlockFor) (mo
 		system = replyDraftVoiceSystem
 		content = voiceBlock(fence) + "\n\n" + content
 	}
+	// The correction rides the USER turn and never the variant choice: it is
+	// feedback about one attempt, and a plain draft told to fix a phrase must
+	// stay a plain draft rather than silently becoming a voiced one.
+	content += correction
 	return model.Request{
 		System: replyDraftSystemFor(system, fence),
 		Messages: []model.Message{{
@@ -373,7 +426,12 @@ func replyDraftRequest(activity replyActivityData, voiceBlock voiceBlockFor) (mo
 }
 
 func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, voiceBlock voiceBlockFor) (replyDraft, error) {
-	req, err := replyDraftRequest(activity, voiceBlock)
+	return d.completeWith(ctx, activity, voiceBlock, "")
+}
+
+// completeWith is complete plus the correction a retry carries.
+func (d replyDrafter) completeWith(ctx context.Context, activity replyActivityData, voiceBlock voiceBlockFor, correction string) (replyDraft, error) {
+	req, err := replyDraftRequest(activity, voiceBlock, correction)
 	if err != nil {
 		return replyDraft{}, err
 	}
@@ -393,6 +451,49 @@ func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, 
 	}
 	if err := validateReplyDraft(draft); err != nil {
 		return replyDraft{}, err
+	}
+	return draft, nil
+}
+
+// completeChecked drafts, then reads what came back against the envelope it was
+// written into, and gives the model ONE chance to fix what it got wrong.
+//
+// The retry exists because the prompt rules keep losing to reflexes: "checking
+// in" and "we discussed" survive an explicit ban when the model has a gap to
+// paper over. Naming the exact phrase back to it is what a prompt sentence
+// cannot do, and one retry is the limit — a second is a model that will not
+// comply, and the caller has a deterministic floor for that.
+//
+// A retry that fails leaves the first draft standing. It has the defect, and it
+// is still a real draft a human can edit; refusing to answer would be worse.
+func (d replyDrafter) completeChecked(ctx context.Context, data replyActivityData, voiceBlock voiceBlockFor) (replyDraft, error) {
+	draft, err := d.complete(ctx, data, voiceBlock)
+	if err != nil {
+		return replyDraft{}, err
+	}
+	findings := draftcheck.Body(draft.Body, data.Lang(), data.Band())
+	if len(findings) == 0 {
+		return draft, nil
+	}
+
+	retried, retryErr := d.completeWith(ctx, data, voiceBlock, draftcheck.Feedback(findings))
+	if retryErr != nil {
+		d.logger().WarnContext(ctx, "draft correction retry failed; serving the first draft",
+			"findings", len(findings), "err", retryErr)
+		return draft, nil
+	}
+	remaining := draftcheck.Body(retried.Body, data.Lang(), data.Band())
+	if len(remaining) == 0 {
+		return retried, nil
+	}
+	// The retry did not clear it. Serve whichever attempt carries LESS of the
+	// rejected phrasing rather than the later one by default: a second attempt
+	// is not automatically better, and the count is the only evidence available
+	// without asking a model to judge its own output.
+	d.logger().WarnContext(ctx, "draft still carries rejected phrasing after one retry",
+		"phrase", remaining[0].Phrase, "rule", remaining[0].Rule, "remaining", len(remaining))
+	if len(remaining) < len(findings) {
+		return retried, nil
 	}
 	return draft, nil
 }

@@ -140,8 +140,9 @@ func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent
 		return DraftResult{}, err
 	}
 	answering := DraftContext{
-		Band:     convstate.BandFresh,
-		Threaded: IsMailThread(activity.Kind, activity.Direction),
+		Band:      convstate.BandFresh,
+		Threaded:  IsMailThread(activity.Kind, activity.Direction),
+		Recipient: h.store.GreetingName(ctx, ids.From[ids.ActivityKind](anchor)),
 	}
 	if activity.Subject != nil {
 		answering.Topic = *activity.Subject
@@ -170,7 +171,7 @@ func DeterministicEmailDraft(answering DraftContext, intent string) (subject, bo
 	subject = draftfloor.Subject(lang, band, topic, answering.Threaded)
 
 	phrases := draftfloor.For(lang, band)
-	lines := []string{phrases.GreetingAnonymous, ""}
+	lines := []string{draftfloor.Greeting(lang, band, answering.Recipient), ""}
 	if phrases.Opener != "" {
 		lines = append(lines, phrases.Opener, "")
 	}
@@ -193,6 +194,10 @@ type DraftContext struct {
 	// Topic is what the message is about: the subject of the thread being
 	// answered, or a deal name the caller chose. Empty when nothing is known.
 	Topic string
+	// Recipient is who the draft is addressed to, by name. Empty opens the
+	// message without a name, which is right when nobody is known - greeting
+	// whoever is nearest is how a draft ends up addressed to its own author.
+	Recipient string
 	// Threaded says the topic is the subject of a real INBOUND MAIL thread
 	// rather than a name the caller picked. Only that earns the reply prefix:
 	// "Re:" on a deal name, or on a meeting somebody titled "Quarterly

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose/draftcheck"
 	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -101,7 +102,7 @@ func Write(
 	if lane == nil {
 		return floor, crmcontracts.Deterministic, nil
 	}
-	written, err := writeWithModel(ctx, lane, in)
+	written, err := writeChecked(ctx, lane, in)
 	if err != nil {
 		// A model that is down, over budget or answering nonsense must not cost
 		// the rep their draft: the floor is a real message they can edit, and
@@ -115,10 +116,49 @@ func Write(
 	return written, crmcontracts.Model, nil
 }
 
-func writeWithModel(ctx context.Context, lane Completer, in Input) (Draft, error) {
+// writeChecked drafts, reads what came back against the envelope it was written
+// into, and gives the model ONE chance to fix what it got wrong.
+//
+// The retry exists because prompt rules keep losing to model reflexes: a first
+// touch invents a pitch, and a long-silent thread reaches for "circling back",
+// with both banned in plain words in the system prompt. Naming the exact phrase
+// back to the model is what a prompt sentence cannot do. One retry is the limit
+// - a second is a model that will not comply, and the floor is underneath.
+//
+// A retry that fails leaves the first draft standing: it carries the defect and
+// is still a real message a human can edit, which beats refusing to answer.
+func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) {
+	draft, err := writeWithModel(ctx, lane, in, "")
+	if err != nil {
+		return Draft{}, err
+	}
+	findings := draftcheck.Body(draft.Body, in.Envelope.Lang(), in.Envelope.Band())
+	if len(findings) == 0 {
+		return draft, nil
+	}
+	retried, retryErr := writeWithModel(ctx, lane, in, draftcheck.Feedback(findings))
+	if retryErr != nil {
+		return draft, nil
+	}
+	// Keep whichever attempt carries LESS of the rejected phrasing. A second
+	// attempt is not automatically better, and the count is the only evidence
+	// available without asking a model to judge its own output.
+	if len(draftcheck.Body(retried.Body, in.Envelope.Lang(), in.Envelope.Band())) < len(findings) {
+		return retried, nil
+	}
+	return draft, nil
+}
+
+func writeWithModel(ctx context.Context, lane Completer, in Input, correction string) (Draft, error) {
 	req, err := groundedRequest(in)
 	if err != nil {
 		return Draft{}, err
+	}
+	if correction != "" {
+		// The correction rides the user turn, beside the fenced input, so a
+		// retry changes what the model is told about its LAST attempt and
+		// nothing about the request's shape.
+		req.Messages[len(req.Messages)-1].Content += correction
 	}
 	res, err := lane.Complete(ctx, req)
 	if err != nil {

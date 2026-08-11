@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
@@ -113,8 +114,8 @@ type personDraftCase struct{ in persondraft.Input }
 // product sends rather than a copy of it assembled here.
 func (c *personDraftCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
 	recorder := &composerRecorder{completer: completer}
-	_, _, err := persondraft.Write(ctx, recorder, c.in)
-	return composerTrace(personDraftSite, recorder, err)
+	draft, _, err := persondraft.Write(ctx, recorder, c.in)
+	return composerTrace(personDraftSite, recorder, draft.Body, err)
 }
 
 // Evaluate applies the package's own ParseDraft — the same reading the product
@@ -132,8 +133,8 @@ type accountDraftCase struct{ in accountdraft.Input }
 
 func (c *accountDraftCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
 	recorder := &composerRecorder{completer: completer}
-	_, _, err := accountdraft.Write(ctx, recorder, c.in)
-	return composerTrace(accountDraftSite, recorder, err)
+	draft, _, err := accountdraft.Write(ctx, recorder, c.in)
+	return composerTrace(accountDraftSite, recorder, draft.Body, err)
 }
 
 func (c *accountDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
@@ -151,8 +152,12 @@ func (c *accountDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 type composerRecorder struct {
 	completer aitasks.Completer
 	requests  []model.Request
-	last      string
-	failed    error
+	// first and last come apart the moment a draft is retried. Production
+	// serves the FIRST attempt when the retry errors, and serves whichever
+	// carries less rejected phrasing otherwise — so a recorder that only kept
+	// the last would let certification judge text the product never served.
+	first, last string
+	failed      error
 }
 
 func (r *composerRecorder) Complete(ctx context.Context, req model.Request) (model.Response, error) {
@@ -162,6 +167,9 @@ func (r *composerRecorder) Complete(ctx context.Context, req model.Request) (mod
 		r.failed = err
 		return model.Response{}, err
 	}
+	if r.first == "" {
+		r.first = resp.Text
+	}
 	r.last = resp.Text
 	return resp, nil
 }
@@ -169,8 +177,17 @@ func (r *composerRecorder) Complete(ctx context.Context, req model.Request) (mod
 // composerTrace turns what the recorder saw into the lane's trace, keeping a
 // failure of the CALL apart from a draft the writer would not accept: a call
 // that never completed is the lane's problem, not a measurement of a reply.
-func composerTrace(site string, recorder *composerRecorder, err error) (aitasks.Trace, error) {
-	trace := aitasks.Trace{Requests: recorder.requests, Output: recorder.last}
+//
+// The served text is what the writer RETURNED, which after a correction retry
+// is not necessarily the last reply the model gave. served resolves it by
+// matching the returned body back to the attempt that produced it, so the
+// record judges the draft a human would have seen.
+func composerTrace(site string, recorder *composerRecorder, served string, err error) (aitasks.Trace, error) {
+	output := recorder.last
+	if served != "" && strings.Contains(recorder.first, served) {
+		output = recorder.first
+	}
+	trace := aitasks.Trace{Requests: recorder.requests, Output: output}
 	if recorder.failed != nil {
 		return trace, fmt.Errorf("%s: the model call did not complete: %w", site, recorder.failed)
 	}
