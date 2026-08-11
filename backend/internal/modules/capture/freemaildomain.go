@@ -172,11 +172,16 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 			return err
 		}
 		// The specific demand, now that the write knows which half it is:
-		// inserting a new `extra` is create; a `never` carve-out overrides the
-		// shipped baseline for the whole workspace, and overwriting an
-		// existing entry rewrites a prior decision, so both are update.
+		// inserting a new `extra` is create; a fresh `never` carve-out
+		// overrides the shipped baseline for the whole workspace, and flipping
+		// an existing entry's kind rewrites a prior decision, so both are
+		// update. A same-kind re-add changes NOTHING and stays on create —
+		// the contract promises an idempotent re-add answers the existing
+		// entry, so a create-only seat retrying a lost response must not 403.
 		// UpsertAction keeps this demand and the audit verb below one word.
-		required := auth.UpsertAction(before != nil || kind == FreemailKindNever)
+		rewriting := before != nil && *before != kind
+		freshCarveOut := before == nil && kind == FreemailKindNever
+		required := auth.UpsertAction(rewriting || freshCarveOut)
 		if err := auth.Require(ctx, freemailDomainObject, required); err != nil {
 			return err
 		}
