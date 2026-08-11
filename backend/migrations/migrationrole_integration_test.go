@@ -59,7 +59,7 @@ func asMigrator(t *testing.T, admin *pgx.Conn) *pgx.Conn {
 		`DROP ROLE IF EXISTS ` + migratorRole,
 		`CREATE ROLE ` + migratorRole + ` LOGIN PASSWORD '` + password + `' NOSUPERUSER NOBYPASSRLS`,
 		`GRANT CREATE, USAGE ON SCHEMA public TO ` + migratorRole,
-		// CREATE on the DATABASE, not just on public: since 0206_ext_schema the
+		// CREATE on the DATABASE, not just on public: since 0210_ext_schema the
 		// migrations create a second schema (ext), and CREATE SCHEMA is a
 		// database-level privilege. A deployed installation's migration role
 		// already holds it and always has — scripts/deploy/db-bootstrap.sql
