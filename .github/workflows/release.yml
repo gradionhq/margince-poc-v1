@@ -167,6 +167,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # qemu runs the foreign runtime layers of the multi-platform bake; the
+      # builder stages cross-compile on the native platform (the Dockerfiles
+      # pin their builders to $BUILDPLATFORM).
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       # The docker-container driver: with the default docker driver the bake
       # metadata file carries no pushed-manifest digest, and the digest is
       # exactly what the release records.
@@ -188,6 +192,7 @@ jobs:
         env:
           REPO: registry.test.margince.com/margince
           VERSION: ${{ needs.draft.outputs.version }}
+          PLATFORMS: linux/amd64,linux/arm64
           MARGINCE_BUILD_REVISION: ${{ github.sha }}
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |
@@ -198,9 +203,15 @@ jobs:
           # from cache in seconds, and by then every replica sees the links,
           # so retry a bounded number of times — and loudly, because on a
           # healthy registry the first attempt is the only one.
+          # Both platforms the constellation serves (PLATFORMS above), with
+          # full provenance attestations; the recorded digest is the pushed
+          # OCI index. Neither is a bake-file default, so a plain local bake
+          # stays a native single-platform build.
           attempts=3
           for attempt in $(seq 1 "$attempts"); do
-            if docker buildx bake --push --metadata-file bake-metadata.json; then
+            if docker buildx bake --push \
+                 --provenance "mode=max" \
+                 --metadata-file bake-metadata.json; then
               break
             fi
             if [ "$attempt" -eq "$attempts" ]; then

@@ -25,7 +25,12 @@
 # The whole repo is the build context: gen-composition reads go.work, every
 # workspace member's go.mod, the base contracts and extensions/*, so a partial
 # copy would compose a different (smaller) installation and report success.
-FROM golang:1.26-alpine AS composer
+#
+# Both build stages always run on the build platform: everything they emit
+# (the composition, the static bundle) is platform-independent, so a
+# multi-platform bake builds once natively and only the thin nginx runtime
+# stage runs emulated.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS composer
 
 RUN apk add --no-cache git
 
@@ -35,7 +40,7 @@ WORKDIR /src/backend
 RUN GOWORK=/src/go.work go run ./tools/gen-composition
 
 # ── Stage 2: build ───────────────────────────────────────────────────────────
-FROM node:24-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
 
 RUN corepack enable
 

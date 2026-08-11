@@ -28,15 +28,17 @@ group "default" {
   targets = ["api", "web", "worker"]
 }
 
+# Comma-separated target platforms. Empty means the invoker's native platform,
+# which the default docker driver can build — the release workflow sets
+# linux/amd64,linux/arm64 (and full provenance via --provenance mode=max, an
+# invoker flag because attestations also exceed the docker driver).
+variable "PLATFORMS" {
+  default = ""
+}
+
 target "role" {
-  context = "."
-  # A plain single manifest per image, no provenance attestation: the
-  # constellation registry records one manifest digest per role (the tag
-  # resolver serves virtual tags over it), and an attestation turns the push
-  # into an OCI index whose child manifests land milliseconds before the
-  # index — a read-after-write window the registry's replicated deployment
-  # does not serve coherently.
-  provenance = false
+  context   = "."
+  platforms = PLATFORMS == "" ? [] : split(",", PLATFORMS)
   args = {
     MARGINCE_BUILD_REVISION = MARGINCE_BUILD_REVISION
   }

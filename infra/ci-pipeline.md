@@ -257,7 +257,9 @@ Wiring details:
   (`make sbom` — the dist service verifies the SBOMs attest every file the
   patch produces, so the possibly-lagging committed `sboms/` are never
   uploaded), then the three role images are built through the bake file
-  (`docker-bake.hcl`), pushed to the constellation registry
+  (`docker-bake.hcl`, linux/amd64 + linux/arm64 with `mode=max` provenance
+  attestations — the builder stages cross-compile natively, only runtime
+  layers run emulated), pushed to the constellation registry
   (`registry.test.margince.com/margince/<role>`, authenticated as the
   registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
   the draft as digest-pinned references with `add-artifacts`, and the release
