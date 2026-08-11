@@ -1,8 +1,8 @@
 # Golden path: `make dev` boots everything; `make check` is the merge gate.
 
 GO        ?= go
-PG_PORT   ?= 55432
-REDIS_PORT?= 56379
+PG_PORT   ?= 15432
+REDIS_PORT?= 16379
 DB_NAME   ?= margince
 OWNER_DSN ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME)
 APP_DSN   ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(DB_NAME)
@@ -23,7 +23,7 @@ export MARGINCE_TEST_REDIS_DB ?= 15
 # Blobstore (MinIO) — the integration lane fails loudly without it, never
 # skips, so the endpoint/creds/bucket are part of the compose + CI contract.
 # The bucket is created by the store at first connect.
-MINIO_PORT   ?= 59000
+MINIO_PORT   ?= 29000
 export MARGINCE_TEST_BLOBSTORE_ENDPOINT   ?= localhost:$(MINIO_PORT)
 export MARGINCE_TEST_BLOBSTORE_ACCESS_KEY ?= minioadmin
 export MARGINCE_TEST_BLOBSTORE_SECRET_KEY ?= minioadmin

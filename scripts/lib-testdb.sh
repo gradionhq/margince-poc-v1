@@ -30,8 +30,8 @@
 # at the same template db in normal use; we only ever swap the db name segment,
 # never the credentials/host.
 parse_test_dsn() {
-  local owner="${MARGINCE_TEST_DSN:-postgres://margince_owner:dev@localhost:55432/margince}"
-  local app="${MARGINCE_TEST_APP_DSN:-postgres://margince_app:margince_app_dev@localhost:55432/margince}"
+  local owner="${MARGINCE_TEST_DSN:-postgres://margince_owner:dev@localhost:15432/margince}"
+  local app="${MARGINCE_TEST_APP_DSN:-postgres://margince_app:margince_app_dev@localhost:15432/margince}"
 
   # Owner: peel scheme://user:pass@host:port | /db?query
   local o_body="${owner#*://}"
