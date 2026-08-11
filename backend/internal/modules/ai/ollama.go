@@ -148,13 +148,15 @@ func ollamaWindowFor(tokens int) int {
 // independently, so summing would ask for a window the work never needed and
 // would reach the ceiling on a batch of otherwise ordinary documents.
 //
-// The overrun bool exists because this is the one place truncation is invisible.
-// A chat request past its window stops generating and says done_reason:
-// "length"; an embedding past its window is computed from the head of the text
-// and returns a vector of the right width that no caller can tell apart from a
-// whole one. Whoever asked gets plausible retrieval results missing whatever the
-// tail said, so the fact has to leave this function.
-func embedContextWindow(inputs []string) (window int, overruns bool) {
+// The estimate is returned alongside the window because this is the one place
+// truncation is invisible. A chat request past its window stops generating and
+// says done_reason: "length"; an embedding past its window is computed from the
+// head of the text and returns a vector of the right width that no caller can
+// tell apart from a whole one. And the window ALONE cannot say how much was
+// lost — it saturates at the cap, so a document at 33k tokens and one at a
+// million both report the same 32768. What was asked for is the half that
+// carries the magnitude, so both leave this function.
+func embedContextWindow(inputs []string) (window, estimatedTokens int) {
 	longest := 0
 	for _, input := range inputs {
 		if len(input) > longest {
@@ -164,9 +166,8 @@ func embedContextWindow(inputs []string) (window int, overruns bool) {
 	// The same ~4-bytes-per-token heuristic the chat window and the embed
 	// meter both estimate with. It only has to be close: the bucket and the
 	// cap decide the value that actually ships.
-	tokens := longest / 4
-	window = ollamaWindowFor(tokens)
-	return window, tokens > window
+	estimatedTokens = longest / 4
+	return ollamaWindowFor(estimatedTokens), estimatedTokens
 }
 
 type ollamaToolWire struct {
@@ -224,12 +225,16 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	// whatever window the loaded model has, so an unsized call embeds long text
 	// from its head — silently, since the vector that comes back is the right
 	// width whether or not the model ever saw the end of the document.
-	window, overruns := embedContextWindow(req.Inputs)
-	if overruns {
+	window, estimatedTokens := embedContextWindow(req.Inputs)
+	if estimatedTokens > window {
+		// Both numbers, because the ratio between them is the finding: the
+		// window saturates at the cap, so it alone cannot tell an input that
+		// slightly overruns from one embedded almost entirely from its title.
 		slog.WarnContext(ctx,
 			"an embed input is longer than the largest window this adapter asks for; "+
 				"its vector is computed from the head of the text and retrieval will not match the rest",
-			"model", embedModel, "window_tokens", window, "inputs", len(req.Inputs))
+			"model", embedModel, "estimated_tokens", estimatedTokens,
+			"window_tokens", window, "inputs", len(req.Inputs))
 	}
 	payload, _, err := sendablePayload(ctx,
 		ollamaEmbedWire{Model: embedModel, Input: req.Inputs, Options: &ollamaEmbedOptions{NumCtx: window}}, nil)

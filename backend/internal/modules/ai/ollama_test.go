@@ -313,6 +313,13 @@ func TestOllamaSizesContextWindowToPromptPlusOutputBudget(t *testing.T) {
 	}
 }
 
+// ollamaEmbedReply is what /api/embed answers, written as the shape the adapter
+// decodes rather than as an untyped map: a fixture that cannot say what field it
+// is filling can drift from the wire it stands for without failing anything.
+type ollamaEmbedReply struct {
+	Embeddings [][]float32 `json:"embeddings"`
+}
+
 // The embed lane sizes its window for the same reason the chat lane does, and
 // for one it does not: a chat request past its window stops generating and says
 // so, while an embedding past its window comes back the right width, computed
@@ -328,7 +335,7 @@ func TestOllamaSizesTheEmbedWindowToTheLongestInput(t *testing.T) {
 			for i := range vectors {
 				vectors[i] = []float32{0.1}
 			}
-			if err := json.NewEncoder(w).Encode(map[string]any{"embeddings": vectors}); err != nil {
+			if err := json.NewEncoder(w).Encode(ollamaEmbedReply{Embeddings: vectors}); err != nil {
 				t.Errorf("encoding fixture response: %v", err)
 			}
 		})
@@ -414,7 +421,7 @@ func TestOllamaSaysWhenAnEmbedInputOverrunsTheWindowAndIsSilentWhenItDoesNot(t *
 		t.Cleanup(func() { slog.SetDefault(restore) })
 
 		client := newOllamaForTest(t, func(w http.ResponseWriter, _ *http.Request) {
-			if err := json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{0.1}}}); err != nil {
+			if err := json.NewEncoder(w).Encode(ollamaEmbedReply{Embeddings: [][]float32{{0.1}}}); err != nil {
 				t.Errorf("encoding fixture response: %v", err)
 			}
 		})
@@ -425,8 +432,18 @@ func TestOllamaSaysWhenAnEmbedInputOverrunsTheWindowAndIsSilentWhenItDoesNot(t *
 	}
 
 	// 4 MiB is ~1M tokens against a 32k ceiling: the vector covers about 3% of it.
-	if line := embed(t, strings.Repeat("a", 4<<20)); !strings.Contains(line, "computed from the head of the text") {
+	line := embed(t, strings.Repeat("a", 4<<20))
+	if !strings.Contains(line, "computed from the head of the text") {
 		t.Errorf("a truncated embedding was logged as %q, want the truncation named", line)
+	}
+	// The window saturates at the cap, so it alone cannot tell an input that
+	// slightly overruns from one embedded almost entirely from its opening
+	// sentence. Without the estimate beside it the operator reading this line
+	// knows that something was dropped and nothing about how much.
+	for _, want := range []string{"model=gemma3", "estimated_tokens=1048576", "window_tokens=32768"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the truncation warning does not carry %s: %q", want, line)
+		}
 	}
 	// Exactly at the ceiling the window still holds the input, so there is
 	// nothing to report and a line here would train the reader to ignore it.
