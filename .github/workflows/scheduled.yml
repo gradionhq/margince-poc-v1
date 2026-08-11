@@ -1,0 +1,201 @@
+name: scheduled
+
+# The checks whose answer changes when nothing is being merged.
+#
+# Everything in ci.yml answers "is this diff sound?" and runs because a diff
+# exists. These three answer "is main still sound?", which a PR gate structurally
+# cannot: two of them go stale on their own, and the third goes quiet.
+#
+#   govulncheck        — the vulnerability database changes daily. A per-PR scan
+#                        proves the day it merged, not today. This is the only
+#                        thing here that can catch a CVE disclosed after a merge.
+#   sonarcloud gate    — main's quality gate stopped being a required PR check
+#                        (ADR-less product decision: merge speed during heavy
+#                        development, to be re-required once releases exist). A
+#                        gate nobody is blocked by is a gate nobody reads, so
+#                        this reads it and files an issue when it goes red.
+#   backend lane       — main has gone red twice with the breakage MASKED: a
+#                        docs-only commit landing after a breaking one matches no
+#                        classifier scope, so every gate skips and the run reports
+#                        green. main's last-known-green is therefore not evidence
+#                        main is green. This re-runs the lane unconditionally.
+#
+# Findings become ISSUES, not just a red run. A failed scheduled workflow notifies
+# essentially nobody by default, and this whole file exists because "we will check
+# regularly" decays into nobody checking.
+on:
+  schedule:
+    # 08:00 Asia/Ho_Chi_Minh — clear of Renovate's 02:00–06:00 window, and early
+    # enough in the working day that a finding is read the morning it appears.
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A slow lane must not stack up on itself: a run still going when the next fires
+# means the tree is in trouble, and two concurrent copies help nobody diagnose it.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  vuln:
+    name: govulncheck (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # Restore-only here: the action saves on `push` to main, and a schedule is
+      # not a push, so this lane never competes with the writers in ci.yml.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
+      - run: make vuln
+
+  quality-gate:
+    name: sonarcloud quality gate (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.gate.outputs.status }}
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      # Reads the gate through the API rather than re-running the scanner: the
+      # verdict this asks about is the one the last ci.yml scan already published,
+      # so re-analysing would answer a different question and cost a full lane.
+      - name: Read main's quality gate
+        id: gate
+        env:
+          PROJECT_KEY: gradionhq_margince-poc-v1
+        run: |
+          set -euo pipefail
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "SONAR_TOKEN not set; nothing to read." >&2
+            echo "status=SKIPPED" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Bearer header rather than `-u "$TOKEN:"`. The basic-auth spelling is
+          # what Sonar's own docs show, but it trips gitleaks' curl-auth-user rule
+          # — correctly, in the sense that the rule cannot tell a variable from a
+          # literal. Sonar accepts either, so the header avoids arguing for an
+          # allowlist entry, and an allowlist that grows is how a secret scan
+          # starts reporting "no leaks found" over a tree that has one.
+          # Timeouts, because a stalled read here is worse than a failed one: the
+          # concurrency group below does not cancel in progress, so a request that
+          # hangs holds the lane and every later scheduled run queues behind it.
+          # A day with no answer is recoverable; a lane that stops answering is not.
+          body="$(curl -fsS --connect-timeout 10 --max-time 60 \
+            -H "Authorization: Bearer $SONAR_TOKEN" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=$PROJECT_KEY&branch=main")"
+          status="$(printf '%s' "$body" | jq -r '.projectStatus.status')"
+          echo "quality gate on main: $status"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          # NONE is not a pass. It means no analysis is attached to main at all,
+          # which reads identically to green on every dashboard and is exactly the
+          # silence this job exists to break.
+          case "$status" in
+            OK) ;;
+            ERROR | WARN)
+              printf '%s' "$body" | jq -r \
+                '.projectStatus.conditions[]? | select(.status != "OK")
+                 | "  failing: \(.metricKey) \(.comparator) \(.errorThreshold) (actual \(.actualValue))"'
+              exit 1
+              ;;
+            *)
+              echo "no quality gate result for main (status=$status)" >&2
+              exit 1
+              ;;
+          esac
+
+  backend-lane:
+    name: backend lane (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The RBAC legacy-cohort gates read an early commit as a fixture and
+          # fail rather than degrade on a shallow checkout.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
+      - name: Cache the gate binaries
+        id: gate-binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
+      - name: Install the pinned gate binaries
+        if: steps.gate-binaries.outputs.cache-hit != 'true'
+        working-directory: .
+        run: make tools
+      - name: Gate binaries onto PATH
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Backend merge gate (make check-backend)
+        working-directory: .
+        run: make check-backend
+
+  # The one job holding `issues: write`, and it runs no build code — the same
+  # permission isolation sbom.yml's signing job uses. It must RUN when an upstream
+  # fails, so it is guarded on !cancelled() rather than needs alone.
+  report:
+    name: report
+    needs: [vuln, quality-gate, backend-lane]
+    if: >-
+      !cancelled()
+      && (needs.vuln.result == 'failure'
+        || needs.quality-gate.result == 'failure'
+        || needs.backend-lane.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      # The reporting script lives in the tree, so this job needs the tree — the
+      # only thing it checks out for. persist-credentials: false because the issue
+      # filing authenticates with GH_TOKEN explicitly, not the git credential.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One open issue per failing check, keyed on an exact title. Re-filing daily
+      # would bury the original and its discussion; a comment on the existing one
+      # says "still red" without costing anyone a second triage.
+      - name: File or update an issue per failing check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VULN_RESULT: ${{ needs.vuln.result }}
+          GATE_RESULT: ${{ needs.quality-gate.result }}
+          GATE_STATUS: ${{ needs.quality-gate.outputs.status }}
+          LANE_RESULT: ${{ needs.backend-lane.result }}
+        run: ./scripts/scheduled-report.sh

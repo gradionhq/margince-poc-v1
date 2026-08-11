@@ -108,6 +108,9 @@ var tableOwners = map[string]string{
 	"pipeline":           "internal/modules/deals",
 	"stage":              "internal/modules/deals",
 	"deal_stage_history": "internal/modules/deals",
+	// Kept apart from deal_stage_history rather than folded into it: readers
+	// outside this module count that table's rows as stage movements.
+	"deal_forecast_history": "internal/modules/deals",
 	// The project lives in the deals bounded context (ADR-0073): it is the
 	// body of work the deals hang off, not a context of its own.
 	"project":               "internal/modules/deals",

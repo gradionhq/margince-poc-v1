@@ -62,8 +62,23 @@ rule 3 those resolve in **git history**, not the working tree — the content ha
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
 The spec is under active cleanup by another session: some docs still show the old
-`crm-*` layout. Don't edit the spec from here — raise discrepancies for
-upstream reconciliation.
+`crm-*` layout.
+
+**A session working here MAY author and commit spec changes in
+`margince-foundation`**, and should when a build need requires a spec change first
+— contract-first means the spec change LANDS first, not that somebody else writes
+it. It ships through that repo's own loop: branch off its `origin/main`, its own
+PR, its own gates. Four rules make that safe, because it is a second working tree
+that parallel sessions also use:
+
+- **Branch from `origin/main`, never from whatever is checked out.** The local
+  branch is often another session's work in progress.
+- **Stage by explicit path; never `git add -A`.** Shared files — `DECISIONS.md`
+  above all — are routinely mid-edit in another session.
+- **Take ADR and A-numbers from `origin/main`**, which is the only place the real
+  highest number is visible; the checked-out branch lags and collides.
+- **A spec change that contradicts a ratified ADR is a discrepancy, not an edit.**
+  Raise it for reconciliation rather than quietly overwriting a decision.
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
