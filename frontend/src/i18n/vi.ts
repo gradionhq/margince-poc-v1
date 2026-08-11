@@ -2334,7 +2334,8 @@ export const vi = {
   "consumerMail.baselineSearchLabel": "Tìm trong danh sách có sẵn",
   "consumerMail.baselinePlaceholder": "gmail.com",
   "consumerMail.baselineNone": "Không có tên miền có sẵn nào khớp.",
-  "consumerMail.baselineMore": "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
+  "consumerMail.baselineMore":
+    "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
 
   "ob.s4.googleVerifying": "Đang xác minh kết nối…",
   "ob.s4.googleDenied": "Bạn đã từ chối chấp thuận của Google",

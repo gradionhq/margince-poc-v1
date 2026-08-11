@@ -2344,8 +2344,7 @@ export const de = {
   "consumerMail.baselineSearchLabel": "Mitgelieferte Liste durchsuchen",
   "consumerMail.baselinePlaceholder": "gmail.com",
   "consumerMail.baselineNone": "Keine mitgelieferte Domain passt.",
-  "consumerMail.baselineMore":
-    "Die ersten {shown} von {matched} Treffern.",
+  "consumerMail.baselineMore": "Die ersten {shown} von {matched} Treffern.",
 
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",

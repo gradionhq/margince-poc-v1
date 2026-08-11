@@ -15,7 +15,7 @@ import (
 )
 
 // extSchema is the one schema an extension's migrations may create in; the
-// core owns public (backend/migrations/core/0211_ext_schema.up.sql).
+// core owns public (backend/migrations/core/0212_ext_schema.up.sql).
 const extSchema = "ext"
 
 // coreTenantParent is the core table every extension tenant table hangs off.
