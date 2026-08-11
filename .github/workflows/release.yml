@@ -155,7 +155,7 @@ jobs:
   # `image:` in a workflow as a container reference to digest-check, and that
   # includes a job id.
   docker-image:
-    name: Docker images
+    name: Build docker container
     needs: [draft]
     runs-on: ubuntu-24.04-arm
     permissions:
