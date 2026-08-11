@@ -92,6 +92,26 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
 
+	// The installation's identity as it stands BEFORE the reset. Compared
+	// against itself afterwards rather than against configBootstrap, because
+	// `setting` is non-tenant: several fixtures bootstrap into one database
+	// per package run and Seed is ON CONFLICT DO NOTHING, so the rows belong
+	// to whichever installation got there first (issue #863). Which one that
+	// is has nothing to do with the claim under test — that a reset wipes the
+	// DATA and leaves the installation standing.
+	var nameBefore, currencyBefore, zoneBefore string
+	if err := owner.QueryRow(ctx, `
+		SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.timezone'), '')`).
+		Scan(&nameBefore, &currencyBefore, &zoneBefore); err != nil {
+		t.Fatalf("reading the installation's identity: %v", err)
+	}
+	if nameBefore == "" || currencyBefore == "" || zoneBefore == "" {
+		t.Fatalf("the fixture bootstrapped no identity to preserve: name=%q currency=%q zone=%q",
+			nameBefore, currencyBefore, zoneBefore)
+	}
+
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
 	if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 		return ResetWorkspaceConfig(wsCtx, tx)
@@ -126,9 +146,10 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	if incumbent != nil {
 		t.Errorf("x_incumbent = %q, want NULL", *incumbent)
 	}
-	if currency != configBootstrap.BaseCurrency || timezone != configBootstrap.Timezone || name == "" {
-		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q — a reset wipes the data, not the installation",
-			name, currency, timezone)
+	if name != nameBefore || currency != currencyBefore || timezone != zoneBefore {
+		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q, was %q/%q/%q — "+
+			"a reset wipes the data, not the installation",
+			name, currency, timezone, nameBefore, currencyBefore, zoneBefore)
 	}
 
 	// created_at is preserved and updated_at is not, and the difference is the
