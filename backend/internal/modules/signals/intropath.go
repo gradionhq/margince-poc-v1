@@ -88,8 +88,13 @@ func (s *Store) IntroPath(ctx context.Context, signalID ids.SignalID, now time.T
 		kind = crmcontracts.SignalIntroPathNextMoveKind("intro_request")
 	}
 	out.NextMove.Kind = kind
-	out.NextMove.DraftSubject, out.NextMove.DraftBody = renderIntroDraft(kind, route, orgName, sig.Summary)
-	out.NextMove.AiDisclosure = Art50Disclosure
+	var disclosure string
+	out.NextMove.DraftSubject, out.NextMove.DraftBody, disclosure =
+		renderIntroDraft(kind, route, orgName, sig.Summary)
+	// The machine-readable field carries the SAME sentence the body does, in
+	// the same language. Two spellings of one disclosure is a reader being told
+	// one thing and an auditor another.
+	out.NextMove.AiDisclosure = disclosure
 	return out, nil
 }
 
@@ -106,6 +111,14 @@ type introPhrases struct {
 	IntroBody     string
 	DirectSubject string
 	DirectBody    string
+	// Disclosure is the Art. 50 line in this language. Translated rather than
+	// shared, because a legally required sentence a reader cannot read has not
+	// disclosed anything - and an English footer under German prose is the
+	// clearest possible tell that the message was machine-made.
+	Disclosure string
+	// Relationships names each relationship kind in prose. Without it the raw
+	// enum ("deal_stakeholder") lands mid-sentence in a message a rep sends.
+	Relationships map[crmcontracts.SignalWarmContactRelationshipKind]string
 }
 
 // The two moves in each language. The German is Sie throughout to a
@@ -115,26 +128,41 @@ var introTable = map[textlang.Lang]introPhrases{
 	textlang.English: {
 		IntroSubject: "Could you introduce us at %s?",
 		IntroBody: "Hi %s,\n\nSomething came up on our side about %s: %s. You know the " +
-			"right people there (%s) - would you be open to making an intro?\n\n%s",
+			"right people there - would you be open to making an intro?\n\n%s",
 		DirectSubject: "Getting in touch about %s",
 		DirectBody: "Hi %s,\n\nI am writing because of something we picked up about %s: %s. " +
-			"Given our %s relationship, this felt worth raising with you directly.\n\n%s",
+			"Given that we %s, this felt worth raising with you directly.\n\n%s",
+		Disclosure: Art50Disclosure,
+		Relationships: map[crmcontracts.SignalWarmContactRelationshipKind]string{
+			crmcontracts.SignalWarmContactRelationshipKindDealStakeholder: "are working together on a deal",
+			crmcontracts.SignalWarmContactRelationshipKindEmployment:      "know each other through your company",
+		},
 	},
 	textlang.German: {
 		IntroSubject: "Können Sie uns bei %s vorstellen?",
 		IntroBody: "Hallo %s,\n\nbei uns ist etwas zu %s aufgekommen: %s. Sie kennen dort " +
-			"die richtigen Ansprechpartner (%s) - wären Sie bereit, uns vorzustellen?\n\n%s",
+			"die richtigen Ansprechpartner - wären Sie bereit, uns vorzustellen?\n\n%s",
 		DirectSubject: "Kurze Anfrage zu %s",
 		DirectBody: "Hallo %s,\n\nich melde mich, weil wir etwas zu %s aufgenommen haben: %s. " +
-			"Aufgrund unserer %s-Beziehung wollte ich das direkt mit Ihnen besprechen.\n\n%s",
+			"Da wir %s, wollte ich das direkt mit Ihnen besprechen.\n\n%s",
+		Disclosure: "Diese Nachricht wurde mit KI-Unterstützung verfasst (Offenlegung nach Art. 50 EU-KI-Verordnung).",
+		Relationships: map[crmcontracts.SignalWarmContactRelationshipKind]string{
+			crmcontracts.SignalWarmContactRelationshipKindDealStakeholder: "gemeinsam an einem Vorgang arbeiten",
+			crmcontracts.SignalWarmContactRelationshipKindEmployment:      "über Ihr Unternehmen in Kontakt stehen",
+		},
 	},
 	textlang.Vietnamese: {
 		IntroSubject: "Anh/chị có thể giới thiệu chúng tôi tại %s không?",
 		IntroBody: "Chào %s,\n\nchúng tôi vừa ghi nhận một việc liên quan đến %s: %s. " +
-			"Anh/chị quen những người phù hợp ở đó (%s) - anh/chị có thể giới thiệu giúp không?\n\n%s",
+			"Anh/chị quen những người phù hợp ở đó - anh/chị có thể giới thiệu giúp không?\n\n%s",
 		DirectSubject: "Xin được liên hệ về %s",
 		DirectBody: "Chào %s,\n\ntôi liên hệ vì chúng tôi ghi nhận một việc liên quan đến %s: %s. " +
-			"Với quan hệ %s giữa hai bên, tôi muốn trao đổi trực tiếp với anh/chị.\n\n%s",
+			"Vì hai bên %s, tôi muốn trao đổi trực tiếp với anh/chị.\n\n%s",
+		Disclosure: "Thư này được soạn với sự hỗ trợ của AI (công bố theo Điều 50 Đạo luật AI của EU).",
+		Relationships: map[crmcontracts.SignalWarmContactRelationshipKind]string{
+			crmcontracts.SignalWarmContactRelationshipKindDealStakeholder: "đang cùng làm việc trong một cơ hội",
+			crmcontracts.SignalWarmContactRelationshipKindEmployment:      "có liên hệ qua công ty của anh/chị",
+		},
 	},
 }
 
@@ -148,7 +176,7 @@ var introTable = map[textlang.Lang]introPhrases{
 // resolution ladder (DRAFT-AC-E-2). Neither subject may be a follow-up line:
 // both moves are a first approach on this topic, and "Following up with X" to
 // somebody who has heard nothing is the invented history DRAFT-AC-E-3 forbids.
-func renderIntroDraft(kind crmcontracts.SignalIntroPathNextMoveKind, route crmcontracts.SignalWarmContact, orgName, signalSummary string) (subject, body string) {
+func renderIntroDraft(kind crmcontracts.SignalIntroPathNextMoveKind, route crmcontracts.SignalWarmContact, orgName, signalSummary string) (subject, body, disclosure string) {
 	lang := textlang.Detect(signalSummary)
 	phrases, ok := introTable[lang]
 	if !ok {
@@ -159,17 +187,27 @@ func renderIntroDraft(kind crmcontracts.SignalIntroPathNextMoveKind, route crmco
 	if route.FullName != nil && *route.FullName != "" {
 		name = *route.FullName
 	}
-	relationship := string(route.RelationshipKind)
-	if route.RelationshipRole != nil && *route.RelationshipRole != "" {
-		relationship += " (" + *route.RelationshipRole + ")"
-	}
 
 	if kind == "intro_request" {
 		return fmt.Sprintf(phrases.IntroSubject, orgName),
-			fmt.Sprintf(phrases.IntroBody, name, orgName, signalSummary, relationship, Art50Disclosure)
+			fmt.Sprintf(phrases.IntroBody, name, orgName, signalSummary, phrases.Disclosure),
+			phrases.Disclosure
 	}
 	return fmt.Sprintf(phrases.DirectSubject, orgName),
-		fmt.Sprintf(phrases.DirectBody, name, orgName, signalSummary, relationship, Art50Disclosure)
+		fmt.Sprintf(phrases.DirectBody, name, orgName, signalSummary,
+			phrases.relationship(route.RelationshipKind), phrases.Disclosure),
+		phrases.Disclosure
+}
+
+// relationship names a relationship kind in prose, or says nothing specific
+// about it. An unrecognized kind is a new enum member this table has not
+// learned yet, and a vague clause is better in a rep's outbound message than
+// the raw identifier.
+func (p introPhrases) relationship(kind crmcontracts.SignalWarmContactRelationshipKind) string {
+	if named, ok := p.Relationships[kind]; ok {
+		return named
+	}
+	return p.Relationships[crmcontracts.SignalWarmContactRelationshipKindEmployment]
 }
 
 // anonymousGreetingName is what to call somebody whose name is not on file.

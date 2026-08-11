@@ -61,8 +61,10 @@ func deterministicSubject(in Input) string {
 	if in.Deal != nil {
 		return draftfloor.Subject(lang, band, in.Deal.Name, false)
 	}
+	// Only a message THEY sent us is a thread to reply to. Our own last
+	// outbound carries a subject too, and "Re:" on it replies to ourselves.
 	if len(in.Recent) > 0 && in.Recent[0].Subject != "" {
-		return draftfloor.Subject(lang, band, in.Recent[0].Subject, true)
+		return draftfloor.Subject(lang, band, in.Recent[0].Subject, in.Recent[0].Inbound)
 	}
 	return draftfloor.Subject(lang, band, in.Recipient.Employer, false)
 }

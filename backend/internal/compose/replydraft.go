@@ -114,7 +114,7 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		Topic:    topic,
 		Body:     stringValue(activity.Body),
 		Band:     convstate.BandFresh,
-		Threaded: true,
+		Threaded: activities.IsMailThread(activity.Kind, activity.Direction),
 	}, intent)
 	data := replyActivityData{
 		Subject: boundedRunes(topic, replyActivityMaxRunes),

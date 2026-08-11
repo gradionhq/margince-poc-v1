@@ -139,7 +139,10 @@ func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent
 	if err != nil {
 		return DraftResult{}, err
 	}
-	answering := DraftContext{Band: convstate.BandFresh, Threaded: true}
+	answering := DraftContext{
+		Band:     convstate.BandFresh,
+		Threaded: IsMailThread(activity.Kind, activity.Direction),
+	}
 	if activity.Subject != nil {
 		answering.Topic = *activity.Subject
 	}
@@ -171,6 +174,11 @@ func DeterministicEmailDraft(answering DraftContext, intent string) (subject, bo
 	if phrases.Opener != "" {
 		lines = append(lines, phrases.Opener, "")
 	}
+	// The topic is the only substance this floor has, and dropping it would
+	// leave a draft that says nothing about what it is answering.
+	if topic != "" {
+		lines = append(lines, draftfloor.Fill(draftfloor.SubstanceFor(lang).Thread, topic), "")
+	}
 	if intent := strings.TrimSpace(intent); intent != "" {
 		lines = append(lines, intent, "")
 	}
@@ -185,15 +193,27 @@ type DraftContext struct {
 	// Topic is what the message is about: the subject of the thread being
 	// answered, or a deal name the caller chose. Empty when nothing is known.
 	Topic string
-	// Threaded says the topic is a real inbound thread subject rather than a
-	// name the caller picked. Only that earns the reply prefix - "Re:" on a
-	// deal name is a claim that somebody wrote to us about it.
+	// Threaded says the topic is the subject of a real INBOUND MAIL thread
+	// rather than a name the caller picked. Only that earns the reply prefix:
+	// "Re:" on a deal name, or on a meeting somebody titled "Quarterly
+	// review", claims a message that was never written to us.
 	Threaded bool
 	// Body is the text of the message being answered, used to detect the
 	// language of the correspondence. Empty falls back to the topic.
 	Body string
 	// Band is where the correspondence stands. The zero value is BandNone.
 	Band convstate.Band
+}
+
+// IsMailThread reports whether an activity is an inbound mail thread, which is
+// the only thing a reply prefix may be built on.
+//
+// Spelled once rather than at each call site: three callers derive the same
+// flag, and a fourth that guessed would put "Re:" on a meeting title. Kind and
+// direction both, because an email WE sent is not a message to reply to either.
+func IsMailThread(kind crmcontracts.ActivityKind, direction *crmcontracts.ActivityDirection) bool {
+	return kind == crmcontracts.ActivityKindEmail &&
+		direction != nil && *direction == crmcontracts.ActivityDirectionInbound
 }
 
 // language resolves the correspondence language from whatever text there is,

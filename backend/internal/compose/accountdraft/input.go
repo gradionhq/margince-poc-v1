@@ -15,8 +15,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
@@ -29,10 +31,9 @@ type Input struct {
 	// one field they typed, and the one field not fenced.
 	Intent string `json:"intent,omitempty"`
 
-	// Envelope is the correspondence this draft opens: its language, the
-	// current time and who is signing it. The conversation state is always the
-	// first-touch band here - that is what an account-started draft IS - so
-	// nothing in the body may imply an earlier exchange (DRAFT-AC-E-3).
+	// Envelope is the correspondence this draft is written into: its language,
+	// how long it has been silent, the current time and who is signing it.
+	// Server-derived, never read out of the counterparty's own text.
 	Envelope draftfloor.Envelope `json:"envelope"`
 
 	Company  string `json:"company"`
@@ -216,6 +217,25 @@ func foldCommitment(view crmcontracts.Organization360) *TaskIn {
 		out.Due = step.DueAt.UTC().Format(rfc3339)
 	}
 	return &out
+}
+
+// ConversationState reads where this account's correspondence stands off the
+// view's own last-message stamps.
+//
+// Both are absent when the caller holds no activity grant, which reads as a
+// first touch. That is the conservative end of the axis and the right answer
+// here: a caller who cannot see the history has no basis for a draft that
+// refers to it.
+func ConversationState(view crmcontracts.Organization360, now time.Time) convstate.State {
+	return convstate.Classify(now, instant(view.LastInboundAt), instant(view.LastOutboundAt))
+}
+
+// instant reads one optional stamp, treating an absent one as never.
+func instant(at *time.Time) time.Time {
+	if at == nil {
+		return time.Time{}
+	}
+	return *at
 }
 
 // CorrespondenceText is what this account has been written to and from,

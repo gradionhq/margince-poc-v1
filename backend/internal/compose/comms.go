@@ -58,7 +58,10 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	if err != nil {
 		return "", "", err
 	}
-	answering := activities.DraftContext{Band: convstate.BandFresh, Threaded: true}
+	answering := activities.DraftContext{
+		Band:     convstate.BandFresh,
+		Threaded: activities.IsMailThread(activity.Kind, activity.Direction),
+	}
 	if activity.Subject != nil {
 		answering.Topic = *activity.Subject
 	}

@@ -18,7 +18,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -66,16 +65,15 @@ func (s *Service) WithEnvelope(resolver *draftfloor.Resolver) *Service {
 
 // envelopeFor resolves the correspondence this draft opens.
 //
-// The band is always BandNone, and that is the definition of this surface
-// rather than a default: an account-started draft opens a NEW conversation, so
-// there is no prior exchange for it to refer to however much history the
-// account itself has (DRAFT-AC-E-3). The language still comes from whatever the
-// account has been written in, so a German account gets a German first touch.
+// The band comes from the account's own history rather than being forced to
+// BandNone. "Account-started" describes where the draft was requested from —
+// a company page with no anchoring activity — not a claim that nobody at the
+// company has ever been written to. Forcing the first-touch band would tell an
+// account we have corresponded with for a year that we are writing for the
+// first time, which is as false as the "just following up" this program set out
+// to remove, only in the other direction.
 func (s *Service) envelopeFor(ctx context.Context, view crmcontracts.Organization360) draftfloor.Envelope {
-	return s.envelope.Resolve(ctx, CorrespondenceText(view), convstate.State{
-		Band:          convstate.BandNone,
-		LastDirection: convstate.DirectionNone,
-	})
+	return s.envelope.Resolve(ctx, CorrespondenceText(view), ConversationState(view, s.envelope.Now()))
 }
 
 // NewService binds the draft to the composite read it is grounded in and the

@@ -102,15 +102,28 @@ func TestOnlyARealThreadSubjectEarnsTheReplyPrefix(t *testing.T) {
 		t.Errorf("a deal name is not a thread: subject %q", withDeal.Subject)
 	}
 
-	withThread := persondraft.Deterministic(persondraft.Input{
+	inbound := persondraft.Deterministic(persondraft.Input{
+		Envelope:  envelopeFor(textlang.English, convstate.BandFresh),
+		Recipient: persondraft.RecipientIn{ID: "p1", FirstName: "Marek"},
+		Recent: []persondraft.ActIn{
+			{ID: "a1", Kind: "email", Subject: "Pricing question", At: "2026-08-10T09:00:00Z", Inbound: true},
+		},
+	})
+	if !strings.HasPrefix(inbound.Subject, "Re:") {
+		t.Errorf("a message THEY sent should be replied to: subject %q", inbound.Subject)
+	}
+
+	// Our own last outbound carries a subject too, and replying to it replies
+	// to ourselves.
+	outbound := persondraft.Deterministic(persondraft.Input{
 		Envelope:  envelopeFor(textlang.English, convstate.BandFresh),
 		Recipient: persondraft.RecipientIn{ID: "p1", FirstName: "Marek"},
 		Recent: []persondraft.ActIn{
 			{ID: "a1", Kind: "email", Subject: "Pricing question", At: "2026-08-10T09:00:00Z"},
 		},
 	})
-	if !strings.HasPrefix(withThread.Subject, "Re:") {
-		t.Errorf("an inbound thread subject should be replied to: subject %q", withThread.Subject)
+	if strings.HasPrefix(outbound.Subject, "Re:") {
+		t.Errorf("our own outbound is not a thread to reply to: subject %q", outbound.Subject)
 	}
 }
 
