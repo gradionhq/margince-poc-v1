@@ -90,6 +90,9 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		err = conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; give another "+
 				"member the admin role first, then change this one's")
+		err = conflictIf(err, errAgentSeatHoldsNoRole, "agent_seat_holds_no_role",
+			"this is the workspace's agent identity; what an agent may do comes from the "+
+				"passport granting it and the person that passport names, never from a role of its own")
 		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}

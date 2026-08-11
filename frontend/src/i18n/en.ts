@@ -3522,6 +3522,10 @@ export const en = {
   "users.deactivateConfirmTitle": "Deactivate {name}?",
   "users.deactivateConfirmBody":
     "They'll be signed out everywhere and their agent passports revoked immediately. You can reactivate them later, but they'll need to sign in again.",
+  "users.deactivateAgentConfirmBody":
+    "This is the workspace's agent identity. Deactivating it stops every job that runs with nobody behind it, extensions included, until you reactivate it. No person loses access — it signs in nowhere.",
+  "users.agentSeat": "Agent",
+  "users.agentSeatRole": "Acts under a passport, not a role",
   "users.roleLabel": "Role for the new member",
   "users.invite": "Invite",
   "users.setRole": "Set role…",

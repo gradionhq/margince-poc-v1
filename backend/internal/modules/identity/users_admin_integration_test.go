@@ -312,3 +312,60 @@ func TestConcurrentLastAdminDeactivationsKeepOneAdmin(t *testing.T) {
 		t.Fatalf("concurrent double-admin deactivation refused %d times, want exactly 1 — the race would zero out admins", conflicts)
 	}
 }
+
+// agentSeatOf answers the workspace's agent seat, the one bootstrap wrote.
+func agentSeatOf(t *testing.T, e *revocationEnv) ids.UserID {
+	t.Helper()
+	var seat ids.UserID
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent`,
+		e.admin.WorkspaceID).Scan(&seat); err != nil {
+		t.Fatalf("reading the workspace's agent seat: %v", err)
+	}
+	return seat
+}
+
+func TestTheAgentSeatCannotBeGivenARole(t *testing.T) {
+	e := setupRevocationEnv(t, "agent-role")
+	seat := agentSeatOf(t, e)
+
+	err := e.svc.ChangeUserRole(e.wsCtx(e.admin), e.admin, seat, "admin")
+	if !errors.Is(err, errAgentSeatHoldsNoRole) {
+		t.Fatalf("granting the agent seat a role returned %v, want the agent-seat refusal. What an "+
+			"agent may do is the passport granting it intersected with the human that passport names, "+
+			"so a role on its own row is authority nothing bounds", err)
+	}
+	var grants int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM role_assignment WHERE user_id = $1`, seat).Scan(&grants); err != nil {
+		t.Fatalf("counting the seat's role assignments: %v", err)
+	}
+	if grants != 0 {
+		t.Errorf("the refused grant left %d role assignment(s) on the agent seat", grants)
+	}
+}
+
+// The lockout the seat could otherwise cause, and the reason the admin count
+// carries an exclusion of its own rather than resting on the refusal above.
+//
+// The role assignment here is written directly, because the product refuses to
+// create it — which is the point. An installation that hand-inserted its agent
+// seat while no product path existed can hold exactly this row already, and a
+// refusal added afterwards reaches no grant that has already happened.
+func TestTheAgentSeatIsNotTheOtherAdminWhoCouldRecoverTheOrganization(t *testing.T) {
+	e := setupRevocationEnv(t, "agent-lockout")
+	seat := agentSeatOf(t, e)
+	if _, err := e.owner.Exec(context.Background(),
+		`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		 SELECT $1, r.id, $2 FROM role r WHERE r.workspace_id = $1 AND r.key = 'admin'`,
+		e.admin.WorkspaceID, seat); err != nil {
+		t.Fatalf("granting the agent seat the admin role directly: %v", err)
+	}
+
+	err := e.svc.DeactivateUser(e.wsCtx(e.admin), e.admin, DeactivateUserInput{UserID: e.admin.UserID})
+	if !errors.Is(err, errLastActiveAdmin) {
+		t.Fatalf("deactivating the only human administrator returned %v, want the last-admin refusal. "+
+			"The agent seat administers nothing — it carries no password and signs in nowhere — so "+
+			"counting it leaves the organization with no way back into user administration at all", err)
+	}
+}

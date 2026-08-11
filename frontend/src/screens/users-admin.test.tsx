@@ -57,6 +57,18 @@ const ROSTER = {
       is_agent: false,
       roles: [],
     },
+    // The workspace's agent identity, which bootstrap writes into every
+    // installation — so every case in this suite renders the roster a real
+    // admin sees, rather than a people-only one that no longer exists.
+    {
+      id: "u-agent",
+      workspace_id: "ws-1",
+      email: "agent@acme.gradion.local",
+      display_name: "Gradion Agent",
+      status: "active",
+      is_agent: true,
+      roles: [],
+    },
   ],
   page: { next_cursor: null, has_more: false },
 };
@@ -171,6 +183,55 @@ describe("UsersAdminCard", () => {
     const off = screen.getByText("Otto Off").closest("li") as HTMLElement;
     expect(within(active).getByText("Deactivate")).toBeTruthy();
     expect(within(off).getByText("Reactivate")).toBeTruthy();
+  });
+
+  // The agent seat is listed — a client resolving the owner of a record it owns
+  // has to find it — but it is not a colleague, and the row has to say so. Each
+  // absence below is a control the server refuses anyway, so offering it could
+  // only produce a 409 an admin cannot act on.
+  it("marks the agent seat and offers it no control meant for a person", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
+
+    const agent = rowFor("Gradion Agent");
+    expect(within(agent).getByText("Agent")).toBeTruthy();
+    // No role control at all, not a disabled one: the seat's authority comes
+    // from a passport and the person it names, never from a role of its own.
+    expect(
+      within(agent).queryByRole("combobox", { name: /set role for/i }),
+    ).toBeNull();
+    expect(within(agent).getByText(/acts under a passport/i)).toBeTruthy();
+    // No set-password link: the seat holds no password by construction, which
+    // is what makes it a thing that signs in nowhere.
+    expect(
+      within(agent).queryByRole("button", { name: /set-password link/i }),
+    ).toBeNull();
+
+    // A person's row is untouched by any of that.
+    const person = rowFor("Nora None");
+    expect(roleSelect(person, "Nora None")).toBeTruthy();
+    expect(within(person).queryByText("Agent")).toBeNull();
+  });
+
+  // Deactivating the seat stays offered — an operator is entitled to that — but
+  // what it stops is invisible from this screen, and the body written for a
+  // person describes sessions and sign-ins that the seat has none of.
+  it("warns what stops before deactivating the agent seat", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
+
+    await userEvent.click(
+      within(rowFor("Gradion Agent")).getByRole("button", {
+        name: /deactivate/i,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/every job that runs with nobody/i),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/signed out everywhere/i)).toBeNull();
   });
 
   it("invites a member with the entered email, name, and role", async () => {
