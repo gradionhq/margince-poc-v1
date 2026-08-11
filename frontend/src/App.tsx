@@ -111,15 +111,16 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
 // paint a blank frame. Split out for the same complexity-budget reason as
 // DealsRoute above.
 //
-// A unit still ships no TSX: extensions/<name>/frontend/ is an unbuilt
-// capability layer that gen-composition's scan refuses on sight, and lifting
-// that would mean bundling unit-authored code into the SPA. So a unit surface
-// comes from one of two CORE-owned places, in this order:
+// A unit surface comes from one of two places, in this order:
 //
-//   1. A bespoke screen committed under src/screens/ext/ and listed in the
-//      composed screen registry ("@composition/screens"). notes, the
-//      reference extension, is the one such screen today; its file explains
-//      why it lives in core and why only the composed lane compiles it.
+//   1. The unit's OWN screen: extensions/<name>/frontend/ is a pnpm workspace
+//      package (@margince-ext/<name>) whose default export is a component, and
+//      gen-composition lists it in the composed screen registry
+//      ("@composition/screens"). notes, the reference extension, is the one
+//      such screen today. This is unit-authored TSX compiled into the SPA
+//      bundle, which is why collectUnitFrontend refuses a package that is not
+//      private, mis-named, or takes a direct dependency on a hosted framework,
+//      and why check-ext-imports.sh gates what such a screen may import.
 //   2. Otherwise the contract-derived descriptor set — the operations the
 //      unit's fragments published, which is all the app can honestly say about
 //      a unit nobody wrote a screen for (de, yogi, crm-hello).

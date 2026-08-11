@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -138,6 +138,10 @@ build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test
 check-fe: fe-typecheck-composed
 	@[ -d frontend/node_modules ] || { echo "check-fe: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
 	$(MAKE) frontend-check
+	# The unit screens' own suites. Ordered AFTER frontend-check on purpose: it
+	# is the composed lane, so it costs a composition, and there is no point
+	# paying for it when the core suite is already red.
+	$(MAKE) fe-test-ext
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
 fitness-jurisdiction: no-jurisdiction
 ## gen-types — regenerate the contract types (alias for gen).
@@ -160,6 +164,24 @@ fe-format:
 ## fe-test — frontend unit tests (vitest).
 fe-test:
 	cd frontend && pnpm install --frozen-lockfile && pnpm test
+
+## fe-test-ext — the UNIT SCREENS' own vitest suites
+## (extensions/*/frontend/**/*.test.tsx), which `make check-fe` runs.
+##
+## A second lane rather than files added to `make fe-test`, for the reason
+## fe-typecheck-composed is a second lane: a unit screen reads its copy through
+## "@composition/copy" and calls routes that exist only in the merged contract,
+## so its suite passes only against a COMPOSED tree. Hence the dependency on
+## `composition` and the MARGINCE_COMPOSITION_FRONTEND export — the same switch
+## the composed typecheck and the composed build use.
+##
+## Until this target existed these suites ran in no lane at all: vitest's root is
+## frontend/, so its default include never reached extensions/, and 2230 tests
+## ran with none of them from a unit. They were typechecked and never executed.
+fe-test-ext: composition
+	@[ -f build/composition/frontend/extlocales.gen.ts ] || { echo "fe-test-ext: build/composition/frontend/extlocales.gen.ts is missing after 'make composition' — a unit screen's suite would resolve the empty-tree copy registry and fail on every string" >&2; exit 1; }
+	cd frontend && pnpm install --frozen-lockfile && \
+		MARGINCE_COMPOSITION_FRONTEND=../build/composition/frontend pnpm test:ext
 
 ## ds-purity — design-system token purity (no raw hex/rgb outside tokens.css).
 ds-purity:

@@ -190,7 +190,7 @@ misleads in the other direction. Each of these is a property some gate would fai
 | River job kinds | `ext_<name>_<job>` (dispatcher) + `ext_<name>_<job>_ws` (workspace child) |
 | Secrets | `extension_secret.extension_name = <name>` |
 | RBAC objects | `ext_<name>_<object>` |
-| Frontend routes | `#/ext/<name>` (the screen is a **core** file — §4.5) |
+| Frontend routes | `#/ext/<name>` (the unit's own screen package, or a contract-derived card — §4.6) |
 | Manifest / `approvals.lock` key | `<name>` |
 
 **The route namespace carries no `/v1`, and that was a bug before it was a rule.** A contract path is
@@ -766,9 +766,9 @@ byte-identity property a single committed-from-composed file would destroy. Ther
 one: `@composition/extensions` (the descriptor registry), `@composition/schema` (the merged contract's
 types) and `@composition/screens` (the screen registry). The middle one needed a **second** composition root,
 `build/composition-frontend/` — gitignored, Node-produced, and verified to sit outside the tree
-`verifyOutputs`/`verifyNoExtraFiles` operate on, so the byte-identity gate is untouched by it. One
-deliberate typecheck gap is accepted and named: the demo screen's own test file, because a test imports the
-screen and `tsc` follows imports past exclusions.
+`verifyOutputs`/`verifyNoExtraFiles` operate on, so the byte-identity gate is untouched by it. The one
+typecheck gap this slice named — the demo screen's own test file, which no project compiled — is closed
+by a fourth project, `tsconfig.composed-tests.json`.
 
 **Cost, accepted explicitly, and it bit.** The CI `frontend` job has no Go toolchain and `Dockerfile.web`
 copies only the base YAMLs. The first cut made `check-fe` depend on a composed typecheck that hard-exits
@@ -848,7 +848,7 @@ alongside the manifest that is already excluded, and for the same class of reaso
 output, not unit source, and what pins it is the lockfile. The symlink refusal itself is unchanged
 everywhere else.
 
-**What the build taught that this design did not predict.** Six things, each now a comment where it
+**What the build taught that this design did not predict.** Seven things, each now a comment where it
 bit:
 
 1. **The generated screen registry can import NOTHING.** It is written to two locations at different
@@ -872,6 +872,17 @@ bit:
 6. **Removing the LAST frontend-bearing unit** left the composed-tests project with no inputs, which
    TypeScript treats as an error. The committed stub is included beside the glob, so the tier survives
    a tree that uses none of it.
+7. **A typechecked test is not a run test, and no lane ran these.** vitest's root is `frontend/`, so its
+   default include never reached `extensions/*/frontend/**/*.test.tsx`: 2230 tests ran and not one of
+   them was a unit's. Finding 6's project compiled the file; nothing executed it — which is how a racy
+   assertion in it stayed green. The wrapped-body case resolved `findByText(/Couldn't load this view/)`
+   against whichever of the screen's TWO failing cards settled first, and it passed unchanged when the
+   notes read's guard was softened to `?? []`, the exact regression it exists to catch. Fixed in two
+   places: the lane (`frontend/vitest.ext.config.ts`, run by `make fe-test-ext`, called from
+   `make check-fe`) and the assertion (a `waitFor` on the error-card COUNT, which the mutation fails).
+   It is a **second** vitest lane rather than a widened include because a unit screen's suite reads copy
+   from the merged catalogue and calls routes only the merged contract declares, so it passes only
+   composed — the same precondition `make fe-typecheck-composed` has.
 
 **Proof, by doing it.** `git rm -r extensions/notes` + `rm -rf` + `pnpm install`, no core file
 edited, `make check-fe` green — then the unit restored and green again. Findings 5 and 6 are both
@@ -879,10 +890,10 @@ things only that exercise could have found.
 
 ## 5. Gates
 
-Each slice deletes its refusal in `gen-composition/scan.go` as it lands — except `frontend`, which is
-still refused (§4.5), so `scanUnit`'s "no Go module" refusal never relaxed either.
-`unbuiltCapabilityLayers` is one shared list driving both `scanUnit`'s refusal and
-`refuseNonRootGoPackages`' walk exemption, so each lift was a one-line edit.
+Each slice deletes its refusal in `gen-composition/scan.go` as it lands, `frontend` included (§4.6), so
+`unbuiltCapabilityLayers` is now **empty** — kept as the seam a fourth capability layer would arrive
+through rather than deleted and rebuilt under pressure. It is one shared list driving both `scanUnit`'s
+refusal and `refuseNonRootGoPackages`' walk exemption, so each lift was a one-line edit.
 
 | Gate | Outcome |
 |---|---|
@@ -930,12 +941,13 @@ and falsely shows whole files as new.
 principle #7. `fixtures/extensions/crm-hello` is untouched — it stays the minimal CI fixture. Detail and the
 click-through acceptance are in `NOTES-SCOPE.md`, with the corrections below taking precedence over it.
 
-**Five of six surfaces come from inside the unit.** `migrations/` (`ext.ext_notes_note`, workspace-scoped
+**All six surfaces come from inside the unit.** `migrations/` (`ext.ext_notes_note`, workspace-scoped
 under forced RLS), `api/` (six governed operations under `/ext/notes/`), secrets (an HMAC signing key,
 proven **by use** — signing is the whole demonstration, and no operation returns the key, masked or
 otherwise), a job (a heartbeat tick that names its own workspace, so the dispatcher's fan-out is visible
 rather than silently demonstrating the single-tenant case), and tools (the same six operations reaching the
-agent). **The sixth — the screen — is a core file** (§4.5).
+agent), and `frontend/` — the screen itself, a workspace package under the unit (§4.6), with its own
+copy in `frontend/i18n/` and its own vitest suite run by `make fe-test-ext`.
 
 **`GET` and `DELETE` are not declarable, so the three record operations are three POSTs on three paths.**
 `Verb.validateMethod` admits `post`/`put`/`patch` only, and that is the seam's rule rather than a style

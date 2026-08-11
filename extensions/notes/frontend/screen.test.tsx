@@ -14,6 +14,13 @@ import NotesScreen from "./screen";
 // file and run by `make fe-typecheck-composed` — so the fixtures below are
 // held against the merged contract even though vitest never looks.
 //
+// And it is RUN, by `make fe-test-ext` (frontend/vitest.ext.config.ts), which
+// `make check-fe` calls. It was not, for the whole of the first review round:
+// vitest's root is frontend/, so nothing under extensions/ was ever collected —
+// 2230 tests ran and none of them were these. Typechecked but never executed is
+// the state that let the racy assertion in the wrapped-body case below sit here
+// looking green.
+//
 // WHAT THIS SUITE CANNOT SEE, and did not: it stubs `fetch`, so every
 // assertion here is against a fixture somebody wrote, not against a body the
 // server sent. The server used to answer the governed-tool envelope while the
@@ -310,14 +317,31 @@ describe("the Demo Notepad screen", () => {
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
     renderScreen();
-    // The notes read fails loudly. `notes` is undefined on a wrapped body, and
-    // the query gate renders its error card rather than an empty list that
-    // would read as "you have no notes".
-    expect(await screen.findByText(/Couldn't load this view/)).toBeTruthy();
+    // BOTH reads fail loudly, and the count is the assertion. There are two
+    // wrapped bodies here — the notes list and the signing status — and each
+    // card's query gate renders its own error card rather than an empty list
+    // that would read as "you have no notes" or a badge that would read as a
+    // claim about the installation.
+    //
+    // findByText(/…/) was what this asserted before, and it was two defects in
+    // one line. It is `getBy` under a waitFor, so two matching cards are a
+    // "found multiple elements" throw — it passed only because the two queries
+    // settle on different ticks and the first poll sometimes caught one of
+    // them. And it never said WHICH card it found: softening the notes hook's
+    // guard to `return data?.notes ?? []` — precisely the regression this case
+    // exists to catch, and precisely what the UAT found the first time — leaves
+    // the notes card showing "No notes yet." and the SIGNING card's error card
+    // on the page, which satisfied both of the old assertions. The length is
+    // what distinguishes one broken read from two; that mutation fails here.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Couldn't load this view/)).toHaveLength(2),
+    );
     // And the connection state does NOT claim to be connected off a body it
-    // could not read — "No key stored" is wrong here too, but it is the
-    // failing-closed direction.
+    // could not read — nor "No key stored", which is the same claim in the
+    // other direction and would invite someone to paste a key over one that is
+    // already there.
     expect(screen.queryByText("Connected")).toBeNull();
+    expect(screen.queryByText("No key stored")).toBeNull();
   });
 
   it("says so when the principal cannot read the unit's notes at all", async () => {

@@ -337,6 +337,13 @@ unit, an unpublished subpath, and any bare specifier your own `package.json` doe
 The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
 unit exactly as they sweep core.
 
+**Test your screen next to it.** A `*.test.tsx` under your `frontend/` is run by `make fe-test-ext`,
+which `make check-fe` calls — a second vitest lane (`frontend/vitest.ext.config.ts`) rather than files
+added to the core one, because a unit screen reads its copy through the merged catalogue and calls
+routes that exist only in the merged contract, so its suite passes only against a composed tree. The
+lane composes first. Declare `vitest`, `@testing-library/react` and friends in your own
+`devDependencies`: the import gate lets a test file reach them and shipped code not.
+
 **Ship your copy with your screen.** Put one flat JSON object per locale in
 `frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extNotes.notes.add`. `<CamelUnit>` title-cases
 each hyphen-separated segment, and marks a segment that starts with a DIGIT with a leading underscore

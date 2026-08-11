@@ -20,25 +20,32 @@ import {
 
 // #/ext/notes — "Demo Notepad", the reference extension's one screen.
 //
-// It lives in the CORE tree, not in extensions/notes/frontend/. That layer
-// is still refused on sight by gen-composition's scan, and lifting the refusal
-// means bundling unit-authored TSX into the SPA — a supply-chain decision with
-// its own reviewed slice. So the unit ships its contract, its SQL and its Go,
-// and the screen that drives them is committed here, dispatched by unit name
-// from App.tsx's ExtensionRoute through the composed screen registry
-// (src/screens/ext/index.tsx).
+// It lives in the UNIT's own tree, as a pnpm workspace package
+// (@margince-ext/notes), and gen-composition lists it in the composed screen
+// registry that App.tsx's ExtensionRoute dispatches through. That is the
+// supply-chain decision this slice is: unit-authored TSX, and every npm package
+// the unit declares, are compiled into the SPA bundle. The guards on it are
+// collectUnitFrontend (the package must be private, correctly named, and must
+// take react / react-dom / @tanstack/react-query as PEERS so the host's single
+// copy is the one that runs) and frontend/scripts/check-ext-imports.sh (the
+// core is reachable only through frontend/package.json's exports map, and npm
+// only through what this package declares).
 //
-// TWO consequences of that, both of which the UAT depends on:
+// THREE consequences, all of which the UAT depends on:
 //
 //   - This file is in the COMPOSED lane only. `api.POST("/ext/notes/…")` is
 //     correctly a type error in the vanilla lane — that installation does not
-//     serve the route — so tsconfig.app.json excludes src/screens/ext/ and
-//     tsconfig.composed.json compiles it against the MERGED contract. If the
-//     overlay did not merge, this file does not typecheck: the route half of
-//     the ordering constraint is still a compile-time guard, even though the
+//     serve the route — so tsconfig.composed.json compiles it against the
+//     MERGED contract and reaches it through the generated registry's imports.
+//     If the overlay did not merge, this file does not typecheck: the route half
+//     of the ordering constraint is still a compile-time guard, even though the
 //     RBAC-object half is not (see capability.ts).
+//   - Its copy travels with it too, in ./i18n/<locale>.json, namespaced
+//     `extNotes.` and merged into the one catalogue by gen-composition — so
+//     `useT` here is the same lookup a core screen makes, and removing the unit
+//     takes its strings with it.
 //   - `rm -rf extensions/notes && make composition` still reproduces the
-//     vanilla stub byte for byte, because nothing here is generated. The
+//     vanilla stubs byte for byte, because nothing here is generated. The
 //     registry goes empty, the dispatch misses, and #/ext/notes answers the
 //     ordinary not-found card.
 //
