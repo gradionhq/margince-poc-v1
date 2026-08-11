@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gradionhq/margince/backend/internal/compose/draftcheck"
+	"github.com/gradionhq/margince/backend/internal/compose/draftcore"
 	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -116,37 +116,20 @@ func Write(
 	return written, crmcontracts.Model, nil
 }
 
-// writeChecked drafts, reads what came back against the envelope it was written
-// into, and gives the model ONE chance to fix what it got wrong.
-//
-// The retry exists because prompt rules keep losing to model reflexes: a first
-// touch invents a pitch, and a long-silent thread reaches for "circling back",
-// with both banned in plain words in the system prompt. Naming the exact phrase
-// back to the model is what a prompt sentence cannot do. One retry is the limit
-// - a second is a model that will not comply, and the floor is underneath.
-//
-// A retry that fails leaves the first draft standing: it carries the defect and
-// is still a real message a human can edit, which beats refusing to answer.
+// writeChecked drafts through the shared correct-and-retry loop, so this
+// surface cannot drift from the other two about what a rejected phrase is or
+// how many chances the model gets to fix one.
 func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) {
-	draft, err := writeWithModel(ctx, lane, in, "")
-	if err != nil {
-		return Draft{}, err
-	}
-	findings := draftcheck.Body(draft.Body, in.Envelope.Lang(), in.Envelope.Band())
-	if len(findings) == 0 {
-		return draft, nil
-	}
-	retried, retryErr := writeWithModel(ctx, lane, in, draftcheck.Feedback(findings))
-	if retryErr != nil {
-		return draft, nil
-	}
-	// Keep whichever attempt carries LESS of the rejected phrasing. A second
-	// attempt is not automatically better, and the count is the only evidence
-	// available without asking a model to judge its own output.
-	if len(draftcheck.Body(retried.Body, in.Envelope.Lang(), in.Envelope.Band())) < len(findings) {
-		return retried, nil
-	}
-	return draft, nil
+	return draftcore.CorrectOnce(ctx, in.Envelope.Lang(), in.Envelope.Band(),
+		func(ctx context.Context, correction string) (Draft, error) {
+			return writeWithModel(ctx, lane, in, correction)
+		},
+		func(d Draft) string { return d.Body },
+		// No observer: this package holds no logger, and a retry that does not
+		// help still returns a real draft. The reply surface, which has one,
+		// reports it.
+		nil,
+	)
 }
 
 func writeWithModel(ctx context.Context, lane Completer, in Input, correction string) (Draft, error) {

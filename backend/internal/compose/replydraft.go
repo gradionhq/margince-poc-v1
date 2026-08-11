@@ -19,7 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/compose/draftcheck"
+	"github.com/gradionhq/margince/backend/internal/compose/draftcore"
 	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -455,47 +455,37 @@ func (d replyDrafter) completeWith(ctx context.Context, activity replyActivityDa
 	return draft, nil
 }
 
-// completeChecked drafts, then reads what came back against the envelope it was
-// written into, and gives the model ONE chance to fix what it got wrong.
+// completeChecked drafts through the shared correct-and-retry loop, so the
+// reply surface cannot drift from the two composers about what a rejected
+// phrase is or how many chances the model gets to fix one.
 //
-// The retry exists because the prompt rules keep losing to reflexes: "checking
-// in" and "we discussed" survive an explicit ban when the model has a gap to
-// paper over. Naming the exact phrase back to it is what a prompt sentence
-// cannot do, and one retry is the limit — a second is a model that will not
-// comply, and the caller has a deterministic floor for that.
-//
-// A retry that fails leaves the first draft standing. It has the defect, and it
-// is still a real draft a human can edit; refusing to answer would be worse.
+// The voice block rides along unchanged: it selects the system variant, and the
+// correction rides the user turn, so a plain draft told to fix a phrase stays a
+// plain draft rather than silently becoming a voiced one.
 func (d replyDrafter) completeChecked(ctx context.Context, data replyActivityData, voiceBlock voiceBlockFor) (replyDraft, error) {
-	draft, err := d.complete(ctx, data, voiceBlock)
-	if err != nil {
-		return replyDraft{}, err
-	}
-	findings := draftcheck.Body(draft.Body, data.Lang(), data.Band())
-	if len(findings) == 0 {
-		return draft, nil
-	}
+	return draftcore.CorrectOnce(ctx, data.Lang(), data.Band(),
+		func(ctx context.Context, correction string) (replyDraft, error) {
+			return d.completeWith(ctx, data, voiceBlock, correction)
+		},
+		func(draft replyDraft) string { return draft.Body },
+		draftRetryLog{log: d.logger()},
+	)
+}
 
-	retried, retryErr := d.completeWith(ctx, data, voiceBlock, draftcheck.Feedback(findings))
-	if retryErr != nil {
-		d.logger().WarnContext(ctx, "draft correction retry failed; serving the first draft",
-			"findings", len(findings), "err", retryErr)
-		return draft, nil
-	}
-	remaining := draftcheck.Body(retried.Body, data.Lang(), data.Band())
-	if len(remaining) == 0 {
-		return retried, nil
-	}
-	// The retry did not clear it. Serve whichever attempt carries LESS of the
-	// rejected phrasing rather than the later one by default: a second attempt
-	// is not automatically better, and the count is the only evidence available
-	// without asking a model to judge its own output.
-	d.logger().WarnContext(ctx, "draft still carries rejected phrasing after one retry",
-		"phrase", remaining[0].Phrase, "rule", remaining[0].Rule, "remaining", len(remaining))
-	if len(remaining) < len(findings) {
-		return retried, nil
-	}
-	return draft, nil
+// draftRetryLog reports what the correction loop decided. A retry that does not
+// help is invisible from the outside — the caller gets a draft either way — and
+// "the model kept producing rejected phrasing" is the signal that says a phrase
+// list or a prompt rule needs work.
+type draftRetryLog struct{ log *slog.Logger }
+
+func (l draftRetryLog) RetryFailed(ctx context.Context, findings int, err error) {
+	l.log.WarnContext(ctx, "draft correction retry failed; serving the first draft",
+		"findings", findings, "err", err)
+}
+
+func (l draftRetryLog) RetryDidNotClear(ctx context.Context, rule, phrase string, remaining int) {
+	l.log.WarnContext(ctx, "draft still carries rejected phrasing after one retry",
+		"rule", rule, "phrase", phrase, "remaining", remaining)
 }
 
 // parseReplyDraft reads one model reply as the draft it claims to be. The
