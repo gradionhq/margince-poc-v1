@@ -196,11 +196,11 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 	}
 }
 
-// TestASeatlessWorkspaceIsSkippedAndCounted is the fresh-install case, and it
+// TestASeatlessWorkspaceIsSkippedAndCounted is the archived-seat case, and it
 // is about what an OPERATOR sees rather than about a row count.
 //
-// Nothing in the product creates an agent seat (#656), so on a fresh
-// installation every workspace is seatless — and a composed unit ships enabled
+// Bootstrap gives a workspace its agent seat, so a seatless one is a workspace
+// whose operator archived or deactivated it — and a composed unit ships enabled
 // at its declared cadence (notes's is 60s). The dispatcher used to enqueue a
 // child anyway, with a zero principal, so the tick failed at deriveAuthority;
 // with MaxAttempts 3 that is three discarded rows a minute per workspace,

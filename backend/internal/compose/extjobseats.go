@@ -6,15 +6,19 @@ package compose
 // The seatless-workspace gauge: the number of live workspaces the last
 // extension-job dispatch skipped because they hold no agent seat.
 //
-// It exists because the alternative was worse. Nothing in the product creates
-// an agent seat yet (margince-poc-v1#656) and a composed unit ships enabled at
-// its declared cadence, so on a fresh installation every extension tick had no
-// initiator to name — and the dispatcher's original posture (enqueue anyway,
-// fail at the authority derivation) turned that one missing row into three
+// It exists because the alternative was worse. A composed unit ships enabled at
+// its declared cadence, so a workspace holding no agent seat has no initiator to
+// name at every tick — and the dispatcher's original posture (enqueue anyway,
+// fail at the authority derivation) turned that one absent row into three
 // failures a minute per workspace, forever. Skipping alone would have traded a
 // log storm for silence, and a dead capability nobody can see is not an
 // improvement. This number is the third option: the condition is REPORTED, as
 // a quantity an operator can alert on, without being reported as a fault.
+//
+// Bootstrap writes every new installation its seat, so this reads zero on an
+// untouched one. What it watches for is that seat being archived or deactivated
+// afterwards — an identity change that silently stops every scheduled extension
+// job, and is otherwise visible nowhere.
 //
 // A GAUGE and not a counter: the question is "how many tenants cannot run their
 // extension jobs right now", which is a level. It reads zero on an installation
@@ -70,16 +74,16 @@ func SeatlessWorkspaces() int64 { return seatlessWorkspaces.Load() }
 // can never populate it.
 //
 // No workspace_id label: the number is a fleet count, and labelling it per
-// tenant would mint a series per workspace for a condition that is currently
-// true of ALL of them on a fresh installation — the widest possible label set
-// for the least informative case.
+// tenant would mint a series per workspace to carry a boolean about each — the
+// widest possible label set for one of the least informative conditions a
+// tenant can be in.
 func WriteSeatlessWorkspacesGauge(w io.Writer) error {
 	n := SeatlessWorkspaces()
 	if n == neverDispatched {
 		return nil
 	}
 	_, err := fmt.Fprintf(w,
-		"# HELP margince_extension_job_seatless_workspaces Live workspaces skipped by the last extension-job dispatch because they hold no agent seat (see issue 656).\n"+
+		"# HELP margince_extension_job_seatless_workspaces Live workspaces skipped by the last extension-job dispatch because they hold no agent seat.\n"+
 			"# TYPE margince_extension_job_seatless_workspaces gauge\n"+
 			"margince_extension_job_seatless_workspaces %d\n", n)
 	return err

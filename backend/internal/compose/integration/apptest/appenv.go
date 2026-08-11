@@ -153,9 +153,15 @@ func (e *AppEnv) BootstrapWorkspace(t *testing.T) {
 	e.Slug = "fable-e2e" // slugify("Fable E2E")
 }
 
-// SetWorkspaceSeat flips a workspace's users to a seat type through the
+// SetWorkspaceSeat flips a workspace's PEOPLE to a seat type through the
 // owner connection, inside a workspace-bound transaction so RLS (FORCE)
 // admits the UPDATE. Used to drive the read-seat ceiling from a test.
+//
+// The agent seat is left alone because the schema refuses to demote it
+// (app_user_agent_is_full): an agent identity is never a read seat, and the
+// read ceiling reaches an agent through the human it acts for instead. Sweeping
+// it in would abort on the constraint, which a caller reads as a broken fixture
+// rather than as the rule it is.
 func (e *AppEnv) SetWorkspaceSeat(t *testing.T, slug, seat string) {
 	t.Helper()
 	ctx := context.Background()
@@ -172,7 +178,8 @@ func (e *AppEnv) SetWorkspaceSeat(t *testing.T, slug, seat string) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1`, wsID, seat); err != nil {
+	if _, err := tx.Exec(ctx,
+		`UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1 AND NOT is_agent`, wsID, seat); err != nil {
 		t.Fatalf("seat update: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

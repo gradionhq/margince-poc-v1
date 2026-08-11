@@ -125,8 +125,16 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	// (e) No session → 401, before we lean on the authenticated reads.
 	assertRosterUnauthorized(t, e)
 
-	// (a) The roster lists workspace A's members: the bootstrap admin plus
-	// the two seeded reps, and nothing else.
+	// (a) The roster lists workspace A's members: the bootstrap admin, the two
+	// seeded reps, the agent seat bootstrap writes beside them, and nothing else.
+	//
+	// The agent seat is LISTED rather than filtered out, because it owns records
+	// — the spec calls it the human-visible owner of agent-created ones — so a
+	// client resolving an owner id has to be able to find it, and `is_agent` on
+	// User is what tells a picker of humans to leave it out. Filtering it here
+	// would make that flag unreachable on the one row it describes, and would
+	// hide from an admin both that the identity exists and that anything has
+	// been done to it.
 	var users struct {
 		Data []rosterUser `json:"data"`
 	}
@@ -137,17 +145,24 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	for _, u := range users.Data {
 		got[u.Email] = u
 	}
-	for _, want := range []string{"ada@example.com", "rep@example.com", "bob@example.com"} {
+	agentSeat := "agent@" + e.Slug + ".gradion.local"
+	for _, want := range []string{"ada@example.com", "rep@example.com", "bob@example.com", agentSeat} {
 		if _, ok := got[want]; !ok {
 			t.Errorf("roster missing %q; got %+v", want, users.Data)
 		}
+	}
+	// The one non-human row says so. A client that cannot tell it apart would
+	// offer it wherever it offers a person — as an assignee, as a recipient.
+	if seat, listed := got[agentSeat]; listed && !seat.IsAgent {
+		t.Errorf("the agent seat is listed with is_agent = false, so nothing on the wire "+
+			"distinguishes it from a colleague: %+v", seat)
 	}
 	// (b) Workspace isolation: B's member never appears.
 	if _, leaked := got["eve@other.example"]; leaked {
 		t.Error("cross-tenant leak: workspace B's user appears in workspace A's roster")
 	}
-	if len(users.Data) != 3 {
-		t.Fatalf("roster size = %d, want exactly the 3 workspace-A members: %+v", len(users.Data), users.Data)
+	if len(users.Data) != 4 {
+		t.Fatalf("roster size = %d, want exactly the 4 workspace-A members: %+v", len(users.Data), users.Data)
 	}
 	// workspace_id is required on User and must be the caller's workspace.
 	for _, u := range users.Data {
