@@ -77,11 +77,26 @@ func TestEveryRunnerJobBuiltHereCarriesAnAllowlist(t *testing.T) {
 		}
 		found++
 		for _, elt := range lit.Elts {
-			if kv, ok := elt.(*ast.KeyValueExpr); ok {
-				if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == "Tools" {
-					return true
-				}
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
 			}
+			ident, ok := kv.Key.(*ast.Ident)
+			if !ok || ident.Name != "Tools" {
+				continue
+			}
+			// PRESENT IS NOT ENOUGH. `Tools: nil` and `Tools: []string{}` both
+			// satisfy "the field is set" and both apply no narrowing, so a
+			// future change could switch the boundary off and leave this gate
+			// green — the same "empty means everything" reading AgentSpec.Tools
+			// refuses one seam over.
+			if !isAllowlistFromASpec(kv.Value) {
+				t.Errorf("%s: the runner.Job at %s sets Tools to something that is not an entry's own "+
+					"allowlist — nil and an empty literal both read as NO narrowing, so this switches the "+
+					"catalog boundary off while looking like it honours it",
+					file, fset.Position(kv.Pos()))
+			}
+			return true
 		}
 		t.Errorf("%s: the runner.Job built at %s sets no Tools — the run is then narrowed by the "+
 			"passport alone, and the agent's catalog entry binds nothing",
@@ -92,6 +107,18 @@ func TestEveryRunnerJobBuiltHereCarriesAnAllowlist(t *testing.T) {
 		t.Fatalf("%s builds no runner.Job — this gate is reading the wrong file, "+
 			"which is worse than not having it", file)
 	}
+}
+
+// isAllowlistFromASpec reports whether an expression reads a spec's own Tools —
+// `spec.Tools`, or any future receiver's.
+//
+// It deliberately does NOT pin the receiver's name: what matters is that the
+// value comes from a catalog entry rather than being written at the call site. A
+// gate that hardcoded `spec` would fail on an honest rename while still passing
+// an inline []string{"read_record"} typed out by hand.
+func isAllowlistFromASpec(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Tools"
 }
 
 // isRunnerJob reports whether a composite literal's type is runner.Job.

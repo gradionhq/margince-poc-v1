@@ -49,9 +49,12 @@ type Job struct {
 	// safe HERE because it can only widen back to what the passport already
 	// admits — but it is the same "empty means everything" reading
 	// AgentSpec.Tools refuses, so the two seams are held to different rules
-	// on purpose. What stops a scheduled agent falling through this door is
-	// TestARunFromASpecCarriesTheSpecsTools, which reads the Job the service
-	// actually builds rather than trusting the call site.
+	// on purpose.
+	//
+	// The invariant that makes the difference safe is a RUNTIME one, not a
+	// property of any test: A JOB BUILT FROM A CATALOG ENTRY CARRIES THAT
+	// ENTRY'S OWN ALLOWLIST. A scheduled agent therefore never reaches the
+	// empty case; only a caller with no entry behind it does.
 	Tools []string
 }
 
