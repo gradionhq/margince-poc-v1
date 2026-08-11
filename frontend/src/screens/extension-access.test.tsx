@@ -260,6 +260,40 @@ describe("ExtensionAccessCard", () => {
     expect(screen.getByText(/registers no permission objects/i)).toBeTruthy();
   });
 
+  it("gives every unit a card of its own, headed by the unit name", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    // The page's own heading stays on the lead card, which carries the seat and
+    // inventory states and never a unit's grants.
+    expect(
+      screen.getByRole("heading", { name: /Extensions & access/i }),
+    ).toBeTruthy();
+
+    const unit = screen
+      .getByRole("heading", { name: "notes" })
+      .closest("article");
+    if (!(unit instanceof HTMLElement)) {
+      throw new Error("the notes unit is not a card of its own");
+    }
+    // Version and page link ride the card's heading row rather than its body.
+    expect(within(unit).getByText("Version 0.3.1")).toBeTruthy();
+    expect(
+      within(unit).getByRole("link", { name: "Open the notes page" }),
+    ).toBeTruthy();
+    // The two blocks inside are named, so the inventory of what the unit brought
+    // cannot be read as part of the grants underneath it …
+    expect(
+      within(unit).getByRole("heading", { name: /What this unit brings/i }),
+    ).toBeTruthy();
+    expect(
+      within(unit).getByRole("heading", { name: /Who may use it/i }),
+    ).toBeTruthy();
+    // … and each registered object keeps a matrix of its own within the card.
+    expect(within(unit).getAllByRole("table").length).toBe(2);
+  });
+
   it("links to the page of a unit the SPA registry resolves, naming the unit in the link", async () => {
     vi.stubGlobal("fetch", backend([]));
     render(<ExtensionAccessCard />);

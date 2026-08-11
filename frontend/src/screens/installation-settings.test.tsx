@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -147,6 +148,62 @@ describe("InstallationSettingsCard", () => {
       /organization name/i,
     )) as HTMLInputElement;
     expect(name.disabled).toBe(false);
+  });
+
+  // Two subjects, two cards: what the organization is called and when its
+  // periods start, then the currency every amount is re-expressed in — which
+  // carries a lock rule of its own and needs the room to say so. One submit
+  // covers both, because the server takes ONE sparse PATCH: a save per card
+  // would promise two independent writes that do not exist.
+  it("splits the fields into an Organization and a Currency card, with one save", async () => {
+    const { fetchMock, patch } = backendFor(SETTINGS_EDITOR);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InstallationSettingsCard />);
+
+    const organization = (
+      await screen.findByRole("heading", { name: /^organization$/i })
+    ).closest("section");
+    if (!organization) {
+      throw new Error("the Organization heading is not inside a card");
+    }
+    expect(
+      within(organization).getByLabelText(/organization name/i),
+    ).toBeTruthy();
+    expect(
+      within(organization).getByLabelText(/reporting timezone/i),
+    ).toBeTruthy();
+    expect(within(organization).queryByLabelText(/base currency/i)).toBeNull();
+
+    const currency = (
+      await screen.findByRole("heading", { name: /^currency$/i })
+    ).closest("section");
+    if (!currency) {
+      throw new Error("the Currency heading is not inside a card");
+    }
+    expect(within(currency).getByLabelText(/base currency/i)).toBeTruthy();
+
+    // One button commits both cards, and it is not inside either of them — a
+    // save sitting in one card would read as saving only that card.
+    const saves = screen.getAllByRole("button", { name: /save/i });
+    expect(saves).toHaveLength(1);
+    expect(organization.contains(saves[0])).toBe(false);
+    expect(currency.contains(saves[0])).toBe(false);
+
+    const name = within(organization).getByLabelText(/organization name/i);
+    await userEvent.clear(name);
+    await userEvent.type(name, "Brandt Group");
+    const zone = within(organization).getByLabelText(/reporting timezone/i);
+    await userEvent.clear(zone);
+    await userEvent.type(zone, "Europe/Vilnius");
+    await userEvent.click(saves[0]);
+
+    await waitFor(() =>
+      expect(patch()).toEqual({
+        name: "Brandt Group",
+        timezone: "Europe/Vilnius",
+      }),
+    );
   });
 
   // An editable field must LOOK editable. `.input` is what carries the border,

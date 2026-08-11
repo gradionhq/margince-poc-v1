@@ -1,6 +1,11 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render as rtlRender,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -184,6 +189,70 @@ describe("the Settings Voice DNA card with no profile yet", () => {
       name: "Add it and start my Voice DNA",
     });
     expect(add.hasAttribute("disabled")).toBe(true);
+  });
+
+  // An owner with no voice yet has one thing to do. Splitting the surface into
+  // a card per subject would hand them five headings over five empty bodies —
+  // a description of a profile that does not exist.
+  it("stays one card, naming no subject the owner has nothing in yet", async () => {
+    stubApi();
+    render(<VoiceDnaCard />);
+    expect(await screen.findByText("No Voice DNA yet")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Voice DNA" })).toBeTruthy();
+    for (const absent of ["Writing samples", "Builds", "Your preferences"]) {
+      expect(screen.queryByRole("heading", { name: absent })).toBeNull();
+    }
+  });
+});
+
+// A profile that exists carries five subjects, each with controls of its own,
+// so each states itself: a reader looking for the rebuild button should find a
+// heading that says where it is rather than scrolling one long card.
+describe("the Settings Voice DNA card with a profile", () => {
+  it("gives every subject its own named card", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/voice-profiles") {
+          return jsonResponse({ data: [PROFILE], page: emptyPage.page });
+        }
+        if (path === "/voice-profiles/vp-1/sources") {
+          return jsonResponse({ data: [SOURCE], summary: SUMMARY });
+        }
+        return jsonResponse(emptyPage);
+      }),
+    );
+
+    render(<VoiceDnaCard />);
+
+    // "Your derived voice" belongs to this list only while the profile is not
+    // ready — a ready one is described by the insights panel above instead.
+    for (const heading of [
+      "Voice DNA",
+      "Your derived voice",
+      "Your preferences",
+      "Writing samples",
+      "Builds",
+    ]) {
+      expect(
+        await screen.findByRole("heading", { name: heading }),
+      ).toBeTruthy();
+    }
+    // The corpus card holds the manifest AND the box that adds to it, so the
+    // reader who just read "420 of 30,000 words" can act on it without moving.
+    const corpus = (
+      await screen.findByRole("heading", { name: "Writing samples" })
+    ).closest("section");
+    if (!corpus) {
+      throw new Error("the corpus heading is not inside a card");
+    }
+    expect(within(corpus).getByText(/420 of 30,000 words/)).toBeTruthy();
+    expect(
+      within(corpus).getByPlaceholderText(
+        "Paste an email, post, or anything you've written…",
+      ),
+    ).toBeTruthy();
   });
 });
 

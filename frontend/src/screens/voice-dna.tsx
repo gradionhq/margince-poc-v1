@@ -6,8 +6,8 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
-  SectionHeader,
   Textarea,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -81,44 +81,45 @@ function bandFor(totalWords: number): string {
 }
 
 // The "…later in Settings" surface the onboarding Voice step promises: the
-// owner's own profile, its corpus, and its builds.
+// owner's own profile, its corpus, and its builds. A built profile carries five
+// subjects, each with its own controls, so each gets a card of its own; a
+// profile that does not exist yet is ONE card, because five headings over five
+// empty bodies would describe a surface the owner does not have.
 export function VoiceDnaCard() {
   const t = useT();
   const qc = useQueryClient();
   const profile = useVoiceProfile();
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader title={t("settings.voice.title")} />
-      <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
-        {t("settings.voice.intro")}
-      </p>
-      <QueryGate query={profile}>
-        {(data) =>
-          data ? (
-            <VoiceDnaBody profile={data} />
-          ) : (
-            // The empty state promises samples can be added "below", and a
-            // profile is minted by the first add rather than by a step of its
-            // own — so the add control has to render here too. Without it an
-            // owner who skipped the onboarding voice step could never start a
-            // Voice DNA at all, and the whole card below (corpus, builds,
-            // sample drafts) stayed unreachable.
-            <>
-              <EmptyState>
-                <b>{t("settings.voice.emptyTitle")}</b>
-                <p className="t-small">{t("settings.voice.emptyBody")}</p>
-              </EmptyState>
-              <CorpusSources
-                profileId={null}
-                onChanged={() =>
-                  qc.invalidateQueries({ queryKey: ["voice-profile"] })
-                }
-              />
-            </>
-          )
-        }
-      </QueryGate>
-    </section>
+    <QueryGate query={profile}>
+      {(data) =>
+        data ? (
+          <VoiceDnaBody profile={data} />
+        ) : (
+          // The empty state promises samples can be added "below", and a
+          // profile is minted by the first add rather than by a step of its
+          // own — so the add control has to render here too. Without it an
+          // owner who skipped the onboarding voice step could never start a
+          // Voice DNA at all, and everything the profile unlocks (corpus,
+          // builds, sample drafts) stayed unreachable.
+          <Card
+            className="card-stack"
+            title={t("settings.voice.title")}
+            sub={t("settings.voice.intro")}
+          >
+            <EmptyState>
+              <b>{t("settings.voice.emptyTitle")}</b>
+              <p className="t-small">{t("settings.voice.emptyBody")}</p>
+            </EmptyState>
+            <CorpusAddForm
+              profileId={null}
+              onChanged={() =>
+                qc.invalidateQueries({ queryKey: ["voice-profile"] })
+              }
+            />
+          </Card>
+        )
+      }
+    </QueryGate>
   );
 }
 
@@ -151,50 +152,65 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
     qc.invalidateQueries({ queryKey: ["voice-learning", profile.id] });
   };
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
+    <>
+      <Card
+        className="card-stack"
+        title={t("settings.voice.title")}
+        sub={t("settings.voice.intro")}
       >
-        <Badge>{t(`settings.voice.status.${profile.status}`)}</Badge>
-        {profile.quality_band && (
-          <span className="t-small">{bandLabel(t, profile.quality_band)}</span>
-        )}
-        <span className="t-small" style={{ marginLeft: "auto" }}>
-          {t("settings.voice.version", { n: profile.profile_version ?? 0 })}
-        </span>
-      </div>
+        <div className="vdna-status">
+          <Badge>{t(`settings.voice.status.${profile.status}`)}</Badge>
+          {profile.quality_band && (
+            <span className="t-small">
+              {bandLabel(t, profile.quality_band)}
+            </span>
+          )}
+          <span className="t-small vdna-version">
+            {t("settings.voice.version", { n: profile.profile_version ?? 0 })}
+          </span>
+        </div>
 
-      {/* The insights panel also carries the candidate-review banner, so it
-          renders for EVERY profile state: a review-required first build must
-          be actionable while the profile is still collecting. */}
-      <ActiveVoiceInsights profileId={profile.id} onChanged={invalidate} />
-      {profile.status !== "ready" && <DerivedVoice profile={profile} />}
-      <PersonalityEditor profile={profile} onSaved={invalidate} />
-      <CorpusSources profileId={profile.id} onChanged={invalidate} />
-      <BuildControls profile={profile} onBuilt={invalidate} />
-      <VoiceHistory profileId={profile.id} onChanged={invalidate} />
-    </div>
+        {/* The insights panel also carries the candidate-review banner, so it
+            renders for EVERY profile state: a review-required first build must
+            be actionable while the profile is still collecting. It sits with
+            the status it can contradict — a card of its own would separate
+            "Ready" from the version waiting to replace it. */}
+        <ActiveVoiceInsights profileId={profile.id} onChanged={invalidate} />
+      </Card>
+
+      {/* The raw derived text is what a profile can show BEFORE it is ready;
+          once it is, the insights panel above quotes the same build back in a
+          form a reader can use, and repeating the markdown under it would say
+          the same thing twice. */}
+      {profile.status !== "ready" && (
+        <Card className="card-stack" title={t("settings.voice.derivedLabel")}>
+          <DerivedVoice profile={profile} />
+        </Card>
+      )}
+
+      <Card className="card-stack" title={t("settings.voice.personalityLabel")}>
+        <PersonalityEditor profile={profile} onSaved={invalidate} />
+      </Card>
+
+      <Card className="card-stack" title={t("settings.voice.corpusLabel")}>
+        <CorpusManifest profileId={profile.id} onChanged={invalidate} />
+        <CorpusAddForm profileId={profile.id} onChanged={invalidate} />
+      </Card>
+
+      <Card className="card-stack" title={t("settings.voice.buildsTitle")}>
+        <BuildControls profile={profile} onBuilt={invalidate} />
+        <VoiceHistory profileId={profile.id} onChanged={invalidate} />
+      </Card>
+    </>
   );
 }
 
 function DerivedVoice({ profile }: Readonly<{ profile: VoiceProfile }>) {
   const t = useT();
-  return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <div className="vdna-label">{t("settings.voice.derivedLabel")}</div>
-      {profile.voice_profile_md ? (
-        <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
-          {profile.voice_profile_md}
-        </p>
-      ) : (
-        <p className="t-small">{t("settings.voice.derivedEmpty")}</p>
-      )}
-    </div>
+  return profile.voice_profile_md ? (
+    <p className="vdna-derived">{profile.voice_profile_md}</p>
+  ) : (
+    <p className="t-small">{t("settings.voice.derivedEmpty")}</p>
   );
 }
 
@@ -229,7 +245,6 @@ function PersonalityEditor({
   const dirty = text !== profile.personality_md;
   return (
     <div className="vdna-composer">
-      <div className="vdna-label">{t("settings.voice.personalityLabel")}</div>
       <Textarea
         rows={4}
         value={text}
@@ -251,9 +266,9 @@ function PersonalityEditor({
 }
 
 // The corpus a profile already holds: the meter, its register mix, and the
-// removable rows. It renders only once a profile exists — before that there is
-// no corpus to read, and asking for one would be a request against an id
-// nobody has minted yet.
+// removable rows. Only a caller that HAS a profile renders it — before that
+// there is no corpus to read, and asking for one would be a request against an
+// id nobody has minted yet.
 function CorpusManifest({
   profileId,
   onChanged,
@@ -321,8 +336,11 @@ function CorpusManifest({
 // A null profileId is the owner who has never built a voice: the paste box is
 // the same one, but the add resolves the profile through the shared
 // ensureProfileId first, so the very first sample mints the one profile the
-// onboarding step would have minted — never a second one beside it.
-function CorpusSources({
+// onboarding step would have minted — never a second one beside it. That first
+// box is also the one case that names itself: it sits in the empty-state card
+// under the surface's own title, with no "Writing samples" heading above it to
+// say what pasting here does.
+function CorpusAddForm({
   profileId,
   onChanged,
 }: Readonly<{ profileId: string | null; onChanged: () => void }>) {
@@ -360,13 +378,8 @@ function CorpusSources({
 
   return (
     <div className="vdna-composer">
-      <div className="vdna-label">
-        {first
-          ? t("settings.voice.addFirstLabel")
-          : t("settings.voice.corpusLabel")}
-      </div>
-      {profileId !== null && (
-        <CorpusManifest profileId={profileId} onChanged={onChanged} />
+      {first && (
+        <div className="vdna-label">{t("settings.voice.addFirstLabel")}</div>
       )}
       {/* The first sample is the one a user pastes a whole email into, so it
           opens tall enough to show one without scrolling; a later addition to

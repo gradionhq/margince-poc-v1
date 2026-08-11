@@ -13,12 +13,7 @@ import type { components } from "../api/schema";
 import { useCanMutate } from "../app/capability";
 import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
 import { routeHash } from "../app/router";
-import {
-  Badge,
-  Checkbox,
-  EmptyState,
-  SectionHeader,
-} from "../design-system/atoms";
+import { Badge, Card, Checkbox, EmptyState } from "../design-system/atoms";
 import { useT } from "../i18n";
 import {
   isVersionSkew,
@@ -26,6 +21,7 @@ import {
   problemMessageOf,
   QueryGate,
   type QueryLike,
+  QueryStates,
   throwProblem,
   useMe,
 } from "./common";
@@ -175,14 +171,19 @@ function useSetGrant() {
   });
 }
 
+// What the two reads answer together. Named because the lead card and the unit
+// cards read the same merged result: the lead card renders its pending/error
+// surface, the unit cards render the units in it.
+type ComposedAccess = Readonly<{
+  extensions: readonly ExtensionUnit[];
+  roles: readonly ExtensionRole[];
+}>;
+
 // One pending/error surface for the two reads the screen needs together: a
 // matrix with roles but no unit inventory is not a partial screen, it is a
 // different screen. QueryStates takes any QueryLike, so the merge needs no
 // react-query lie.
-function useExtensionAccess(enabled: boolean): QueryLike<{
-  extensions: readonly ExtensionUnit[];
-  roles: readonly ExtensionRole[];
-}> {
+function useExtensionAccess(enabled: boolean): QueryLike<ComposedAccess> {
   const extensions = useExtensions(enabled);
   const roles = useRoles(enabled);
   return {
@@ -241,55 +242,68 @@ export function ExtensionAccessCard() {
   const isAdmin = (me.data?.roles ?? []).includes("admin");
   const canMutate = useCanMutate();
   const query = useExtensionAccess(isAdmin);
+  const composed = query.data;
 
   return (
-    <section className="card">
-      <SectionHeader title={t("extAccess.title")} sub={t("extAccess.sub")} />
-      {/* Gate on the role probe itself so the admin-only notice appears only
-          once /me has answered — never as a flash while it loads. */}
-      <QueryGate query={me}>
-        {() =>
-          isAdmin ? (
-            <QueryGate query={query}>
-              {({ extensions, roles }) =>
-                extensions.length === 0 ? (
-                  <EmptyState>
-                    <p className="t-small">{t("extAccess.empty")}</p>
-                  </EmptyState>
-                ) : (
-                  <div className="ext-units">
-                    {/* The seat ceiling, said once rather than beside every
-                        matrix: a read seat sees the whole inventory and every
-                        grant, and changes none of them. */}
-                    {canMutate ? null : (
-                      <p className="t-small ext-note">
-                        {t("extAccess.readOnly")}
-                      </p>
-                    )}
-                    {extensions.map((unit) => (
-                      <UnitBlock
-                        key={unit.name}
-                        unit={unit}
-                        roles={roles}
-                        canManage={canMutate}
-                      />
-                    ))}
-                  </div>
-                )
-              }
-            </QueryGate>
-          ) : (
-            <EmptyState>
-              <p className="t-small">{t("extAccess.adminOnly")}</p>
-            </EmptyState>
-          )
-        }
-      </QueryGate>
-    </section>
+    <div className="ext-stack">
+      <Card title={t("extAccess.title")} sub={t("extAccess.sub")}>
+        {/* Gate on the role probe itself so the admin-only notice appears only
+            once /me has answered — never as a flash while it loads. */}
+        <QueryGate query={me}>
+          {() =>
+            isAdmin ? (
+              <InventoryLead query={query} canManage={canMutate} />
+            ) : (
+              <EmptyState>
+                <p className="t-small">{t("extAccess.adminOnly")}</p>
+              </EmptyState>
+            )
+          }
+        </QueryGate>
+      </Card>
+      {/* Each unit gets a card of its own, beside the lead card rather than
+          inside it: the inventory read's pending and error surfaces belong with
+          the heading that names the page, and a unit is a subject in its own
+          right. Only reachable with data in hand, which for a non-admin the
+          disabled reads never produce. */}
+      {composed?.extensions.map((unit) => (
+        <UnitCard
+          key={unit.name}
+          unit={unit}
+          roles={composed.roles}
+          canManage={canMutate}
+        />
+      ))}
+    </div>
   );
 }
 
-function UnitBlock({
+// The lead card's body: the read's own pending/error surface, plus the two
+// sentences that speak for the whole inventory rather than for one unit.
+function InventoryLead({
+  query,
+  canManage,
+}: Readonly<{ query: QueryLike<ComposedAccess>; canManage: boolean }>) {
+  const t = useT();
+  const units = query.data?.extensions;
+  return (
+    <QueryStates query={query}>
+      {units?.length === 0 ? (
+        <EmptyState>
+          <p className="t-small">{t("extAccess.empty")}</p>
+        </EmptyState>
+      ) : null}
+      {/* The seat ceiling, said once rather than beside every matrix: a read
+          seat sees the whole inventory and every grant, and changes none of
+          them. */}
+      {units && units.length > 0 && !canManage ? (
+        <p className="t-small ext-note">{t("extAccess.readOnly")}</p>
+      ) : null}
+    </QueryStates>
+  );
+}
+
+function UnitCard({
   unit,
   roles,
   canManage,
@@ -314,74 +328,102 @@ function UnitBlock({
   // grants below instead of the deploy.
   const page = findExtension(unit.name);
   return (
-    <article className="ext-unit">
-      <header className="ext-unit-head">
-        <h3 className="ext-unit-name">{unit.name}</h3>
-        <Badge>{t("extAccess.version", { version: unit.version })}</Badge>
-      </header>
-      {page ? (
-        // The unit's name is IN the link text, not only in the heading above
-        // it: several of these sit on one page, and "Open" repeated five times
-        // names nothing to anyone reading the links out of context. The hash is
-        // built through routeHash and the exported screen token rather than
-        // spelled here, so this link and the router cannot drift apart.
-        <a
-          className="t-small ext-unit-link"
-          href={routeHash({ screen: EXTENSION_SCREEN, id: page.name })}
-        >
-          <ArrowUpRight aria-hidden size={15} />
-          {t("extAccess.openUnit", { name: page.name })}
-        </a>
-      ) : (
+    <Card
+      as="article"
+      className="ext-unit"
+      title={unit.name}
+      actions={
+        <div className="ext-unit-actions">
+          <Badge>{t("extAccess.version", { version: unit.version })}</Badge>
+          {page ? (
+            // The unit's name is IN the link text, not only in the heading
+            // beside it: several of these sit on one page, and "Open" repeated
+            // five times names nothing to anyone reading the links out of
+            // context. The hash is built through routeHash and the exported
+            // screen token rather than spelled here, so this link and the
+            // router cannot drift apart.
+            <a
+              className="t-small ext-unit-link"
+              href={routeHash({ screen: EXTENSION_SCREEN, id: page.name })}
+            >
+              <ArrowUpRight aria-hidden size={15} />
+              {t("extAccess.openUnit", { name: page.name })}
+            </a>
+          ) : null}
+        </div>
+      }
+    >
+      {/* A whole sentence, so it stays in the body where the heading row holds
+          only the link it stands in for. */}
+      {page ? null : (
         <p className="t-small ext-note ext-unit-nopage">
           <Info aria-hidden size={15} />
           {t("extAccess.noPage", { name: unit.name })}
         </p>
       )}
-      <dl className="ext-brings">
-        <BringsRow
-          icon={<KeyRound aria-hidden size={15} />}
-          label={t("extAccess.brings.objects")}
-          items={unit.rbac_objects.map((object) => ({
-            id: object,
-            content: object,
-          }))}
-        />
-        <BringsRow
-          icon={<Route aria-hidden size={15} />}
-          label={t("extAccess.brings.routes")}
-          // Keyed by method AND path: two operations on one path are two
-          // entries, and keying by path alone would collapse the pair React
-          // has to keep apart — the same collapse the server stopped doing.
-          items={unit.routes.map((route) => ({
-            id: `${route.method} ${route.path}`,
-            content: (
-              <>
-                <span className="ext-method">{route.method}</span>
-                <span className="ext-route-path">{route.path}</span>
-              </>
-            ),
-          }))}
-        />
-        <BringsRow
-          icon={<Timer aria-hidden size={15} />}
-          label={t("extAccess.brings.jobs")}
-          items={unit.jobs.map((job) => ({ id: job, content: job }))}
-        />
-      </dl>
-      {unit.rbac_objects.length === 0 ? (
-        <p className="t-small ext-note">{t("extAccess.noObjects")}</p>
-      ) : (
-        unit.rbac_objects.map((object) => (
-          <ObjectMatrix
-            key={object}
-            object={object}
-            roles={roles}
-            canManage={canManage}
-          />
-        ))
-      )}
-    </article>
+      <div className="ext-block">
+        <h3 className="t-label ext-block-title">
+          {t("extAccess.brings.heading")}
+        </h3>
+        <UnitBrings unit={unit} />
+      </div>
+      <div className="ext-block">
+        <h3 className="t-label ext-block-title">
+          {t("extAccess.grants.heading")}
+        </h3>
+        {unit.rbac_objects.length === 0 ? (
+          <p className="t-small ext-note">{t("extAccess.noObjects")}</p>
+        ) : (
+          <div className="ext-objects">
+            {unit.rbac_objects.map((object) => (
+              <ObjectMatrix
+                key={object}
+                object={object}
+                roles={roles}
+                canManage={canManage}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function UnitBrings({ unit }: Readonly<{ unit: ExtensionUnit }>) {
+  const t = useT();
+  return (
+    <dl className="ext-brings">
+      <BringsRow
+        icon={<KeyRound aria-hidden size={15} />}
+        label={t("extAccess.brings.objects")}
+        items={unit.rbac_objects.map((object) => ({
+          id: object,
+          content: object,
+        }))}
+      />
+      <BringsRow
+        icon={<Route aria-hidden size={15} />}
+        label={t("extAccess.brings.routes")}
+        // Keyed by method AND path: two operations on one path are two
+        // entries, and keying by path alone would collapse the pair React
+        // has to keep apart — the same collapse the server stopped doing.
+        items={unit.routes.map((route) => ({
+          id: `${route.method} ${route.path}`,
+          content: (
+            <>
+              <span className="ext-method">{route.method}</span>
+              <span className="ext-route-path">{route.path}</span>
+            </>
+          ),
+        }))}
+      />
+      <BringsRow
+        icon={<Timer aria-hidden size={15} />}
+        label={t("extAccess.brings.jobs")}
+        items={unit.jobs.map((job) => ({ id: job, content: job }))}
+      />
+    </dl>
   );
 }
 
@@ -467,7 +509,10 @@ function ObjectMatrix({
   const nobodyReads = roles.every((role) => !grantOf(role, object).read);
 
   return (
-    <div className="ext-object">
+    // An inset panel per object: a unit registering several objects renders
+    // several tables of identically-labelled columns, and the panel edge is
+    // what tells a reader where one object's grants end and the next begin.
+    <Card inset as="div" className="ext-object">
       <div className="ext-matrix-wrap">
         <table className="ext-matrix">
           <caption className="t-label ext-matrix-caption">
@@ -553,6 +598,6 @@ function ObjectMatrix({
             : problemMessageOf(setGrant.error, t)}
         </p>
       ) : null}
-    </div>
+    </Card>
   );
 }

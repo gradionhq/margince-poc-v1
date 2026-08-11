@@ -187,6 +187,37 @@ describe("UsersAdminCard", () => {
     // so this cannot pass on the loading render.
     await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
     expect(screen.queryByText("Ada Active")).toBeNull();
+    // The notice is the WHOLE surface a non-admin gets: neither admin card is
+    // rendered, so there is no invite form and no roster heading to reach.
+    expect(
+      screen.queryByRole("heading", { name: /invite a member/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Members$/ })).toBeNull();
+  });
+
+  it("splits inviting and the roster into their own cards", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    expect(
+      screen.getByRole("heading", { name: /invite a member/i }),
+    ).toBeTruthy();
+    const members = screen
+      .getByRole("heading", { name: /^Members$/ })
+      .closest("section");
+    if (!(members instanceof HTMLElement)) {
+      throw new Error("the roster is not a card of its own");
+    }
+    // The count states what the roster holds, deactivated members included —
+    // the read opts into them, so a count that skipped them would disagree with
+    // the rows beneath it.
+    expect(within(members).getByText("3 members")).toBeTruthy();
+    expect(within(members).getAllByRole("listitem").length).toBe(3);
+    // And the invite fields are not in it: two cards, two surfaces.
+    expect(
+      within(members).queryByPlaceholderText("name@company.com"),
+    ).toBeNull();
   });
 
   it("renders the include-inactive roster with per-status actions", async () => {

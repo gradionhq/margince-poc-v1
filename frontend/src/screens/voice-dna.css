@@ -5,6 +5,27 @@
   margin-bottom: var(--space-1);
 }
 
+/* The status row: state, quality band, and the profile version pushed to the
+   far end of the same line, so the reading a reader scans for is where the eye
+   already goes. */
+.vdna-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.vdna-version {
+  margin-left: auto;
+}
+
+/* The derived voice as the build wrote it: markdown-shaped prose, so its own
+   line breaks are the paragraphing. */
+.vdna-derived {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
 /* The add-a-source composer: the paste area is a block of its own rather than
    an inline field, so the submit button sits under it instead of alongside. */
 .vdna-composer {
@@ -12,6 +33,14 @@
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* A composer that OPENS a card takes its gap from the card's header, which
+   carries one already — its own inter-block top margin would double it. The
+   composer that follows content inside a card (the paste box under the corpus
+   manifest) still separates itself, which is the case the rule above is for. */
+.card > .section-header + .vdna-composer {
+  margin-top: 0;
 }
 
 /* The action sits on its own row under the paste area, so the control reads as
