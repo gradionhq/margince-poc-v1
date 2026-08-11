@@ -151,7 +151,15 @@ function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
       </div>
     );
   }
-  const Screen = extensionScreens[unit.name];
+  // Object.hasOwn, not a bare index: the generated registry is an object
+  // literal, so `extensionScreens["constructor"]` answers from the prototype
+  // chain with Object itself — truthy, and a function, so the dispatch below
+  // mounts it and React dies on "Objects are not valid as a React child". The
+  // unit-name grammar admits `constructor`, and the fallback card is supposed
+  // to be what a unit without a screen gets.
+  const Screen = Object.hasOwn(extensionScreens, unit.name)
+    ? extensionScreens[unit.name]
+    : undefined;
   if (Screen) {
     return <Screen />;
   }

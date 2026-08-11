@@ -38,6 +38,25 @@ vi.mock("@composition/extensions", () => ({
         },
       ],
     },
+    // A composed unit with NO screen of its own, named to collide with a member
+    // of Object.prototype. The unit-name grammar
+    // (^[a-z0-9]+(-[a-z0-9]+)*$, extension.Name.Validate) admits "constructor",
+    // and a registry that is a plain object literal answers that key from the
+    // prototype chain — so the miss path has to be a real miss, not a truthy
+    // inherited function.
+    {
+      name: "constructor",
+      verbs: [
+        {
+          operationId: "constructorPing",
+          route: "/ext/constructor/ping",
+          method: "POST",
+          title: "Ping",
+          version: "1.0.0",
+          rbacObject: "ext_constructor_thing",
+        },
+      ],
+    },
   ],
 }));
 
@@ -72,6 +91,17 @@ describe("extension routes (composed screen registry)", () => {
     // The generic card must be GONE, not merely outranked: rendering both
     // would put a second, contradictory account of the unit on one page.
     expect(screen.queryByText("Published operations")).toBeNull();
+  });
+
+  // The registry lookup must answer for the unit's OWN entries only. Read off a
+  // plain object, `extensionScreens["constructor"]` is Object itself — truthy,
+  // and a function, so the dispatch mounts it and the route dies where it
+  // should have shown the descriptor card.
+  it("falls back to the descriptor card for a unit whose name is an Object.prototype member", async () => {
+    window.location.hash = "#/ext/constructor";
+    renderApp();
+    expect(await screen.findByText("Published operations")).toBeTruthy();
+    expect(await screen.findByText(/Ping/)).toBeTruthy();
   });
 
   it("does not render a screen for a unit the installation did not compose", async () => {
