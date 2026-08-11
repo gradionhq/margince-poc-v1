@@ -232,7 +232,7 @@ func TestErasureRetiresTheSubjectsPreferenceToken(t *testing.T) {
 	e := Setup(t)
 	personID := seedSubject(t, e)
 	token := seededPreferenceToken(personID)
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 
 	// The fixture is live first, so the assertion below measures the erasure
 	// and not a token that never worked.

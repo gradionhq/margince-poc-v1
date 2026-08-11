@@ -183,7 +183,7 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs s
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.Pool),
 		compose.NewSendAttachmentAuthority(p.Pool),
-		consent.NewGate(consent.NewStore(p.Pool)),
+		consent.NewGate(consent.NewStore(compose.InstallationDB(p.Pool))),
 		nil, time.Now, 24*time.Hour, 10,
 	)
 	// A job carries no session. The scope comes from the composition rather

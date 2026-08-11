@@ -59,7 +59,7 @@ func (e *Env) adminCollectionsCtx() context.Context {
 
 func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 	e := Setup(t)
-	store := collections.NewStore(e.Pool)
+	store := collections.NewStore(e.DB())
 
 	mine := e.SeedPerson(t, "Mine Renewal", &e.Rep1)
 	foreign := e.SeedPerson(t, "Foreign Renewal", &e.Rep3)
@@ -108,7 +108,7 @@ func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 
 func TestDynamicList_reEvaluatesLiveAsRecordsChange(t *testing.T) {
 	e := Setup(t)
-	store := collections.NewStore(e.Pool)
+	store := collections.NewStore(e.DB())
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
 
 	created, err := store.CreateList(rep, collections.CreateListInput{
@@ -158,7 +158,7 @@ func TestDynamicList_reEvaluatesLiveAsRecordsChange(t *testing.T) {
 
 func TestDynamicList_rejectsInvalidDefinition(t *testing.T) {
 	e := Setup(t)
-	store := collections.NewStore(e.Pool)
+	store := collections.NewStore(e.DB())
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
 
 	assertCode := func(name string, def map[string]any, wantCode string) {
@@ -190,7 +190,7 @@ func TestDynamicList_rejectsInvalidDefinition(t *testing.T) {
 
 func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	e := Setup(t)
-	store := collections.NewStore(e.Pool)
+	store := collections.NewStore(e.DB())
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
 
 	query := map[string]any{

@@ -51,14 +51,14 @@ func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
 // modules its inbound and outbound edges need.
 func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 	return activities.NewHandlers(pool).
-		WithConsent(consent.NewGate(consent.NewStore(pool))).
+		WithConsent(consent.NewGate(consent.NewStore(InstallationDB(pool)))).
 		// The public booking capture seams (feedback/14): people is the
 		// idempotent-on-email person path, consent records the
 		// passthrough — both injected here, never sibling imports.
-		WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}).
+		WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 		// preference token behind the List-Unsubscribe URL.
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)})
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))})
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture
@@ -86,7 +86,7 @@ func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// predicate engine + the bundle writer's open-format rendering; the
 	// collections store resolves a saved view / dynamic list source
 	// behind its own visibility gate.
-	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)}
+	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(InstallationDB(pool))}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }
 

@@ -62,7 +62,7 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	ex := automation.Executors{
 		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
-		Lists:     listsAdapter{store: collections.NewStore(pool)},
+		Lists:     listsAdapter{store: collections.NewStore(InstallationDB(pool))},
 		// The zero SendPath is the honest one here: a send_email action
 		// stages an approval instead of sending, and automation.Comms
 		// declares DraftEmail alone, so no send is reachable from this

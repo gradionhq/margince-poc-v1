@@ -54,7 +54,7 @@ var roomPerms = principal.Permissions{
 }
 
 func personRoomService(e *Env) *person360.Service {
-	return person360.NewService(e.Pool, e.People, consent.NewStore(e.Pool),
+	return person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
 		ai.NewFeedbackStore(e.Pool), func() time.Time { return roomFixedNow })
 }
 

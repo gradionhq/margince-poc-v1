@@ -56,7 +56,7 @@ func livePreferenceTokens(t *testing.T, e *Env) int {
 // marketing mail with no working List-Unsubscribe URL.
 func TestPreferenceTokenMintRefusesAnInvisibleRecipient(t *testing.T) {
 	e := Setup(t)
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 
 	seedRecipient(t, e, "Foreign Recipient", "foreign@recipient.test", &e.Rep2)
 	seedRecipient(t, e, "Own Recipient", "own@recipient.test", &e.Rep1)
@@ -120,7 +120,7 @@ func preferenceTokenRevoked(t *testing.T, e *Env, token string) bool {
 // and the next send rotates rather than reviving it.
 func TestPreferenceTokenExpiresAndTheNextSendRotatesIt(t *testing.T) {
 	e := Setup(t)
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 	seedRecipient(t, e, "Bulk Recipient", "bulk@recipient.test", &e.Rep1)
 	admin := e.Admin()
 
@@ -164,7 +164,7 @@ func TestPreferenceTokenExpiresAndTheNextSendRotatesIt(t *testing.T) {
 // even though the refreshed window is still open.
 func TestPreferenceTokenRotatesPastItsAgeCeiling(t *testing.T) {
 	e := Setup(t)
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 	seedRecipient(t, e, "Long Subscriber", "subscriber@recipient.test", &e.Rep1)
 	admin := e.Admin()
 
@@ -198,7 +198,7 @@ func TestPreferenceTokenRotatesPastItsAgeCeiling(t *testing.T) {
 // a refusal, or the send path becomes an in-CRM/not-in-CRM oracle.
 func TestPreferenceTokenMintIsSilentForAnUnknownAddress(t *testing.T) {
 	e := Setup(t)
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 
 	token, found, err := store.PreferenceTokenForEmail(e.Admin(), "stranger@nowhere.test")
 	if err != nil || found || token != "" {

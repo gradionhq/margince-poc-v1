@@ -438,7 +438,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		commsResolver{registry: registry, channels: registry},
 		NewSendSeatAuthority(pool),
 		NewSendAttachmentAuthority(pool),
-		consent.NewGate(consent.NewStore(pool)),
+		consent.NewGate(consent.NewStore(InstallationDB(pool))),
 		[]comms.SendPolicy{comms.NewMailboxRatePolicy(p.Limit, p.Window, time.Now)},
 		time.Now,
 		p.MaxAge,

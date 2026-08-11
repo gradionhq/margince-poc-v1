@@ -87,7 +87,7 @@ func setupDSR(t *testing.T) *dsrEnv {
 	}
 	t.Cleanup(pool.Close)
 	e.pool = pool
-	e.store = NewStore(pool)
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
 
 	opCtx := principal.WithWorkspaceID(context.Background(), e.ws)
 	opCtx = principal.WithCorrelationID(opCtx, ids.NewV7())
@@ -133,7 +133,7 @@ func TestListDSRsNarrowsByStatus(t *testing.T) {
 		t.Fatalf("closing the second request: %v", err)
 	}
 
-	h := NewHandlers(e.pool)
+	h := NewHandlers(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	r := httptest.NewRequest(http.MethodGet, "/v1/data-subject-requests", nil).WithContext(e.ctx)
 
 	openStatus := crmcontracts.ListDataSubjectRequestsParamsStatusOpen
@@ -159,7 +159,7 @@ func TestListDSRsNarrowsByStatus(t *testing.T) {
 // error, not a filter that happens to match nothing.
 func TestListDataSubjectRequestsRejectsAnUnknownStatus(t *testing.T) {
 	e := setupDSR(t)
-	h := NewHandlers(e.pool)
+	h := NewHandlers(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	r := httptest.NewRequest(http.MethodGet, "/v1/data-subject-requests", nil).WithContext(e.ctx)
 	bogus := crmcontracts.ListDataSubjectRequestsParamsStatus("bogus")
 	w := httptest.NewRecorder()
@@ -225,7 +225,7 @@ func TestFulfillErasureHTTPRefusesAnUnresolvableSubject(t *testing.T) {
 	// NewHandlers builds its own store from the pool; WithEraser wires the
 	// erase seam compose injects in production.
 	eraser := &recordingEraser{}
-	h := NewHandlers(e.pool).WithEraser(eraser)
+	h := NewHandlers(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithEraser(eraser)
 	body := `{"status":"fulfilled","resolution":"verified by phone"}`
 	r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
 		strings.NewReader(body)).WithContext(e.ctx)
@@ -264,7 +264,7 @@ func TestFulfillErasureHTTPRefusesAMissingResolution(t *testing.T) {
 	req := e.mustCreate(t, "erasure", ids.NewV7().String())
 
 	eraser := &recordingEraser{}
-	h := NewHandlers(e.pool).WithEraser(eraser)
+	h := NewHandlers(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithEraser(eraser)
 	body := `{"status":"fulfilled"}`
 	r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
 		strings.NewReader(body)).WithContext(e.ctx)
@@ -304,7 +304,7 @@ func TestFulfillErasureHTTPRefusesAnAlreadyRejectedRequest(t *testing.T) {
 	}
 
 	eraser := &recordingEraser{}
-	h := NewHandlers(e.pool).WithEraser(eraser)
+	h := NewHandlers(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithEraser(eraser)
 	body := `{"status":"fulfilled","resolution":"verified by phone"}`
 	r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
 		strings.NewReader(body)).WithContext(e.ctx)
