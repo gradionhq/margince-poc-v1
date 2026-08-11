@@ -28,6 +28,30 @@ import { ExtensionAccessCard } from "./extension-access";
 // one that rides out as `If-Match`, and therefore the one a test asserts as the
 // STRING the header carries.
 
+// The SPA's generated registry, stubbed at the alias rather than at
+// app/extensions: the lookup under test IS findExtension, and the vanilla
+// registry this suite compiles against is empty by construction, so the "unit
+// has a page" case can only be reached by handing the registry the shape the
+// generator emits. `notes` resolves, `quiet` never does — which is exactly the
+// disagreement the screen has to survive, since /extensions answers with both.
+vi.mock("@composition/extensions", () => ({
+  extensions: [
+    {
+      name: "notes",
+      verbs: [
+        {
+          operationId: "notesList",
+          route: "/ext/notes",
+          method: "GET",
+          title: "List demo notes",
+          version: "1.0.0",
+          rbacObject: "ext_notes_note",
+        },
+      ],
+    },
+  ],
+}));
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -234,6 +258,41 @@ describe("ExtensionAccessCard", () => {
 
     // A unit that registers nothing says so instead of rendering an empty grid.
     expect(screen.getByText(/registers no permission objects/i)).toBeTruthy();
+  });
+
+  it("links to the page of a unit the SPA registry resolves, naming the unit in the link", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    // The accessible name carries the unit, not a bare "Open": several unit
+    // blocks sit on this one page, so a link found by name alone has to be
+    // unambiguous.
+    const link = screen.getByRole("link", { name: "Open the notes page" });
+    expect(link.getAttribute("href")).toBe("#/ext/notes");
+  });
+
+  it("says a unit is composed but unlinkable when this build's registry has never heard of it", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    // `quiet` comes back from /extensions — the binary composed it — and is
+    // absent from the mocked SPA registry, the exact shape of a bundle older
+    // than the server. No link is rendered, because #/ext/quiet would land on
+    // the router's not-found card …
+    expect(screen.queryByRole("link", { name: /quiet/ })).toBeNull();
+    // … and the reason is SAID, so "this unit has no page" cannot be confused
+    // with "the page is missing because the bundle is stale".
+    const unit = screen.getByText("quiet").closest("article");
+    if (!(unit instanceof HTMLElement)) {
+      throw new Error("no unit block rendered for quiet");
+    }
+    expect(
+      within(unit).getByText(/quiet is composed into the API, but this build/),
+    ).toBeTruthy();
+    // And the resolvable unit says nothing of the kind.
+    expect(screen.queryByText(/notes is composed into the API/)).toBeNull();
   });
 
   it("shows every route operation with its method, so a DELETE cannot hide behind a GET on the same path", async () => {

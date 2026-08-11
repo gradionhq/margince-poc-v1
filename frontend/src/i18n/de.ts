@@ -3481,6 +3481,9 @@ export const de = {
   "extAccess.empty":
     "In diese Installation ist keine Erweiterungseinheit eingebunden.",
   "extAccess.version": "Version {version}",
+  "extAccess.openUnit": "Seite {name} öffnen",
+  "extAccess.noPage":
+    "{name} ist in die API eingebunden, aber dieser Build der App hat keine Seite dafür — die App ist vermutlich älter als der Server.",
   "extAccess.brings.objects": "Berechtigungsobjekte",
   "extAccess.brings.routes": "Routen",
   "extAccess.brings.jobs": "Hintergrundjobs",

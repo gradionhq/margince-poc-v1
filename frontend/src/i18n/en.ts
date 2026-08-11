@@ -3465,6 +3465,9 @@ export const en = {
     "Your seat reads this page. Changing a grant needs a full seat.",
   "extAccess.empty": "No extension units are composed into this installation.",
   "extAccess.version": "Version {version}",
+  "extAccess.openUnit": "Open the {name} page",
+  "extAccess.noPage":
+    "{name} is composed into the API, but this build of the app has no page for it — the app is probably older than the server.",
   "extAccess.brings.objects": "Permission objects",
   "extAccess.brings.routes": "Routes",
   "extAccess.brings.jobs": "Background jobs",

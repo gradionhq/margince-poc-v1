@@ -29,6 +29,24 @@
   overflow-wrap: anywhere;
 }
 
+/* The link to the unit's own page, and the sentence that stands in for it when
+   this build of the SPA has no page to link to. Both sit on the same line under
+   the unit heading, so the block reads the same either way. */
+.ext-unit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.ext-unit-nopage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
 .ext-brings {
   margin: var(--space-3) 0 0;
   display: flex;

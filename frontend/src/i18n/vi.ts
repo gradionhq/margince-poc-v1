@@ -3471,6 +3471,9 @@ export const vi = {
   "extAccess.empty":
     "Chưa có đơn vị tiện ích nào được ghép vào bản cài đặt này.",
   "extAccess.version": "Phiên bản {version}",
+  "extAccess.openUnit": "Mở trang {name}",
+  "extAccess.noPage":
+    "{name} đã được ghép vào API, nhưng bản dựng ứng dụng này không có trang cho nó — ứng dụng có lẽ cũ hơn máy chủ.",
   "extAccess.brings.objects": "Đối tượng phân quyền",
   "extAccess.brings.routes": "Tuyến đường dẫn",
   "extAccess.brings.jobs": "Tác vụ nền",

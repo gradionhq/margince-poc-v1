@@ -1,9 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, KeyRound, Route, Timer } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Info,
+  KeyRound,
+  Route,
+  Timer,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanMutate } from "../app/capability";
+import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
+import { routeHash } from "../app/router";
 import {
   Badge,
   Checkbox,
@@ -290,12 +299,45 @@ function UnitBlock({
   canManage: boolean;
 }>) {
   const t = useT();
+  // Two sources say which units exist and they can disagree. The inventory
+  // above is what /extensions answered — what the RUNNING BINARY composed —
+  // while `#/ext/<name>` can only resolve what the SPA's generated registry
+  // was built with. A bundle older than the binary lists a unit here whose
+  // page App.tsx's ExtensionRoute would answer with its (deliberate, honest)
+  // not-found card.
+  //
+  // So the link is rendered from the registry, never from the API's list. And
+  // when the registry misses, the miss is SAID rather than silently omitted:
+  // "this unit has no page" and "the page exists but this bundle predates it"
+  // are different facts, and an operator hunting a missing screen has to be
+  // able to tell them apart — an absent link would leave them debugging the
+  // grants below instead of the deploy.
+  const page = findExtension(unit.name);
   return (
     <article className="ext-unit">
       <header className="ext-unit-head">
         <h3 className="ext-unit-name">{unit.name}</h3>
         <Badge>{t("extAccess.version", { version: unit.version })}</Badge>
       </header>
+      {page ? (
+        // The unit's name is IN the link text, not only in the heading above
+        // it: several of these sit on one page, and "Open" repeated five times
+        // names nothing to anyone reading the links out of context. The hash is
+        // built through routeHash and the exported screen token rather than
+        // spelled here, so this link and the router cannot drift apart.
+        <a
+          className="t-small ext-unit-link"
+          href={routeHash({ screen: EXTENSION_SCREEN, id: page.name })}
+        >
+          <ArrowUpRight aria-hidden size={15} />
+          {t("extAccess.openUnit", { name: page.name })}
+        </a>
+      ) : (
+        <p className="t-small ext-note ext-unit-nopage">
+          <Info aria-hidden size={15} />
+          {t("extAccess.noPage", { name: unit.name })}
+        </p>
+      )}
       <dl className="ext-brings">
         <BringsRow
           icon={<KeyRound aria-hidden size={15} />}
