@@ -3,10 +3,15 @@
 
 package person360
 
-// Why this contact is worth attention NOW.
+// Why this contact needs attention TODAY — one answer, not a list.
 //
 // The page's opening line is a reason, not a record. "Warm, 73" describes; "she
 // replied after 41 quiet days and nobody has answered" is something to do.
+//
+// ONE MOMENT WINS (ADR-0096 D2). A card offering five reasons has handed the
+// choosing back to the reader, which is the work this ladder exists to do. The
+// ladder is fixed and ordered by consequence; the first rung that fires is the
+// answer, and the rest are not computed into a list nobody reads.
 //
 // Every moment here is DETERMINISTIC — derived by a rule from captured
 // activity, never asserted by a model. Three things follow from that, and all
@@ -26,342 +31,347 @@ package person360
 // from fresh queries. That costs nothing extra and buys an invariant: a moment
 // can never cite evidence the page beside it is not showing, and a section the
 // caller may not read contributes no moments rather than leaking through one.
+//
+// Two rungs are input-bound and stay dormant rather than being mocked into
+// life: job_change fires only on a RECORDED employment change, and
+// public_signal needs a connected data provider. A rule that cannot fire is
+// absent from the page, not an empty card.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// momentsServed bounds what reaches the page. Five is a reading limit, not a
-// storage one: past five reasons the reader is scanning a list rather than
-// being told what to do, which is the failure this card exists to avoid.
-const momentsServed = 5
+// ruleVersion stamps the ladder that selected a moment. It changes whenever a
+// rung's condition or order changes, so the same evidence rendering differently
+// across two clients is visible rather than silent.
+const ruleVersion = "person-moment-ladder-v1"
 
-// unansweredAfterDays is how long an inbound message may sit unanswered before
-// silence becomes the point. Short, because owing somebody a reply is the one
-// thing on this page that is entirely within the reader's control.
-const unansweredAfterDays = 2
+// meetingHorizonHours is how far ahead a meeting is worth preparing for
+// (ADR-0096 D2 rung 1). Three days, not the week the earlier ladder used: a
+// meeting on Friday is not what a reader should be told to do about on Monday,
+// and the prep moment is worth something only while there is still time to act
+// on it.
+const meetingHorizonHours = 72
 
-// meetingHorizonDays is how far ahead a meeting is worth preparing for. A
-// month out is a diary entry; this week is a reason to open the page.
-const meetingHorizonDays = 7
+// reEngagedQuietDays is the silence a new inbound has to break before its
+// arrival is a moment rather than ordinary correspondence.
+const reEngagedQuietDays = 14
 
-// momentsSection derives the reasons and drops the ones a human has already
-// dismissed.
+// goneQuietAfterDays is how long our outbound may go unanswered before the
+// silence is the point. It is the configured rule the moment names in its own
+// text, so the reader can see what verdict they are being shown.
+const goneQuietAfterDays = 7
+
+// prefillIntent is the prefill key a composer reads to know what it is opening
+// for. One spelling, because a typo here is a silently empty drawer.
+const prefillIntent = "intent"
+
+// momentsSection selects the one moment this page opens on, and honours a
+// dismissal the viewer has already made against the same evidence.
 //
 // It runs LAST among the sections so it can read what the others gathered.
 func (s *Service) momentsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *crmcontracts.Person360) error {
-	candidates := deriveMoments(now, out)
-	if len(candidates) == 0 {
-		empty := []crmcontracts.PersonMoment{}
-		out.Moments = &empty
-		return nil
-	}
-	// The ledger is consulted for the WHOLE record in one read, then filtered
-	// in memory: a page derives several moments about the same contact, and
-	// asking per moment would be a query per rendered card.
-	verdicts, err := s.feedback.VerdictsForTx(ctx, tx, "person", personID.UUID)
+	moment := deriveMoment(now, out)
+	dismissed, err := s.momentDismissed(ctx, tx, personID, moment)
 	if err != nil {
 		return err
 	}
-	served := make([]crmcontracts.PersonMoment, 0, momentsServed)
-	for _, m := range candidates {
-		if v, found := verdicts[ai.VerdictLookupKey(ai.ClaimSignal, ai.ClaimKey(m.ClaimKey))]; found &&
-			v.Verdict == ai.VerdictSuppressed {
-			// Dismissed, and it stays dismissed. The claim key is the moment's
-			// PATH, so this survives the evidence changing underneath it —
-			// which is exactly the case a fingerprint of the evidence would
-			// get wrong, resurfacing the moment the next time a mail arrived.
-			continue
-		}
-		served = append(served, m)
-		if len(served) == momentsServed {
-			break
-		}
+	if dismissed {
+		// Dismissed against THIS evidence. The quiet success state is what the
+		// reader asked for by dismissing, and it is a moment of its own rather
+		// than an empty card.
+		quiet := nothingNeededMoment(now)
+		out.Moment = &quiet
+		return nil
 	}
-	out.Moments = &served
+	out.Moment = &moment
 	return nil
 }
 
-// deriveMoments evaluates every rule against the page's own sections and
-// returns what fired, most consequential first.
+// momentDismissed asks whether this viewer has already put this moment away
+// AND the evidence has not moved since.
 //
-// The order is a fixed editorial judgment about what a rep should do next, not
-// a score: they came back > we owe them a reply > a meeting is coming > work is
-// late > the relationship stopped. A number here would imply a precision the
-// rules do not have.
-func deriveMoments(now time.Time, page *crmcontracts.Person360) []crmcontracts.PersonMoment {
-	var out []crmcontracts.PersonMoment
-	if m, ok := repliedAfterGapMoment(page); ok {
-		out = append(out, m)
+// The fingerprint comparison is the whole mechanism. A dismissal keyed on the
+// moment's path alone survives the world changing underneath it: the reader
+// dismisses "she went quiet", a reply arrives, and the page stays silent about
+// the thing that just changed. Keyed on the evidence, the dismissal re-arms.
+func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.PersonID, moment crmcontracts.PersonMoment) (bool, error) {
+	// A dismissal belongs to a person's screen, so a call carrying no user has
+	// none to honour. An agent reading through a passport must not consume the
+	// granting human's: it sees every moment. This is a fact about the caller,
+	// not a failure to read.
+	viewer, ok := principal.Actor(ctx)
+	if !ok || viewer.UserID == (ids.UUID{}) {
+		return false, nil
 	}
-	if m, ok := unansweredInboundMoment(now, page); ok {
-		out = append(out, m)
+	var stored string
+	// The workspace is named rather than left to row-level security alone. RLS
+	// does not apply to a superuser or a BYPASSRLS role — which is what every
+	// migration and CI run uses — and without the predicate this QueryRow would
+	// silently take the first of several rows across workspaces.
+	err := tx.QueryRow(ctx, `
+		SELECT evidence_fingerprint
+		FROM person_moment_dismissal
+		WHERE workspace_id = $1 AND user_id = $2 AND person_id = $3 AND claim_key = $4`,
+		storekit.MustWorkspace(ctx), viewer.UserID, personID, moment.ClaimKey).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
-	if m, ok := meetingAheadMoment(now, page); ok {
-		out = append(out, m)
+	if err != nil {
+		return false, fmt.Errorf("read moment dismissal: %w", err)
 	}
-	if m, ok := taskOverdueMoment(now, page); ok {
-		out = append(out, m)
-	}
-	if m, ok := wentQuietMoment(page); ok {
-		out = append(out, m)
-	}
-	return out
+	return stored == moment.EvidenceFingerprint, nil
 }
 
-// repliedAfterGapMoment: they came back. The strongest reason captured data
-// alone can produce, and the one most likely to be acted on the same hour.
-func repliedAfterGapMoment(page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
-	change, ok := findChange(page, relstrength.ChangeRepliedAfterGap)
-	if !ok {
+// deriveMoment walks the ladder in ADR-0096's fixed order and returns the first
+// rung that fires.
+//
+// The order is the decision, not a score: a meeting in two days outranks a
+// silence of three weeks because one has a deadline and the other does not. A
+// number here would imply a precision the rules do not have.
+//
+// Rungs 3 (job change) and 7 (public signal) are absent by design — both need
+// inputs this build does not have, and a rule that cannot fire belongs nowhere
+// on the page.
+func deriveMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
+	ladder := []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
+		meetingPrepMoment,      // 1. a meeting within 72 hours
+		reEngagedMoment,        // 2. new inbound after a material quiet period
+		overduePromiseMoment,   // 4. an open commitment of ours is overdue
+		goneQuietMoment,        // 5. outbound unanswered past the configured rule
+		roleChangeMoment,       // 6. a new deal role or material relationship change
+		missingNextStepMoment,  // 8. an open deal with no next step involving them
+		thinRelationshipMoment, // 9. no captured interaction or network
+	}
+	for _, rule := range ladder {
+		if moment, ok := rule(now, page); ok {
+			return moment
+		}
+	}
+	// 10. Nothing needs you today. A quiet success state, not a blank card:
+	// "there is nothing here" is an answer, and the reader came for an answer.
+	return nothingNeededMoment(now)
+}
+
+// meetingPrepMoment: a meeting is close enough that preparing for it is the
+// most valuable thing the reader could do.
+func meetingPrepMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+	if page.NextMeeting == nil {
 		return crmcontracts.PersonMoment{}, false
 	}
-	days := 0
-	if change.Days != nil {
-		days = *change.Days
+	meeting := *page.NextMeeting
+	if !meeting.StartsAt.After(now) || meeting.StartsAt.After(now.Add(meetingHorizonHours*time.Hour)) {
+		return crmcontracts.PersonMoment{}, false
 	}
+	label := "Meeting"
+	if meeting.Subject != nil && *meeting.Subject != "" {
+		label = *meeting.Subject
+	}
+	id := meeting.ActivityId
+	evidence := []crmcontracts.PersonMomentEvidence{{
+		Type:       crmcontracts.PersonMomentEvidenceTypeActivity,
+		Id:         &id,
+		Label:      label,
+		ObservedAt: &meeting.StartsAt,
+	}}
 	return crmcontracts.PersonMoment{
-		ClaimKey:   "moment:replied_after_gap",
-		Kind:       crmcontracts.PersonMomentKindRepliedAfterGap,
-		Headline:   fmt.Sprintf("They replied after %d quiet days", days),
-		WhyNow:     "A conversation that had stopped has restarted. The window where a reply is expected is now.",
-		Confidence: crmcontracts.PersonMomentConfidenceObservedFact,
-		Evidence: []crmcontracts.PersonMomentEvidence{{
-			Type:       crmcontracts.PersonMomentEvidenceTypeRelationshipChange,
-			Label:      fmt.Sprintf("Their reply ended a %d-day silence", days),
-			ObservedAt: &change.At,
-		}},
-		FreshnessAt: &change.At,
+		ClaimKey:            "moment:meeting_prep",
+		Rule:                crmcontracts.PersonMomentRuleMeetingPrep,
+		RuleVersion:         ptr(ruleVersion),
+		EvidenceFingerprint: fingerprintOf(evidence),
+		Headline:            fmt.Sprintf("Prepare for %s", label),
+		WhyNow:              "Preparation is worth something before the meeting and nothing after it.",
+		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
+		Evidence:            evidence,
+		FreshnessAt:         &meeting.StartsAt,
 		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindDraftReply,
-			Label: "Draft a reply",
-			State: crmcontracts.PersonMomentActionStateWillConfirm,
+			Kind:  crmcontracts.PersonMomentActionKindOpenMeetingBrief,
+			Label: "Open meeting brief",
+			State: crmcontracts.PersonMomentActionStateAvailable,
+			Destination: &crmcontracts.PersonMomentDestination{
+				Surface:    crmcontracts.PersonMomentDestinationSurfaceMeetingBrief,
+				EntityType: entityType(crmcontracts.PersonMomentDestinationEntityTypeActivity),
+				EntityId:   &id,
+			},
 		},
+		SecondaryActions: &[]crmcontracts.PersonMomentAction{{
+			Kind:  crmcontracts.PersonMomentActionKindDraftReply,
+			Label: "Draft agenda",
+			State: crmcontracts.PersonMomentActionStateWillConfirm,
+			Destination: &crmcontracts.PersonMomentDestination{
+				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
+				Prefill: prefill(map[string]string{prefillIntent: "agenda"}),
+			},
+		}},
 	}, true
 }
 
-// unansweredInboundMoment: they wrote and nobody has written back.
-//
-// It compares the two directions rather than looking at "last touch", because
-// last touch cannot tell the two apart — an account we mailed a fortnight ago
-// with no reply and one that wrote to us this morning have the same last-touch
-// date and opposite meanings.
-func unansweredInboundMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+// reEngagedMoment: they came back. The strongest reason captured data alone can
+// produce, and the one most likely to be acted on the same hour.
+func reEngagedMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
 	if page.LastInboundAt == nil {
 		return crmcontracts.PersonMoment{}, false
 	}
 	inbound := *page.LastInboundAt
 	if page.LastOutboundAt != nil && !page.LastOutboundAt.Before(inbound) {
-		// We answered after they wrote. Nothing is owed.
+		// We answered after they wrote. Nothing is owed, and their message is
+		// not news.
 		return crmcontracts.PersonMoment{}, false
 	}
-	waiting := int(now.Sub(inbound).Hours() / 24)
-	if waiting < unansweredAfterDays {
+	// The silence this message broke: measured against our own last outbound,
+	// because a gap only means something relative to what came before it.
+	if page.LastOutboundAt == nil {
 		return crmcontracts.PersonMoment{}, false
 	}
-	moment := crmcontracts.PersonMoment{
-		ClaimKey:   "moment:unanswered_inbound",
-		Kind:       crmcontracts.PersonMomentKindUnansweredInbound,
-		Headline:   fmt.Sprintf("They wrote %d days ago and nobody has answered", waiting),
-		WhyNow:     "The last message in this conversation is theirs. Every day this waits is a day they are waiting.",
-		Confidence: crmcontracts.PersonMomentConfidenceObservedFact,
-		Evidence: []crmcontracts.PersonMomentEvidence{
-			inboundEvidence(page, inbound),
-		},
-		FreshnessAt: &inbound,
+	quiet := int(inbound.Sub(*page.LastOutboundAt).Hours() / 24)
+	if quiet < reEngagedQuietDays {
+		return crmcontracts.PersonMoment{}, false
+	}
+	evidence := []crmcontracts.PersonMomentEvidence{inboundEvidence(page, inbound)}
+	return crmcontracts.PersonMoment{
+		ClaimKey:            "moment:re_engaged",
+		Rule:                crmcontracts.PersonMomentRuleReEngaged,
+		RuleVersion:         ptr(ruleVersion),
+		EvidenceFingerprint: fingerprintOf(evidence),
+		Headline:            fmt.Sprintf("They replied after %d quiet days", quiet),
+		WhyNow:              "A conversation that had stopped has restarted. The window where a reply is expected is now.",
+		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
+		Evidence:            evidence,
+		FreshnessAt:         &inbound,
 		RecommendedAction: crmcontracts.PersonMomentAction{
 			Kind:  crmcontracts.PersonMomentActionKindDraftReply,
 			Label: "Draft a reply",
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
+			Destination: &crmcontracts.PersonMomentDestination{
+				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
+				Prefill: prefill(map[string]string{prefillIntent: "reply"}),
+			},
 		},
-	}
-	return moment, true
+	}, true
 }
 
-// inboundEvidence names the actual message where the page is showing it, and
-// falls back to the bare fact when the timeline is capped past it.
+// overduePromiseMoment: WE said we would do something and the date has passed.
 //
-// The fallback is honest rather than silent: the claim is true either way, and
-// pretending there is a row to open when the reader would land on nothing is
-// worse than saying the message is older than this page shows.
-func inboundEvidence(page *crmcontracts.Person360, inbound time.Time) crmcontracts.PersonMomentEvidence {
-	evidence := crmcontracts.PersonMomentEvidence{
-		Type:       crmcontracts.PersonMomentEvidenceTypeActivity,
-		Label:      "Their last message",
-		ObservedAt: &inbound,
-	}
-	if activity, ok := findActivityAt(page, inbound); ok {
-		id := activity.Id
-		evidence.Id = &id
-		if activity.Subject != nil && *activity.Subject != "" {
-			evidence.Label = *activity.Subject
-		}
-	}
-	return evidence
-}
-
-// meetingAheadMoment: a meeting with them is coming and is worth preparing for.
-func meetingAheadMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
-	if page.Activities == nil {
-		return crmcontracts.PersonMoment{}, false
-	}
-	horizon := now.AddDate(0, 0, meetingHorizonDays)
-	// The SOONEST meeting inside the horizon, chosen by comparing times rather
-	// than by trusting the timeline's ordering. Relying on "newest first" would
-	// make the card name a meeting three weeks out the first time a caller
-	// built this page any other way, and the failure would be silent.
-	var next *crmcontracts.Activity
-	for i := range page.Activities.Data {
-		a := &page.Activities.Data[i]
-		if a.Kind != "meeting" || !a.OccurredAt.After(now) || a.OccurredAt.After(horizon) {
-			continue
-		}
-		if next == nil || a.OccurredAt.Before(next.OccurredAt) {
-			next = a
-		}
-	}
-	if next == nil {
-		return crmcontracts.PersonMoment{}, false
-	}
-	label := "Meeting"
-	if next.Subject != nil && *next.Subject != "" {
-		label = *next.Subject
-	}
-	id := next.Id
-	return crmcontracts.PersonMoment{
-		ClaimKey:   "moment:meeting_ahead",
-		Kind:       crmcontracts.PersonMomentKindMeetingAhead,
-		Headline:   fmt.Sprintf("%s on %s", label, next.OccurredAt.Format("2 Jan")),
-		WhyNow:     "Preparation is worth something before the meeting and nothing after it.",
-		Confidence: crmcontracts.PersonMomentConfidenceObservedFact,
-		Evidence: []crmcontracts.PersonMomentEvidence{{
-			Type:       crmcontracts.PersonMomentEvidenceTypeActivity,
-			Id:         &id,
-			Label:      label,
-			ObservedAt: &next.OccurredAt,
-		}},
-		FreshnessAt: &next.OccurredAt,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindOpenRecord,
-			Label: "Open the meeting",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
-	}, true
-}
-
-// taskOverdueMoment: work filed against this contact has passed its date.
-func taskOverdueMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
-	if page.NextSteps == nil {
-		return crmcontracts.PersonMoment{}, false
-	}
-	// The oldest overdue task, because that is the one that has been waiting
-	// longest and the one a reader would be most embarrassed to discover.
-	var oldest *crmcontracts.Activity
-	for i := range page.NextSteps.Data {
-		t := &page.NextSteps.Data[i]
-		if t.DueAt == nil || !t.DueAt.Before(now) {
-			continue
-		}
-		if oldest == nil || t.DueAt.Before(*oldest.DueAt) {
-			oldest = t
-		}
-	}
-	if oldest == nil {
-		return crmcontracts.PersonMoment{}, false
-	}
-	label := "A task"
-	if oldest.Subject != nil && *oldest.Subject != "" {
-		label = *oldest.Subject
-	}
-	id := oldest.Id
-	overdue := int(now.Sub(*oldest.DueAt).Hours() / 24)
-	return crmcontracts.PersonMoment{
-		ClaimKey:   "moment:task_overdue",
-		Kind:       crmcontracts.PersonMomentKindTaskOverdue,
-		Headline:   fmt.Sprintf("%q is %d days overdue", label, overdue),
-		WhyNow:     "This was promised for a date that has passed.",
-		Confidence: crmcontracts.PersonMomentConfidenceObservedFact,
-		Evidence: []crmcontracts.PersonMomentEvidence{{
-			Type:       crmcontracts.PersonMomentEvidenceTypeTask,
-			Id:         &id,
-			Label:      label,
-			ObservedAt: oldest.DueAt,
-		}},
-		FreshnessAt: oldest.DueAt,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindCompleteTask,
-			Label: "Complete it",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
-	}, true
-}
-
-// wentQuietMoment: an established relationship stopped. Last, because it is
-// the least urgent of the five and the most likely to be already known.
-func wentQuietMoment(page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
-	change, ok := findChange(page, relstrength.ChangeWentQuiet)
+// Ours outranks theirs on purpose. A promise we owe is entirely within the
+// reader's control, and it is the one they would be most embarrassed to
+// discover from the other side.
+func overduePromiseMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+	claim, ok := oldestOverdueCommitment(now, page)
 	if !ok {
 		return crmcontracts.PersonMoment{}, false
 	}
-	days := 0
-	if change.Days != nil {
-		days = *change.Days
-	}
+	overdue := int(now.Sub(*claim.DueAt).Hours() / 24)
+	evidence := []crmcontracts.PersonMomentEvidence{{
+		Type:       crmcontracts.PersonMomentEvidenceTypeActivity,
+		Id:         &claim.SourceActivityId,
+		Label:      claim.Body,
+		Snippet:    &claim.SourceQuote,
+		ObservedAt: claim.DueAt,
+	}}
 	return crmcontracts.PersonMoment{
-		ClaimKey:   "moment:went_quiet",
-		Kind:       crmcontracts.PersonMomentKindWentQuiet,
-		Headline:   fmt.Sprintf("Nothing for %d days", days),
-		WhyNow:     "This was an active relationship. It stopped, and nothing has restarted it.",
-		Confidence: crmcontracts.PersonMomentConfidenceObservedFact,
-		Evidence: []crmcontracts.PersonMomentEvidence{{
-			Type:       crmcontracts.PersonMomentEvidenceTypeRelationshipChange,
-			Label:      "The last thing that happened",
-			ObservedAt: &change.At,
-		}},
-		FreshnessAt: &change.At,
+		ClaimKey:            "moment:overdue_promise",
+		Rule:                crmcontracts.PersonMomentRuleOverduePromise,
+		RuleVersion:         ptr(ruleVersion),
+		EvidenceFingerprint: fingerprintOf(evidence),
+		Headline:            fmt.Sprintf("You owe them: %s", claim.Body),
+		WhyNow:              fmt.Sprintf("Promised for a date that passed %d days ago.", overdue),
+		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
+		Evidence:            evidence,
+		FreshnessAt:         claim.DueAt,
 		RecommendedAction: crmcontracts.PersonMomentAction{
 			Kind:  crmcontracts.PersonMomentActionKindDraftReply,
-			Label: "Write to them",
+			Label: "Send it now",
 			State: crmcontracts.PersonMomentActionStateWillConfirm,
+			Destination: &crmcontracts.PersonMomentDestination{
+				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
+				Prefill: prefill(map[string]string{prefillIntent: "deliver_commitment", "subject": claim.Body}),
+			},
 		},
 	}, true
 }
 
-// findChange looks up one derived relationship change on the page. It answers
-// false when the section was omitted for want of a grant, which is what keeps
-// a moment from disclosing something the page itself is withholding.
-func findChange(page *crmcontracts.Person360, kind string) (crmcontracts.PersonRelationshipChange, bool) {
-	if page.RelationshipChanges == nil {
-		return crmcontracts.PersonRelationshipChange{}, false
+// goneQuietMoment: our outbound has gone unanswered past the configured rule.
+//
+// The moment names the rule in its own text. A reader who disagrees with the
+// verdict can see what produced it, which is the difference between a system
+// that judges and one that explains.
+func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+	if page.LastOutboundAt == nil {
+		return crmcontracts.PersonMoment{}, false
 	}
-	for _, c := range *page.RelationshipChanges {
-		if string(c.Kind) == kind {
-			return c, true
-		}
+	outbound := *page.LastOutboundAt
+	if page.LastInboundAt != nil && !page.LastInboundAt.Before(outbound) {
+		// They answered. Silence is not the story.
+		return crmcontracts.PersonMoment{}, false
 	}
-	return crmcontracts.PersonRelationshipChange{}, false
+	waiting := int(now.Sub(outbound).Hours() / 24)
+	if waiting < goneQuietAfterDays {
+		return crmcontracts.PersonMoment{}, false
+	}
+	quietFor := waiting
+	if page.LastInboundAt != nil {
+		quietFor = int(now.Sub(*page.LastInboundAt).Hours() / 24)
+	}
+	evidence := outboundEvidence(page, outbound)
+	return crmcontracts.PersonMoment{
+		ClaimKey:            "moment:gone_quiet",
+		Rule:                crmcontracts.PersonMomentRuleGoneQuiet,
+		RuleVersion:         ptr(ruleVersion),
+		EvidenceFingerprint: fingerprintOf(evidence),
+		Headline:            fmt.Sprintf("No reply for %d days", quietFor),
+		WhyNow: fmt.Sprintf("Rule: outbound with no reply after %d days. Your follow-up was sent %d days ago.",
+			goneQuietAfterDays, waiting),
+		Confidence:  crmcontracts.PersonMomentConfidenceObservedFact,
+		Evidence:    evidence,
+		FreshnessAt: &outbound,
+		RecommendedAction: crmcontracts.PersonMomentAction{
+			Kind:  crmcontracts.PersonMomentActionKindDraftReply,
+			Label: "Draft a follow-up",
+			State: crmcontracts.PersonMomentActionStateWillConfirm,
+			Destination: &crmcontracts.PersonMomentDestination{
+				Surface: crmcontracts.PersonMomentDestinationSurfaceComposer,
+				Prefill: prefill(map[string]string{prefillIntent: "follow_up"}),
+			},
+		},
+		SecondaryActions: &[]crmcontracts.PersonMomentAction{{
+			Kind:  crmcontracts.PersonMomentActionKindAskColleague,
+			Label: "Ask for context",
+			State: crmcontracts.PersonMomentActionStateAvailable,
+		}},
+	}, true
 }
 
-// findActivityAt finds the timeline row for an instant the page reported
-// separately. The two come from the same transaction, so a match is exact
-// rather than approximate.
-func findActivityAt(page *crmcontracts.Person360, at time.Time) (crmcontracts.Activity, bool) {
-	if page.Activities == nil {
-		return crmcontracts.Activity{}, false
+// nothingNeededMoment is the quiet success state — rung 10, and the answer far
+// more often than any of the others.
+//
+// It is a moment rather than an absence because the reader opened the page to
+// be told what to do, and "nothing" is a legitimate answer that an empty card
+// fails to give.
+func nothingNeededMoment(now time.Time) crmcontracts.PersonMoment {
+	return crmcontracts.PersonMoment{
+		ClaimKey:            "moment:nothing_needed",
+		Rule:                crmcontracts.PersonMomentRuleNothingNeeded,
+		RuleVersion:         ptr(ruleVersion),
+		EvidenceFingerprint: "quiet",
+		Headline:            "Nothing needs you today",
+		WhyNow:              "No meeting is close, nothing is owed, and nobody is waiting on a reply.",
+		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
+		Evidence:            []crmcontracts.PersonMomentEvidence{},
+		FreshnessAt:         &now,
+		RecommendedAction: crmcontracts.PersonMomentAction{
+			Kind:  crmcontracts.PersonMomentActionKindLogActivity,
+			Label: "Log an interaction",
+			State: crmcontracts.PersonMomentActionStateAvailable,
+		},
 	}
-	for _, a := range page.Activities.Data {
-		if a.OccurredAt.Equal(at) {
-			return a, true
-		}
-	}
-	return crmcontracts.Activity{}, false
 }

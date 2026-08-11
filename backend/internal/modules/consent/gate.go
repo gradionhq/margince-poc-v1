@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -61,17 +62,17 @@ func (g *Gate) RequireGrantedForRecipients(ctx context.Context, recipients []con
 	}
 	purposeKey = strings.TrimSpace(strings.ToLower(purposeKey))
 	return database.WithWorkspaceTx(ctx, g.store.pool, func(tx pgx.Tx) error {
-		var purposeID string
-		var requiresDOI bool
+		var purpose PurposeRow
 		err := tx.QueryRow(ctx,
-			`SELECT id, requires_double_opt_in FROM consent_purpose WHERE key = $1 AND archived_at IS NULL`,
-			purposeKey).Scan(&purposeID, &requiresDOI)
+			`SELECT id, key, label, class, requires_double_opt_in
+			 FROM consent_purpose WHERE key = $1 AND archived_at IS NULL`,
+			purposeKey).Scan(&purpose.ID, &purpose.Key, &purpose.Label, &purpose.Class, &purpose.RequiresDOI)
 		if err != nil {
 			// Unknown purpose ⇒ nothing can be granted under it.
 			return fmt.Errorf("consent: purpose %q is not defined: %w", purposeKey, apperrors.ErrConsentNotGranted)
 		}
 		for _, r := range recipients {
-			granted, err := grantedForRecipient(ctx, tx, r, purposeID, requiresDOI)
+			granted, err := grantedForRecipient(ctx, tx, r, purpose)
 			if err != nil {
 				return err
 			}
@@ -91,45 +92,138 @@ func (g *Gate) RequireGrantedForRecipients(ctx context.Context, recipients []con
 	})
 }
 
-// grantedForRecipient answers the one recipient's question. The two arms differ
-// only in how they reach a subject; the grant predicate — active state, the
-// named purpose, and the DOI round-trip where the purpose demands one — is the
-// same clause in both, because they are the same rule about the same rows.
-func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, purposeID string, requiresDOI bool) (bool, error) {
-	var granted bool
+// grantedForRecipient answers the one recipient's question.
+//
+// A recipient that resolves to a PERSON is answered by VerdictForPerson — the
+// same code the guard endpoint serves, so the preview a composer shows and the
+// check that fires at transmit cannot drift. Two implementations of one
+// question are two questions, and the one that stops matching looks exactly
+// like the one that still does.
+//
+// A recipient that resolves only to an unpromoted LEAD falls through to the
+// grant predicate below. A lead carries no qualifying events and no §7(3) flag
+// — those hang off a person — so for a lead the class model has nothing extra
+// to say and the recorded grant IS the whole answer.
+func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, purpose PurposeRow) (bool, error) {
+	personID, found, err := resolvePerson(ctx, tx, r)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return grantedForLead(ctx, tx, r, purpose.ID, purpose.RequiresDOI)
+	}
+	verdict, err := VerdictForPerson(ctx, tx, personID, purpose)
+	if err != nil {
+		return false, err
+	}
+	// Only an explicit allow sends. Unknown is not a soft yes: it means nobody
+	// has decided, and default-deny is the whole posture.
+	if verdict.State != VerdictAllowed {
+		return false, nil
+	}
+	if err := stampDerivedBasis(ctx, tx, personID, verdict); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// stampDerivedBasis records a basis the gate worked out for itself, before the
+// send relies on it (ADR-0098 D2, Art 5(2)).
+//
+// A lawful basis nobody wrote down is an assertion, and the controller carries
+// the burden of showing it. A basis read from a stored row needs nothing: it is
+// already the record.
+func stampDerivedBasis(ctx context.Context, tx pgx.Tx, personID string, verdict Verdict) error {
+	if !verdict.QualifyingDerived || verdict.Qualifying == nil {
+		return nil
+	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
+	return RecordDerivedQualifyingEvent(ctx, tx, personID, *verdict.Qualifying, by)
+}
+
+// resolvePerson finds the person behind a recipient, through whichever
+// identity the recipient carries.
+//
+// Only a LIVE identity resolves. An archived address is one somebody detached
+// from a record — it is uniquely held only among live rows (uq_person_email_dedupe
+// is partial on archived_at IS NULL), so the same string can sit archived on one
+// person and live on another. Picking either would bind this send's whole verdict
+// to an identity nobody currently holds, and the answer would be about the wrong
+// human.
+//
+// AMBIGUITY REFUSES rather than picks. A bare LIMIT 1 over more than one live
+// match is a silent choice between two people, made by row order — which is the
+// one thing a default-deny gate must never do. The dedupe index makes a live
+// duplicate impossible for email in a healthy schema; this refuses anyway,
+// because a gate that trusts an invariant it does not check is a gate that stops
+// applying the moment the invariant slips.
+func resolvePerson(ctx context.Context, tx pgx.Tx, r connector.Recipient) (string, bool, error) {
+	var rows pgx.Rows
+	var err error
 	if r.Channel != nil {
 		// Person-only by construction: a channel identity binds a Person and
-		// nothing else (0146 has no lead arm), so there is no second subject to
-		// union in here the way the address arm unions the lead.
-		err := tx.QueryRow(ctx, `
-			SELECT EXISTS (
-			  SELECT 1
-			  FROM person_channel_identity pci
-			  JOIN person p ON p.id = pci.person_id AND p.archived_at IS NULL
-			  JOIN person_consent pc ON pc.person_id = p.id AND pc.purpose_id = $3
-			  WHERE pci.provider = $1 AND pci.channel_user_id = $2
-			    AND pci.archived_at IS NULL
-			    AND pc.state = 'granted'
-			    AND (NOT $4::boolean OR EXISTS (
-			      SELECT 1 FROM consent_event ce
-			      WHERE ce.person_id = p.id AND ce.purpose_id = $3
-			        AND ce.new_state = 'granted' AND ce.double_opt_in_confirmed_at IS NOT NULL))
-			)`, r.Channel.Provider, r.Channel.ChannelUserID, purposeID, requiresDOI).Scan(&granted)
-		return granted, err
+		// nothing else (0146 has no lead arm).
+		rows, err = tx.Query(ctx, `
+			SELECT DISTINCT p.id FROM person_channel_identity pci
+			JOIN person p ON p.id = pci.person_id AND p.archived_at IS NULL
+			WHERE pci.provider = $1 AND pci.channel_user_id = $2 AND pci.archived_at IS NULL
+			LIMIT 2`, r.Channel.Provider, r.Channel.ChannelUserID)
+	} else {
+		rows, err = tx.Query(ctx, `
+			SELECT DISTINCT p.id FROM person_email pe
+			JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
+			WHERE lower(pe.email) = lower($1) AND pe.archived_at IS NULL
+			LIMIT 2`, r.Email)
 	}
+	if err != nil {
+		return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
+		}
+		matches = append(matches, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, fmt.Errorf("consent: resolve the recipient: %w", err)
+	}
+	switch len(matches) {
+	case 0:
+		return "", false, nil
+	case 1:
+		return matches[0], true, nil
+	default:
+		return "", false, fmt.Errorf(
+			"consent: this recipient resolves to more than one live contact, so no consent answer is about one person: %w",
+			apperrors.ErrConsentNotGranted)
+	}
+}
+
+// grantedForLead is the unpromoted-lead arm (E12.20).
+//
+// It is only reached when resolvePerson found no person, so a channel
+// recipient never arrives here: a channel identity binds a Person and nothing
+// else (0146 has no lead arm), and one that resolves to nobody is a recipient
+// with no subject — which default-deny refuses rather than guesses at.
+//
+// The predicate is the recorded grant, the named purpose, and the DOI
+// round-trip where the purpose demands one. A lead carries no qualifying
+// events and no §7(3) flag, so there is nothing here for the class model to
+// add.
+func grantedForLead(ctx context.Context, tx pgx.Tx, r connector.Recipient, purposeID string, requiresDOI bool) (bool, error) {
+	if r.Channel != nil {
+		return false, nil
+	}
+	var granted bool
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
-		  SELECT 1
-		  FROM person_email pe
-		  JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
-		  JOIN person_consent pc ON pc.person_id = p.id AND pc.purpose_id = $2
-		  WHERE lower(pe.email) = lower($1)
-		    AND pc.state = 'granted'
-		    AND (NOT $3::boolean OR EXISTS (
-		      SELECT 1 FROM consent_event ce
-		      WHERE ce.person_id = p.id AND ce.purpose_id = $2
-		        AND ce.new_state = 'granted' AND ce.double_opt_in_confirmed_at IS NOT NULL))
-		) OR EXISTS (
 		  SELECT 1
 		  FROM lead l
 		  JOIN person_consent pc ON pc.lead_id = l.id AND pc.purpose_id = $2
@@ -140,7 +234,10 @@ func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, 
 		      WHERE ce.lead_id = l.id AND ce.purpose_id = $2
 		        AND ce.new_state = 'granted' AND ce.double_opt_in_confirmed_at IS NOT NULL))
 		)`, r.Email, purposeID, requiresDOI).Scan(&granted)
-	return granted, err
+	if err != nil {
+		return false, fmt.Errorf("consent: read the lead's grant: %w", err)
+	}
+	return granted, nil
 }
 
 // recipientLabel names a refused recipient in its own vocabulary: the address

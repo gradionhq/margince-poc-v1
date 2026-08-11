@@ -139,6 +139,19 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 		{name: crmcontracts.Person360SectionsOmittedSinceLastVisit, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.sinceLastVisitSection(ctx, tx, personID, out)
 		}},
+		// Both of these run BEFORE the moments below, because the ladder's
+		// rules read them: the meeting-prep rung asks what is booked, and the
+		// missing-next-step rung asks whether an open deal has nothing
+		// scheduled on it.
+		{name: crmcontracts.Person360SectionsOmittedClaims, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.claimsSection(ctx, tx, personID, out)
+		}},
+		{name: crmcontracts.Person360SectionsOmittedCommercial, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.commercialSection(ctx, tx, personID, out)
+		}},
+		{name: crmcontracts.Person360SectionsOmittedNextMeeting, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.nextMeetingSection(ctx, tx, personID, now, out)
+		}},
 		// LAST, and it has to be: the moments are derived from what the
 		// sections above gathered, so a moment can never cite evidence this
 		// page is not showing, and a section withheld for want of a grant

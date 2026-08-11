@@ -46,3 +46,21 @@ func TestAnOmittedMergeTargetOrStakeholderIsNamed(t *testing.T) {
 	})
 	faulttest.AssertNamesOmittedID(t, err, "person_id")
 }
+
+func TestAnOmittedClaimSourceActivityIsNamed(t *testing.T) {
+	// RecordConversationClaimRequest.source_activity_id.
+	//
+	// A claim that cites nothing is the case this guard exists for: the store
+	// would otherwise carry the zero id into the activity visibility probe,
+	// which answers not-found — telling the caller a message they never named
+	// does not exist, when what actually happened is they forgot to name one.
+	store := NewStore(nil)
+
+	_, err := store.RecordConversationClaim(context.Background(), ClaimInput{
+		PersonID: ids.New[ids.PersonKind](),
+		Kind:     "commitment_ours",
+		Body:     "send the revised model",
+		Quote:    "I'll get you the model by Friday",
+	})
+	faulttest.AssertNamesOmittedID(t, err, "source_activity_id")
+}

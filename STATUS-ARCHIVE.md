@@ -117,6 +117,55 @@ cutting what triggers it.
 
 A PR that edits `ci.yml` still runs the full backend lane, by design — a change
 to the merge gate that the merge gate never exercised is not a saving.
+## 2026-08-11 — the person record page V2, built from the ratified spec
+
+The page the four mockups describe, rendering from real endpoints rather than
+fixtures. ADR-0096 (the evidence-led face), ADR-0097 (relationship memory) and
+ADR-0098 (correspondence is not marketing), built in that order because each
+layer reads what the one below it writes.
+
+**What the page opens on is a reason, not a record.** The Today card renders the
+ONE moment a fixed ten-rung ladder selected server-side, with its evidence and a
+typed action descriptor. The client computes nothing: a page that picked its own
+headline from date comparisons would drift from every other client showing the
+same record, which is what the rule/version stamp exists to prevent. Two rungs —
+job change and public signal — are deliberately absent, because both need inputs
+this build does not have and a rule that cannot fire belongs nowhere on the page.
+
+**Dismissal keys on an evidence fingerprint, not on the moment's path.** Keyed on
+the path, a dismissal survives the world changing underneath it: the reader
+dismisses "she went quiet", a reply arrives, and the page stays silent about the
+thing that just changed. The fingerprint hashes evidence identity and timing but
+not labels, so rewording a headline does not silently un-dismiss what somebody
+put away. Both properties are mutation-checked.
+
+**Consent got the correction ADR-0098 ordered.** Four purpose classes, two of
+which are never consent-gated — answering somebody who wrote to us stops being a
+formal violation that every rep correctly ignored. `VerdictForPerson` is the ONE
+decision both the composer preview and the transmit gate call, because two
+implementations of one question are two questions, and the one that stops
+matching looks exactly like the one that still does.
+
+Three stop-gate rounds found real defects in that work, all fixed and verified:
+a query naming a column that does not exist; the new verdict wired only into the
+preview and not the send; and identity resolution that filtered the person's
+archived flag but not the address's, so a detached address authorized its former
+holder — a send that returned 202. That last one is why
+[[replacing-a-gate-needs-the-integration-lane]] now exists: these gates are SQL,
+the unit lane is forbidden from opening a database, and `make check-backend`
+passed clean through every one of them.
+
+**The research surface ships honestly empty.** Margince never scrapes a person —
+there is no GDPR-defensible way to — so the drawer reads from a provider port
+that carries its own lawful basis, and with none registered it says "no data
+provider yet connected" and stops. The zero-write guarantee is structural: the
+service that runs a pass holds no store with a write method. A provider's source
+URL is untrusted and cannot become a link; a `javascript:` citation is dropped at
+the service and rendered inert at the drawer.
+
+Ten commits. `make check-backend`, `make check-fe` and the full integration lane
+(31 packages, 0 skips) all green; every button verified by clicking it in a real
+browser at 1536×1024.
 
 ## 2026-08-10 — the MCP App views move to `frontend/` (#742, PR #793)
 

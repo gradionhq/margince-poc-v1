@@ -36,6 +36,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.s4.provMicrosoft",
   "ob.conv.connect.linkedinName",
   "co.chip.linkedin",
+  "person.page.linkedin",
   "auth.coreProviderAnthropic",
   "auth.coreProviderGemini",
   "auth.coreProviderOllama",
@@ -51,6 +52,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // CRM domain nouns kept in English by design (glossary, design.md §6.1):
   // "deal", "pipeline", "timeline" etc. read the same in Vietnamese usage.
   "nav.deals",
+  "person.tab.deals",
   "deals.pipeline",
   "deal.fcPipeline",
   "record.timeline",
@@ -78,6 +80,10 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "create.email",
   "auth.email",
   "person.identity.email",
+  "person.action.email",
+  "person.memory.email",
+  "person.memory.channelEmail",
+  "person.rail.email",
   "settings.voice.register.email",
   "product.sku",
   "compose.cc",

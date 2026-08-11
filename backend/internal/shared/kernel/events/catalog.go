@@ -75,6 +75,13 @@ var catalog = map[string]struct {
 	"person.merged":   {personStreamEntity, 1},
 	"person.restored": {personStreamEntity, 1},
 	"consent.changed": {personStreamEntity, 1},
+	// What a contact promised, asked or decided, and a human's correction of
+	// it. Both ride the PERSON stream: a subscriber reacting to what somebody
+	// said wants the person, and the claim id rides the payload for the reader
+	// that needs the row. A correction is published where a moment dismissal is
+	// not, because a correction is shared truth and a dismissal is one screen.
+	"conversation_claim.captured": {personStreamEntity, 1},
+	"conversation_claim.changed":  {personStreamEntity, 1},
 	// A member recording or correcting their own LinkedIn authorization. It
 	// rides the person stream because the thing it governs is whose network
 	// gets read, and consent to read a professional network is the same class
