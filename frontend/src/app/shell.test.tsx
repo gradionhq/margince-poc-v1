@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { Button } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
 import {
   clearPendingAuthorize,
@@ -459,11 +460,10 @@ describe("PageHead", () => {
     const { container } = render(
       <PageHead
         route={{ screen: "deals" }}
-        actions={
-          <button type="button" className="btn">
-            New deal
-          </button>
-        }
+        // The design system's control, not a hand-rolled button: what a screen
+        // actually passes here comes from there, and a test that supplies its
+        // own version of production proves nothing about production.
+        actions={<Button variant="primary">New deal</Button>}
       />,
     );
     const action = screen.getByRole("button", { name: "New deal" });

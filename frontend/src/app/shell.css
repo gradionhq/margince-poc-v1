@@ -33,6 +33,11 @@
   height: 100vh;
   box-sizing: border-box;
   background: var(--bgPage);
+  /* `viewport-fit=cover` exposes the horizontal insets too, and this layout is
+     the one that applies in landscape — where the notch sits over the sidebar's
+     own edge, on top of the brand chip and the column of icons. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
   /* Collapsing animates the grid column so the sidebar and the content edge
      move together; labels cross-fade with it. */
   transition: grid-template-columns var(--shellAnim) var(--shellEase);
@@ -74,10 +79,12 @@
   min-width: 0;
   overflow: hidden;
   background: transparent;
-  /* The sidebar's collapse animates a grid COLUMN, which relayouts whatever
-     sits in the other one on every frame. This scopes that work to this
-     subtree instead of the whole document. */
-  contain: layout;
+  /* No `contain: layout` here, tempting as it is for the collapse animation's
+     relayout cost: containment makes this element the containing block for every
+     fixed-position descendant, and the screens render their toasts, the ask FAB
+     and their modals inside it. They would anchor to this column and be clipped
+     by its `overflow: hidden` instead of standing on the viewport. The collapse
+     is 200ms; correctness is worth more than those frames. */
 }
 /* The content area is the ground, not a panel: screens float their own cards on
    it (hairlines, not shadows). The sidebar is the only chrome panel left. */
@@ -1144,6 +1151,12 @@
   }
   .wrap {
     padding: var(--space-1) var(--space-4) var(--space-16);
+  }
+  /* The list surface's own rule sits outside this block and outranks the one
+     above, so the phone gutter has to be restated for it — otherwise a list
+     screen keeps the desktop inset while every other screen narrows. */
+  .wrap:has(> .lt) {
+    padding: 0 var(--space-4) var(--space-4);
   }
   /* The heading keeps the row; the agent strip wraps under it rather than
      squeezing a record name into a third of the width. */

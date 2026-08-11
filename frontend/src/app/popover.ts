@@ -40,7 +40,18 @@ export function usePopoverDismiss(
       }
       dismiss();
     };
-    const onClick = () => dismiss();
+    // OUTSIDE clicks only. A listener that fired for every click dismissed the
+    // popover when the click was inside it — which, for a popover as large as
+    // the phone sheet, meant its own account block closed the sheet out from
+    // under the row being pressed. A click that should BOTH act and close (a
+    // destination, a settings link) says so at the call site.
+    const onClick = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && panel.current?.contains(target)) {
+        return;
+      }
+      dismiss();
+    };
     document.addEventListener("keydown", onKey);
     const timer = window.setTimeout(
       () => document.addEventListener("click", onClick),

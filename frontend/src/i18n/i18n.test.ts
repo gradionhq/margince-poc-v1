@@ -98,6 +98,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "auth.emailPlaceholder",
   "users.emailPlaceholder",
   "consumerMail.domainPlaceholder",
+  "consumerMail.baselinePlaceholder",
   "linkedinImport.profilePlaceholder",
   "ob.conv.linkedin.profilePlaceholder",
   "ob.s4.imapHostPlaceholder",

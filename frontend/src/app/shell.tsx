@@ -221,6 +221,23 @@ export function WorkspaceRail({
     }
   }, [sheetOpen]);
 
+  // The sheet exists only at phone width — the control that closes it is not
+  // rendered above 700px. Widening the window while it is open would otherwise
+  // leave the page locked and inert with nothing on screen to release it.
+  useEffect(() => {
+    if (!sheetOpen) {
+      return;
+    }
+    const phone = window.matchMedia("(max-width: 700px)");
+    const onChange = () => {
+      if (!phone.matches) {
+        setSheetOpen(false);
+      }
+    };
+    phone.addEventListener("change", onChange);
+    return () => phone.removeEventListener("change", onChange);
+  }, [sheetOpen]);
+
   // A scrim that only LOOKS blocking is the worst of both worlds: the page it
   // dims stays reachable by Tab and by a screen reader. `inert` on the content
   // column takes it out of the tab order, out of the accessibility tree and out
@@ -330,6 +347,12 @@ export function WorkspaceRail({
                     onMouseLeave={() => setTip(null)}
                     onFocus={() => setTip(item.screen)}
                     onBlur={() => setTip(null)}
+                    // A destination pressed inside the phone sheet closes it:
+                    // the sheet covers the page it just navigated to. Dismissal
+                    // on an OUTSIDE click cannot do this, and should not — a
+                    // preference row inside a popover must be able to act
+                    // without taking the popover with it.
+                    onClick={closeSheet}
                   >
                     <item.icon aria-hidden />
                     {/* The label stays mounted and collapses its width, so the
