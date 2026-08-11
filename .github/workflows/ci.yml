@@ -522,7 +522,13 @@ jobs:
           # nproc-derived default leaves the slice mostly waiting on Postgres.
           INTEGRATION_JOBS: 16
         run: make test-integration
+      # `!cancelled()` and not the default success(): a RED shard is exactly when
+      # somebody needs this artifact, and on failure the script writes the
+      # failing packages' logs + a failure-summary.txt into the same directory.
+      # Uploading only on green kept the evidence for the runs that did not need
+      # it and destroyed it with the runner for the runs that did.
       - name: Upload the shard manifest + coverage pods
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: integration-shard-${{ matrix.shard }}
