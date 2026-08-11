@@ -50,6 +50,19 @@ var guardedBackfillPattern = regexp.MustCompile(
 		`WHERE \(is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
 		`AND NOT permissions->'objects' \? '(\w+)'\)`)
 
+// The second legitimate shape: grant ONE verb on an object entry the role
+// ALREADY has, guarded on the object's presence. The pattern above cannot
+// express it and must not be stretched to — it seeds `{objects,<object>}` whole
+// and guards on that object's ABSENCE, so forcing this write into it would
+// either overwrite the verbs already there or, with the absence guard, match
+// nothing at all. Two shapes, because there are two operations.
+var guardedVerbGrantPattern = regexp.MustCompile(
+	`UPDATE role SET permissions = jsonb_set\(\s*` +
+		`permissions,\s*'\{objects,(\w+),(\w+)\}',\s*` +
+		`'([^']*)'::jsonb\)\s*` +
+		`WHERE is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
+		`AND permissions->'objects' \? '(\w+)'`)
+
 // Every write to role.permissions, however it is spelled. This has to be
 // STRICTLY BROADER than guardedBackfillPattern, not a prefix of it: a canary
 // sharing the pattern's literal head would miss exactly the deviations that
@@ -96,6 +109,7 @@ func TestTheRepairsCoverEveryGuardedRBACBackfill(t *testing.T) {
 			}
 
 			assertNoUnnamedRepairAboveTheCeiling(t, namespace, newestRepair, backfills)
+			assertNoVerbGrantBelowTheCeiling(t, namespace, newestRepair)
 		})
 	}
 }
@@ -128,6 +142,35 @@ func assertNoUnnamedRepairAboveTheCeiling(
 					namespace.Name, migration.Version, migration.Name, grant.role, above[grant],
 					grant.object, ceiling)
 			}
+		}
+	}
+}
+
+// assertNoVerbGrantBelowTheCeiling refuses to be silently blind about the one
+// write shape the coverage derivation does not model.
+//
+// A verb grant reaches into an object entry the role already has, so the
+// (object, role) key the comparison speaks in cannot hold it: two migrations
+// granting different verbs on one object would collide on a single key and one
+// would replace the other, unnoticed. Above the ceiling that costs nothing — a
+// migration up there never shipped unbound and needs no repair, which is why the
+// verb grant that exists today is fine where it sits. At or below the ceiling the
+// comparison would quietly skip a backfill, the exact outcome this file exists to
+// prevent, so it fails instead and whoever writes that migration extends the
+// derivation on purpose rather than by accident.
+func assertNoVerbGrantBelowTheCeiling(t *testing.T, namespace dbmigrate.Namespace, ceiling string) {
+	t.Helper()
+	for _, migration := range namespace.Migrations {
+		if migration.Version > ceiling {
+			continue
+		}
+		for _, match := range guardedVerbGrantPattern.FindAllStringSubmatch(migration.UpSQL, -1) {
+			t.Errorf("%s: %s_%s grants %q the %s verb on %s, and it sits at or below %s where a repair "+
+				"must re-apply it. The coverage comparison keys on (object, role) and cannot carry a "+
+				"verb, so it would pass over this write instead of demanding the repair. Teach the "+
+				"derivation the verb dimension before landing a verb grant this low.",
+				namespace.Name, migration.Version, migration.Name, match[4]+match[5], match[2],
+				match[1], ceiling)
 		}
 	}
 }
@@ -172,15 +215,27 @@ func backfillGrants(t *testing.T, namespace dbmigrate.Namespace, ceiling string)
 }
 
 // collectGrants adds one migration's guarded backfill blocks to grants, and
-// fails if the migration writes role permissions in a shape the pattern misses.
+// fails if the migration writes role permissions in a shape neither pattern
+// reads. Verb grants are reconciled here but NOT collected: they carry a verb the
+// (object, role) key cannot hold, and assertNoVerbGrantBelowTheCeiling is what
+// keeps that omission from ever reaching the coverage comparison.
 func collectGrants(t *testing.T, migration dbmigrate.Migration, grants map[rbacGrant]string) {
 	t.Helper()
 	matches := guardedBackfillPattern.FindAllStringSubmatch(migration.UpSQL, -1)
-	if written := len(anyRolePermissionWrite.FindAllString(migration.UpSQL, -1)); written != len(matches) {
-		t.Fatalf("%s_%s writes role permissions %d times but only %d are in the guarded shape this test "+
+	verbGrants := guardedVerbGrantPattern.FindAllStringSubmatch(migration.UpSQL, -1)
+	read := len(matches) + len(verbGrants)
+	if written := len(anyRolePermissionWrite.FindAllString(migration.UpSQL, -1)); written != read {
+		t.Fatalf("%s_%s writes role permissions %d times but only %d are in a guarded shape this test "+
 			"reads. The unread ones are invisible to the coverage check above, which would then report "+
 			"a repair complete while a backfill it cannot see goes unrepaired.",
-			migration.Version, migration.Name, written, len(matches))
+			migration.Version, migration.Name, written, read)
+	}
+	for _, match := range verbGrants {
+		if object, guardedObject := match[1], match[6]; object != guardedObject {
+			t.Fatalf("%s_%s sets '{objects,%s,%s}' but guards on presence of %q. One of the two is a "+
+				"typo, and whichever it is, the block writes into or skips the wrong object.",
+				migration.Version, migration.Name, object, match[2], guardedObject)
+		}
 	}
 	for _, match := range matches {
 		object, payload, roleList, singleRole, guardedObject := match[1], match[2], match[3], match[4], match[5]
