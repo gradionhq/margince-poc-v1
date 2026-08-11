@@ -468,7 +468,24 @@ func (d replyDrafter) completeChecked(ctx context.Context, data replyActivityDat
 			return d.completeWith(ctx, data, voiceBlock, correction)
 		},
 		func(draft replyDraft) string { return draft.Body },
+		draftRetryLog{log: d.logger()},
 	)
+}
+
+// draftRetryLog reports what the correction loop decided. A retry that does not
+// help is invisible from the outside — the caller gets a draft either way — and
+// "the model kept producing rejected phrasing" is the signal that says a phrase
+// list or a prompt rule needs work.
+type draftRetryLog struct{ log *slog.Logger }
+
+func (l draftRetryLog) RetryFailed(ctx context.Context, findings int, err error) {
+	l.log.WarnContext(ctx, "draft correction retry failed; serving the first draft",
+		"findings", findings, "err", err)
+}
+
+func (l draftRetryLog) RetryDidNotClear(ctx context.Context, rule, phrase string, remaining int) {
+	l.log.WarnContext(ctx, "draft still carries rejected phrasing after one retry",
+		"rule", rule, "phrase", phrase, "remaining", remaining)
 }
 
 // parseReplyDraft reads one model reply as the draft it claims to be. The

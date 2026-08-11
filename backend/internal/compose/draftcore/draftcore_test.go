@@ -46,7 +46,7 @@ func TestACleanDraftIsNotRetried(t *testing.T) {
 	lane := &scripted{bodies: []string{"Hallo Marek,\n\nder Vertrag ist unterschrieben."}}
 
 	got, err := draftcore.CorrectOnce(context.Background(),
-		textlang.German, convstate.BandMonths, lane.write, bodyOf)
+		textlang.German, convstate.BandMonths, lane.write, bodyOf, nil)
 	if err != nil {
 		t.Fatalf("CorrectOnce errored on a clean draft: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestARejectedPhraseEarnsOneRetryThatNamesIt(t *testing.T) {
 	}}
 
 	got, err := draftcore.CorrectOnce(context.Background(),
-		textlang.English, convstate.BandMonths, lane.write, bodyOf)
+		textlang.English, convstate.BandMonths, lane.write, bodyOf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestTheModelIsNeverAskedMoreThanTwice(t *testing.T) {
 	lane := &scripted{bodies: []string{stubborn, stubborn}}
 
 	if _, err := draftcore.CorrectOnce(context.Background(),
-		textlang.English, convstate.BandMonths, lane.write, bodyOf); err != nil {
+		textlang.English, convstate.BandMonths, lane.write, bodyOf, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(lane.corrections) != 2 {
@@ -111,7 +111,7 @@ func TestTheBetterOfTheTwoAttemptsIsServed(t *testing.T) {
 	}}
 
 	got, err := draftcore.CorrectOnce(context.Background(),
-		textlang.English, convstate.BandMonths, lane.write, bodyOf)
+		textlang.English, convstate.BandMonths, lane.write, bodyOf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestAFailedRetryLeavesTheFirstDraftStanding(t *testing.T) {
 	lane := &failOnRetry{first: first}
 
 	got, err := draftcore.CorrectOnce(context.Background(),
-		textlang.English, convstate.BandMonths, lane.write, bodyOf)
+		textlang.English, convstate.BandMonths, lane.write, bodyOf, nil)
 	if err != nil {
 		t.Fatalf("a failed retry must not fail the draft: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestAFailedFirstAttemptIsReturnedAsAnError(t *testing.T) {
 	lane := &scripted{bodies: []string{"unused"}, err: errors.New("model unavailable")}
 
 	if _, err := draftcore.CorrectOnce(context.Background(),
-		textlang.English, convstate.BandFresh, lane.write, bodyOf); err == nil {
+		textlang.English, convstate.BandFresh, lane.write, bodyOf, nil); err == nil {
 		t.Fatal("a failed first attempt should return its error")
 	}
 }
@@ -158,4 +158,55 @@ func (f *failOnRetry) write(context.Context, string) (draft, error) {
 		return draft{}, errors.New("model unavailable on retry")
 	}
 	return draft{body: f.first}, nil
+}
+
+// recorder captures what the loop reported, so the observability the loop took
+// over from its callers is proven rather than assumed.
+type recorder struct {
+	failed     int
+	notCleared []string
+}
+
+func (r *recorder) RetryFailed(context.Context, int, error) { r.failed++ }
+func (r *recorder) RetryDidNotClear(_ context.Context, _, phrase string, _ int) {
+	r.notCleared = append(r.notCleared, phrase)
+}
+
+// A retry that does not help is invisible from the outside — the caller gets a
+// draft either way — so the loop has to say so. Both ways of not helping are
+// reported, and a retry that DOES help says nothing.
+func TestTheLoopReportsARetryThatDidNotHelp(t *testing.T) {
+	stubborn := "Hi Priya, just checking in as discussed."
+	seen := &recorder{}
+	lane := &scripted{bodies: []string{stubborn, stubborn}}
+
+	if _, err := draftcore.CorrectOnce(context.Background(),
+		textlang.English, convstate.BandMonths, lane.write, bodyOf, seen); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen.notCleared) != 1 {
+		t.Errorf("surviving phrasing should be reported once, got %v", seen.notCleared)
+	}
+	if seen.failed != 0 {
+		t.Error("a retry that answered is not a failed retry")
+	}
+
+	broken := &recorder{}
+	if _, err := draftcore.CorrectOnce(context.Background(), textlang.English,
+		convstate.BandMonths, (&failOnRetry{first: stubborn}).write, bodyOf, broken); err != nil {
+		t.Fatal(err)
+	}
+	if broken.failed != 1 {
+		t.Errorf("a failed retry should be reported once, got %d", broken.failed)
+	}
+
+	quiet := &recorder{}
+	clean := &scripted{bodies: []string{stubborn, "Hi Priya, the scope is ready."}}
+	if _, err := draftcore.CorrectOnce(context.Background(),
+		textlang.English, convstate.BandMonths, clean.write, bodyOf, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.failed != 0 || len(quiet.notCleared) != 0 {
+		t.Errorf("a retry that worked should report nothing, got %+v", quiet)
+	}
 }

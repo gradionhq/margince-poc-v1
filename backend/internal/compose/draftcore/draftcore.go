@@ -34,6 +34,21 @@ import (
 // where in its own prompt that text belongs.
 type Writer[D any] func(ctx context.Context, correction string) (D, error)
 
+// Observer is told what the loop decided, so a surface keeps the operational
+// visibility the loop takes over. Optional: nil observes nothing.
+//
+// It exists because a retry that does not help is invisible from the outside —
+// the caller gets a draft either way — and "the model kept producing rejected
+// phrasing" is exactly the signal that says a phrase list or a prompt rule
+// needs work.
+type Observer interface {
+	// RetryFailed: the correction call itself errored, and the first draft
+	// stands.
+	RetryFailed(ctx context.Context, findings int, err error)
+	// RetryDidNotClear: the retry answered, and rejected phrasing survived it.
+	RetryDidNotClear(ctx context.Context, rule, phrase string, remaining int)
+}
+
 // BodyOf reads the prose a draft would put in front of a recipient. The check
 // judges the body alone: a subject is one line with its own rules, and a
 // concatenation would let a phrase banned in prose hide in a subject.
@@ -56,7 +71,7 @@ type BodyOf[D any] func(D) string
 // only evidence available without asking a model to judge its own output.
 func CorrectOnce[D any](
 	ctx context.Context, lang textlang.Lang, band convstate.Band,
-	write Writer[D], bodyOf BodyOf[D],
+	write Writer[D], bodyOf BodyOf[D], observe Observer,
 ) (D, error) {
 	draft, err := write(ctx, "")
 	if err != nil {
@@ -73,9 +88,20 @@ func CorrectOnce[D any](
 	if retryErr != nil {
 		// The first attempt stands. It carries the defect and it is still a
 		// real message a human can edit, which beats refusing to answer.
+		if observe != nil {
+			observe.RetryFailed(ctx, len(findings), retryErr)
+		}
 		return draft, nil
 	}
-	if len(draftcheck.Body(bodyOf(retried), lang, band)) < len(findings) {
+
+	remaining := draftcheck.Body(bodyOf(retried), lang, band)
+	if len(remaining) == 0 {
+		return retried, nil
+	}
+	if observe != nil {
+		observe.RetryDidNotClear(ctx, remaining[0].Rule, remaining[0].Phrase, len(remaining))
+	}
+	if len(remaining) < len(findings) {
 		return retried, nil
 	}
 	return draft, nil

@@ -122,6 +122,10 @@ func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) 
 			return writeWithModel(ctx, lane, in, correction)
 		},
 		func(d Draft) string { return d.Body },
+		// No observer: this package holds no logger, and a retry that does not
+		// help still returns a real draft. The reply surface, which has one,
+		// reports it.
+		nil,
 	)
 }
 
