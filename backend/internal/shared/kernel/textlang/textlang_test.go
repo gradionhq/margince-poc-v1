@@ -87,6 +87,103 @@ func TestAForwardWithNoReplyAboveItIsReadFromTheQuote(t *testing.T) {
 	}
 }
 
+// Quote removal has to happen before the Vietnamese check, not after it. A
+// quoted Vietnamese chain under an English reply raises the diacritic density
+// of the whole input well past the threshold.
+func TestQuotedTextIsRemovedBeforeVietnameseIsConsidered(t *testing.T) {
+	reply := "Hi Minh,\n\nthat works for us. I will send the contract over tomorrow " +
+		"and we can go from there.\n\n"
+	quoted := strings.Repeat("> Tôi sẽ gửi đề xuất vào ngày mai và chờ phản hồi.\n", 10)
+
+	if got := textlang.Detect(reply + quoted); got != textlang.English {
+		t.Fatalf("Detect(english reply over vietnamese quote) = %q, want English", got)
+	}
+}
+
+// The Vietnamese test is an explicit character set, not "any letter that is
+// not plain ASCII". The loose predicate calls a French loanword Vietnamese.
+func TestAccentedLoanwordsAreNotVietnamese(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want textlang.Lang
+	}{
+		{
+			name: "french loanwords in english",
+			text: "Please send José's résumé and the café invoice when you have a moment.",
+			want: textlang.English,
+		},
+		{
+			name: "a language this package does not know is Unknown, not Vietnamese",
+			text: "Пожалуйста, отправьте документы на следующей неделе.",
+			want: textlang.Unknown,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := textlang.Detect(c.text); got != c.want {
+				t.Fatalf("Detect(%s) = %q, want %q", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+// "On" and "Am" open ordinary sentences as well as attribution lines, so an
+// opener alone must not cut the message off at its second line.
+func TestASentenceOpeningLikeAnAttributionLineIsNotAQuoteHeader(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want textlang.Lang
+	}{
+		{
+			name: "english prose beginning On",
+			text: "Hi team,\nOn balance we should review the proposal, because the terms " +
+				"are clear and we have the time for it this week.",
+			want: textlang.English,
+		},
+		{
+			name: "german prose beginning Am",
+			text: "Hallo,\nAm Montag besprechen wir das Angebot mit dem Team, und ich " +
+				"melde mich danach bei Ihnen mit einer Antwort.",
+			want: textlang.German,
+		},
+		{
+			name: "a real attribution line does cut",
+			text: "Hallo Marek,\n\ndas passt gut, ich melde mich bei Ihnen. Viele Grüße\n\n" +
+				"On 3 June 2026, Marek wrote:\n" +
+				strings.Repeat("The team has reviewed this and we would like to move "+
+					"forward with the proposal as it stands.\n", 12),
+			want: textlang.German,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := textlang.Detect(c.text); got != c.want {
+				t.Fatalf("Detect(%s) = %q, want %q", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+// Clients indent quoted lines and end lines in three different ways. A quote
+// that announces itself must be found however it is laid out.
+func TestQuotedLinesAreFoundWhateverTheIndentAndLineEnding(t *testing.T) {
+	reply := "Hallo Marek,\n\ndas passt gut, ich melde mich bei Ihnen mit einer " +
+		"Antwort. Viele Grüße\n\n"
+	quote := strings.Repeat("   > The team has reviewed this and we would like to "+
+		"move forward with the proposal.\n", 12)
+
+	if got := textlang.Detect(reply + quote); got != textlang.German {
+		t.Errorf("Detect(indented quote) = %q, want German", got)
+	}
+
+	crOnly := strings.ReplaceAll(reply+quote, "\n", "\r")
+	if got := textlang.Detect(crOnly); got != textlang.German {
+		t.Errorf("Detect(CR line endings) = %q, want German", got)
+	}
+}
+
 // The honest answer for thin or genuinely mixed evidence. This bias is the
 // design: a false German draft on an English thread is worse than the bug it
 // replaces, and the caller has other tiers to fall back to.

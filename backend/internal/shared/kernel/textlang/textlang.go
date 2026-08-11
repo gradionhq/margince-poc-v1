@@ -122,11 +122,12 @@ func Detect(text string) Lang {
 	if text == "" {
 		return Unknown
 	}
-	if vietnameseByDiacritics(text) {
+	reply, lead := replyText([]rune(text))
+	if vietnameseByDiacritics(reply) {
 		return Vietnamese
 	}
 
-	return winner(scoreStopwords(text))
+	return winner(scoreStopwords(reply, lead))
 }
 
 // score is one language's evidence, counted two ways because the two bars ask
@@ -158,8 +159,7 @@ func winner(de, en score) Lang {
 
 // scoreStopwords walks the text once, counting each language's hits and
 // weighting those in the lead. A German-only rune counts as a German hit.
-func scoreStopwords(text string) (de, en score) {
-	runes, lead := replyText([]rune(text))
+func scoreStopwords(runes []rune, lead int) (de, en score) {
 	for start := 0; start < len(runes); {
 		end := start
 		for end < len(runes) && isWordRune(runes[end]) {
@@ -203,8 +203,8 @@ func weightAt(runeOffset, leadEnd int) int {
 }
 
 // quoteMarkers are the ways a mail client announces that what follows is the
-// thread being replied to rather than the reply. Ordinary German and English
-// correspondence does not produce these lines by accident.
+// thread being replied to rather than the reply. Ordinary correspondence does
+// not produce these lines by accident.
 var quoteMarkers = []string{
 	">",
 	"-----Original Message",
@@ -212,9 +212,22 @@ var quoteMarkers = []string{
 	"________________________________",
 	"Von: ",
 	"From: ",
-	"Am ", // "Am 3. Juni 2026 schrieb ..." - the German On-wrote line.
-	"On ", // "On 3 June 2026, ... wrote:"
 }
+
+// attributionOpeners begin the "On <date>, <name> wrote:" line that clients
+// put above a quoted thread. They are ordinary words as well — "On balance",
+// "Am Montag besprechen wir" — so an opener alone is not a marker; the line
+// must also carry the verb that makes it an attribution.
+var attributionOpeners = []string{"On ", "Am "}
+
+// attributionVerbs are how such a line says somebody wrote something. One of
+// these must appear on the same line as the opener for it to be a quote header.
+var attributionVerbs = []string{"wrote:", "schrieb:", "schrieb ", " wrote "}
+
+// attributionMaxRunes bounds how far along a line the verb is looked for. An
+// attribution line is one date and one name long; a paragraph that happens to
+// open with "On" and mention writing much later is prose.
+const attributionMaxRunes = 200
 
 // replyText narrows the text to the message actually being written, and says
 // how much of what remains is the lead.
@@ -237,21 +250,65 @@ func replyText(runes []rune) (text []rune, lead int) {
 
 // quoteStart finds where the quoted thread begins, as a rune offset, or -1
 // when no line announces itself as quoted.
+//
+// A line starts after any of the three line endings in the wild, and its
+// leading whitespace is skipped: "  > quoted" is a quote however the client
+// indented it.
 func quoteStart(runes []rune) int {
 	for offset, atLineStart := 0, true; offset < len(runes); offset++ {
-		if atLineStart && startsQuote(runes[offset:]) {
-			return offset
+		if atLineStart && !unicode.IsSpace(runes[offset]) {
+			if startsQuote(lineAt(runes, offset)) {
+				return offset
+			}
+			atLineStart = false
+			continue
 		}
-		atLineStart = runes[offset] == '\n'
+		atLineStart = atLineStart || runes[offset] == '\n' || runes[offset] == '\r'
 	}
 	return -1
 }
 
-// startsQuote reports whether a line beginning here announces quoted text.
+// lineAt returns the rest of the line beginning at offset.
+func lineAt(runes []rune, offset int) []rune {
+	for end := offset; end < len(runes); end++ {
+		if runes[end] == '\n' || runes[end] == '\r' {
+			return runes[offset:end]
+		}
+	}
+	return runes[offset:]
+}
+
+// startsQuote reports whether this line announces quoted text.
 func startsQuote(line []rune) bool {
+	text := string(line)
 	for _, marker := range quoteMarkers {
-		if len(line) >= len([]rune(marker)) &&
-			strings.HasPrefix(string(line[:len([]rune(marker))]), marker) {
+		if strings.HasPrefix(text, marker) {
+			return true
+		}
+	}
+	return isAttributionLine(text)
+}
+
+// isAttributionLine reports whether the line is a client's "On <date>, <name>
+// wrote:" header rather than a sentence that happens to begin the same way.
+func isAttributionLine(line string) bool {
+	opens := false
+	for _, opener := range attributionOpeners {
+		if strings.HasPrefix(line, opener) {
+			opens = true
+			break
+		}
+	}
+	if !opens {
+		return false
+	}
+
+	head := line
+	if runes := []rune(line); len(runes) > attributionMaxRunes {
+		head = string(runes[:attributionMaxRunes])
+	}
+	for _, verb := range attributionVerbs {
+		if strings.Contains(head, verb) {
 			return true
 		}
 	}
@@ -267,7 +324,7 @@ func isWordRune(r rune) bool {
 
 // vietnameseByDiacritics reports whether enough of the text's letters carry a
 // diacritic for Vietnamese to be the only explanation.
-func vietnameseByDiacritics(text string) bool {
+func vietnameseByDiacritics(text []rune) bool {
 	letters, marked := 0, 0
 	for _, r := range text {
 		if !unicode.IsLetter(r) {
@@ -284,16 +341,31 @@ func vietnameseByDiacritics(text string) bool {
 	return float64(marked)/float64(letters) >= vietnameseMarkRatio
 }
 
-// isVietnameseMarked reports whether a rune is an accented Latin letter of the
-// kind Vietnamese uses. German's own accented letters are excluded, so a German
-// text scores zero here however many umlauts it carries.
+// vietnameseMarked is the set of accented letters Vietnamese writes, lowercase
+// — the six vowels in their five tones, plus đ and the horned/breved forms.
+//
+// It is an explicit set rather than "any letter that is not plain ASCII",
+// because that predicate calls a French loanword Vietnamese: "José's résumé"
+// carries three accented letters in twenty-one, which clears the density
+// threshold, and so does any Cyrillic or Greek text.
+const vietnameseMarked = "àáảãạăằắẳẵặâầấẩẫậ" +
+	"èéẻẽẹêềếểễệ" +
+	"ìíỉĩị" +
+	"òóỏõọôồốổỗộơờớởỡợ" +
+	"ùúủũụưừứửữự" +
+	"ỳýỷỹỵ" +
+	"đ"
+
+// isVietnameseMarked reports whether a rune is one of the accented letters
+// Vietnamese writes. Case-folded, so the set above lists each letter once.
+//
+// Only precomposed (NFC) forms count. Decomposed text spells the same letter
+// as a plain ASCII base plus a combining mark, which is a Unicode mark rather
+// than a letter and so is never counted — decomposed Vietnamese therefore
+// scores zero and falls through to Unknown. That is the honest failure: the
+// callers of this package read text out of mail bodies and database columns,
+// which arrive precomposed, and normalizing here would pull in a dependency
+// this tier does not have.
 func isVietnameseMarked(r rune) bool {
-	if strings.ContainsRune(germanRunes, r) {
-		return false
-	}
-	lower := unicode.ToLower(r)
-	if lower >= 'a' && lower <= 'z' {
-		return false
-	}
-	return unicode.IsLetter(r)
+	return strings.ContainsRune(vietnameseMarked, unicode.ToLower(r))
 }
