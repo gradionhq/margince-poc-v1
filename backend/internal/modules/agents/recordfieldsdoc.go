@@ -65,7 +65,7 @@ func (RecordFieldsResource) Resources(context.Context) []mcp.Resource {
 		// not to be. A caller admitted to create_record or update_record is
 		// admitted to this by the same scope.
 		RequiredScope: principal.ScopeWrite,
-		MIMEType:      "application/json",
+		MIMEType:      mimeApplicationJSON,
 		// Says what it HOLDS, not when to fetch it. This sentence rides the
 		// Surface-B prompt in full, and as an instruction ("read it before your
 		// first write") it drew reads from a run that had no write to make.
@@ -86,7 +86,7 @@ func (RecordFieldsResource) ReadResource(_ context.Context, uri string) (mcp.Res
 	if err != nil {
 		return mcp.ResourceContents{}, fmt.Errorf("agents: rendering the record write vocabulary: %w", err)
 	}
-	return mcp.ResourceContents{URI: uri, MIMEType: "application/json", Text: string(body)}, nil
+	return mcp.ResourceContents{URI: uri, MIMEType: mimeApplicationJSON, Text: string(body)}, nil
 }
 
 var _ mcp.ResourceProvider = RecordFieldsResource{}

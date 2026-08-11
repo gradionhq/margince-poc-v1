@@ -36,6 +36,20 @@ import (
 // CapabilitiesURI is the document's stable identity.
 const CapabilitiesURI = "margince://capabilities"
 
+// capabilitiesResourceName is the document's programmatic name.
+//
+// Deliberately NOT shared with the "capabilities" member of the initialize
+// result in dispatch.go: that one is a protocol member of the handshake and
+// this one names a document. They share a spelling and nothing else, and one
+// constant across both would tie a resource's identity to a wire member that
+// can move without it.
+const capabilitiesResourceName = "capabilities"
+
+// mimeApplicationJSON is the media type every JSON document on this surface is
+// served as — one spelling, so the catalogue entry and the served contents can
+// never disagree about what a client is about to parse.
+const mimeApplicationJSON = "application/json"
+
 // capabilitiesVersion identifies the document's SHAPE. A caller caching it needs
 // to know when the shape changed; the verb lists move with the registry on their
 // own schedule and are re-read either way.
@@ -58,7 +72,7 @@ func NewCapabilitiesResource(registry *Registry) CapabilitiesResource {
 func (CapabilitiesResource) Resources(context.Context) []mcp.Resource {
 	return []mcp.Resource{{
 		URI:   CapabilitiesURI,
-		Name:  "capabilities",
+		Name:  capabilitiesResourceName,
 		Title: "What this installation can do",
 		// ScopeRead, and the consequence is worth stating rather than
 		// discovering: a passport holding only `write` cannot see this
@@ -68,7 +82,7 @@ func (CapabilitiesResource) Resources(context.Context) []mcp.Resource {
 		// argument that would turn it into the disclosure channel the
 		// scope-filtered tool list is careful not to be.
 		RequiredScope: principal.ScopeRead,
-		MIMEType:      "application/json",
+		MIMEType:      mimeApplicationJSON,
 		// Says what it HOLDS. It does not tell a caller to read it first:
 		// a description that orders a read is measured to draw reads from
 		// runs that had no use for them, which is why the two tools that
@@ -89,7 +103,7 @@ func (c CapabilitiesResource) ReadResource(ctx context.Context, uri string) (mcp
 	if err != nil {
 		return mcp.ResourceContents{}, fmt.Errorf("agents: rendering the capabilities document: %w", err)
 	}
-	return mcp.ResourceContents{URI: uri, MIMEType: "application/json", Text: string(body)}, nil
+	return mcp.ResourceContents{URI: uri, MIMEType: mimeApplicationJSON, Text: string(body)}, nil
 }
 
 var _ mcp.ResourceProvider = CapabilitiesResource{}
