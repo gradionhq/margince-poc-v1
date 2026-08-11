@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
-import { SectionHeader } from "../design-system/atoms";
+import { SectionHeader, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -129,7 +129,7 @@ function BaselineSection() {
           {t("consumerMail.baselineCount", { total: result.total })}
         </p>
       )}
-      <input
+      <TextInput
         aria-label={t("consumerMail.baselineSearchLabel")}
         data-testid="consumer-mail-baseline-search"
         placeholder={t("consumerMail.baselinePlaceholder")}

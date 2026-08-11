@@ -175,10 +175,8 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 		// inserting a new `extra` is create; a `never` carve-out overrides the
 		// shipped baseline for the whole workspace, and overwriting an
 		// existing entry rewrites a prior decision, so both are update.
-		required := principal.ActionCreate
-		if before != nil || kind == FreemailKindNever {
-			required = principal.ActionUpdate
-		}
+		// UpsertAction keeps this demand and the audit verb below one word.
+		required := auth.UpsertAction(before != nil || kind == FreemailKindNever)
 		if err := auth.Require(ctx, freemailDomainObject, required); err != nil {
 			return err
 		}
@@ -200,15 +198,14 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 		// map[string]any would store JSON null instead of SQL NULL for a first
 		// classification (see storekit.marshalOrNil).
 		var beforeImage any
-		// The verb mirrors what happened — a first entry is create, a rewrite
-		// is update — so the rendered authorization_rule names the grant that
-		// actually admitted the write (auth.AuthzRule maps verb to grant).
-		verb := "create"
 		if before != nil {
 			beforeImage = map[string]any{auditKeyDomain: base, auditKeyKind: *before}
-			verb = "update"
 		}
-		_, auditErr := storekit.Audit(ctx, tx, verb, freemailDomainObject, out.ID,
+		// The verb IS the demanded action, so the rendered authorization_rule
+		// names the grant that actually admitted the write (auth.AuthzRule
+		// maps verb to grant) — a fresh `never` carve-out audits as the
+		// update it was admitted on, never as a create any rep could make.
+		_, auditErr := storekit.Audit(ctx, tx, string(required), freemailDomainObject, out.ID,
 			beforeImage, map[string]any{auditKeyDomain: base, auditKeyKind: kind})
 		return auditErr
 	})

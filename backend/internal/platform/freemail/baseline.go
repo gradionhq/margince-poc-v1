@@ -65,10 +65,11 @@ var sortedBaseline = sync.OnceValue(func() []string {
 	return out
 })
 
-// Domains returns the shipped baseline, alphabetical. The slice is shared and
-// read-only: callers render or filter it, never mutate it.
+// Domains returns the shipped baseline, alphabetical. The copy is the
+// caller's own — handing out the memoized slice would let one caller's sort
+// or reslice corrupt the process-wide baseline for every workspace.
 func Domains() []string {
-	return sortedBaseline()
+	return slices.Clone(sortedBaseline())
 }
 
 // sanitize turns one dataset line into a usable domain, reporting false for a
