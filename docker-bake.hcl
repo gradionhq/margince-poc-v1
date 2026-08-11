@@ -30,6 +30,13 @@ group "default" {
 
 target "role" {
   context = "."
+  # A plain single manifest per image, no provenance attestation: the
+  # constellation registry records one manifest digest per role (the tag
+  # resolver serves virtual tags over it), and an attestation turns the push
+  # into an OCI index whose child manifests land milliseconds before the
+  # index — a read-after-write window the registry's replicated deployment
+  # does not serve coherently.
+  provenance = false
   args = {
     MARGINCE_BUILD_REVISION = MARGINCE_BUILD_REVISION
   }
