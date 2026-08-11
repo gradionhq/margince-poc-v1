@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The brief shares the account brief's claim vocabulary, so a grounding rule
@@ -74,6 +75,19 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 	// A brief is a reading aid for a person walking into a room; an agent
 	// reading records through a passport has the records themselves.
 	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.MeetingBrief{}, err
+	}
+	// The OBJECT grant, before any row is read. Row scope decides WHICH
+	// meetings a caller may see; it does not decide whether they may see
+	// meetings at all, and a reader with no activity grant would otherwise
+	// reach the brief through a path every sibling read refuses.
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return crmcontracts.MeetingBrief{}, err
+	}
+	// The brief names the people in the room and what they promised, so it is
+	// also a person read — and the caller must hold that grant for the same
+	// reason the person page does.
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.MeetingBrief{}, err
 	}
 	in, err := s.assembleInput(ctx, activityID)

@@ -1,4 +1,4 @@
--- Reverse of 0207. Tables first, then the columns added to existing ones.
+-- Reverse of 0209. Tables first, then the columns added to existing ones.
 --
 -- The seeded business_correspondence purpose rows are deliberately NOT deleted:
 -- a workspace that recorded consent decisions against that purpose would lose
