@@ -403,7 +403,15 @@ run_one() {
   # Written after the log block closes, so a package that failed still reports
   # the slot time it consumed — a red run is exactly when someone asks where the
   # wall clock went.
-  echo "${rel}|${began}|$(( $(date +%s) - LANE_T0 ))" >> "$WALLCLOCK"
+  #
+  # Best effort, and deliberately the one place in this file that discards a
+  # status: this is the LAST command in run_one, the workers run under `xargs -P`,
+  # and the script is `set -e`. A failed append would therefore fail the whole
+  # lane over a measurement nobody asked to be load-bearing. It hides no test
+  # result — a package's verdict is the EXIT line inside the log above, which the
+  # reconciliation at the end reads.
+  local ended=$(( $(date +%s) - LANE_T0 ))
+  printf '%s\n' "${rel}|${began}|${ended}" >> "$WALLCLOCK" || :
 }
 export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone db_admin bucket_for
 # The workers run in re-exec'd shells, so a variable run_one reads must be
@@ -497,16 +505,25 @@ if [[ -s "$WALLCLOCK" ]] && [[ -s "$TIMING" ]]; then
     {
       last = $1; began = $2; ended = $3
       # The critical package'"'"'s own test seconds, so its slot time can be split
-      # into tests and provisioning.
+      # into tests and provisioning. Tracked as FOUND rather than defaulted to
+      # zero: a package whose log carries no go-test duration (a build failure
+      # prints "FAIL pkg [build failed]", with no seconds) has a slot time here
+      # and no row there, and an absent duration read as 0.0 would report the
+      # entire slot as provisioning — inventing a number instead of admitting it
+      # is missing.
       while ((getline line < timing) > 0) {
         split(line, f, "|")
-        if (f[1] == last) tests = f[2]
+        if (f[1] == last) { tests = f[2]; found = 1 }
       }
       printf "test-integration-parallel: wall clock — %ds total\n", elapsed
       printf "  %ds  before any package could start (template, constraint scan, test enumeration)\n", fanout
       printf "  %ds  then %s waited for a slot\n", began - fanout, last
-      printf "  %ds  %s occupied a slot, of which %.1fs was its tests\n", ended - began, last, tests
-      printf "  %.1fs  provisioning that slot (clone, compile, process start) — not priced above\n", (ended - began) - tests
+      if (found) {
+        printf "  %ds  %s occupied a slot, of which %.1fs was its tests\n", ended - began, last, tests
+        printf "  %.1fs  provisioning that slot (clone, compile, process start) — not priced above\n", (ended - began) - tests
+      } else {
+        printf "  %ds  %s occupied a slot; it recorded no test duration, so the tests/provisioning split is unavailable\n", ended - began, last
+      }
     }'
 fi
 
