@@ -17,11 +17,12 @@ import (
 // lane: a security suite that skipped because its DSN was missing would look
 // exactly like one that passed.
 //
-// It lives in apptest rather than beside the suites because this is the only home
-// every caller can reach. A fixture in apptest cannot import
-// internal/compose/integration (that closes a cycle through compose), so a copy
-// kept there would leave apptest's own callers with a second spelling of the same
-// invariant — which is how there came to be three.
+// It lives in apptest rather than in internal/compose/integration because this is
+// the only home every caller can reach, apptest's own fixtures included. Nothing
+// here may import that package: its suites are `package integration` and import
+// this one, so the edge back would close a cycle in their own test binary. A copy
+// kept over there would therefore leave EarlyPool below with a second spelling of
+// the same invariant.
 func AppDSN(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")

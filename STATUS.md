@@ -561,11 +561,13 @@ follow-up. Each slice also subjects every MOVED line to the full strict linter
 surfaced an unchecked type assertion and a naming violation the un-gated original
 had carried.
 
-**Expect one or two more slices to be worth it, not five.** After #913 the parent
-is ~118s of measured test seconds; `./migrations` (96s, 23 tests — replay, which
-does not split the same way) and `./internal/compose` (92s) are the next poles, so
-a third slice roughly reaches them and a fourth buys nothing until those two are
-addressed.
+**Expect one more slice to be worth it, not five.** #913 was the third (after #859
+and #866), and each took 13–15s of the parent's measured test seconds. `./migrations`
+(96s, 23 tests — replay, which does not split the same way) and `./internal/compose`
+(92s) are the next poles, so a FOURTH slice roughly reaches them and a fifth buys
+nothing until those two are addressed. Re-measure before starting one: the parent's
+own seconds moved in both directions across these three PRs, because `main` kept
+adding tests to it while the slices took them out.
 
 A slice also perturbs what has run by the time each surviving test executes, which
 finds tests that depend on state a neighbour left. #913 turned one red that way
@@ -578,7 +580,13 @@ test-isolation defect before reading it as the slice's fault.
 on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary
 files may not import `apptest` (it imports `compose`, whose white-box tests import
 `integration`, so the cycle closes). Anything else two suite packages need goes in
-`integration/suitefixtures.go`. Nothing in a `_test.go` file is reachable from a
+`integration/suitefixtures.go` — **unless `apptest` is itself one of the callers**,
+in which case it goes in `apptest` too, whatever it is keyed on. `apptest` cannot
+import `integration`, so a helper it needs and `suitefixtures.go` holds is a helper
+about to be copied — which is what had happened to the app-DSN read before #913
+collapsed those call sites onto `apptest.AppDSN`. (The sites that read the owner and
+app DSN together are a different shape and still read their own; only the app-only
+readers were the same invariant.) Nothing in a `_test.go` file is reachable from a
 subpackage at all, which is what strands most helpers. And a helper whose other
 caller is an UNTAGGED file cannot be shared in either place: that file belongs to
 the unit lane, so the two callers are on opposite sides of a build tag.

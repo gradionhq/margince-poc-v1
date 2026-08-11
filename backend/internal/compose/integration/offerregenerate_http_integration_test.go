@@ -19,7 +19,6 @@ package integration
 import (
 	"context"
 	"net/http"
-	"os"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -43,11 +42,7 @@ import (
 // scripted candidate needs to cite a source_id minted during that seed).
 func setupWithOfferDraft(t *testing.T) (*apptest.AppEnv, *ai.FakeClient) {
 	t.Helper()
-	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if appDSN == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	pool, err := database.NewPool(context.Background(), appDSN)
+	pool, err := database.NewPool(context.Background(), apptest.AppDSN(t))
 	if err != nil {
 		t.Fatalf("opening the offer-draft retriever's pool: %v", err)
 	}

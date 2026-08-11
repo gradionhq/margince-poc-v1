@@ -109,19 +109,21 @@ func TestACustomFieldReachesThePublishedVocabularyWithoutADeploy(t *testing.T) {
 		t.Fatal("the field under test already exists in the vocabulary")
 	}
 
-	// Created through the real endpoint, decoding only the two fields this suite
-	// reads. The full wire shape and every refusal around it are pinned by the
-	// customfields HTTP suites; what matters here is that a field the engine
-	// accepted turns up in the published vocabulary.
+	// Created through the real endpoint, decoding only what this suite reads. The
+	// full wire shape and every refusal around it are pinned by the customfields
+	// HTTP suites; what matters here is that a field the engine accepted turns up
+	// in the published vocabulary.
+	//
+	// Success and refusal decode into one target because RFC 7807 shares no key
+	// with the custom-field wire: a 201 carries id/column_name and neither
+	// title/detail, so whichever pair is populated says which answer arrived. The
+	// refusal half is message-only, and it is here because the most likely
+	// non-201 is the 501 above, whose detail is the whole diagnosis.
 	var created struct {
 		ID         string `json:"id"`
 		ColumnName string `json:"column_name"`
-		// The refusal body, kept because a non-201 here is usually the 501 the
-		// comment above names, and its detail is the whole diagnosis. Decoding
-		// the problem into the same target works because a success carries
-		// neither key.
-		Title  string `json:"title"`
-		Detail string `json:"detail"`
+		Title      string `json:"title"`
+		Detail     string `json:"detail"`
 	}
 	status := env.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
 		"object": "deal", "label": "Renewal risk", "type": "text", "source": "ui",
@@ -169,10 +171,16 @@ func readPassport(t *testing.T, e *apptest.AppEnv, label string) string {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
+	status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": label, "scopes": []string{"read"},
-	}, nil, &minted); status != http.StatusCreated || minted.Token == "" {
-		t.Fatalf("issue passport → %d", status)
+	}, nil, &minted)
+	if status != http.StatusCreated {
+		t.Fatalf("issue passport %q → %d", label, status)
+	}
+	// Separately, because a 201 carrying no token would otherwise report as
+	// "→ 201" — which reads like the call worked.
+	if minted.Token == "" {
+		t.Fatalf("passport %q minted without a token", label)
 	}
 	return minted.Token
 }

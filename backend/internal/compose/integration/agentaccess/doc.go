@@ -21,15 +21,21 @@
 // to be the lane's long pole by itself. Its suites ride integration's exported
 // fixtures and integration/apptest's.
 //
-// Where the boundary fell, and it is fixture entanglement rather than subject
-// matter. agentscope and approval_bundle mint passports and assert on admission
-// too, so they belong here by charter; they stayed because the assertions they
-// turn on — assertNothingStaged and the approval-inbox queries — live in the
-// parent's _test.go files, which a subpackage cannot reach at all. The fixture
-// they DID share is now apptest.PassportBearer, so what remains behind is those
-// assertions, not the minting.
+// Three suites belong here by charter and are not here, for two different
+// reasons — worth stating separately, because only one of them is a constraint.
 //
-// agenttools_http stayed for the cheaper version of the same reason: it pins the
-// full wire shape of /v1/agent-tools, and mcp_transport needs two fields of it,
-// which it declares inline rather than dragging the shape across the boundary.
+// agentscope is pinned. It asserts the passport cap over real HTTP, which is this
+// package's subject exactly, but it arranges through offerFixture and offerBody
+// from offers_integration_test.go — another suite's _test.go file, which a
+// subpackage cannot reach. Moving it means promoting those two first, and the
+// arrange step must keep going through the real endpoints: a hand-inserted offer
+// row would leave the human-only refusal proving nothing about an offer the
+// product would actually have issued.
+//
+// approval_bundle and agenttools_http are NOT pinned — every helper they use is
+// their own. They stayed because this slice was scoped to the admission path and
+// they read as approvals and as the REST tool surface. Nothing prevents a later
+// slice from taking them; mcp_transport already declares inline the two fields it
+// needs of agenttools_http's wire shape, so that shape stays with the suite that
+// owns it either way.
 package agentaccess
