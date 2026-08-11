@@ -539,10 +539,13 @@ func TestQuotaRLS_TenantIsolation(t *testing.T) {
 		UserID: ids.NewV7(), Permissions: quotaAdminPerms,
 	})
 
-	if _, err := store.GetQuota(ctxB, ids.UUID(created.Id), storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
+	// B's own store: the handle carries the tenant now, so reading A's row
+	// through A's handle would prove nothing about B.
+	storeB := quotas.NewStore(e.DBFor(wsB), identity.BaseCurrencyOf)
+	if _, err := storeB.GetQuota(ctxB, ids.UUID(created.Id), storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("tenant B must not resolve tenant A's quota, got %v", err)
 	}
-	listed, _, err := store.ListQuotas(ctxB, quotas.ListQuotasInput{IncludeArchived: true})
+	listed, _, err := storeB.ListQuotas(ctxB, quotas.ListQuotasInput{IncludeArchived: true})
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("tenant B's list = %d rows (%v), want empty", len(listed), err)
 	}

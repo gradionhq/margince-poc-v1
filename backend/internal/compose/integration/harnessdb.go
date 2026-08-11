@@ -20,3 +20,14 @@ import (
 func (e *Env) DB() *database.DB {
 	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](e.WS))
 }
+
+// DBFor pins a handle to another workspace, for the cross-tenant suites.
+//
+// In the collapsed plumbing (ADR-0091 §9 step 3) "which tenant am I" is a
+// property of the HANDLE, not of the context — so a suite proving one tenant
+// cannot read another builds a store per tenant rather than calling one store
+// with a second tenant's ctx. The assertion is unchanged and still RLS's:
+// a store bound to B must not resolve A's row.
+func (e *Env) DBFor(ws ids.UUID) *database.DB {
+	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](ws))
+}
