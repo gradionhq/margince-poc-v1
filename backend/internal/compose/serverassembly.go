@@ -137,13 +137,6 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
-	// The account-started draft reads through the same 360 and writes nothing,
-	// so it needs no pool of its own. Nil lane here for the same reason as the
-	// brief's: WithAccountDraft binds the api role's, and without it the
-	// endpoint answers from its deterministic floor rather than 501-ing.
-	s.accountDraftHandlers = accountdraft.NewHandlers(
-		accountdraft.NewService(s.org360Svc, nil).
-			WithEnvelope(draftEnvelope(pool, s.log)), s.sorDispatch.isOverlay)
 	// The dossier reads the SAME people store the 360 and the brief read, so
 	// the three cannot drift about what a company's facts are. No model lane is
 	// wired yet: every assembly is the deterministic floor and says so.
@@ -157,6 +150,19 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
 	s.orgDossierHandlers = orgdossier.NewHandlers(
 		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
+	// AFTER the dossier service exists: the drafter takes it as a dependency,
+	// and a nil *Service handed through the interface is not the nil INTERFACE
+	// the drafter guards against — it would pass the guard and panic on the
+	// first account draft.
+	//
+	// The account-started draft reads through the same 360 and writes nothing,
+	// so it needs no pool of its own. Nil lane here for the same reason as the
+	// brief's: WithAccountDraft binds the api role's, and without it the
+	// endpoint answers from its deterministic floor rather than 501-ing.
+	s.accountDraftHandlers = accountdraft.NewHandlers(
+		accountdraft.NewService(s.org360Svc, nil).
+			WithEnvelope(draftEnvelope(pool, s.log)).
+			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

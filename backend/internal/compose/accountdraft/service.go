@@ -45,11 +45,40 @@ type Request struct {
 	Envelope draftfloor.Envelope
 }
 
+// Dossier answers what an account is KNOWN TO BE, from facts already
+// assembled — as distinct from how it stands with us, which the 360 carries.
+//
+// It is a READ and must never generate: a rep pressing "Write email" has not
+// asked for a dossier, and a drafting screen that stalls behind one has spent
+// the workspace's model budget on something nobody requested. A cold cache
+// answers nothing and the draft is written without these facts.
+type Dossier interface {
+	CachedSections(ctx context.Context, orgID ids.OrganizationID) []string
+}
+
 // Service writes one draft per call.
 type Service struct {
 	view     Assembler
 	lane     Completer
 	envelope *draftfloor.Resolver
+	dossier  Dossier
+}
+
+// WithDossier feeds the draft what the company IS, from a dossier already
+// assembled for this reader. Without it the field stays empty, which is what it
+// was before: declared on the input, advertised in the prompt, and never
+// populated by anything.
+func (s *Service) WithDossier(dossier Dossier) *Service {
+	s.dossier = dossier
+	return s
+}
+
+// facts is what this account is known to be, or nothing.
+func (s *Service) facts(ctx context.Context, orgID ids.OrganizationID) []string {
+	if s.dossier == nil {
+		return nil
+	}
+	return s.dossier.CachedSections(ctx, orgID)
 }
 
 // WithEnvelope replaces the resolver that answers what language to write in,
@@ -104,6 +133,7 @@ func (s *Service) Draft(
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
+	in.Dossier = s.facts(ctx, orgID)
 	draft, by, err := Write(ctx, s.lane, in)
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
