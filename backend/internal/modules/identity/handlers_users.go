@@ -202,6 +202,14 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 			})
 			return
 		}
+		if errors.Is(err, errAgentSeatHasNoPassword) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusConflict, Code: "agent_seat_has_no_password",
+				Detail: "this is the workspace's agent identity, which signs in nowhere; " +
+					"an agent is granted a passport rather than a password",
+			})
+			return
+		}
 		httperr.Write(w, r, err)
 		return
 	}

@@ -141,8 +141,9 @@ func runtimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyv
 // A tick's context carries a principal — deriveAuthority re-reads the
 // dispatcher's seat at execution and binds it, because the tenant policies and
 // the audit rows need an actor. That actor is an AGENT seat with no human
-// behind it: its OnBehalfOf is zero and its UserID is the synthetic is_agent
-// app_user the dispatcher minted. Mapping it through Caller's ordinary rules
+// behind it: its OnBehalfOf is zero and its UserID is the workspace's is_agent
+// app_user, which bootstrap wrote and the dispatcher resolved. Mapping it
+// through Caller's ordinary rules
 // would hand a unit precisely the thing Caller.UserID promises never to be —
 // "a synthetic id for the agent" rather than the person accountable for the
 // row — and would contradict Runtime.Caller's promise that a tick answers the
