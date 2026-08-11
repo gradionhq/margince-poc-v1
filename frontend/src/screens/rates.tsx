@@ -5,10 +5,10 @@ import type { components } from "../api/schema";
 import { useCanUpsert } from "../app/capability";
 import {
   Button,
+  Card,
   DataTable,
   EmptyState,
   Modal,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -112,18 +112,20 @@ export function FxRatesCard() {
   });
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <div className="rates-head">
-        <SectionHeader title={t("settings.rates.fxTitle")} />
-        {canManage ? (
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("settings.rates.fxTitle")}
+      actions={
+        canManage ? (
           <div className="rates-actions">
             <RefreshFromSources path="/fx-rates/propose-refresh" />
             <Button variant="primary" small onClick={() => setOpen(true)}>
               {t("settings.rates.fxAdd")}
             </Button>
           </div>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
         {t("settings.rates.fxIntro")}
       </p>
@@ -161,7 +163,7 @@ export function FxRatesCard() {
         }
       </QueryGate>
       {open ? <FxRateModal onClose={() => setOpen(false)} /> : null}
-    </section>
+    </Card>
   );
 }
 
@@ -279,18 +281,20 @@ export function ModelCostsCard() {
   });
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <div className="rates-head">
-        <SectionHeader title={t("settings.rates.modelTitle")} />
-        {canManage ? (
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("settings.rates.modelTitle")}
+      actions={
+        canManage ? (
           <div className="rates-actions">
             <RefreshFromSources path="/ai-model-rates/propose-refresh" />
             <Button variant="primary" small onClick={() => setOpen(true)}>
               {t("settings.rates.modelAdd")}
             </Button>
           </div>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
         {t("settings.rates.modelIntro")}
       </p>
@@ -346,7 +350,7 @@ export function ModelCostsCard() {
         }
       </QueryGate>
       {open ? <ModelCostModal onClose={() => setOpen(false)} /> : null}
-    </section>
+    </Card>
   );
 }
 

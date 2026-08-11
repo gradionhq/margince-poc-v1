@@ -6,10 +6,10 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
   Field,
   Modal,
-  SectionHeader,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
@@ -518,14 +518,13 @@ export function SectionCard({
     state === "stale" ||
     state === "partial";
   return (
-    <section className="card co-card">
-      <SectionHeader title={title} />
+    <Card className="co-card" title={title}>
       <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
         {children}
       </SectionPart>
       {present && footer}
       {present && actions && <div className="co-card-actions">{actions}</div>}
-    </section>
+    </Card>
   );
 }
 
@@ -1180,8 +1179,7 @@ export function TagsCard({
   // hears of the limit.
   const shows = (state: SectionState) => state === "ready" || state === "empty";
   return (
-    <section className="card co-card">
-      <SectionHeader title={t("co.tags.title")} />
+    <Card className="co-card" title={t("co.tags.title")}>
       <SectionPart
         label={t("co.tags.lists")}
         state={listState}
@@ -1216,7 +1214,7 @@ export function TagsCard({
           {shows(listState) && listAction}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1312,8 +1310,7 @@ export function NextSteps({
     return null;
   }
   return (
-    <section className="card co-card">
-      <SectionHeader title={t("co.next.title")} />
+    <Card className="co-card" title={t("co.next.title")}>
       {state === "unavailable" && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
@@ -1360,7 +1357,7 @@ export function NextSteps({
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }
 

@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { EmptyState, SectionHeader, Skeleton } from "../design-system/atoms";
+import { Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-reach.css";
@@ -42,11 +42,11 @@ export function LinkedInReachCard() {
   const accounts = query.data?.accounts ?? [];
 
   return (
-    <section className="card li-reach">
-      <SectionHeader
-        title={t("linkedinReach.title")}
-        sub={t("linkedinReach.sub")}
-      />
+    <Card
+      className="li-reach"
+      title={t("linkedinReach.title")}
+      sub={t("linkedinReach.sub")}
+    >
       {query.isPending && <Skeleton width="70%" />}
       {query.isError && (
         <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
@@ -111,6 +111,6 @@ export function LinkedInReachCard() {
           </p>
         </>
       )}
-    </section>
+    </Card>
   );
 }

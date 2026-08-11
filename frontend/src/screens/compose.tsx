@@ -7,8 +7,8 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
-  SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -573,11 +573,11 @@ function DraftDisclosure({
     return null;
   }
   return (
-    <section
-      className="card compose-disclosure"
-      data-testid="ai-disclosure-banner"
+    <Card
+      className="compose-disclosure"
+      testId="ai-disclosure-banner"
+      title={t("compose.aiDisclosureTitle")}
     >
-      <SectionHeader title={t("compose.aiDisclosureTitle")} />
       <p className="t-body">
         {provenance.ai_disclosure || t("compose.aiDisclosureFallback")}
       </p>
@@ -594,7 +594,7 @@ function DraftDisclosure({
           )}
         </>
       )}
-    </section>
+    </Card>
   );
 }
 

@@ -9,8 +9,8 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
-  SectionHeader,
   SegmentedControl,
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
@@ -102,7 +102,7 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
   // region sees the firing in their local wall-clock.
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
-    <li className="card card-inset" style={{ marginTop: "var(--space-2)" }}>
+    <Card as="li" inset style={{ marginTop: "var(--space-2)" }}>
       <div
         style={{
           display: "flex",
@@ -140,7 +140,7 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
           color={reasonColor(run.outcome)}
         />
       )}
-    </li>
+    </Card>
   );
 }
 
@@ -225,12 +225,12 @@ export function AutomationRuns({
   }
 
   return (
-    <section
-      className="card card-inset"
+    <Card
+      inset
       style={{ marginTop: "var(--space-3)" }}
-      data-testid="automation-runs"
+      testId="automation-runs"
+      title={t("auto.runs.title")}
     >
-      <SectionHeader title={t("auto.runs.title")} />
       <div
         style={{
           display: "flex",
@@ -256,7 +256,7 @@ export function AutomationRuns({
         })}
       </div>
       <QueryStates query={query}>{body}</QueryStates>
-    </section>
+    </Card>
   );
 }
 
@@ -315,12 +315,12 @@ export function AutomationPreview({
   };
 
   return (
-    <section
-      className="card card-inset"
+    <Card
+      inset
       style={{ marginTop: "var(--space-3)" }}
-      data-testid="automation-preview"
+      testId="automation-preview"
+      title={t("auto.preview.title")}
     >
-      <SectionHeader title={t("auto.preview.title")} />
       <div
         style={{
           display: "flex",
@@ -373,7 +373,7 @@ export function AutomationPreview({
       <p className="t-caption" style={{ marginTop: "var(--space-3)" }}>
         {t("auto.preview.explainer")}
       </p>
-    </section>
+    </Card>
   );
 }
 

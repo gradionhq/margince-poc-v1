@@ -2,12 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  SectionHeader,
-} from "../design-system/atoms";
+import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -39,7 +34,7 @@ export function CallDetailPanel({
   return (
     <QueryStates query={query}>
       {query.data && (
-        <div className="card card-inset">
+        <Card as="div" inset>
           <p>
             {t("aicalls.detail.identity", {
               served: query.data.served_model,
@@ -112,7 +107,7 @@ export function CallDetailPanel({
               )}
             </>
           )}
-        </div>
+        </Card>
       )}
     </QueryStates>
   );
@@ -146,8 +141,11 @@ export function AiCallsCard() {
   const tasks = query.data?.pages[0]?.tasks ?? [];
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
+    <Card
+      title={t("aicalls.title")}
+      sub={t("aicalls.sub")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       <QueryStates query={query}>
         <Select
           // The column header names what this filters on; the control sits above
@@ -205,7 +203,7 @@ export function AiCallsCard() {
           </Button>
         )}
       </QueryStates>
-    </section>
+    </Card>
   );
 }
 

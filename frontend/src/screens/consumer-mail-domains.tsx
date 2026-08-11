@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
-import { SectionHeader, TextInput } from "../design-system/atoms";
+import { Card, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -125,7 +125,7 @@ function BaselineSection() {
     >
       <p className="t-label">{t("consumerMail.baselineTitle")}</p>
       {result && (
-        <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
+        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
           {t("consumerMail.baselineCount", { total: result.total })}
         </p>
       )}
@@ -138,7 +138,7 @@ function BaselineSection() {
         style={{ marginTop: "var(--space-2)" }}
       />
       {needle !== "" && result && result.matched === 0 && (
-        <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
+        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
           {t("consumerMail.baselineNone")}
         </p>
       )}
@@ -162,9 +162,7 @@ function BaselineSection() {
             ))}
           </ul>
           {result.matched > result.data.length && (
-            <p
-              style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}
-            >
+            <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
               {t("consumerMail.baselineMore", {
                 shown: result.data.length,
                 matched: result.matched,
@@ -194,11 +192,11 @@ export function ConsumerMailDomainsCard() {
   const [kind, setKind] = useState<Kind>("extra");
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader
-        title={t("consumerMail.title")}
-        sub={t("consumerMail.sub")}
-      />
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("consumerMail.title")}
+      sub={t("consumerMail.sub")}
+    >
       <form
         style={{
           display: "flex",
@@ -248,28 +246,26 @@ export function ConsumerMailDomainsCard() {
         {add.isError && (
           <span
             role="alert"
-            style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
+            style={{ color: "var(--danger)", fontSize: "var(--fs-sm)" }}
           >
             {problemMessageOf(add.error, t)}
           </span>
         )}
       </form>
       {!canAdd && (
-        <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
+        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
           {t("consumerMail.adminOnly")}
         </p>
       )}
       {canAdd && !canManage && (
-        <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
+        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
           {t("consumerMail.addOnly")}
         </p>
       )}
       <QueryGate query={query}>
         {(entries) =>
           entries.length === 0 ? (
-            <p
-              style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}
-            >
+            <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
               {t("consumerMail.none")}
             </p>
           ) : (
@@ -292,8 +288,8 @@ export function ConsumerMailDomainsCard() {
                   <span style={{ flex: 1 }}>{entry.domain}</span>
                   <span
                     style={{
-                      color: "var(--text-muted)",
-                      fontSize: "var(--text-sm)",
+                      color: "var(--textMeta)",
+                      fontSize: "var(--fs-sm)",
                     }}
                   >
                     {entry.kind === "never"
@@ -317,12 +313,12 @@ export function ConsumerMailDomainsCard() {
       {remove.isError && (
         <span
           role="alert"
-          style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
+          style={{ color: "var(--danger)", fontSize: "var(--fs-sm)" }}
         >
           {problemMessageOf(remove.error, t)}
         </span>
       )}
       <BaselineSection />
-    </section>
+    </Card>
   );
 }

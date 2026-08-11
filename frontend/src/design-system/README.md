@@ -43,7 +43,9 @@ arrive through props, translated by the caller with `t()`.
 | `ConfirmModal` | A dialog that asks before something irreversible | `confirmmodal.tsx` | ✅ |
 | `OverflowMenu` | The verbs a record offers but a reader rarely wants | `atoms.tsx` | ✅ |
 | `Disclosure` | A section the reader opens when they want it | `atoms.tsx` | ✅ |
-| `Card` / `EmptyState` / `SectionHeader` / `Skeleton` / `Kbd` | Page furniture: surface, nothing-here, heading row, loading placeholder, key cap | `atoms.tsx` | ✅ |
+| **`Card`** | **The one card surface. `as` picks the element (`section` by default, also `div` / `article` / `form` / `li`), `inset` is the recessed variant, and `title` / `sub` / `actions` render its `SectionHeader` — a hand-rolled `<div className="card">` is a second card the moment one of the five chrome values moves** | `atoms.tsx` | ✅ |
+| `SectionHeader` | The heading of a block: title, description on its own line under it at full width, and the block's actions beside the pair | `atoms.tsx` | ✅ |
+| `EmptyState` / `Skeleton` / `Kbd` | Page furniture: nothing-here, loading placeholder, key cap | `atoms.tsx` | ✅ |
 | `StatCard` / `AttainmentRing` | One reading with the basis it was drawn from; the server's attainment band as an arc | `atoms.tsx` | ✅ |
 | `Meter` / `Sparkline` / `Chip` | A proportion as a bar (pass `value` and `max`, never a percentage), a short series as a bare polyline, and one attribute of a record as an icon pill — a `Chip` is a fact, a `Badge` is a status | `readings.tsx` | ✅ |
 | `DataTable` | A simple column/row table with optional row navigation | `atoms.tsx` | ✅ |

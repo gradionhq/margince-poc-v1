@@ -1,4 +1,4 @@
-import { Badge, SectionHeader } from "../design-system/atoms";
+import { Badge, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { AskSection } from "./company360";
 
@@ -26,15 +26,14 @@ export function AssistantPanel({
     return null;
   }
   return (
-    <section className="card co-assistant">
+    <Card className="co-assistant" title={t("co.assistant.title")}>
       {/* The disclosure is the badge. The sentence beside it explained the
           panel's own epistemology to a reader who came here to sell
           something, which is the UI talking about itself. */}
-      <SectionHeader title={t("co.assistant.title")} />
       <p className="co-assistant-disclosure">
         <Badge tone="ai">{t("co.assistant.aiTag")}</Badge>
       </p>
       <AskSection orgId={orgId} enabled={enabled} onOpenRecord={onOpenRecord} />
-    </section>
+    </Card>
   );
 }

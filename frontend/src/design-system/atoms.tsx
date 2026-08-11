@@ -362,6 +362,7 @@ export function Card({
   style,
   id,
   ariaLabel,
+  role,
   testId,
   onSubmit,
 }: Readonly<{
@@ -377,6 +378,11 @@ export function Card({
   // Naming the card makes it a region a screen reader can land on and list;
   // spelled out rather than spread so the prop reads the same at every call.
   ariaLabel?: string;
+  // A card that ANNOUNCES itself: an advisory the app raises while the reader is
+  // elsewhere on the page has to reach a screen reader without stealing focus,
+  // and that is a live region on the card itself — wrapping it in one would add
+  // a node that exists only to satisfy this component.
+  role?: "status";
   testId?: string;
   // Only meaningful with `as="form"` — a card that is the form it submits.
   onSubmit?: FormEventHandler<HTMLElement>;
@@ -390,6 +396,7 @@ export function Card({
       style={style}
       id={id}
       aria-label={ariaLabel}
+      role={role}
       data-testid={testId}
       onSubmit={onSubmit}
     >

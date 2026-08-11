@@ -5,12 +5,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  SectionHeader,
-} from "../design-system/atoms";
+import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
@@ -112,10 +107,7 @@ function ConnectGuide() {
     <QueryGate query={state}>
       {(connector) =>
         connector.enabled ? (
-          <div
-            className="card card-inset"
-            style={{ marginTop: "var(--space-3)" }}
-          >
+          <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
             <p className="t-label">{t("agents.connectHow")}</p>
             <p className="t-small" style={{ marginTop: "var(--space-1)" }}>
               {t("agents.connectSteps")}
@@ -143,17 +135,14 @@ function ConnectGuide() {
             <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
               {t("agents.connectAntigravityPath")}
             </p>
-          </div>
+          </Card>
         ) : (
-          <div
-            className="card card-inset"
-            style={{ marginTop: "var(--space-3)" }}
-          >
+          <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
             <p className="t-label">{t("agents.connectorOff")}</p>
             <p className="t-small" style={{ marginTop: "var(--space-1)" }}>
               {t("agents.connectorOffDetail")}
             </p>
-          </div>
+          </Card>
         )
       }
     </QueryGate>
@@ -385,11 +374,11 @@ export function ConnectedAgentsCard() {
   useClockAt(nextExpiry(connections, Date.now()));
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader
-        title={t("agents.connected")}
-        sub={t("agents.connectedSub")}
-      />
+    <Card
+      title={t("agents.connected")}
+      sub={t("agents.connectedSub")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {/* The empty state is written out here rather than left to QueryGate's
           generic one: "nothing here" beside a guide explaining how to connect
           reads as a loading failure, and the sentence a human needs is that no
@@ -438,6 +427,6 @@ export function ConnectedAgentsCard() {
       >
         <p>{t("agents.disconnectConfirm")}</p>
       </ConfirmModal>
-    </section>
+    </Card>
   );
 }

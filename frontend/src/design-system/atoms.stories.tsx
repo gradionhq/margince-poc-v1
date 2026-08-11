@@ -147,10 +147,14 @@ export const Toggles: Story = {
   ),
 };
 
-// The two card surfaces plus the reading tile, together because the tile is
+// The card surfaces plus the reading tile, together because the tile is
 // what a card usually holds first and because the three tones only read as a
 // system next to each other: the tile stays neutral and the VALUE takes the
 // tone, which is invisible when a tinted tile is shown on its own.
+//
+// The third card is the shape most screens want and the reason the header is
+// props rather than a hand-placed child: one title, one description under it,
+// and the section's actions beside them.
 export const Cards: Story = {
   render: () => (
     <div style={stack}>
@@ -163,6 +167,16 @@ export const Cards: Story = {
         <p className="t-small">
           The inset variant sits inside another surface, so it recedes instead
           of stacking a second raised edge on the first.
+        </p>
+      </Card>
+      <Card
+        title="Passports"
+        sub="Credentials you minted for an agent. Every call re-authenticates, so a revoked passport stops working mid-session."
+        actions={<Button small>Mint</Button>}
+      >
+        <p className="t-small">
+          The header comes from props: title over description across the full
+          width, actions beside the pair.
         </p>
       </Card>
       <div
@@ -226,8 +240,17 @@ export const Sections: Story = {
     <div style={stack}>
       <SectionHeader title="Pipeline" />
       <SectionHeader title="Pipeline" sub="Six open deals · 1.2M weighted" />
+      {/* The description is a line of its own, so length is a reading matter
+          rather than a layout one — beside the title this sentence used to push
+          the heading around and then run out of room. */}
+      <SectionHeader
+        title="Reporting currency"
+        sub="Every aggregate on this installation converts to it at the day's rate, and the rate that was used stays on the figure."
+        actions={<Button small>Change</Button>}
+      />
       <Card>
-        {/* As the card's first child, which is the pairing atoms.css styles. */}
+        {/* As the card's first child, which is the pairing atoms.css styles.
+            Equivalent to passing title/sub to Card — that is what it renders. */}
         <SectionHeader title="Contacts" sub="Three people at this company" />
         <p className="t-small">Carol Wagner · Bob Schmidt · Alice Müller</p>
       </Card>
