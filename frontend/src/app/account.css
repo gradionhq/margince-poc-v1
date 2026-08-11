@@ -5,7 +5,6 @@
 
 .rail .account {
   position: relative;
-  margin-top: var(--space-2);
   /* The block is the last flex item of a column that grows; without this it
      would shrink under the navigation above it on a short viewport. */
   flex: none;

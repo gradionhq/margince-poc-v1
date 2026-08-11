@@ -6,11 +6,12 @@ import {
   Sun,
   UserRound,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import { useT } from "../i18n";
 import { useLogout, useMe } from "../screens/common";
 import { LocaleMenu } from "./localemenu";
+import { usePopoverDismiss } from "./popover";
 import { useTheme } from "./theme";
 import "./account.css";
 
@@ -172,44 +173,9 @@ export function AccountMenu({ collapsed }: Readonly<{ collapsed: boolean }>) {
 
   const identity = identityOf(me.data?.user);
 
-  // Dismissal lives on the document so Escape works from anywhere in the menu
-  // and any outside click closes it — the opening click is deferred past so it
-  // does not close what it just opened.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      // One keystroke closes one layer. The language row opens a submenu inside
-      // this popover, and both dismissals listen on the document, so without this
-      // a single Escape would collapse the submenu AND the menu around it —
-      // leaving the reader two layers away from where they were. The submenu
-      // announces itself through the trigger it expanded; when one is open it owns
-      // Escape, and the second press reaches here.
-      if (
-        menu.current?.querySelector(
-          '[aria-haspopup="menu"][aria-expanded="true"]',
-        )
-      ) {
-        return;
-      }
-      dismiss();
-    };
-    const onClick = () => dismiss();
-    document.addEventListener("keydown", onKey);
-    const timer = window.setTimeout(
-      () => document.addEventListener("click", onClick),
-      0,
-    );
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(timer);
-      document.removeEventListener("click", onClick);
-    };
-  }, [open, dismiss]);
+  // One dismissal for every popover in the chrome (app/popover.ts): Escape from
+  // anywhere inside, any outside click, and the opening click deferred past.
+  usePopoverDismiss(open, menu, dismiss);
 
   return (
     <div className={collapsed ? "account collapsed" : "account"}>

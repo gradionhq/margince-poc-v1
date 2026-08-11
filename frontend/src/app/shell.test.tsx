@@ -44,11 +44,11 @@ function memoryStorage(): Storage {
 // a dismissible tooltip (AC-shell-1c/1d), the sidebar's search row (AC-shell-7),
 // the page head that names the screen, and the rail-less exceptions.
 //
-// The account block and the agent strip are components of their own now, and
+// The account block and the agent dock are components of their own now, and
 // their behaviour is proved where they live (account.test.tsx,
-// agentpanel.test.tsx). What is asserted here is that the shell MOUNTS them in
-// the places it promises: the account block at the sidebar foot, the agent
-// beside the page title.
+// agentdock.test.tsx). What is asserted here is that the shell MOUNTS them in
+// the places it promises, and feeds them the counts it already has: the account
+// block at the sidebar foot, the agent beside the page title.
 
 afterEach(() => {
   cleanup();
@@ -432,11 +432,16 @@ describe("PageHead", () => {
   });
 
   // Nothing but the title, the SoR chip (silent in native mode) and the agent
-  // strip. A control appearing here without a caller asking for it is chrome
+  // dock. The dock's own trigger is the ONE control the head mints for itself;
+  // any other button appearing here without a caller asking for it is chrome
   // creeping back into the space the top bar used to occupy.
   it("carries no control the screen did not ask for", () => {
     render(<PageHead route={{ screen: "deals" }} />);
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toBe(
+      screen.getByRole("button", { name: /^Margince AI/ }),
+    );
   });
 
   it("renders the screen actions it is given, beside the title", () => {
@@ -456,11 +461,25 @@ describe("PageHead", () => {
 
   // The agent is true of the product, not of the screen, so it rides beside the
   // title rather than in the sidebar. Its own claims are proved in
-  // agentpanel.test.tsx; that it is mounted here is the shell's promise.
+  // agentdock.test.tsx; that it is mounted here is the shell's promise.
   it("carries the agent beside the title", () => {
     const { container } = render(<PageHead route={{ screen: "deals" }} />);
-    const strip = screen.getByRole("region", { name: "Margince AI status" });
-    expect(container.querySelector(".pageaside")?.contains(strip)).toBe(true);
+    const dock = screen.getByRole("button", { name: /^Margince AI/ });
+    expect(container.querySelector(".pageaside")?.contains(dock)).toBe(true);
+  });
+
+  // The counts the head is given are the rail's counts, and the dock reads the
+  // approvals one out of them. Without the pass-through the agent is silent
+  // about work that the sidebar is already badging two columns away.
+  it("hands the approvals count on to the agent", () => {
+    const { container } = render(
+      <PageHead route={{ screen: "deals" }} counts={{ tasks: 9, inbox: 5 }} />,
+    );
+    // The inbox count specifically — tasks sits first in the same record and
+    // carries a different number, so a head reading any count would show 9.
+    expect(container.querySelector(".agentwait")?.textContent).toBe(
+      "5 Approvals waiting",
+    );
   });
 });
 
@@ -522,6 +541,22 @@ describe("Shell", () => {
     window.location.hash = "#/oauth-consent";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     expect(screen.queryByRole("navigation")).toBeNull();
+  });
+
+  // One number, two surfaces: the rail badges what is waiting and the agent
+  // beside the title reports the same thing. They read the counts the shell was
+  // given, so a head that is not handed them leaves the two disagreeing.
+  it("gives the page head the counts the rail badges", () => {
+    window.location.hash = "#/contacts";
+    const { container } = render(
+      <Shell counts={{ inbox: 7 }} onOpenSearch={ignoreSearch}>
+        {null}
+      </Shell>,
+    );
+    expect(container.querySelector(".rail .count")?.textContent).toBe("7");
+    expect(container.querySelector(".agentwait")?.textContent).toBe(
+      "7 Approvals waiting",
+    );
   });
 
   it("renders the rail on core screens", () => {

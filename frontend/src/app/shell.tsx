@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
 import { AccountMenu } from "./account";
-import { AgentStrip } from "./agentpanel";
+import { AgentDock } from "./agentdock";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
@@ -378,9 +378,11 @@ function resolveTitle(
 export function PageHead({
   route,
   actions,
+  counts,
 }: Readonly<{
   route: Route;
   actions?: ReactNode;
+  counts?: ShellCounts;
 }>) {
   const t = useT();
 
@@ -420,7 +422,7 @@ export function PageHead({
       <div className="pageaside">
         {actions}
         <SorModeChip />
-        <AgentStrip />
+        <AgentDock approvalsWaiting={counts?.inbox} />
       </div>
     </header>
   );
@@ -475,7 +477,7 @@ export function Shell({
         onOpenSearch={onOpenSearch}
       />
       <main className="main">
-        <PageHead route={route} actions={pageActions} />
+        <PageHead route={route} actions={pageActions} counts={counts} />
         {/* Public, onboarding, and preference routes are intentionally
             railless; these advisories belong only here. */}
         <EconomyBanner />

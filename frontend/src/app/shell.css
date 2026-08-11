@@ -228,8 +228,10 @@
 
 /* ===== account block, pinned to the foot ===== */
 .rail .railfoot {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
+  /* The rule divides the SIDEBAR, not the column of rows inside it, so it
+     bleeds out through the rail's own gutter and meets both edges. */
+  margin: var(--space-3) calc(-1 * var(--space-2)) 0;
+  padding: var(--space-2) var(--space-2) 0;
   border-top: 1px solid var(--borderSubtle);
 }
 

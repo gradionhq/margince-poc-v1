@@ -40,7 +40,7 @@ const statusTokens = [
 export function DesignScreen() {
   const t = useT();
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       {/* The shell's page head owns this route's h1. */}
       <h2 className="t-display">{t("app.title")}</h2>
       <p className="t-caption">{t("app.subtitle")}</p>
