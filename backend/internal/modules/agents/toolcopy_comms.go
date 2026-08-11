@@ -48,6 +48,19 @@ var sendEmailCopy = toolCopy{
 		"approval.",
 }
 
+var sendAccountEmailCopy = toolCopy{
+	Purpose: "Put a mail on the wire to a real recipient, from this workspace, starting a new " +
+		"conversation rather than answering one, and file it on the records it is about.",
+	Limits: "It sends EXACTLY the subject and body it is given and composes nothing. It needs at " +
+		"least one link naming the records the conversation belongs to and is refused without " +
+		"one. Every recipient must have granted the consent purpose the call names, and a person " +
+		"approves the send before it leaves — a message leaving the workspace cannot be recalled.",
+	Instead: "Use send_email when the message answers a conversation already recorded here: that " +
+		"keeps the reply on its own thread, where this starts a separate one beside it.",
+	Retain: "Keep the staged approval id and re-send the identical text and links: the approval " +
+		"is bound to that exact message. The activity_id that comes back is the new conversation.",
+}
+
 var sendMessageCopy = toolCopy{
 	Purpose: "Reply on a captured chat conversation — the channels this workspace has connected " +
 		"— on the thread it was captured from.",

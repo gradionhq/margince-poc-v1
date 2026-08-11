@@ -95,6 +95,9 @@ func (o SendOrigin) resolve(ctx context.Context, s *Store) ([]ActivityLinkInput,
 // probeLinkTargets refuses an account-started send whose named records the
 // caller cannot read, before any later guard can answer about anyone else.
 func (s *Store) probeLinkTargets(ctx context.Context, links []ActivityLinkInput) error {
+	if len(links) > maxActivityLinks {
+		return &TooManyLinksError{Count: len(links)}
+	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		for _, link := range links {
 			if linkColumn(link.EntityType) == "" {

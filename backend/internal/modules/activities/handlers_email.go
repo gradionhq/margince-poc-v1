@@ -247,7 +247,7 @@ func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crm
 		// A message filed under nothing is one nobody finds again, which is
 		// the gap this operation exists to close. The contract says minItems,
 		// and nothing in this stack validates a request against the schema.
-		writeStoreErr(w, r, &RequiredFieldError{Field: "links"})
+		writeStoreErr(w, r, &RequiredFieldError{Field: fieldLinks})
 		return
 	}
 

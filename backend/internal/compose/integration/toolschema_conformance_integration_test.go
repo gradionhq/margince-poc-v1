@@ -208,6 +208,7 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 var unreachableInThisLane = gatekit.Waive(map[string]string{
 	"book_meeting":         "needs a live calendar provider",
 	"send_email":           "needs an outbound mail provider",
+	"send_account_email":   "needs an outbound mail provider, and a send-capable mailbox for its pre-flight",
 	"send_message":         "needs an outbound channel provider",
 	"draft_email":          "needs a drafting model path",
 	"draft_follow_ups_for": "needs a drafting model path",

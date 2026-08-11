@@ -99,54 +99,57 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 // StageInfo puts a refused booking in the inbox instead of dead-ending it.
 //
 // A booking anchors on no existing row, so unlike the two send verbs it has no
-// single target handed to it. What it does have is its links, and those are
-// records: EVERY one is read and refused if its authority lives in another
-// system, because redemption's version pin reads our own tables and a
-// mirror-held link has no row there — the same un-releasable approval
-// refuseStagingElsewhere exists to prevent, reached through a different door.
-// Checking every link rather than the one displayed is deliberate: a booking
-// with a local deal and a mirrored organization is exactly the case a
-// first-link-only check would wave through.
+// single target handed to it. What it does have is its links, and every one of
+// them is read through readStageableLinks — the shared rule for a call that
+// names its own records.
 //
-// The first link becomes the displayed target and supplies the pin. A booking
-// with NO links is refused before any of that: crm.yaml requires them, and a
-// staged approval with no target is a human asked to release a meeting attached
-// to nothing — nothing to show them, and no version to pin it against.
+// The first link becomes the displayed target and supplies the pin, which is
+// what makes a booking's staged row bind to a record rather than float free: a
+// meeting is a commitment ON that record, and the human deciding it is the one
+// whose scope reaches it. A booking with NO links is refused before any of
+// that: crm.yaml requires them, and a staged approval with no target is a human
+// asked to release a meeting attached to nothing — nothing to show them, and no
+// version to pin it against.
 func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	// Refuse here what the store refuses at execution, for the same reason the
-	// mail send does: a human should not be asked to approve a meeting that
-	// ends before it starts, spend the one-shot approval on it, and only then
-	// be told it was never bookable.
-	if !args.End.After(args.Start) {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
-			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
+	if err := requireBookingWindow(args); err != nil {
+		return StageInfo{}, err
 	}
 	if err := requireBookingLinks(args); err != nil {
 		return StageInfo{}, err
 	}
-	links, err := bookingLinks(args)
+	links, err := uniqueRecordLinks(args.Links)
 	if err != nil {
 		return StageInfo{}, err
 	}
-	info := StageInfo{Summary: describeBooking(args, links)}
-	for i, link := range links {
-		rec, readErr := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(link.EntityType), ID: link.EntityID})
-		if readErr != nil {
-			return StageInfo{}, readErr
-		}
-		if err := refuseStagingElsewhere(rec); err != nil {
-			return StageInfo{}, err
-		}
-		if i == 0 {
-			info.TargetType, info.TargetID, info.TargetVersion = link.EntityType, link.EntityID, &rec.Version
-		}
+	records, err := readStageableLinks(ctx, t.p, links)
+	if err != nil {
+		return StageInfo{}, err
 	}
-	return info, nil
+	return StageInfo{
+		TargetType:    links[0].EntityType,
+		TargetID:      links[0].EntityID,
+		TargetVersion: &records[0].Version,
+		Summary:       describeBooking(args, links),
+	}, nil
+}
+
+// requireBookingWindow refuses a booking that ends before it starts.
+//
+// The store refuses it too (errBookingEndNotAfterStart), which is why this is
+// not a correctness hole — but reaching THAT refusal costs the human's approval
+// on the way past, since redemption is consumed before the handler runs. So
+// both doors ask first, the same rule the link checks below follow.
+func requireBookingWindow(args BookMeetingArgs) error {
+	if args.End.After(args.Start) {
+		return nil
+	}
+	return &BadArgsError{Cause: fmt.Errorf(
+		"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
+		args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
 }
 
 // requireBookingLinks enforces what the schema states: at least one link.
@@ -165,45 +168,6 @@ func requireBookingLinks(args BookMeetingArgs) error {
 			"and one attached to nothing cannot be approved against a record")}
 }
 
-// maxBookingLinks bounds how many records one booking may attach to.
-//
-// This is a REQUEST BOUND, not a modelling opinion. Each link costs its own
-// row-scoped provider read in its own transaction, and the array is chosen
-// freely by the caller: at the 1 MiB body limit a single tools/call could
-// carry ~15,000 of them, spending tens of thousands of queries against a
-// 16-connection pool inside one request — before any human has approved
-// anything, since staging runs on the refusal path. A meeting that genuinely
-// touches more records than this is not a meeting.
-const maxBookingLinks = 25
-
-// bookingLinks validates and de-duplicates the links a booking attaches to.
-// Deduplicating first matters as much as the cap: the same id repeated is the
-// cheapest way to turn one call into N reads, and it is also just a caller
-// mistake worth not charging for twice.
-func bookingLinks(args BookMeetingArgs) ([]bookingLink, error) {
-	if len(args.Links) > maxBookingLinks {
-		return nil, &BadArgsError{Cause: fmt.Errorf(
-			"a booking may attach to at most %d records; this call names %d", maxBookingLinks, len(args.Links))}
-	}
-	seen := make(map[bookingLink]struct{}, len(args.Links))
-	unique := make([]bookingLink, 0, len(args.Links))
-	for _, l := range args.Links {
-		link := bookingLink{EntityType: l.EntityType, EntityID: l.EntityID}
-		if _, dup := seen[link]; dup {
-			continue
-		}
-		seen[link] = struct{}{}
-		unique = append(unique, link)
-	}
-	return unique, nil
-}
-
-// bookingLink is one (type, id) pair, comparable so it can key the dedupe set.
-type bookingLink struct {
-	EntityType string
-	EntityID   ids.UUID
-}
-
 // describeBooking is the one line the inbox shows.
 //
 // It names every argument that changes what gets released — the slot, the
@@ -216,7 +180,7 @@ type bookingLink struct {
 // The subject is the agent's own text, so it is quoted rather than run into
 // the sentence; the approvals engine sanitizes every summary at the single
 // staging path regardless.
-func describeBooking(args BookMeetingArgs, links []bookingLink) string {
+func describeBooking(args BookMeetingArgs, links []RecordLink) string {
 	subject := args.Subject
 	if strings.TrimSpace(subject) == "" {
 		subject = "(no subject)"
@@ -239,11 +203,22 @@ func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	}
 	// Both doors, not just staging. This one is reached with an approval already
 	// redeemed, so a call that skipped StageInfo would otherwise execute a
-	// booking the schema says is impossible.
+	// booking the schema says is impossible — and the cap and the dedupe are
+	// part of that: the human approved "attached to N record(s)" as StageInfo
+	// counted them, and a booking that reaches the seam with the raw list is one
+	// whose approval was read against a different reach than the one it takes.
+	if err := requireBookingWindow(args); err != nil {
+		return nil, err
+	}
 	if err := requireBookingLinks(args); err != nil {
 		return nil, err
 	}
-	for _, link := range args.Links {
+	links, err := uniqueRecordLinks(args.Links)
+	if err != nil {
+		return nil, err
+	}
+	args.Links = links
+	for _, link := range links {
 		noteEvidence(ctx, datasource.EntityType(link.EntityType), link.EntityID)
 	}
 	return t.comms.BookMeeting(ctx, args)
