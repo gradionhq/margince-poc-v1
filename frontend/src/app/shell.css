@@ -11,8 +11,17 @@
 .app {
   /* One duration for the whole collapse choreography, so the column, the icons
      and the labels stay in step. */
-  --shellAnim: 0.36s;
-  --shellEase: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 0.2s, not the 0.36s this used to run: the sidebar toggle is a repeated,
+     short-distance desktop interaction, which is the profile every published
+     motion scale times fastest (Carbon maps "expansion" to 240ms and reserves
+     400ms for a LARGE expansion; Material's own numeric guidance for desktop is
+     150–200ms). The column also animates a geometric property, so every frame
+     re-lays-out the content beside it — a shorter run is cheaper as well as
+     better. */
+  --shellAnim: 0.2s;
+  /* Standard/in-out, because the panel starts and ends on screen. A decelerate
+     curve belongs to something entering from off-canvas. */
+  --shellEase: cubic-bezier(0.2, 0, 0, 1);
   /* ONE content column for the whole app, named once. The page head and every
      screen's wrap both read it, which is what keeps a heading and the content
      under it on the same left edge at any window width — they used to agree
@@ -43,11 +52,12 @@
 .app.railexpanded {
   grid-template-columns: 252px 1fr;
 }
-/* The whole collapse choreography — column width, icon size, label width and
-   fade — jumps straight to its end state when motion is not wanted. */
+/* Reduce means reduce, not remove: the MOVEMENT goes (the column snaps to its
+   new width), while the label's opacity crossfade stays. A fade is not motion,
+   and stripping it would leave labels appearing and vanishing with no signal
+   that anything happened. */
 @media (prefers-reduced-motion: reduce) {
   .app,
-  .rail .navlabel,
   .rail .ws-name {
     transition: none;
   }
@@ -64,6 +74,10 @@
   min-width: 0;
   overflow: hidden;
   background: transparent;
+  /* The sidebar's collapse animates a grid COLUMN, which relayouts whatever
+     sits in the other one on every frame. This scopes that work to this
+     subtree instead of the whole document. */
+  contain: layout;
 }
 /* The content area is the ground, not a panel: screens float their own cards on
    it (hairlines, not shadows). The sidebar is the only chrome panel left. */
@@ -197,21 +211,17 @@
   background: var(--bgHover);
   box-shadow: inset 0 0 0 1px var(--borderStrong);
 }
-/* Every focusable row in the sidebar takes the design system's ring (atoms.css
-   spells the same three declarations on .segmented and .link-button). The search
-   row keeps its hairline in the same shadow, because a second box-shadow rule
-   would replace the first rather than add to it. */
+/* An OUTLINE, drawn inside the row — not the box-shadow ring the design system
+   uses elsewhere. The sidebar is a scroll container, and a shadow ring on its
+   first or last row is clipped by that container, which is a focus indicator
+   that disappears exactly when it is needed. An inner outline cannot be
+   clipped, and it follows the row's radius. */
 .rail .navitem:focus-visible,
 .rail .railmore:focus-visible,
-.rail .railtoggle:focus-visible {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
-}
+.rail .railtoggle:focus-visible,
 .rail .railsearch:focus-visible {
-  box-shadow:
-    inset 0 0 0 1px var(--borderStrong),
-    0 0 0 3px var(--accentLight);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 /* The label is absolutely positioned for the collapse animation, so it does not
    flow around the shortcut cap — it is held clear of it instead. */
@@ -374,15 +384,17 @@
 .rail .navgroup + .navgroup {
   margin-top: 12px;
 }
+/* 12px, semibold, sentence case. The uppercase mono kicker this used to be is
+   the older convention — Primer, Atlassian and shadcn all dropped it, and at
+   9.5px with 0.12em tracking it was the least legible text in the product. The
+   group is separated by space, not by a rule: a heading and a divider do the
+   same job, and stacking both says it twice. */
 .rail .navheading {
   position: relative;
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
   color: var(--textMeta);
-  margin: 0 0 3px;
+  margin: 0 0 var(--space-1);
   padding: 0 14px;
 }
 /* Collapsed: the heading keeps its exact box (same font metrics, same margins)
@@ -421,15 +433,17 @@
   min-height: 38px;
   padding: 0 14px;
   border-radius: 8px;
+  /* A pointer-tracked highlight reads as lag past ~200ms; Carbon times this
+     class of change at 70–110ms. */
   transition:
-    background 0.15s,
-    color 0.15s;
+    background 0.11s ease,
+    color 0.11s ease;
   cursor: pointer;
   border: 0;
   background: transparent;
   color: var(--textContent);
   text-decoration: none;
-  font-size: 13.5px;
+  font-size: var(--fs-body);
 }
 /* Collapsed keeps the SAME row height as expanded, and the 14px padding centres
    the 18px icon either way (14 + 18 + 14 = 46), so no icon moves on either axis
@@ -440,18 +454,22 @@
   background: var(--bgHover);
   color: var(--textPrimary);
 }
+/* The current row, in three signals — a tint, a weight, and a bar — because a
+   tint alone is colour-only (WCAG 1.4.1, Level A) and the tint itself measures
+   ~1.1:1 against the sidebar ground, so it cannot carry the state on its own.
+   The INK stays neutral: the accent as 13.5px text measures 3.9:1 on the dark
+   theme's tinted row, under the 4.5:1 AA needs, and weight does not rescue that
+   below 18.66px. The accent moves to the icon and the bar, where the bar is
+   what 1.4.11 asks (3:1 non-text) and both clear it. */
 .rail .navitem.active {
   background: var(--accentLight);
-  color: var(--accent);
-  font-weight: 500;
+  color: var(--textPrimary);
+  font-weight: var(--fw-semibold);
 }
-/* The indicator bar belongs to the collapsed rail, where there is no label to
-   carry the active state. Expanded, the tint plus accent text says it without a
-   bar that would clip against the sidebar edge.
-   It sits INSIDE the rail's gutter rather than on its edge: the sidebar is now
-   flush to the viewport, and a bar hung past the padding would be sliced in
-   half by the window. */
-.rail.collapsed .navitem.active::before {
+.rail .navitem.active svg {
+  color: var(--accent);
+}
+.rail .navitem.active::before {
   content: "";
   position: absolute;
   left: -4px;
@@ -462,6 +480,10 @@
   background: var(--accent);
   border-radius: var(--r-full);
 }
+/* The bar sits INSIDE the rail's gutter rather than on its edge: the sidebar is
+   flush to the viewport, and a bar hung past the padding would be sliced in
+   half by the window. Same offset in both states, so nothing about the current
+   row moves when the sidebar collapses. */
 /* One icon size in both states. Animating the glyph's box relayouts the whole
    sidebar every frame, and a resizing icon is the jitter — 18px reads correctly
    beside a 13.5px label and alone on the 64px rail. */
@@ -1002,19 +1024,11 @@
        the page's scroller when the sheet itself hits its end. */
     overscroll-behavior: contain;
   }
-  /* The grab handle: the sign that this is a sheet and that it dismisses. It is
-     drawn, not built — there is nothing to operate here that Escape, the close
-     control and the scrim do not already do. */
-  .rail.sheetopen::before {
-    content: "";
-    order: -2;
-    width: 36px;
-    height: 4px;
-    margin: 0 auto var(--space-1);
-    border-radius: var(--r-full);
-    background: var(--borderStrong);
-    flex: none;
-  }
+  /* No grab handle. A handle is a CONTROL — the platforms that document it give
+     it a touch target, a tap behaviour and an assistive-tech affordance for
+     resizing — and this sheet has one height and no drag. Drawn as decoration it
+     promises a gesture that does nothing; the close control in the header is
+     what this sheet actually offers. */
   .rail.sheetopen .navgroup {
     display: flex;
     flex-direction: column;

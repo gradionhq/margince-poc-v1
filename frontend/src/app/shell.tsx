@@ -93,6 +93,11 @@ function BrandBlock() {
   );
 }
 
+// The sidebar's own shortcut, spelled the way the platform spells it — the
+// palette's label helper answers the same question for ⌘K.
+function collapseHotkeyLabel(platform: string): string {
+  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘B" : "Ctrl B";
+}
 // The search row's tooltip shares the collapsed rail's tooltip state with the
 // destinations, and that state is keyed by screen id. Search is not a screen —
 // it opens the palette over the one you are on — so it needs a key of its own
@@ -216,16 +221,28 @@ export function WorkspaceRail({
     }
   }, [sheetOpen]);
 
-  // The page behind the sheet must not scroll under it: a touch that starts on
-  // the scrim would otherwise move the page rather than dismissing anything.
+  // A scrim that only LOOKS blocking is the worst of both worlds: the page it
+  // dims stays reachable by Tab and by a screen reader. `inert` on the content
+  // column takes it out of the tab order, out of the accessibility tree and out
+  // of pointer reach in one attribute — the same guarantee <dialog> gives, which
+  // this nav cannot become without giving up its landmark. The body stops
+  // scrolling for the same reason: a touch that starts on the scrim should
+  // dismiss, not scroll the page underneath.
   useEffect(() => {
     if (!sheetOpen) {
       return;
     }
+    const main = document.querySelector<HTMLElement>(".main");
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    if (main) {
+      main.inert = true;
+    }
     return () => {
       document.body.style.overflow = previous;
+      if (main) {
+        main.inert = false;
+      }
     };
   }, [sheetOpen]);
 
@@ -262,6 +279,12 @@ export function WorkspaceRail({
               type="button"
               className="railtoggle"
               aria-label={collapsed ? t("shell.expand") : t("shell.collapse")}
+              // The shortcut belongs in the tooltip, not in the accessible
+              // name: a speech-input user says the words they can read, and
+              // "Collapse sidebar ⌘B" is not one of them.
+              title={`${
+                collapsed ? t("shell.expand") : t("shell.collapse")
+              } · ${collapseHotkeyLabel(navigator.platform)}`}
               aria-expanded={!collapsed}
               onClick={handleToggle}
             >
