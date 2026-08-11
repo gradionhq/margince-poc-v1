@@ -779,12 +779,12 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: make frontend-check
-      # Emit lcov from the same suite so the sonarcloud job consumes it as an
-      # artifact instead of re-installing + re-running vitest itself.
-      - name: Frontend coverage (lcov)
-        working-directory: frontend
-        run: pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
+      # FE_CHECK=check:ci instruments the ONE vitest run this lane already
+      # performs, so the lcov the sonarcloud job downloads is a by-product of
+      # the run that decides the verdict rather than a second execution of the
+      # same 170 files. Coverage costs about a third of a run; a repeat costs a
+      # whole one.
+      - run: make frontend-check FE_CHECK=check:ci
       - name: Upload FE coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

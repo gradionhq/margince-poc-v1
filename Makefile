@@ -206,6 +206,15 @@ verify-boot:
 ## TS type-drift gate: src/api/schema.d.ts is generated from crm.yaml, and a
 ## contract change that skips regeneration would silently strand the frontend
 ## types, so regenerate and commit them together.
+##
+## FE_CHECK selects the suite's last leg. `check` runs vitest bare, which is
+## what a developer wants: nobody reads an lcov file locally, and instrumenting
+## for one costs a third of the run. CI overrides it with `check:ci`, whose
+## vitest emits the lcov the sonarcloud job consumes — ONE execution producing
+## both the verdict and the report, because running the suite a second time to
+## collect coverage doubles the lane for a file the first run could have
+## written.
+FE_CHECK ?= check
 frontend-check:
 	frontend/scripts/check-ds-purity.sh
 	frontend/scripts/check-font-lock.sh
@@ -216,7 +225,7 @@ frontend-check:
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
 			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
-		pnpm check
+		pnpm $(FE_CHECK)
 
 ## fe-install — install the frontend deps (pnpm, frozen lockfile). The FE half
 ## of `make install`; also what `fe-uat` / `dev` assume has run.
