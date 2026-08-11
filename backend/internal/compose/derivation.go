@@ -265,9 +265,13 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		}
 		whereSQL := strings.Join(where, " AND ")
 
-		rowsSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY t.id LIMIT %d",
-			strings.Join(plan.selects, ", "), spec.fromClause(), whereSQL, reportRowLimit)
-		pgRows, err := tx.Query(ctx, rowsSQL, args...)
+		rowsSQL, rowsArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
+			"SELECT %s FROM %s WHERE %s ORDER BY t.id LIMIT %d",
+			strings.Join(plan.selects, ", "), spec.fromClause(), whereSQL, reportRowLimit), args)
+		if err != nil {
+			return err
+		}
+		pgRows, err := tx.Query(ctx, rowsSQL, rowsArgs...)
 		if err != nil {
 			return fmt.Errorf("derivation %s rows: %w", report, err)
 		}
@@ -282,14 +286,18 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		// (count(*) rides along as the honest total behind the capped
 		// rows slice). Values are read positionally, so a caller alias
 		// cannot shadow the total.
-		aggSQL := fmt.Sprintf("SELECT count(*), %s FROM %s WHERE %s",
-			strings.Join(plan.aggSelects, ", "), spec.fromClause(), whereSQL)
+		aggSQL, aggArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
+			"SELECT count(*), %s FROM %s WHERE %s",
+			strings.Join(plan.aggSelects, ", "), spec.fromClause(), whereSQL), args)
+		if err != nil {
+			return err
+		}
 		values := make([]any, len(plan.aggColumns)+1)
 		ptrs := make([]any, len(values))
 		for i := range values {
 			ptrs[i] = &values[i]
 		}
-		if err := tx.QueryRow(ctx, aggSQL, args...).Scan(ptrs...); err != nil {
+		if err := tx.QueryRow(ctx, aggSQL, aggArgs...).Scan(ptrs...); err != nil {
 			return fmt.Errorf("derivation %s aggregates: %w", report, err)
 		}
 		total, ok := values[0].(int64)

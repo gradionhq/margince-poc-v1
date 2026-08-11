@@ -64,7 +64,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := store.PersonStrength(ctx, personIDOf(person), now)
+	got, err := store.PersonStrength(ctx, PersonIDOf(person), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	}
 
 	// Determinism: the same seed + clock reproduces the same value.
-	again, err := store.PersonStrength(ctx, personIDOf(person), now)
+	again, err := store.PersonStrength(ctx, PersonIDOf(person), now)
 	if err != nil {
 		t.Fatal(err)
 	}

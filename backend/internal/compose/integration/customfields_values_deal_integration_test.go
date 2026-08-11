@@ -202,5 +202,5 @@ func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (i
 	return ids.PipelineID{}, ids.StageID{}
 }
 
-// dealIDOf mirrors personIDOf/orgIDOf for the deal suites.
+// dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.
 func dealIDOf(u ids.UUID) ids.DealID { return ids.From[ids.DealKind](u) }

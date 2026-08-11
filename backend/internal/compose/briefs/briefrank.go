@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -83,16 +84,16 @@ func (e *BriefEngine) WithL2Ranker(brain briefBrain, log *slog.Logger) *BriefEng
 // rate yields NULL — the revenue factor floors rather than guessing (a
 // wrong number is worse than a missing one). asOfPos is the bind position
 // of the as-of date.
-func briefBaseValueSQL(asOfPos int) string {
+func briefBaseValueSQL(asOfPos, basePos int) string {
 	return fmt.Sprintf(`CASE
 		WHEN d.amount_minor IS NULL THEN NULL
-		WHEN d.currency IS NULL OR d.currency = w.base_currency THEN d.amount_minor
+		WHEN d.currency IS NULL OR d.currency = $%[2]d THEN d.amount_minor
 		WHEN d.fx_rate_to_base IS NOT NULL THEN d.amount_minor_base
 		ELSE (SELECT round(d.amount_minor * fr.rate)::bigint FROM fx_rate fr
-		      WHERE fr.from_currency = d.currency AND fr.to_currency = w.base_currency
-		        AND fr.rate_date <= $%d::date
+		      WHERE fr.from_currency = d.currency AND fr.to_currency = $%[2]d
+		        AND fr.rate_date <= $%[1]d::date
 		      ORDER BY fr.rate_date DESC LIMIT 1)
-	END`, asOfPos)
+	END`, asOfPos, basePos)
 }
 
 // Rank computes the deterministic §10.1 queue for the acting rep at one
@@ -121,13 +122,20 @@ func (e *BriefEngine) Rank(ctx context.Context, now time.Time) (BriefRanking, er
 			return err
 		}
 
-		norm, err := briefRevenueNorm(ctx, tx, now)
+		// Resolved ONCE for the whole rank: the revenue norm and every
+		// candidate's base value must be measured against the same basis, and
+		// two reads of one installation-wide value is two chances to disagree.
+		base, err := identity.BaseCurrencyOf(ctx, tx)
+		if err != nil {
+			return err
+		}
+		norm, err := briefRevenueNorm(ctx, tx, now, base)
 		if err != nil {
 			return err
 		}
 		revenueNorm = norm
 
-		if err := briefCandidates(ctx, tx, userID, now, facts, &order); err != nil {
+		if err := briefCandidates(ctx, tx, userID, now, base, facts, &order); err != nil {
 			return err
 		}
 		return briefEvidenceRows(ctx, tx, lastView, facts, order, stakeholders)
@@ -207,19 +215,22 @@ func briefLastView(ctx context.Context, tx pgx.Tx, userID ids.UUID) (*time.Time,
 // briefRevenueNorm computes REVENUE_NORM: the workspace P90 base deal
 // value over live deals with an evidencable amount, or the fixed
 // fallback below ten deals of history.
-func briefRevenueNorm(ctx context.Context, tx pgx.Tx, now time.Time) (int64, error) {
+//
+// The basis is a bind parameter, and the workspace join that used to supply it
+// is gone with it: it earned its place only by carrying base_currency, which
+// is now one installation-wide value rather than a column on a joinable row.
+func briefRevenueNorm(ctx context.Context, tx pgx.Tx, now time.Time, base string) (int64, error) {
 	var valued int
 	var p90 *float64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		WITH sized AS (
 			SELECT %s AS base_value
 			FROM deal d
-			JOIN workspace w ON w.id = d.workspace_id
 			WHERE d.archived_at IS NULL
 		)
 		SELECT count(*), percentile_cont(%v) WITHIN GROUP (ORDER BY base_value::double precision)
 		FROM sized WHERE base_value IS NOT NULL`,
-		briefBaseValueSQL(1), briefRevenueNormPercentile), now.UTC()).Scan(&valued, &p90)
+		briefBaseValueSQL(1, 2), briefRevenueNormPercentile), now.UTC(), base).Scan(&valued, &p90)
 	if err != nil {
 		return 0, err
 	}
@@ -236,11 +247,14 @@ func briefRevenueNorm(ctx context.Context, tx pgx.Tx, now time.Time) (int64, err
 // just the last). A snoozed item suppresses its deal on time alone
 // (A77/AC-home-6): out while snoozed_until lies ahead, back once it
 // passes — no material change required.
-func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.Time, facts map[ids.UUID]briefDealFacts, order *[]ids.UUID) error {
+func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.Time,
+	base string, facts map[ids.UUID]briefDealFacts, order *[]ids.UUID,
+) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	asOfPos := arg(now.UTC())
 	userPos := arg(userID)
+	basePos := arg(base)
 
 	scope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
 	if err != nil {
@@ -250,7 +264,6 @@ func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.T
 		SELECT d.id, s.win_probability, %s, d.expected_close_date
 		FROM deal d
 		JOIN stage s ON s.id = d.stage_id
-		JOIN workspace w ON w.id = d.workspace_id
 		WHERE d.archived_at IS NULL AND d.status = 'open'
 		  AND NOT EXISTS (
 			SELECT 1 FROM brief_item bi
@@ -262,7 +275,7 @@ func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.T
 				SELECT 1 FROM activity a
 				JOIN activity_link l ON l.activity_id = a.id AND l.deal_id = d.id
 				WHERE a.archived_at IS NULL AND a.occurred_at > bi.state_at) END)`,
-		briefBaseValueSQL(asOfPos), userPos, asOfPos)
+		briefBaseValueSQL(asOfPos, basePos), userPos, asOfPos)
 	if scope != "" {
 		q += " AND " + scope
 	}

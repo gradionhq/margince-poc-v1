@@ -178,9 +178,11 @@ func TestForecastSpecShape(t *testing.T) {
 	if !ok {
 		t.Fatal("forecast report missing from the prebuilt catalog")
 	}
-	// Both joins are to-one lookups (the stage for win_probability, the
-	// workspace for the §11 reporting-zone "today"), never row multipliers.
-	if got := spec.fromClause(); got != "deal t JOIN stage s ON s.id = t.stage_id JOIN workspace w ON w.id = t.workspace_id" {
+	// One join, a to-one lookup for win_probability, never a row multiplier.
+	// The workspace join went with the §11 reporting-zone "today": that zone
+	// is an installation SETTING now, bound as a parameter, so the join had
+	// nothing left to carry (issue #521).
+	if got := spec.fromClause(); got != "deal t JOIN stage s ON s.id = t.stage_id" {
 		t.Errorf("fromClause = %q", got)
 	}
 	if spec.measures["weighted_amount_minor"] != "round((t.amount_minor * s.win_probability) / 100.0)::bigint" {

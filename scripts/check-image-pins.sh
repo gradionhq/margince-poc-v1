@@ -14,12 +14,21 @@ set -euo pipefail
 
 fail=0
 workflow_dir=".github/workflows"
+actions_dir=".github/actions"
 compose_files="infra/docker-compose.dev.yml"
 
 if [ ! -d "$workflow_dir" ]; then
   echo "No $workflow_dir directory found — skipping image-pin check"
   exit 0
 fi
+
+# Scan the local composite actions alongside the workflows. The `./path` case
+# below waves a local action through on the grounds that the repo versions its
+# own code — which is only true of the action's OWN ref, not of the third-party
+# actions it calls. A composite action pulls those into CI exactly as a workflow
+# does, so an unpinned `uses:` one level down would otherwise ride in unread.
+scan_dirs=("$workflow_dir")
+[ -d "$actions_dir" ] && scan_dirs+=("$actions_dir")
 
 # --- Workflow `uses:` actions: pinned to a commit SHA or digest ---
 while IFS= read -r line; do
@@ -37,7 +46,8 @@ while IFS= read -r line; do
 # marker, then the key — never a bare substring. Anchoring this way keeps the
 # `statuses:` permission (`stat[uses:]`), a `uses:` inside a comment, and a
 # `uses:` in a scalar value from being flagged as an unpinned action.
-done < <(grep -rnE '^[[:space:]]*(-[[:space:]]+)?uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
+done < <(grep -rnE --include='*.yml' --include='*.yaml' \
+  '^[[:space:]]*(-[[:space:]]+)?uses:' "${scan_dirs[@]}" 2>/dev/null || true)
 
 # --- Container images (workflow services + compose): pinned by digest ---
 # A tag pin is not enough for images: tags are mutable, only @sha256: binds
@@ -55,7 +65,8 @@ while IFS= read -r line; do
     fail=1
   fi
 # `image:` as a YAML key too (same key-anchoring as `uses:` above).
-done < <(grep -rnE '^[[:space:]]*(-[[:space:]]+)?image:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml $compose_files 2>/dev/null || true)
+done < <(grep -rnE --include='*.yml' --include='*.yaml' \
+  '^[[:space:]]*(-[[:space:]]+)?image:' "${scan_dirs[@]}" $compose_files 2>/dev/null || true)
 
 if [ "$fail" -eq 0 ]; then
   echo "image pins OK"

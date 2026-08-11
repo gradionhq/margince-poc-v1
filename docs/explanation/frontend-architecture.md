@@ -22,7 +22,7 @@ consequences are load-bearing:
 - **One API seam for the `/v1` contract.** `src/api/client.ts` is where a typed
   JSON request is constructed: same-origin `location.origin + "/v1"`,
   `credentials: "include"` for the session cookie, and the global `fetch`
-  resolved per call so test stubs and the service worker can intercept. Two raw
+  resolved per call so test stubs can intercept. Two raw
   `fetch` calls exist and neither weakens the rule: the LinkedIn
   `Connections.csv` upload (`screens/linkedin-import.tsx`) is a **`/v1` call the
   typed client cannot express**, because it cannot serialize a multipart body —
@@ -299,7 +299,7 @@ discipline even if the test tree regresses.
 | Spacing | `frontend/scripts/check-ds-spacing.sh` | a **newly added** inline `margin`/`padding`/`gap` px literal; diff-scoped vs `origin/main`, waived in-line with `// ds:ignore <reason>` |
 | Contract type drift | `make frontend-check` | `pnpm gen:api` produces a diff in `src/api/schema.d.ts` / `public-events.ts` |
 | Lint | `pnpm lint` (Biome) | formatting and lint findings over `src` + `index.html` |
-| Conformance suite | `design-system/conformance.test.ts` | the AST-accurate arm of the same rules, plus: hard-coded user-facing copy outside the i18n catalogs, a class namespace declared in two stylesheets, a service worker that caches or fabricates a `/v1` response, an invalid web-app manifest |
+| Conformance suite | `design-system/conformance.test.ts` | the AST-accurate arm of the same rules, plus: hard-coded user-facing copy outside the i18n catalogs, a class namespace declared in two stylesheets, a service worker shipped or registered (there is none), an invalid web-app manifest |
 | Token canon | `design-system/tokens.test.ts` | a Ledger-Green value drifting from the design canon |
 | Typecheck + build | `pnpm build` (`tsc -b && vite build`) | any type error |
 | Unit tests | `pnpm test` (Vitest) | co-located `*.test.tsx` |
@@ -331,7 +331,7 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | | |
 |---|---|
 | The API seam + generated contract types | `frontend/src/api/{client.ts,schema.d.ts,public-events.ts}` |
-| Boot: theme, query client, service worker, 403 handling | `frontend/src/main.tsx` |
+| Boot: theme, query client, 403 handling | `frontend/src/main.tsx` |
 | Route → screen, the auth gate, the onboarding gate | `frontend/src/App.tsx` |
 | Shell, rail, top bar, account menu | `frontend/src/app/{shell.tsx,shell.css}` |
 | The canonical nav, badges, mobile set, rail-less set | `frontend/src/app/nav.ts` |

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // The mutex between an Art. 17 erasure and an inbound message from the very
 // account being erased. Both sides must take the same per-account lock or the
@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -69,7 +70,7 @@ func lockWaitBoundedPool(t *testing.T) *pgxpool.Pool {
 // that holds one account's identity lock, and reports what the erasure did.
 // The holder is the caller's own transaction, so the lock is provably held for
 // the entire erasure — no goroutine, no clock, no ordering to get lucky with.
-func eraseWhileAccountIsLocked(t *testing.T, e *Env, person ids.UUID, lockedAccount string) error {
+func eraseWhileAccountIsLocked(t *testing.T, e *integration.Env, person ids.UUID, lockedAccount string) error {
 	t.Helper()
 	eraser := privacy.NewEraser(lockWaitBoundedPool(t))
 	admin := e.Admin()
@@ -100,7 +101,7 @@ func eraseWhileAccountIsLocked(t *testing.T, e *Env, person ids.UUID, lockedAcco
 // transaction, so the overlap is a window of seconds, not microseconds, for a
 // subject who keeps messaging while their own erasure runs.
 func TestErasureWaitsForAnInFlightDeliveryOfTheSubjectsAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Locked Subject", nil)
 	seedChannelIdentity(t, e, person, "10108", "locked")
 
@@ -121,7 +122,7 @@ func TestErasureWaitsForAnInFlightDeliveryOfTheSubjectsAccount(t *testing.T) {
 // per ACCOUNT, so a delivery for someone else never delays an erasure — and the
 // failure above is the lock, not the bounded pool.
 func TestErasureIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Unrelated Subject", nil)
 	seedChannelIdentity(t, e, person, "10109", "unrelated")
 
@@ -138,7 +139,7 @@ func TestErasureIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 
 // liveIdentityExists asks whether one provider account is still bound to
 // anybody at all — the state an erasure must leave empty.
-func liveIdentityExists(t *testing.T, e *Env, channelUserID string) bool {
+func liveIdentityExists(t *testing.T, e *integration.Env, channelUserID string) bool {
 	t.Helper()
 	return e.WsCount(t,
 		`SELECT count(*) FROM person_channel_identity WHERE provider = $1 AND channel_user_id = $2`,

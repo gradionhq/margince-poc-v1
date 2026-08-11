@@ -23,16 +23,13 @@ import (
 	"context"
 	"crypto/rand"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -51,48 +48,6 @@ type preflightEnv struct {
 	activityID string
 	personID   string
 	ws, user   string
-}
-
-// inWorkspace runs fn on the owner connection under the bootstrapped
-// workspace's GUC. FORCE RLS applies to the owner too, so a tenant table is
-// unreachable without it.
-func inWorkspace(e *apptest.AppEnv, t *testing.T, slug string, fn func(pgx.Tx) error) error {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := e.Owner.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = tx.Rollback(ctx) }()
-	var wsID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&wsID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
-		return err
-	}
-	if err := fn(tx); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-// preflightAppPool opens a second pool onto the same database, because the
-// vault WithGmailCapture needs must exist before apptest.SetupAppWithOptions opens the
-// harness's own (the separate-connection precedent setupEmbedReindex uses).
-func preflightAppPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if appDSN == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	pool, err := database.NewPool(context.Background(), appDSN)
-	if err != nil {
-		t.Fatalf("opening the vault's pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
 }
 
 // setupPreflight boots the api composition WITH the Google app configured, so
@@ -128,7 +83,7 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generating a test root key: %v", err)
 	}
-	vaultPool := preflightAppPool(t)
+	vaultPool := apptest.EarlyPool(t)
 	vault, err := keyvault.New(keyvault.Config{RootKey: key, Pool: vaultPool})
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
@@ -188,7 +143,7 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 	}
 
 	var ws, user string
-	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "sender@fable.test").Scan(&ws, &user)
 	}); err != nil {
@@ -233,7 +188,7 @@ func (p *preflightEnv) send(t *testing.T) (status int, code, message string) {
 func (p *preflightEnv) stagedDeliveries(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM comms_outbound`).Scan(&n)
 	}); err != nil {
 		t.Fatalf("counting staged deliveries: %v", err)
@@ -246,7 +201,7 @@ func (p *preflightEnv) stagedDeliveries(t *testing.T) int {
 // reads out of the row, not how the OAuth callback puts it there.
 func (p *preflightEnv) connect(t *testing.T, providerScopes ...string) {
 	t.Helper()
-	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, status, auth, provider_scopes)
 			VALUES ($1, 'gmail', $2, '{}', 'connected', $3, $4)

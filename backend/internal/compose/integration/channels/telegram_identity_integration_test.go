@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // The identity and lifecycle half of the Telegram acceptance suite
 // (telegram-oa design §7, §10): what happens when two exact lanes disagree,
@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -53,7 +54,7 @@ func (c *telegramEnv) adminStoreCtx(t *testing.T) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), c.workspaceID(t))
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + c.admin, UserID: user,
-		SeatType: principal.SeatFull, Permissions: AdminPerms,
+		SeatType: principal.SeatFull, Permissions: integration.AdminPerms,
 	})
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
@@ -221,7 +222,7 @@ func (c *telegramEnv) seedPerson(t *testing.T, name string, phone *string) strin
 // there (which AC-TG-3 already proves).
 func (c *telegramEnv) bindChannelIdentity(t *testing.T, person string, identity connector.ChannelIdentity) {
 	t.Helper()
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_channel_identity
 			  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
@@ -355,7 +356,7 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	// across two people is the failure this convergence exists to prevent.
 	var links int
 	var linkedPeople int
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT count(*), count(DISTINCT l.person_id)
 			  FROM activity_link l JOIN activity a ON a.id = l.activity_id

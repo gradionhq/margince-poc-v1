@@ -458,7 +458,7 @@ func TestFieldHistoryProjectsOnlyFieldImageVerbs(t *testing.T) {
 // happened on the record.
 func TestFieldHistoryExcludesRetentionArchiveMeta(t *testing.T) {
 	e := Setup(t)
-	seedRetentionPolicies(t, e)
+	SeedRetentionPolicies(t, e)
 	_, _, staleDeal, _ := seedOverAgeRecords(t, e)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))

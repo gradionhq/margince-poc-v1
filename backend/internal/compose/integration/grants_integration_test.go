@@ -34,7 +34,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	peopleStore := people.NewStore(e.Pool)
 
 	// Before the grant: team scope hides rep3's record from rep1.
-	if _, err := peopleStore.GetPerson(repCtx, personIDOf(foreign), storekit.LiveOnly); err == nil {
+	if _, err := peopleStore.GetPerson(repCtx, PersonIDOf(foreign), storekit.LiveOnly); err == nil {
 		t.Fatal("foreign person visible before any grant")
 	}
 	// A search misses it too.
@@ -48,7 +48,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 
 	// After: the direct read, the search branch, and the link probe all
 	// see the record through the SAME widened predicate.
-	if _, err := peopleStore.GetPerson(repCtx, personIDOf(foreign), storekit.LiveOnly); err != nil {
+	if _, err := peopleStore.GetPerson(repCtx, PersonIDOf(foreign), storekit.LiveOnly); err != nil {
 		t.Fatalf("granted person still hidden: %v", err)
 	}
 	page, err = e.Store.Search(repCtx, search.Input{Query: "Shared Secret"})
@@ -63,7 +63,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := peopleStore.GetPerson(repCtx, personIDOf(foreign), storekit.LiveOnly); err == nil {
+	if _, err := peopleStore.GetPerson(repCtx, PersonIDOf(foreign), storekit.LiveOnly); err == nil {
 		t.Fatal("revoked grant still widens visibility")
 	}
 }

@@ -147,7 +147,7 @@ default.
    must come from the i18n catalogs (TS AST walk).
 5. No emoji glyphs in source strings — Lucide only; the 🟢/🟡 autonomy
    semantics render through the `.dot` token component.
-6. The service worker never caches or fabricates a `/v1` response.
+6. No service worker ships, and nothing registers one.
 7. WCAG 2.2 AA (axe) + the perceived-perf budget in the e2e lane.
 8. The unauthenticated surface at 390px / 320px / 200% zoom (ADR-0076): no
    horizontal scroll, the primary action reachable, the identity region whole

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // The Telegram channel acceptance suite (telegram-oa design §12, TG-CR-3's
 // AC-TG-1…6). It is the last gate before a real bot is pointed at this code:
@@ -26,6 +26,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -76,7 +77,7 @@ func TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly(t *testing.T) {
 func (c *telegramEnv) assertTokenSealed(t *testing.T) {
 	t.Helper()
 	var credentialRef string
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT credential_ref FROM channel_connection WHERE id = $1`, c.conn.ID).Scan(&credentialRef)
 	}); err != nil {

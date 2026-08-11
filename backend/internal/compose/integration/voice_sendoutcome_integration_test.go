@@ -180,7 +180,7 @@ func (e *voiceSendEnv) send(t *testing.T, ref, body string) ids.UUID {
 func (e *voiceSendEnv) transmittedBody(t *testing.T, activityID ids.UUID) string {
 	t.Helper()
 	var body string
-	if err := inWorkspace(e.AppEnv, t, e.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(e.AppEnv, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT body FROM comms_outbound WHERE activity_id = $1`, activityID).Scan(&body)
 	}); err != nil {

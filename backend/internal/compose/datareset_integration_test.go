@@ -440,7 +440,11 @@ func TestResetRestoresSettingRowsButKeepsTheInstallationsIdentity(t *testing.T) 
 		env:   runtimeenv.Development,
 		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	if _, err := h.run(ctx, "Authz"); err != nil {
+	// Confirmed with the SETTING's name, not the workspace column's. This test
+	// is the one place the two deliberately differ, and the confirmation
+	// prompt asks for the name the operator can actually see — which is the
+	// one the installation settings screen shows (issue #521).
+	if _, err := h.run(ctx, "Brandt Automotive"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 

@@ -75,13 +75,25 @@ type reportSpec struct {
 // confirms a real date. The exclusion lives in the dimension itself, so
 // the aggregate, its filter, and the drill-through all read the same
 // row set and keep reconciling exactly (no post-hoc subtraction).
-// "Today" buckets in the workspace reporting zone (data-semantics §2 r4)
-// via the spec's fixed workspace join.
+// "Today" buckets in the installation's reporting zone (data-semantics §2 r4).
+//
+// The zone arrives as a BIND parameter, written here as reportZoneToken and
+// substituted for a real $n once the statement is assembled — the catalog is a
+// static map of expressions, so it has no bind position to name at the point
+// it is written. Postgres still does the date arithmetic, which is what keeps
+// the DST rules and the day boundary where they were when the zone was a
+// column on a joined row.
 const forecastCategoryExpr = `(CASE WHEN t.forecast_category IN ('commit','best_case')
 		AND (t.expected_close_date IS NULL
-			OR t.expected_close_date < (timezone(w.timezone, now()))::date
+			OR t.expected_close_date < (timezone(` + reportZoneToken + `, now()))::date
 			OR t.close_date_provisional)
 	THEN 'slipped' ELSE t.forecast_category END)`
+
+// reportZoneToken stands in for the installation timezone's bind position
+// until fetchRows knows it. It is deliberately not valid SQL, so a statement
+// that reaches Postgres with the token unsubstituted fails loudly rather than
+// quietly reporting in the wrong zone.
+const reportZoneToken = "<<installation-timezone>>"
 
 // prebuiltReports is the report catalog (data-model §13 shape): keys
 // are never UUIDs, so saved-report ids cannot collide.
@@ -138,7 +150,7 @@ var prebuiltReports = map[string]reportSpec{
 	"forecast": {
 		entity:    datasource.EntityDeal,
 		table:     "deal",
-		joins:     []string{"JOIN stage s ON s.id = t.stage_id", "JOIN workspace w ON w.id = t.workspace_id"},
+		joins:     []string{"JOIN stage s ON s.id = t.stage_id"},
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{

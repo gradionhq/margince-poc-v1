@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,7 +40,11 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 		if err != nil {
 			return err
 		}
-		pgRows, err := tx.Query(ctx, reportSQL(spec, selects, where, groupBy), args...)
+		sql, args, err := bindInstallationZone(ctx, tx, reportSQL(spec, selects, where, groupBy), args)
+		if err != nil {
+			return err
+		}
+		pgRows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return fmt.Errorf("report %s: %w", report, err)
 		}
@@ -148,3 +153,28 @@ func quoteIdent(name string) string {
 }
 
 var identShape = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// bindInstallationZone substitutes reportZoneToken for a real bind position,
+// appending the installation's zone to THIS statement's arguments.
+//
+// It takes and returns the argument slice rather than sharing one, because a
+// caller may assemble several statements from one plan and only some of them
+// mention the zone: Postgres rejects a parameter the statement never
+// references, so a shared slice would break the queries that do not use it.
+//
+// The zone is resolved only when the assembled statement actually asks for it,
+// so a report that never buckets by date neither reads the setting nor takes
+// its gate.
+func bindInstallationZone(
+	ctx context.Context, tx pgx.Tx, sql string, args []any,
+) (string, []any, error) {
+	if !strings.Contains(sql, reportZoneToken) {
+		return sql, args, nil
+	}
+	zone, err := identity.TimezoneOf(ctx, tx)
+	if err != nil {
+		return "", nil, err
+	}
+	args = append(append([]any(nil), args...), zone)
+	return strings.ReplaceAll(sql, reportZoneToken, fmt.Sprintf("$%d", len(args))), args, nil
+}

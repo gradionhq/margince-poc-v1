@@ -45,13 +45,13 @@ func TestMergePerson_relinkSurvivorshipAndReferentialIntegrity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	src, tgt := personIDOf(ids.UUID(source.Id)), personIDOf(ids.UUID(target.Id))
+	src, tgt := PersonIDOf(ids.UUID(source.Id)), PersonIDOf(ids.UUID(target.Id))
 
 	survivor, err := e.People.MergePerson(admin, src, tgt)
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
-	if personIDOf(ids.UUID(survivor.Id)) != tgt {
+	if PersonIDOf(ids.UUID(survivor.Id)) != tgt {
 		t.Fatalf("survivor = %s, want the target %s", survivor.Id, tgt)
 	}
 
@@ -86,7 +86,7 @@ func TestMergePerson_relinkSurvivorshipAndReferentialIntegrity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read archived source: %v", err)
 	}
-	if archived.MergedIntoId == nil || personIDOf(ids.UUID(*archived.MergedIntoId)) != tgt {
+	if archived.MergedIntoId == nil || PersonIDOf(ids.UUID(*archived.MergedIntoId)) != tgt {
 		t.Errorf("source merged_into_id = %v, want the target %s", archived.MergedIntoId, tgt)
 	}
 }
@@ -107,7 +107,7 @@ func TestMergePerson_consentMergesRestrictively(t *testing.T) {
 	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'withdrawn')`, e.WS, source, purpose)
 	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'granted')`, e.WS, target, purpose)
 
-	if _, err := e.People.MergePerson(admin, personIDOf(source), personIDOf(target)); err != nil {
+	if _, err := e.People.MergePerson(admin, PersonIDOf(source), PersonIDOf(target)); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
 
@@ -221,17 +221,17 @@ func TestMerge_errorPaths(t *testing.T) {
 
 	// Self-merge.
 	var selfErr *people.MergeSelfError
-	if _, err := e.People.MergePerson(admin, personIDOf(a), personIDOf(a)); !errors.As(err, &selfErr) {
+	if _, err := e.People.MergePerson(admin, PersonIDOf(a), PersonIDOf(a)); !errors.As(err, &selfErr) {
 		t.Fatalf("self-merge → %v, want people.MergeSelfError", err)
 	}
 
 	// First merge succeeds; a second merge OF the same source answers
 	// AlreadyMerged with the redirect pointer.
-	if _, err := e.People.MergePerson(admin, personIDOf(a), personIDOf(b)); err != nil {
+	if _, err := e.People.MergePerson(admin, PersonIDOf(a), PersonIDOf(b)); err != nil {
 		t.Fatalf("first merge: %v", err)
 	}
 	var already *people.AlreadyMergedError
-	if _, err := e.People.MergePerson(admin, personIDOf(a), personIDOf(c)); !errors.As(err, &already) {
+	if _, err := e.People.MergePerson(admin, PersonIDOf(a), PersonIDOf(c)); !errors.As(err, &already) {
 		t.Fatalf("re-merge of a merged-away source → %v, want people.AlreadyMergedError", err)
 	} else if already.IntoID != b {
 		t.Errorf("AlreadyMerged points at %s, want the first survivor %s", already.IntoID, b)
@@ -239,7 +239,7 @@ func TestMerge_errorPaths(t *testing.T) {
 
 	// Merging INTO a merged-away (archived) target is refused.
 	var deadTarget *people.MergedTargetError
-	if _, err := e.People.MergePerson(admin, personIDOf(c), personIDOf(a)); !errors.As(err, &deadTarget) {
+	if _, err := e.People.MergePerson(admin, PersonIDOf(c), PersonIDOf(a)); !errors.As(err, &deadTarget) {
 		t.Fatalf("merge into a dead target → %v, want people.MergedTargetError", err)
 	}
 }
