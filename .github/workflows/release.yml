@@ -4,9 +4,11 @@ name: Release
 # The release lives in the constellation dist service at test.margince.com,
 # not on GitHub.
 #
-# The flow, in order: draft the release versioned <year>.<build> (the build is
+# The flow, in order: draft the release versioned 1970.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
-# scheme) with the incremental patch and the three freshly generated
+# scheme; the year is pinned to the epoch FOR NOW so every PoC release orders
+# strictly below any real dated release) with the incremental patch and the
+# three freshly generated
 # source-tree SBOMs attached, then build the three role images through the
 # bake file (docker-bake.hcl), push them to the constellation registry, add
 # them to the draft as digest-pinned image references, and finally publish
@@ -94,7 +96,10 @@ jobs:
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |
           set -euo pipefail
-          version="$(date -u +%Y).${GITHUB_RUN_NUMBER}"
+          # The year is pinned to the epoch, not the calendar, while the flow
+          # is a PoC: a 1970.* version orders strictly below any real dated
+          # release, so nothing cut here can ever shadow one.
+          version="1970.${GITHUB_RUN_NUMBER}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # A push carries its previous tip in BEFORE; a manual dispatch carries
           # nothing, so fall back to the parent commit. Two shapes of BEFORE

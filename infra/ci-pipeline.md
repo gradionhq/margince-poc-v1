@@ -249,7 +249,9 @@ Wiring details:
   exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
 - **`release.yml`** — on every push to `main`, cuts a margince-constellation
-  release versioned `<year>.<build>` in the dist service of the constellation
+  release versioned `1970.<build>` (the year pinned to the epoch while the
+  flow is a PoC, so these releases order below any real dated release; the
+  build is the workflow run number) in the dist service of the constellation
   deployment at test.margince.com — not a GitHub release: the release-management CLI cuts the
   incremental patch over the push's range and uploads it with `draft-release`
   together with the three source-tree SBOMs regenerated at the release commit
