@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -232,7 +234,86 @@ func composedContracts(root string, units []extensionUnit) (map[string][]byte, e
 		if err != nil {
 			return nil, fmt.Errorf("composing %s/%s: %w", apiLayer, base, err)
 		}
+		// Only when something was actually merged: with no fragments `merged`
+		// IS the committed base, byte for byte, and whether the core contract
+		// validates is the core contract's own lanes' business — an empty
+		// extension tree must not be able to fail composition for it.
+		if len(frags) > 0 {
+			if err := validateMergedOpenAPI(merged); err != nil {
+				return nil, fmt.Errorf("composing %s/%s (fragments from %s): %w",
+					apiLayer, base, fragmentSources(frags), err)
+			}
+		}
 		out[base] = merged
 	}
 	return out, nil
+}
+
+// fragmentSources names the units whose fragments produced a merged document,
+// for the one message that has to point a reader at a file to edit: the merge
+// is additive and order-independent, so a validation failure names the SET
+// rather than one action the way the merge's own refusals can.
+func fragmentSources(frags []contractFragment) string {
+	sources := make([]string, 0, len(frags))
+	for _, f := range frags {
+		sources = append(sources, f.Source)
+	}
+	return strings.Join(sources, ", ")
+}
+
+// validateMergedOpenAPI proves the document a unit's fragments produced is
+// still a loadable, valid OpenAPI document.
+//
+// The merge is STRUCTURAL by construction: it checks the target's grammar, the
+// ownership wall and the route namespace, then splices the unit's YAML in
+// verbatim. Nothing on that path knows what an OpenAPI node MEANS, so a
+// fragment that is well-formed YAML and nonsense OpenAPI merges cleanly and is
+// published — a `$ref` at a component nobody declares, a `minLength` holding a
+// word, a response map spliced where an operation was expected. The composed
+// contract is what the generated client types, the docs and the operator
+// manifest are built from, so today that surfaces as an unresolvable client
+// build or a document that lies, attributed to nothing. This is where it
+// becomes a named refusal of the extension that caused it.
+//
+// It complements rather than duplicates the per-operation reader: extverbs.go
+// validates every extension OPERATION strictly (its x-mcp-tool request, its
+// inline schemas, its $refs), but a fragment may also add a
+// `components.schemas` node, and nothing read that at all.
+//
+// Only documents that ARE OpenAPI are checked, detected by the `openapi:` key
+// rather than a second hardcoded list beside composedContractBases —
+// ai-tasks.yaml and jobs.yaml are custom DSLs whose own generators (gen-aitasks,
+// gen-jobs) validate them, and a new base is then covered or skipped by what it
+// is instead of by a list somebody has to remember to extend.
+//
+// EXAMPLES ARE EXEMPT, deliberately. kin-openapi otherwise validates every
+// `example` against its schema, and the committed core crm.yaml already carries
+// examples that fail it (ColdStartProposal's omit the required `source_kind`).
+// Switching that on here would refuse every composition for a pre-existing core
+// defect this gate has no standing to rule on, which is how a gate gets turned
+// off. The structural claim is the one being made.
+func validateMergedOpenAPI(merged []byte) error {
+	// `any`, not `string`: an `openapi:` written unquoted (3.1) is a YAML float
+	// and would fail a string decode here, turning a defect kin-openapi reports
+	// precisely into an unrelated complaint from this probe.
+	var probe struct {
+		OpenAPI any `yaml:"openapi"`
+	}
+	if err := yaml.Unmarshal(merged, &probe); err != nil {
+		return fmt.Errorf("re-reading the merged contract: %w", err)
+	}
+	if probe.OpenAPI == nil {
+		return nil
+	}
+	// External references stay off (the loader's default): a composed contract
+	// resolves against itself, and a fragment that could reach the network here
+	// would make the published document depend on what a build host can fetch.
+	doc, err := openapi3.NewLoader().LoadFromData(merged)
+	if err != nil {
+		return fmt.Errorf("the merged contract is not a loadable OpenAPI document: %w", err)
+	}
+	if err := doc.Validate(context.Background(), openapi3.DisableExamplesValidation()); err != nil {
+		return fmt.Errorf("the merged contract is not a valid OpenAPI document: %w", err)
+	}
+	return nil
 }

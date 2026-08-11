@@ -31,7 +31,14 @@ func fragmentRoot(t *testing.T, units map[string]map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
 	bases := map[string]string{
+		// The two OpenAPI stand-ins carry a real `info` block, minimal but
+		// valid: composedContracts validates every merged OpenAPI document, so
+		// a stand-in that was not one would fail every success-path fixture
+		// here for a defect in the fixture rather than in what it is testing.
 		"crm.yaml": `openapi: 3.1.0
+info:
+  title: crm
+  version: "1"
 paths:
   /v1/deals:
     get: {operationId: listDeals}
@@ -42,7 +49,7 @@ components:
 `,
 		"jobs.yaml":          "queues: {}\nkinds:\n  core_thing:\n    timeout: 2m\n",
 		"ai-tasks.yaml":      "tiers: [alpha]\ntasks: {}\n",
-		"public-events.yaml": "openapi: 3.1.0\ncomponents:\n  schemas: {}\n",
+		"public-events.yaml": "openapi: 3.1.0\ninfo:\n  title: events\n  version: \"1\"\ncomponents:\n  schemas: {}\n",
 	}
 	for name, content := range bases {
 		path := filepath.Join(root, "backend", "api", name)
@@ -713,5 +720,67 @@ func TestMergeIsDeterministicInExtensionNameOrder(t *testing.T) {
 	}
 	if strings.Index(crm, "/ext/alpha/x") > strings.Index(crm, "/ext/beta/x") {
 		t.Fatalf("units were not applied in name order:\n%s", crm)
+	}
+}
+
+// The merge is structural: it rules on WHERE a fragment writes and on the
+// YAML shape of what it writes, and then splices the bytes in. These are the
+// defects that survive all of that and would be PUBLISHED — the composed
+// contract is what the client types, the docs and the operator manifest are
+// built from, so without this gate each surfaces far downstream (an
+// unresolvable client build, a document that lies) attributed to nothing.
+//
+// Both cases target components.schemas on purpose: an extension OPERATION is
+// already read strictly by extverbs.go, and a schema node is the reach where
+// nothing else looks at what was written.
+func TestMergedContractMustStillBeValidOpenAPI(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		update string
+		want   string
+	}{{
+		// Resolved against the merged document itself and against nothing
+		// else, so a component nobody declared has no later chance to appear.
+		name:   "a $ref at a component nobody declares",
+		update: "      allOf: [{$ref: '#/components/schemas/Nope'}]\n",
+		want:   "not a loadable OpenAPI document",
+	}, {
+		// Well-formed YAML, and meaningless as a schema: the keyword takes a
+		// number and the merge has no opinion about keywords.
+		name:   "a schema keyword holding the wrong type",
+		update: "      type: string\n      minLength: plenty\n",
+		want:   "not a loadable OpenAPI document",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fragmentRoot(t, map[string]map[string]string{
+				"u": {"crm.yaml": overlayFor("u", "$.components.schemas.UThing", tc.update)},
+			})
+			_, err := composeFrom(t, root)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			// And the refusal names the file to edit: the merge is additive
+			// and order-independent, so the error is the only thing pointing
+			// at which unit put the node there.
+			if err != nil && !strings.Contains(err.Error(), "extensions/u/api/crm.yaml") {
+				t.Fatalf("the refusal does not name the fragment: %v", err)
+			}
+		})
+	}
+}
+
+// The other half: a fragment that is valid OpenAPI composes, so the gate above
+// is not simply refusing every schema node an extension adds.
+func TestAValidSchemaFragmentStillComposes(t *testing.T) {
+	root := fragmentRoot(t, map[string]map[string]string{
+		"u": {"crm.yaml": overlayFor("u", "$.components.schemas.UThing",
+			"      type: object\n      properties:\n        n: {type: string}\n")},
+	})
+	files, err := composeFrom(t, root)
+	if err != nil {
+		t.Fatalf("a valid schema fragment must compose: %v", err)
+	}
+	if !strings.Contains(string(files["crm.yaml"]), "UThing") {
+		t.Fatalf("the composed contract lost the unit's schema:\n%s", files["crm.yaml"])
 	}
 }
