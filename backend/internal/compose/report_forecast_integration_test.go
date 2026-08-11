@@ -496,6 +496,13 @@ func (e *forecastEnv) forecastStatus(ctx context.Context, body string) int {
 // workspace.timezone still says UTC. A reader on the column never notices.
 func TestTheForecastBucketsInTheZoneTheSettingNames(t *testing.T) {
 	e := setupForecast(t)
+	// A commit deal WITH a close date, because the zone sits inside a CASE
+	// that Postgres evaluates per row: over an empty result the expression is
+	// never reached, and the fixture would report success in both directions
+	// without ever consulting a zone at all.
+	commit := "commit"
+	amount := int64(100000)
+	e.seedOpenDeal(t, "Zoned", 60, nil, &amount, &commit)
 	body := `{"group_by":["forecast_category"]}`
 	if got := e.forecastStatus(e.Admin(), body); got != http.StatusOK {
 		t.Fatalf("the control run answered %d, want 200 — the fixture is broken before the setting moves", got)
