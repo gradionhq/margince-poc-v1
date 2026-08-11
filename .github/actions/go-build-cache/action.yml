@@ -1,0 +1,66 @@
+name: go-build-cache
+description: >-
+  Restore the shared Go build cache for one build flavor, and hand back the key
+  a main-branch job uses to refresh it.
+
+# Why this exists: actions/setup-go caches ~/.cache/go-build under a key that
+# hashes only go.sum, so the entry is written ONCE and then every later run logs
+# "Cache hit occurred on the primary key ... not saving cache" and restores that
+# first, near-empty snapshot forever. A warm build cache for this repo measures
+# ~550 MB; the blob setup-go restores is ~25 MB. The result was that every Go
+# job in the pipeline — the twelve integration shards, the merge gate, the
+# composed-build lane, the coverage pass, live-boot, govulncheck — compiled the
+# module from scratch on every run. setup-go keeps caching the MODULE cache
+# (that part works); this action owns the build cache it cannot.
+#
+# The key ends in the commit SHA so a refresh always writes a new entry, and
+# restore-keys walks back to the newest prior entry. Go's build cache is
+# content-addressed, so a partially stale restore is never WRONG — it simply
+# misses the entries whose inputs changed and recompiles those. That is why the
+# last fallback drops the dependency hash entirely: after a dependency bump a
+# mostly-warm cache still beats a cold one, and the stale entries age out under
+# Go's own trimming rather than being served in error.
+
+inputs:
+  flavor:
+    description: >-
+      Which set of compiled artifacts this job produces, and therefore which
+      cache it shares. `plain` is the untagged build/vet/lint/unit compile;
+      `integration` is the `-tags=integration -cover -coverpkg=./...` compile
+      the shards do. They are separate keys because a build tag and coverage
+      instrumentation both change the package builds themselves — only the
+      dependency builds underneath are common to both, and those come along in
+      whichever entry is restored.
+    required: true
+
+outputs:
+  key:
+    description: >-
+      The primary key this restore attempted. A job that refreshes the cache
+      passes it straight to actions/cache/save, so the key is spelled in one
+      place and a save can never write an entry no restore looks for.
+    value: ${{ steps.key.outputs.key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute the cache key for this flavor
+      id: key
+      shell: bash
+      run: |
+        prefix="go-build-${{ inputs.flavor }}-${{ runner.os }}-${{ runner.arch }}"
+        deps="${{ hashFiles('backend/go.mod', 'backend/go.sum', 'go.work', 'go.work.sum') }}"
+        {
+          echo "key=$prefix-$deps-${{ github.sha }}"
+          echo "restore-keys<<RESTORE_KEYS"
+          echo "$prefix-$deps-"
+          echo "$prefix-"
+          echo "RESTORE_KEYS"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Go build cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/go-build
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.restore-keys }}

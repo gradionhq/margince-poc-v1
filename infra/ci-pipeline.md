@@ -31,7 +31,7 @@ output. A required job skipped this way still counts as passing.
 
 | Scope | Paths | Gates |
 |---|---|---|
-| `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work[.sum]`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
+| `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work[.sum]`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `docker` | root `Dockerfile.*`, `.dockerignore` | the three image builds |
@@ -94,6 +94,55 @@ build is still caught by `deterministic-gates` itself. And the lane is
 (package-level splitting would floor at the heaviest package,
 `compose/integration`), and the `integration` fan-in reassembles them into the
 one required check.
+
+## The shared Go build cache
+
+Every Go job restores
+[`.github/actions/go-build-cache`](../.github/actions/go-build-cache/action.yml)
+before it compiles.
+
+It exists because `actions/setup-go` cannot do this job. Its cache key hashes
+only `go.sum`, so the entry is written once and never refreshed — every later
+run logs *"Cache hit occurred on the primary key … not saving cache"* and
+restores that first snapshot forever. Measured on this repo, that blob is
+**~25 MB** while a warm Go build cache is **~550 MB**: the module cache was
+being restored, the build cache effectively was not. Seventeen Go jobs per
+backend run — the twelve shards, the merge gate, the composed-build lane, the
+coverage pass, `live-boot`, `govulncheck` — each compiled the module from
+scratch, every run. setup-go still owns the module cache; this action owns the
+build cache beside it.
+
+Two flavours, because a build tag and coverage instrumentation change the
+package builds themselves and only the dependency builds underneath are common:
+
+| Flavour | Written by | Read by |
+|---|---|---|
+| `plain` | `deterministic-gates` | `deterministic-gates`, `extension-reference`, `integration unit coverage`, `live-boot`, `vuln` |
+| `integration` | `integration shard (1/12)` | all twelve shards |
+
+Three properties worth keeping:
+
+- **Only `main` writes.** Both refresh steps are gated on
+  `github.event_name == 'push' && github.ref == 'refs/heads/main'`, so a PR
+  restores and never saves. That is what stops twelve shards racing to upload
+  the same ~550 MB key, and what stops one PR's cache from reaching the next.
+- **Exactly one writer per flavour.** Every shard compiles substantially the
+  same set, so a second writer would add nothing but contention — hence the
+  `matrix.shard == 1` guard.
+- **The key falls back twice.** `…-<deps-hash>-<sha>` → `…-<deps-hash>-` →
+  `…-`. Dropping the dependency hash on the last hop is deliberate: Go's build
+  cache is content-addressed, so a stale restore is never *wrong*, it only
+  misses the entries whose inputs changed. After a dependency bump a
+  mostly-warm cache still beats a cold one.
+
+The refresh steps use `!cancelled()` rather than `success()`: a red lint or a
+failed test still compiled the tree, and those artifacts are exactly as
+reusable as a green run's.
+
+`scripts/check-image-pins.sh` scans `.github/actions/` alongside the workflows.
+The `./path` allowance waves a local action through on the grounds that the
+repo versions its own code — true of the action's own ref, but not of the
+third-party actions it calls, which would otherwise ride in unread.
 
 ## The jobs
 
