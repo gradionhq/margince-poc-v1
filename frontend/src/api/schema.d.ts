@@ -18805,7 +18805,11 @@ export interface operations {
                     end: string;
                     subject?: string;
                     attendee_emails?: string[];
-                    /** @description Entities to associate the resulting meeting activity with. */
+                    /**
+                     * @description Entities to associate the resulting meeting activity with. Each one is
+                     *     row-scope probed and written as its own row, so the list is bounded at 25 —
+                     *     the same bound the `book_meeting` tool applies before it stages.
+                     */
                     links: {
                         /** @enum {string} */
                         entity_type: "person" | "organization" | "deal" | "lead";

@@ -115,14 +115,8 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	// Refuse here what the store refuses at execution, for the same reason the
-	// mail send does: a human should not be asked to approve a meeting that
-	// ends before it starts, spend the one-shot approval on it, and only then
-	// be told it was never bookable.
-	if !args.End.After(args.Start) {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
-			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
+	if err := requireBookingWindow(args); err != nil {
+		return StageInfo{}, err
 	}
 	if err := requireBookingLinks(args); err != nil {
 		return StageInfo{}, err
@@ -141,6 +135,21 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		TargetVersion: &records[0].Version,
 		Summary:       describeBooking(args, links),
 	}, nil
+}
+
+// requireBookingWindow refuses a booking that ends before it starts.
+//
+// The store refuses it too (errBookingEndNotAfterStart), which is why this is
+// not a correctness hole — but reaching THAT refusal costs the human's approval
+// on the way past, since redemption is consumed before the handler runs. So
+// both doors ask first, the same rule the link checks below follow.
+func requireBookingWindow(args BookMeetingArgs) error {
+	if args.End.After(args.Start) {
+		return nil
+	}
+	return &BadArgsError{Cause: fmt.Errorf(
+		"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
+		args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
 }
 
 // requireBookingLinks enforces what the schema states: at least one link.
@@ -198,6 +207,9 @@ func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	// part of that: the human approved "attached to N record(s)" as StageInfo
 	// counted them, and a booking that reaches the seam with the raw list is one
 	// whose approval was read against a different reach than the one it takes.
+	if err := requireBookingWindow(args); err != nil {
+		return nil, err
+	}
 	if err := requireBookingLinks(args); err != nil {
 		return nil, err
 	}

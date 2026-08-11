@@ -3,9 +3,10 @@
 
 package agents
 
-// send_account_email — the account-started twin of send_email (ADR-0087 §6),
-// in its own file because tools_comms.go is at its length ceiling and this is
-// one origin's worth of code, not a second send.
+// send_account_email — the account-started twin of send_email (ADR-0087 §6).
+// Its own file because the ORIGIN is what separates it from the mail verbs next
+// door: this one starts a conversation and names the records it belongs to,
+// where they answer one that already exists.
 //
 // 🟡, scope `send`, governed identically to the reply and with no new
 // authority: an agent stages, a human's own action IS the approval (ADR-0055).
@@ -73,25 +74,23 @@ func (t sendAccountEmailTool) Spec() mcp.ToolSpec {
 // {id} parameter, and this route has none). One operation, one staged shape,
 // whichever door it came through.
 //
-// NAMING A LINK AS THE TARGET — what book_meeting does with its first — was
-// weighed and is not available here, for two reasons that compound. The REST
-// door cannot follow: it never reads the body, so the two doors would stage one
-// kind two ways and a human would be deciding a different question depending on
-// the transport the agent used. And the pin is taken SERVER-SIDE from the
-// target pair (approvals.resolveTargetVersion), so naming an organization pins
-// its version — which an enrichment run bumps while an overnight proposal waits
-// for someone's morning inbox, cancelling a send the record's own content never
-// invalidated. The waiver that would decline the pin is reserved for kinds
-// whose effect approvals itself applies (TestEveryContextTargetKindIsAKindWeStage),
-// and this effect is performed by the agent's own approved retry.
+// A LINK CANNOT BE THE TARGET here, the way book_meeting's first link is.
+// Two constraints close it: the REST door takes its target from the route and
+// never reads the body, so naming one would stage a kind two ways; and the pin
+// is taken SERVER-SIDE from the target pair (approvals.resolveTargetVersion),
+// so an organization target pins a version that an enrichment run bumps while
+// an overnight proposal waits for someone's morning inbox — cancelling a send
+// the record's own content never invalidated. The waiver that declines a pin is
+// reserved for kinds whose effect approvals itself applies
+// (TestEveryContextTargetKindIsAKindWeStage); this effect is performed by the
+// agent's own approved retry.
 //
-// WHAT THAT COSTS, stated rather than left to be discovered: the approver is
-// bounded by read+create on `activity` and NOT by the row scope of the records
-// the message is filed under, where the reply path's approver is bounded by the
-// anchor it targets. A manager whose scope excludes those records can release
-// this send and read its proposed text. Closing it needs the REST staging gate
-// to be able to derive a target from the body, which is a change to a gate this
-// verb shares — issue #928.
+// So the approver is bounded by read+create on `activity` and NOT by the row
+// scope of the records the message is filed under — a manager whose scope
+// excludes them can still release this send and read its proposed text. The
+// reply path binds its approver to the anchor instead. Closing the difference
+// takes a staging gate that can derive a target from the body, which is shared
+// machinery rather than this verb's: issue #928.
 //
 // The links are still read, because that is a question about the STAGER's
 // reach rather than the approver's: the store refuses a link the caller cannot

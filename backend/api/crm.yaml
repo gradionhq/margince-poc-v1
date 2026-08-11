@@ -3496,7 +3496,11 @@ paths:
                 attendee_emails: { type: array, items: { type: string, format: email } }
                 links:
                   type: array
-                  description: Entities to associate the resulting meeting activity with.
+                  maxItems: 25
+                  description: |
+                    Entities to associate the resulting meeting activity with. Each one is
+                    row-scope probed and written as its own row, so the list is bounded at 25 —
+                    the same bound the `book_meeting` tool applies before it stages.
                   items:
                     type: object
                     required: [entity_type, entity_id]

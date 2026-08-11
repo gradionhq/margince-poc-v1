@@ -18166,7 +18166,9 @@ type BookMeetingJSONBody struct {
 	End        time.Time           `json:"end"`
 	HostUserId *openapi_types.UUID `json:"host_user_id,omitempty"`
 
-	// Links Entities to associate the resulting meeting activity with.
+	// Links Entities to associate the resulting meeting activity with. Each one is
+	// row-scope probed and written as its own row, so the list is bounded at 25 —
+	// the same bound the `book_meeting` tool applies before it stages.
 	Links []struct {
 		EntityId   openapi_types.UUID                 `json:"entity_id"`
 		EntityType BookMeetingJSONBodyLinksEntityType `json:"entity_type"`

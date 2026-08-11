@@ -6,6 +6,7 @@ package activities
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -206,6 +207,32 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	return &out, nil
 }
 
+// maxActivityLinks bounds how many records one activity may be filed under.
+//
+// It is a REQUEST BOUND rather than a modelling opinion: every entry costs its
+// own row-scoped probe and its own insert, and the array is chosen freely by
+// the caller. Both request schemas that carry a link list declare the same 25,
+// and the agent surface refuses the count earlier so no approval is minted for
+// a call the store would reject — this is the bound that holds for every
+// transport, a human's own send included. insertActivityLinks applies it at
+// the write itself, which is where a booking meets it.
+const maxActivityLinks = 25
+
+// TooManyLinksError refuses an activity filed under more records than the
+// timeline will carry for one entry.
+type TooManyLinksError struct{ Count int }
+
+func (e *TooManyLinksError) Error() string {
+	return fmt.Sprintf("an activity may be filed under at most %d records; this one names %d",
+		maxActivityLinks, e.Count)
+}
+
+// FieldFault names the field the caller can shorten, so the refusal is a 422
+// against `links` rather than an unattributed rejection.
+func (e *TooManyLinksError) FieldFault() (field, code, message string) {
+	return fieldLinks, "too_many_links", e.Error()
+}
+
 // insertActivityLinks writes the polymorphic link rows and maintains
 // deal.last_activity_at on deal links. The FK alone is not enough: it is
 // checked as the table owner, bypassing RLS, so it would accept a
@@ -218,7 +245,16 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 // and for an agent's approved retry a 500 that consumed the human's one-shot
 // approval on a message that then never left. Deduplicating here rather than in
 // each caller is what makes that true of every transport at once.
+//
+// The count is BOUNDED here for the same reason: the list is the caller's to
+// choose, every entry costs its own row-scope probe and its own insert, and
+// this is the one statement every writer passes through — the timeline's link
+// vocabulary describes what a message or meeting is ABOUT, and a record set
+// larger than this is about nothing.
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
+	if len(links) > maxActivityLinks {
+		return &TooManyLinksError{Count: len(links)}
+	}
 	seen := make(map[ActivityLinkInput]struct{}, len(links))
 	for _, link := range links {
 		if _, duplicate := seen[link]; duplicate {

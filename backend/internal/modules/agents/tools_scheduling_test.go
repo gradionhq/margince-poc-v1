@@ -130,3 +130,34 @@ func TestABookingIsBoundedAndDeduplicatedBeforeItReadsAnything(t *testing.T) {
 		}
 	})
 }
+
+// A booking that ends before it starts is refused at BOTH doors. The store
+// refuses it as well, but reaching that refusal costs the human's approval on
+// the way past: redemption is consumed before the handler runs.
+func TestABookingWithNoDurationIsRefusedAtBothDoors(t *testing.T) {
+	const backwards = `{"start":"2026-08-03T09:30:00Z","end":"2026-08-03T09:00:00Z",` +
+		`"links":[{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000001"}]}`
+	comms := &recordingComms{}
+	tool := bookMeetingTool{comms: comms, p: &multiLinkProvider{}}
+	doors := map[string]func() error{
+		"staging": func() error {
+			_, err := tool.StageInfo(context.Background(), json.RawMessage(backwards))
+			return err
+		},
+		"after an approval was redeemed": func() error {
+			_, err := tool.Handle(withApprovalRedeemed(sendCtx(), 0, false), json.RawMessage(backwards))
+			return err
+		},
+	}
+	for door, call := range doors {
+		t.Run(door, func(t *testing.T) {
+			var bad *BadArgsError
+			if err := call(); !errors.As(err, &bad) {
+				t.Fatalf("err = %v, want a BadArgsError naming the window", err)
+			}
+			if comms.booked != nil {
+				t.Error("a booking with no duration reached the comms seam")
+			}
+		})
+	}
+}

@@ -386,7 +386,7 @@ func TestARepeatedLinkIsFiledOnceRatherThanRaisingAUniqueViolation(t *testing.T)
 func TestASendFiledUnderMoreRecordsThanTheBoundIsRefusedBeforeItProbesAnything(t *testing.T) {
 	e := setupSend(t)
 	stager := &recordingStager{}
-	links := make([]ActivityLinkInput, maxAccountSendLinks+1)
+	links := make([]ActivityLinkInput, maxActivityLinks+1)
 	for i := range links {
 		links[i] = ActivityLinkInput{EntityType: "organization", EntityID: ids.NewV7()}
 	}
@@ -403,5 +403,26 @@ func TestASendFiledUnderMoreRecordsThanTheBoundIsRefusedBeforeItProbesAnything(t
 	}
 	if len(stager.staged) != 0 {
 		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
+// The bound is applied at the WRITE, not only on the send path's probe, so a
+// booking — which reaches the timeline through the same insert and never passes
+// probeLinkTargets — meets it too.
+func TestTheLinkBoundHoldsAtTheWriteItself(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	links := make([]ActivityLinkInput, maxActivityLinks+1)
+	for i := range links {
+		links[i] = ActivityLinkInput{EntityType: "organization", EntityID: org}
+	}
+
+	_, _, err := e.store(stubUnsubscribeLinker{}).LogActivity(e.as(principal.RowScopeAll), LogActivityInput{
+		Kind: "note", Source: "manual", Links: links,
+	})
+
+	var tooMany *TooManyLinksError
+	if !errors.As(err, &tooMany) {
+		t.Fatalf("logging an activity with %d links = %v, want a TooManyLinksError", len(links), err)
 	}
 }
