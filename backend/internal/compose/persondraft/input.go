@@ -160,10 +160,18 @@ type ActIn struct {
 	// differently from one that follows up on what we said, and the direction
 	// is the only thing that tells them apart.
 	Inbound bool `json:"inbound"`
-	// Snippet is the opening of what they actually WROTE, on the newest inbound
-	// message only. A subject line says a message happened; the words say what
-	// it was about, and a draft grounded in subjects alone can only gesture at
-	// a conversation it never read.
+	// Snippet is the opening of the newest INBOUND message on this person's
+	// timeline. A subject line says a message happened; the words say what it
+	// was about, and a draft grounded in subjects alone can only gesture at a
+	// conversation it never read.
+	//
+	// It is what the message SAYS, not a claim about who wrote it. An activity
+	// reaches a person through activity_link, which records what a message
+	// concerns rather than who authored it — a colleague's introduction that
+	// copies a prospect is linked to that prospect — and the 360 does not carry
+	// participants, so authorship is not knowable here. The prompt beside it
+	// says "a message on this thread" rather than "what they wrote", because
+	// the stronger sentence would be one the data cannot support.
 	//
 	// The opening rather than the whole message: an email says why it was sent
 	// in its first lines and spends the rest on detail, and the detail is what
@@ -371,20 +379,42 @@ func snippetOf(body string) string {
 	return text
 }
 
-// stripMailHeaders drops a leading From:/To:/Cc: block. It stops at the first
-// line that is not one, so a message beginning with prose is untouched.
+// stripMailHeaders drops the leading From:/To: block the capture path writes
+// above a stored body.
+//
+// It requires the block to open on From: and to be followed by a blank line,
+// which is the shape capture really writes. Any leading run of header-shaped
+// lines would eat real prose: "From: our finance team's perspective" over
+// "To: make this work we need..." is a sentence, not an envelope.
+//
+// A body that is ONLY headers strips to nothing, and nothing is the right
+// answer — an attachment-only mail has no words for a reply to be about, and
+// returning the addresses instead would put them in the prompt, which is what
+// this function exists to prevent.
 func stripMailHeaders(body string) string {
 	lines := strings.Split(body, "\n")
+	if len(lines) == 0 || !isMailHeaderLine(strings.TrimSpace(lines[0])) {
+		return body
+	}
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
 		if isMailHeaderLine(trimmed) {
 			continue
 		}
-		return strings.Join(lines[i:], "\n")
+		if trimmed == "" {
+			// The blank line that closes a header block: everything after it is
+			// the message. Empty after it is an honest answer — an
+			// attachment-only mail has no words for a reply to be about, and
+			// returning the addresses instead would put them in the prompt.
+			return strings.Join(lines[i+1:], "\n")
+		}
+		// A non-header, non-blank line inside the run means this was never a
+		// header block. Keep the whole thing rather than guess where it ends.
+		return body
 	}
+	// Every line looked like a header and no blank line ever closed the block.
+	// The real capture shape always has that separator, so this is prose that
+	// happens to be shaped like headers — keep it rather than return nothing.
 	return body
 }
 
@@ -448,7 +478,7 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 	if view.Activities == nil {
 		return
 	}
-	readOne := false
+	readInbound := false
 	for _, activity := range view.Activities.Data {
 		if len(in.Recent) == draftInputActivities {
 			break
@@ -462,12 +492,19 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 		if activity.Subject != nil {
 			folded.Subject = *activity.Subject
 		}
-		// Only the newest INBOUND message, and only once. Our own outbound is
-		// text this side already wrote, and quoting a second inbound message
-		// invites the draft to answer two conversations at once.
-		if folded.Inbound && !readOne && activity.Body != nil {
-			folded.Snippet = snippetOf(*activity.Body)
-			readOne = folded.Snippet != ""
+		// The newest INBOUND message, and only that one. Our own outbound is
+		// text this side already wrote, and a second inbound invites the draft
+		// to answer two conversations at once.
+		//
+		// The flag is set on the newest inbound whether or not it yielded text,
+		// so an empty body reads as "nothing to quote" rather than falling
+		// through to an OLDER message the prompt would then present as the
+		// current one.
+		if folded.Inbound && !readInbound {
+			readInbound = true
+			if activity.Body != nil {
+				folded.Snippet = snippetOf(*activity.Body)
+			}
 		}
 		in.Recent = append(in.Recent, folded)
 	}
