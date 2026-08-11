@@ -40,8 +40,9 @@ const statusTokens = [
 export function DesignScreen() {
   const t = useT();
   return (
-    <div className="wrap narrow">
-      <h1 className="t-display">{t("app.title")}</h1>
+    <div className="wrap">
+      {/* The shell's page head owns this route's h1. */}
+      <h2 className="t-display">{t("app.title")}</h2>
       <p className="t-caption">{t("app.subtitle")}</p>
       <Swatches title={t("section.surfaces")} tokens={surfaceTokens} />
       <Swatches title={t("section.accentAi")} tokens={accentTokens} />

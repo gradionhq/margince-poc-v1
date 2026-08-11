@@ -3863,8 +3863,9 @@ export interface paths {
          * The workspace's own consumer-mail domain list (CAP-PARAM-5).
          * @description The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
          *     Mail from a consumer domain still creates the person; what it never creates is a
-         *     company. Every human role may read the list; only admin/ops may change it. Governed by
-         *     the `capture_settings` RBAC object.
+         *     company. Every human role may read the list; any seat holding `capture_settings:create`
+         *     adds a new `extra` entry, while carve-outs, kind changes and removal demand
+         *     `capture_settings:update` (admin/ops). Governed by the `capture_settings` RBAC object.
          *
          *     Human-only, like the personal-mail exclusion list it replaces: the list names the domains
          *     this installation corresponds with and which of them it treats as consumer mail, which is
@@ -4853,6 +4854,143 @@ export interface paths {
          *     belongs in a shared proxy's cache.
          */
         post: operations["issueUserPasswordLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's roles with their object grants. Admin-only, human-only.
+         * @description The role editor's read. Every role the workspace defines — the five seeded system
+         *     roles and any custom ones — with the `objects` map exactly as `role.permissions`
+         *     stores it.
+         *
+         *     Admin-only, and not because a grant map is a secret: it is the same authority
+         *     `changeUserRole` carries, and an admin is the only caller who can act on it. Agents
+         *     are refused outright — no autonomy tier makes rewriting the permission model an
+         *     agent's call.
+         *
+         *     Gated on the admin ROLE, not on an RBAC object, and there is deliberately no `role`
+         *     entry in `RbacObject`. That is the posture every identity-administration surface here
+         *     takes (`/users`, `/teams`), for the reason recorded against them: object RBAC exists
+         *     to narrow WHO among peers may touch a record, and there is no such narrowing to
+         *     express here — no role but `admin` should ever hold it, so the grant map would encode
+         *     a constant, at the cost of a backfill of every already-seeded workspace's
+         *     `role.permissions`. It would also be circular: an admin who revoked their own grant on
+         *     `role` could never restore it. A client gates this screen on the caller holding
+         *     `admin` (`/me`'s `roles`), the same way it gates the member roster.
+         *
+         *     The `objects` map is returned VERBATIM from the stored document, including any object
+         *     this installation no longer knows (a unit that was removed). `policy.Parse` drops such
+         *     a grant at authentication time, so it authorizes nothing; showing it here is what lets
+         *     an operator find and clear it, and hiding it would report the document as something it
+         *     is not. A client that groups objects by extension unit (see `listExtensions`) should
+         *     expect names it cannot place, and must not treat them as an error.
+         */
+        get: operations["listRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{key}/objects/{object}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The role key (`admin`, `rep`, or a custom one) — not its id. */
+                key: string;
+                /** @description The RBAC object being granted — a core object (`RbacObject`) or an `ext_<unit>_<object>` an enabled extension registered at boot. */
+                object: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set one role's CRUD grant on one RBAC object. Admin-only, human-only.
+         * @description Replaces this role's `{create, read, update, delete}` on ONE object and leaves every
+         *     other object in the document untouched — including objects this installation cannot
+         *     name, which is why the write is a targeted `jsonb_set` rather than a parse-and-rewrite
+         *     (see `listRoles` on why unknown grants must survive a round trip).
+         *
+         *     This is the only supported way to grant an extension's objects. An extension unit
+         *     registers `ext_<unit>_<object>` into the vocabulary at boot; until a role grants it,
+         *     every member is refused by the unit's own gate and its screen renders nothing.
+         *
+         *     A system role (`is_system: true`) IS editable, and deliberately so. `is_system` marks
+         *     a role the bootstrap seeded and the RBAC backfill migrations top up — those migrations
+         *     already guard every statement with `NOT permissions->'objects' ? '<name>'` precisely so
+         *     an operator's edit is never clobbered. Nothing in this codebase treats a system role's
+         *     document as immutable, and a rule invented here would make the seeded roles — the only
+         *     roles most installations have — permanently unable to hold an extension grant.
+         *
+         *     An object outside the registered vocabulary is REFUSED (404 `unknown_object`) rather
+         *     than stored. `policy.Parse` deliberately tolerates an unknown object on the READ path,
+         *     because refusing stored data costs a member their session; on this WRITE path the
+         *     opposite is true — refusing input an admin just typed costs them a correction, and
+         *     storing a typo would create a grant nobody can ever satisfy and no screen can explain.
+         *
+         *     Concurrency: `role` is a versioned row, so send the `version` you read in `If-Match`
+         *     and a write against a stale read is refused 409 `version_skew` rather than silently
+         *     clobbering it. A permission document is ONE jsonb value, so two admins editing two
+         *     DIFFERENT objects is a lost write, not a merge — the losing admin's revoke would
+         *     vanish leaving nothing that says it happened. `If-Match` stays OPTIONAL, as it is on
+         *     every other versioned write here; omitted, the write still serializes behind a row
+         *     lock rather than racing, but the stale-read clobber is only refused when the header
+         *     is sent. A UI on this screen should always send it.
+         *
+         *     No public event is emitted: the closed catalog's `role.changed` describes a member's
+         *     role ASSIGNMENTS (`{user_id, from_role, to_role}`) and cannot express "this role's
+         *     grants moved". The audit row is written, naming the actor, the role, the object and
+         *     both grant images. Live sessions are NOT revoked — `/me`'s `authorization` snapshot is
+         *     explicitly a snapshot, and clients refetch it on focus and after any 403.
+         */
+        patch: operations["setRoleObjectGrant"];
+        trace?: never;
+    };
+    "/extensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the composed extension units and what each contributes. Admin-only, human-only, read-only.
+         * @description What this binary actually composed (ADR-0069): one entry per enabled unit under
+         *     `extensions/`, with the RBAC objects, routes and jobs it contributes. The role editor
+         *     reads it to group `ext_<unit>_<object>` grants under the unit that declared them —
+         *     without it a grant map is a flat list of names with no way to say which product surface
+         *     each belongs to.
+         *
+         *     Derived entirely from what the process already knows: the composed declaration set, the
+         *     composed verbs read out of the merged contract, and this boot's served job set. There is
+         *     no second source of truth and nothing is read from disk — the same values the boot
+         *     reconciliation validated, so an entry here cannot describe a unit that is not serving.
+         *
+         *     The extension set is a property of the BINARY, not of the workspace: it is identical for
+         *     every caller and changes only on deploy. Admin-only all the same — it enumerates the
+         *     installation's internal surface (routes, jobs, versions), which is operator information.
+         */
+        get: operations["listExtensions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11563,28 +11701,6 @@ export interface components {
             /** @description Active memberships; populated by listTeams. */
             member_count?: number;
         };
-        /** @description An RBAC role bundle. Mirrors the `role` table. */
-        Role: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            workspace_id: string;
-            /** @description admin | manager | rep | read_only | ops | <code-defined>. */
-            key: string;
-            name: string;
-            /** @default false */
-            is_system: boolean;
-            /** @description { object: {crud}, field_masks: [...], row_scope: own|team|all }. */
-            permissions: {
-                [key: string]: unknown;
-            };
-            /** Format: date-time */
-            created_at?: string;
-            /** Format: date-time */
-            updated_at?: string;
-            /** Format: date-time */
-            archived_at?: string | null;
-        };
         AssistantProfile: {
             /** @enum {string} */
             name: "Margince";
@@ -11709,6 +11825,59 @@ export interface components {
             objects: {
                 [key: string]: components["schemas"]["RbacObjectGrant"];
             };
+        };
+        /** @description One role as `role.permissions` stores it. This is a ROLE's document, not a principal's — unlike `Authorization.objects` nothing here is merged, because the thing being edited is the single role. */
+        Role: {
+            /** @description The stable key a role assignment and every refusal names (`admin`, `rep`, …). Unique per workspace, and the path segment `setRoleObjectGrant` addresses. */
+            key: string;
+            /** @description The operator-facing label. Display only — nothing resolves a role by it. */
+            name: string;
+            /** @description True for a role the workspace bootstrap seeded and the RBAC migrations top up. It is NOT an immutability flag — a system role's grants are editable through `setRoleObjectGrant`, which is what makes granting an extension object possible at all on an installation that never defined a custom role. A client may surface it as "shipped with the product", never as "read-only". */
+            is_system: boolean;
+            /**
+             * Format: int64
+             * @description The row's optimistic-concurrency version (`RowVersion` semantics, data-model §1.3a). Spelled inline rather than as a `$ref` because this one is REQUIRED and a `$ref` renders optional in the generated clients: the editor must always have a version to echo in `If-Match`, and an optional one would let a client omit the guard by accident rather than by decision.
+             */
+            version: number;
+            /** @description This role's grants, keyed by RBAC object name, verbatim from the stored document. An ABSENT key means the role grants nothing on that object — the same denial an all-false grant expresses, so a client must render a missing key as "no access" rather than as unknown. May carry names outside `RbacObject` and outside any enabled extension; see `listRoles`. */
+            objects: {
+                [key: string]: components["schemas"]["RbacObjectGrant"];
+            };
+        };
+        /** @description Every role this workspace defines. Not paginated and deliberately not: the set is bounded by what an operator created (five seeded, plus a handful at most), the editor needs all of it to render, and a cursor over it would be ceremony over a complete answer. */
+        RoleDirectory: {
+            roles: components["schemas"]["Role"][];
+        };
+        /** @description The role's new CRUD on the addressed object. All four verbs are REQUIRED: this is a replacement of one object's grant, not a sparse patch, so an omitted verb would have to mean either "leave it" or "revoke it" and the two are indistinguishable on the wire. Sending all four false is the supported way to revoke a grant entirely. */
+        SetRoleObjectGrantRequest: {
+            create: boolean;
+            read: boolean;
+            update: boolean;
+            delete: boolean;
+        };
+        /** @description One enabled extension unit and what it contributes to this binary. */
+        ComposedExtension: {
+            /** @description The unit name — its `extensions/<name>` directory, and the namespace token in `ext_<name>_…` objects and `/ext/<name>/…` routes. This is what joins an entry here to a grant in `Role.objects`. */
+            name: string;
+            /** @description The unit's own declared version. It carries NO authority (ADR-0069 §7): operator decisions bind to manifest digests, never to this string. Display only. */
+            version: string;
+            /** @description The `ext_<name>_<object>` names this unit's operations gate on, registered into the vocabulary at boot — exactly the objects `setRoleObjectGrant` will accept for this unit. Sorted, and empty for a unit that owns no records (the common case). */
+            rbac_objects: string[];
+            /** @description The unit's published operations, one entry per method+path pair. Sorted by path then method. A bare path would under-report the surface — one path serving GET and DELETE is two capabilities to an operator auditing what a unit can do, and collapsing them hides the destructive one behind the harmless one. */
+            routes: components["schemas"]["ComposedExtensionRoute"][];
+            /** @description The scheduled jobs this boot actually RUNS for the unit — a job the unit declared with no handler ticks nothing and is deliberately absent, because an operator reading this list is asking what runs, not what was written down. Sorted. */
+            jobs: string[];
+        };
+        /** @description One published extension operation. */
+        ComposedExtensionRoute: {
+            /** @description The HTTP method, upper-case. */
+            method: string;
+            /** @description The path AS THE CONTRACT SPELLS IT — `/ext/<unit>/…`, relative to the server url that already ends in `/v1`, so it is the spelling a reader can find by opening the published document rather than the path the router mounts. */
+            path: string;
+        };
+        /** @description The composed extension set, sorted by name. Not paginated, for the same reason `RoleDirectory` is not: the set is fixed at build time and small by construction. */
+        ExtensionDirectory: {
+            extensions: components["schemas"]["ComposedExtension"][];
         };
         JobHealth: {
             /**
@@ -23353,6 +23522,109 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every role this workspace defines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDirectory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setRoleObjectGrant: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description The role key (`admin`, `rep`, or a custom one) — not its id. */
+                key: string;
+                /** @description The RBAC object being granted — a core object (`RbacObject`) or an `ext_<unit>_<object>` an enabled extension registered at boot. */
+                object: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRoleObjectGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, with the reason distinguished by the problem `code`: `unknown_role` — this workspace defines no role with that key; or `unknown_object` — the object is neither a core `RbacObject` nor one an enabled extension registered at boot. Both are 404 because both name a thing that does not exist here, and a client that tells the operator which one it hit needs the code, not the prose. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused with `code: version_skew` — the `If-Match` version is not the role's current one, so somebody else changed this role since it was read. Nothing was written; re-read the role, re-apply, retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listExtensions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The composed extension set. Empty for an installation with no units enabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionDirectory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listTeams: {

@@ -888,6 +888,7 @@ describe("SettingsScreen Organization group", () => {
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
         "Users & roles",
+        "Extensions",
         "Privacy & consent",
         "Audit log",
         "Overlay",
@@ -925,6 +926,7 @@ describe("SettingsScreen Organization group", () => {
     const ADMIN_ORG_TABS = [
       ...PERSONAL_TABS,
       "Users & roles",
+      "Extensions",
       "Privacy & consent",
       "Audit log",
       "Overlay",

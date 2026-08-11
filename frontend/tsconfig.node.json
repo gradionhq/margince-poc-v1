@@ -15,7 +15,17 @@
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    // This project is what typechecks vite.config.ts AND the test tree (the
+    // app project excludes *.test.*), so it needs the composition alias too —
+    // otherwise the vanilla lane's registry import resolves in the app project
+    // and fails here. Vanilla mapping only: the composed lane is
+    // tsconfig.composed.json, which does not build tests.
+    "paths": {
+      "@composition/extensions": ["./src/composition/extensions.gen"],
+      "@composition/schema": ["./src/api/schema"]
+    }
   },
   "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"]
 }

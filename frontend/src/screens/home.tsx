@@ -469,7 +469,7 @@ export function HomeScreen() {
   // deals failure must never hide a healthy /brief queue (and vice versa),
   // so each renders under its own gate.
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <SectionHeader title={t("home.brief")} sub={t("home.sub")} />
       {/* Screen-level so it survives the approved/decided row (and its whole
           section) unmounting on the pending invalidation. */}

@@ -1,10 +1,13 @@
 # Extensibility — the extension tier
 
-How a bounded add-on lands in this product **without editing a single upstream-owned file**. This is
+How a bounded add-on lands in this product **without editing a single upstream-owned file — with one
+recorded exception, below**. This is
 the *extension tier*: one named, versioned unit under `extensions/<name>/`, its own Go module,
 reaching the core through one narrow published surface and composed in at build time. The vanilla tree
-already ships two — `extensions/de`, the German jurisdiction pack, and `extensions/yogi`, the reference
-unit that serves one governed agent tool.
+already ships three — `extensions/de`, the German jurisdiction pack; `extensions/yogi`, the reference
+unit that serves one governed agent tool; and `extensions/notes`, the reference extension that
+exercises every capability the tier has (its own table under RLS, six governed operations, its own
+RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat).
 
 This page is for a contributor who wants the whole idea first, then the detail. Start here; to
 actually *build* a unit, jump to [how-to/add-an-extension.md](../how-to/add-an-extension.md).
@@ -91,7 +94,7 @@ func New() extension.Extension {
 
 That value is the entire contract. `Name` is the canonical unit name (it must equal the directory
 name, obeys `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤32 chars) and keys the unit's namespace everywhere it will
-touch — `x_<name>_<table>` tables, `/x/<name>/` paths, the `x_<name>` database role. `Version` is
+touch — `ext_<name>_<table>` tables, `/v1/ext/<name>/` paths, the `ext_<name>` database role. `Version` is
 recorded in the boot inventory and carries no authority. **Capabilities are the remaining fields** —
 `Jurisdictions` (passive policy) and `Tools` (the first *governed* kind: a risk-tier request in the
 manifest, and — when the declaration carries a handler — a tool the agent surface actually serves,
@@ -241,26 +244,51 @@ only the correspondence floor actually binds a record; the accounting-vouchers c
 aliases, so the core retention engine consults the *same* constants an extension declares.
 
 **How new capabilities arrive.** A new capability kind is a new *field* on `extension.Extension` and a
-new marked `pkg/**` package holding its contract — existing units keep compiling. Capabilities are
-reserved in the naming scheme but **not yet landed**: a unit owning its own `x_<name>_*` tables (the
-extension-migration namespace — which is why `cmd/migrate` is permitted but not *required* to wire the
-composition today) and its own `/x/<name>/` HTTP surface. The unit name is already validated to the
-full identifier budget so a name chosen today stays valid when those arrive.
+new marked `pkg/**` package holding its contract — existing units keep compiling. The unit name is
+validated to the full identifier budget, so a name chosen today stays valid for every surface.
 
-**The composition is Go-only today, and it says so out loud.** `build/composition/` already emits
-`api/crm.yaml` and `frontend/extensions.gen.ts` alongside the Go wiring, but both are **placeholders**:
-the contract is copied byte-identically from `backend/api/crm.yaml`, and the frontend file is a
-constant `export const extensions = [] as const;` that no `frontend/src` module imports. Correspondingly
-the generator **refuses** a unit that ships an `api/`, `frontend/`, or `migrations/` directory — it
-fails with *"composition is not built yet — the walking skeleton composes Go registrations only"*
-rather than ignoring the directory. So the honest summary of the tier as it stands: the
-selection-and-binding machinery is complete and gated, the capability surface it carries is two kinds
-deep and backend-only, and the other three slices are scaffolded as fail-loud stubs.
+**What a unit can own today.** All of the following have landed:
 
-One ordering constraint falls out of that, worth knowing before designing the frontend slice: the SPA
-gates affordances with `useCan(object, action)` over an `RbacObject` **generated from `crm.yaml`'s
-enums**, so a page gated on an extension-owned RBAC object needs the contract overlay first. The API
-slice precedes the frontend slice, or an extension page gates only on core objects.
+- **Its own tables** — `ext.ext_<name>_*`, from a `migrations/` directory of `NNNN_name.up.sql`/`.down.sql`
+  pairs the unit embeds and `cmd/migrate` applies as its own namespace, tracked in
+  `schema_migrations_ext_<name>`. Every unit table must carry FORCE row level security and a
+  workspace-bound policy; `make check-ext-migrations` applies the unit's migrations as a *minted
+  restricted role* against a throwaway database and re-reads the catalog to prove it. At runtime there is
+  no such role — `cmd/migrate` runs one owner connection with no `SET ROLE`, so isolation rests on the
+  RLS, not on ownership (#628).
+- **Its own HTTP surface** — `/v1/ext/<name>/…`, declared as operations in an `api/` contract fragment
+  that is merged into the composed `crm.yaml`. `build/composition/api/crm.yaml` is a real merge now, not
+  a byte-copy of the core contract.
+- **Its own governed tools** — an `x-mcp-tool` verb on a declared operation, served through the same
+  admission gate a core tool passes, at the tier and scope the contract declares.
+- **Its own scheduled jobs** — declared in a `jobs.yaml` fragment, dispatched as a fleet fan-out with a
+  workspace child per live tenant.
+- **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
+- **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
+
+**What a unit does NOT own: a screen.** `extensions/<name>/frontend/` is still refused on sight by
+`gen-composition`'s scan — it is the one remaining member of `unbuiltCapabilityLayers` — so a unit
+ships no TSX and no npm dependency of its own, and adding a unit therefore writes no upstream-owned
+file at all. What the SPA composes instead is `frontend/extensions.gen.ts`: a **descriptor** registry
+generated from the merged contracts, listing the governed operations each enabled unit publishes.
+`#/ext/<name>` renders those as a card, so every composed unit is reachable and none of them can
+advertise an operation the server does not serve. Lifting the layer is its own slice, with its own
+supply-chain answer to give (`DESIGN.md` §4.5 records the ruling and its reasoning).
+
+One ordering constraint remains worth knowing: the SPA gates affordances with `useCan(object, action)`
+over an `RbacObject` **generated from `crm.yaml`'s enums**, so a page gated on an extension-owned RBAC
+object needs the contract overlay — which is why the API surface landed before any frontend work can.
+
+**What the tier does NOT protect against, stated here because the surface reads like a boundary.** Units
+are **reviewed, first-party or otherwise trusted code**, compiled into the same process. Every wall
+described in this document is defence in depth against *mistakes* — it makes the accidental
+cross-tenant query or the forgotten scope a loud failure — and none of it is a sandbox against a unit
+that is trying. In-process Go can read the keyvault root key from the environment; `Runtime.Tx` can
+rebind the `app.workspace_id` GUC the RLS policies key on; and every handler runs as the shared
+`margince_app` role, which holds DML on core tables, on every *other* unit's tables, and on
+`extension_secret`. Issue #628 (a per-unit database role) is the one change that would move any of this
+from convention to enforcement, and even then the in-process reach remains. `backend/pkg/extension/runtime.go`
+carries the same statement at the seam itself.
 
 ## The guardrails — held from the tree
 
@@ -274,6 +302,14 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | Vanilla composition reproduces the committed stub byte-for-byte | `make check-composition` |
 | The published surface doesn't break compatibility (advisory before the first release tag, enforcing after) | `scripts/check-pkg-freeze.sh` |
 | The core stays jurisdiction-neutral | `scripts/check-no-jurisdiction.sh` |
+| Every unit table carries FORCE RLS and a workspace-bound policy, and touches nothing in `public` | `make check-ext-migrations` (applies each unit's migrations as a minted restricted role) |
+| Every unit table grants the runtime role exactly `SELECT, INSERT, UPDATE, DELETE` — a table granting *nothing* satisfied the old one-sided allowlist and then answered `permission denied` at the first call | `make check-ext-migrations` |
+| A unit's shipped `migrations/` is actually embedded and applied — the directory and the field are two facts, and the gates read different ones | `backend/tools/gen-composition` (the `Migrations` field must name a var whose `//go:embed` covers the layer) |
+| The runtime pool is not the migration owner: no superuser, no BYPASSRLS, and no ownership of the `ext` schema *or* anything in it | `compose.AssertRuntimeRole`, at boot and on `/readyz` |
+| A declaration the composer cannot honour is refused rather than discarded — an unknown job role, governance declared on the wrong half of a pair, a `$ref` in an advertised schema, a multi-document base contract | `backend/tools/gen-composition` |
+| Every declared extension operation is mounted, and every mounted route was declared | `backend/internal/compose/extparity_test.go` |
+| A unit's served tool is dispatched only by that unit's own route — one unit cannot inherit another's handler by naming its verb | `backend/internal/compose/extparity_test.go` |
+| A capability layer with no composition — `frontend/` — is refused on sight rather than silently dropped | `backend/tools/gen-composition` (`unbuiltCapabilityLayers`) |
 
 The compiler does the heaviest lifting for free (an extension's module path is outside the backend
 module, so `internal/**` is unreachable by construction); the tests hold the rest of the contract that
@@ -298,7 +334,10 @@ the whole path).
 | The `GOWORK` switch every build lane carries | `backend/Makefile` (`GOWORK_COMPOSED`) |
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
+| The reference extension (every capability) | `extensions/notes/notes.go` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |
+| The negative migration fixtures | `fixtures/extensions/bad-unprefixed-table/`, `bad-overbudget-table/` |
+| The secrets namespace-wall fixture | `fixtures/extensions/crm-nosy/crmnosy.go` |
 | The extension-tier fitness tests | `backend/extensions_arch_test.go` |
 
 ### Related docs

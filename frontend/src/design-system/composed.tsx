@@ -434,6 +434,9 @@ export function RecordView({
       >
         <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
+          {/* The record page's name. The shell's page head yields to it on a
+              record route — it prints the trail that leads here and nothing at
+              heading level, so this stays the page's one h1. */}
           <h1>{name}</h1>
           {/* A div, not a p: a caller passing structure — the company page's
               description line plus its chip row — would otherwise nest block

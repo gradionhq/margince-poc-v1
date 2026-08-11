@@ -427,6 +427,17 @@
   font-weight: 600;
   color: var(--textPrimary);
 }
+/* The page-naming variant (SectionHeader level={1}): a record whose surface
+   carries the page's only heading reads at the record scale, not the section
+   one, and it sets its margins rather than inheriting the UA's — the row is
+   baseline-aligned with the subtitle beside it. */
+.section-header h1 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
 .section-header .sub {
   font-size: 13px;
   color: var(--textMeta);

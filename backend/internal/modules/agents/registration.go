@@ -113,7 +113,13 @@ func (r *Registry) Register(t mcp.Tool) {
 	// The two schema transforms the SURFACE owns, applied once here so no tool
 	// carries either: its result wrapped in the envelope, and — for a mutating
 	// tool — the retry key it may be called with.
-	r.specs[spec.Name] = copySchemas(withRetryKey(envelopedSpec(spec)))
+	// WHOSE records a call would produce, asked once, here, and remembered:
+	// withRetryKey below and refuseUnkeyableCall at call time must give the same
+	// answer, and re-asserting the interface at each of them would be two places
+	// that could come to differ. See unitOwned for what the answer buys.
+	owned := unitOwned(t)
+	r.unitOwned[spec.Name] = owned
+	r.specs[spec.Name] = copySchemas(withRetryKey(envelopedSpec(spec), owned))
 	// Derived from the tool's OWN schema, never the spliced one: the reserved
 	// members are popped before any of these checks runs, so a check that knew
 	// about them would be describing arguments no handler can be reached with.
@@ -203,14 +209,49 @@ const retryKeyProperty = `{"type":"string","maxLength":255,` +
 	`"description":"Optional. Repeating a call under the same key returns the first result instead of acting twice; ` +
 	`different arguments under one key are refused."}`
 
-// withRetryKey advertises the retry key on a mutating tool's input schema, and
-// leaves a read-only tool's schema alone.
+// unitOwned reports whether an extension unit shipped this tool's handler,
+// rather than the core tree. mcp.UnitScopedTool is the one declaration of that
+// fact; the composition layer's route ownership reads the same one.
+// The question here is "is this tool the CORE tree's?", so IMPLEMENTING the
+// marker is the whole answer and the unit's spelling is never read. A core tool
+// cannot implement it by accident — it would have to declare a method about
+// extension units — while a tool that implements it and names nothing is still
+// not core, and reading its empty name as "core" would restore the promise this
+// exclusion exists to withdraw. (The composition layer does read the name, and
+// does treat an empty one as unattributed: it needs a KEY for route ownership,
+// not a yes/no about provenance.)
+func unitOwned(t mcp.Tool) bool {
+	_, owned := t.(mcp.UnitScopedTool)
+	return owned
+}
+
+// withRetryKey advertises the retry key on a mutating CORE tool's input schema,
+// and leaves every other tool's schema alone.
 //
-// The decision is DERIVED from the tool's required scope (ToolSpec.ReadOnly),
-// which is the same answer the admission gate enforces — so the schema cannot
-// claim retry safety for a tool the surface would not claim it for.
-func withRetryKey(spec mcp.ToolSpec) mcp.ToolSpec {
-	if spec.ReadOnly() {
+// The read-only decision is DERIVED from the tool's required scope
+// (ToolSpec.ReadOnly), which is the same answer the admission gate enforces —
+// so the schema cannot claim retry safety for a tool the surface would not
+// claim it for.
+//
+// AN EXTENSION'S MUTATING TOOL IS EXCLUDED, and that is a retreat rather than
+// an oversight. The key's promise is that a repeat returns the FIRST call's
+// result, and idempotency.go keeps it by re-reading every record the recorded
+// answer names through the core datasource seam before serving it back
+// (ensureReplayVisible). An extension tool writes EXTENSION-owned records,
+// which never enter that seam: its recorded answer names nothing the replay
+// gate can re-prove, so every retry would be refused by the gate that exists to
+// make the promise true. Advertising the argument there would offer a recovery
+// the surface cannot perform — worse than not offering it, because a caller
+// that believes it is protected repeats an irreversible call. The runtime half
+// refuses the argument in the same terms (see refuseUnkeyableCall), so the
+// schema and the door agree.
+//
+// REVISIT WHEN a tool-specific visibility authorizer lands: once an extension
+// tool can say how its own records are re-proven for a caller as they are now,
+// this exclusion is exactly the thing to remove — the machinery around it
+// (claim, window, digest, charge) is already generic.
+func withRetryKey(spec mcp.ToolSpec, unitOwned bool) mcp.ToolSpec {
+	if spec.ReadOnly() || unitOwned {
 		return spec
 	}
 	spliced, err := spliceRetryKey(spec.InputSchema)

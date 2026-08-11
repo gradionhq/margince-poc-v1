@@ -1,9 +1,16 @@
-// Build tooling only (contract-overlay, gen-stubs, gen-agentpolicy): a
-// separate module so the oapi-codegen tool directive's dependency zoo
-// never lands in the product module's go.mod. The backend require (a
-// directory replace) exists so gen-composition validates unit names
-// through the ONE published extension.Name rule — scan-time acceptance
-// must never drift from boot-time validation.
+// The repo's build and gate tooling: the code generators (contract-overlay,
+// gen-stubs, gen-agentpolicy, gen-composition and the rest of gen-*) and
+// extmigrategate, the extension migration gate. A separate module so the
+// oapi-codegen tool directive's dependency zoo never lands in the product
+// module's go.mod. The backend require (a directory replace) exists so
+// gen-composition validates unit names through the ONE published
+// extension.Name rule — scan-time acceptance must never drift from boot-time
+// validation — and so extmigrategate reuses dbmigrate's namespace mapping and
+// migration loader rather than restating either.
+//
+// NOT all of it is offline any more: extmigrategate opens database
+// connections (pgx), which is why this module now carries a driver. It is
+// still tooling — nothing here ships in a binary a customer runs.
 module github.com/gradionhq/margince/backend/tools
 
 go 1.26.5
@@ -13,6 +20,7 @@ tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 require (
 	github.com/getkin/kin-openapi v0.146.0
 	github.com/gradionhq/margince/backend v0.0.0
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oapi-codegen/oapi-codegen/v2 v2.8.0
 	golang.org/x/mod v0.38.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -27,6 +35,8 @@ require (
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect

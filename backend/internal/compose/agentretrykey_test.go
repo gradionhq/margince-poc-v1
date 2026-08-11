@@ -40,6 +40,10 @@ func TestEveryMutatingToolIsAdvertisedWithTheRetryKey(t *testing.T) {
 	if len(specs) == 0 {
 		t.Fatal("the composed surface registers no tools, so this asserts nothing")
 	}
+	// Which registered names an extension shipped. A ToolSpec cannot say — the
+	// provenance marker is on the TOOL (mcp.UnitScopedTool) — and this is the
+	// question that map already answers for the contract sweeps.
+	fromExtension := composedToolNames()
 	var mutating, readOnly int
 	for _, spec := range specs {
 		advertised := advertisesRetryKey(t, spec)
@@ -49,6 +53,17 @@ func TestEveryMutatingToolIsAdvertisedWithTheRetryKey(t *testing.T) {
 			if advertised {
 				t.Errorf("%s only reads, and advertises `%s` — a promise that protects nothing, "+
 					"printed into every run's prompt", spec.Name, retryKeyMember)
+			}
+		// Deliberately BEFORE the mutating case: an extension's mutation is
+		// excluded because its records never enter the datasource seam a replay
+		// re-proves its evidence through, so a recorded result could never pass
+		// the replay gate. Not counted toward either half below — this boot may
+		// compose no extensions at all, and the two halves are the ones that must
+		// never be empty.
+		case fromExtension[spec.Name]:
+			if advertised {
+				t.Errorf("%s is an extension's and advertises `%s`, promising a retry the replay gate "+
+					"would refuse to serve", spec.Name, retryKeyMember)
 			}
 		default:
 			mutating++

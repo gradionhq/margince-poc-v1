@@ -3,7 +3,8 @@
 
 // Command migrate is the schema-migration process role (ADR-0054,
 // amended §2): applies the embedded core + custom namespaces (ADR-0017)
-// with the owner-role DSN. Thin main, a testable run().
+// and the composed extension set's namespaces (ADR-0069) with the
+// owner-role DSN. Thin main, a testable run().
 package main
 
 import (
@@ -15,9 +16,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 
+	// The composed extension set: build/composition/ in a composed build,
+	// the committed vanilla stub otherwise. This role must wire it —
+	// extension tables exist only if this process creates them, and a
+	// migrate resolving the vanilla stub would report "schema is at head"
+	// over a database missing every extension's schema.
+	"github.com/gradionhq/margince/composition"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/term"
 
@@ -27,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/migrations"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 func main() {
@@ -76,13 +85,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	switch direction {
 	case "up":
-		return up(ctx, conn, *dsn, core, custom, stdout)
+		exts, err := extensionNamespaces(composition.Extensions())
+		if err != nil {
+			return err
+		}
+		return up(ctx, conn, *dsn, core, custom, exts, stdout)
 	case "down":
 		// Down reverts the SQL namespaces only — custom first (it sits on top
 		// of core), --steps at a time. River's schema is infrastructure with
 		// its own migrator; rolling it back is a separate deliberate step, not
 		// folded into this counter (a plain `down` must never surprise the
-		// operator by dropping a River migration).
+		// operator by dropping a River migration). An extension's namespace is
+		// excluded for the same reason and one more: its down-migration DROPs
+		// the unit's tables, so a `--steps 1` aimed at the fork's last change
+		// must never reach a tenant's extension data.
 		reverted, err := dbmigrate.Down(ctx, conn, custom, *steps)
 		if err != nil {
 			return err
@@ -111,12 +127,21 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 }
 
-// up applies the embedded SQL namespaces, then River's schema. River owns
-// its schema through its own migrator, applied as the fourth namespace after
-// core+custom (ADR-0017 order); its migrator wants a pool, not the single
-// conn the SQL runner uses, so one is opened on the same owner DSN.
-func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.Namespace, stdout io.Writer) error {
-	applied, err := dbmigrate.Up(ctx, conn, core, custom)
+// up applies the embedded SQL namespaces and the composed extension set's,
+// then River's schema. River owns its schema through its own migrator,
+// applied last (ADR-0017 order puts core, then custom, then the further
+// namespaces); its migrator wants a pool, not the single conn the SQL
+// runner uses, so one is opened on the same owner DSN.
+//
+// The extension namespaces go in the SAME dbmigrate.Up call as core and
+// custom, not a second one: Up holds a cluster-wide advisory lock for the
+// length of one call, and splitting the lanes would open a window between
+// them in which a second migrator could interleave.
+func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.Namespace, exts []dbmigrate.Namespace, stdout io.Writer) error {
+	if err := reportExtensionNamespaces(exts, stdout); err != nil {
+		return err
+	}
+	applied, err := dbmigrate.Up(ctx, conn, append([]dbmigrate.Namespace{core, custom}, exts...)...)
 	if err != nil {
 		return err
 	}
@@ -129,8 +154,113 @@ func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied); err != nil {
+	if _, err := riverPool.Exec(ctx, riverWorkspaceArgIndex); err != nil {
+		return fmt.Errorf("migrate: creating the river workspace-arg index: %w", err)
+	}
+	if _, err := fmt.Fprintf(stdout, upSummaryFormat, applied, riverApplied); err != nil {
 		return fmt.Errorf("migrate up: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
+// upSummaryFormat is the LAST line `migrate up` prints, and it is a wire
+// contract rather than cosmetics: scripts/lib-testdb.sh's migrate_template
+// string-matches its zero-applied form to decide whether the integration
+// template was stale, and reports "was behind" when it does not match. Drift
+// on either side makes that check cry wolf on every single run, which is
+// worse than not having it — and build_template discards the output, so
+// nobody would notice. TestUpSummaryMatchesTheShellMatcher reads both sides
+// and fails on drift.
+//
+// The extension count is folded into the same total as core+custom
+// deliberately: that is what makes a template missing an extension's
+// migration read as "behind" instead of passing on the core lane alone.
+const upSummaryFormat = "applied %d core+custom+extension + %d river migration(s); schema is at head\n"
+
+// riverWorkspaceArgIndex indexes River's per-job workspace argument. Jobs
+// fan out per workspace and both job-health statements already scan the
+// table, so the fan-out multiplies the rows they read.
+//
+// It lives here rather than in a migration file for two reasons that both
+// come from river_job not being ours: the table does not exist while the
+// core lane runs (River's own migrator creates it, on the pool opened
+// above), and dbmigrate.Up wraps every migration in a transaction.
+//
+// Deliberately NOT CONCURRENTLY. This runs outside dbmigrate's
+// per-migration transaction but alongside boot, and a plain CREATE INDEX
+// on a fresh river_job is trivial. If that table ever grows large enough
+// for the write lock to matter, the answer is an explicit
+// non-transactional lane in the migrator — a separate change, not a flag
+// on this one.
+const riverWorkspaceArgIndex = `
+CREATE INDEX IF NOT EXISTS river_job_workspace_arg
+    ON river_job ((args ->> 'workspace_id'))`
+
+// extensionNamespaces turns the composed extension set into migration
+// namespaces — one per unit that ships a migrations layer, each tracked in
+// its own schema_migrations_ext_<name>.
+//
+// The bytes come from the unit's own embedded FS, so this works in the
+// deployed image, where there is no extensions/ tree to read (Dockerfile.api
+// ships the binary alone).
+//
+// Sorted by unit name. No unit's schema may depend on another's — each owns
+// only its ext_<name>_ tables — so the order is not a correctness
+// requirement; it is that two runs of one composition must produce the same
+// migration log, and the composed slice's order belongs to the generator.
+func extensionNamespaces(exts []extension.Extension) ([]dbmigrate.Namespace, error) {
+	ordered := make([]extension.Extension, len(exts))
+	copy(ordered, exts)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
+
+	namespaces := make([]dbmigrate.Namespace, 0, len(ordered))
+	for _, e := range ordered {
+		if e.Migrations == nil {
+			continue // a unit that owns no tables, which is the common case
+		}
+		// NamespaceFor, not a local derivation: the tracking table, the
+		// ext_<name>_ table prefix and the ext_<name> role are ONE namespace,
+		// and a second spelling is how they start disagreeing. It validates
+		// the unit name too, so a name that could not be a SQL identifier is
+		// refused before any DDL runs.
+		namespace, err := dbmigrate.NamespaceFor(string(e.Name))
+		if err != nil {
+			return nil, fmt.Errorf("migrate: extension %q: %w", e.Name, err)
+		}
+		loaded, err := dbmigrate.Load(e.Migrations, extension.MigrationsDir)
+		if err != nil {
+			return nil, fmt.Errorf("migrate: extension %q: %w", e.Name, err)
+		}
+		if len(loaded) == 0 {
+			return nil, fmt.Errorf("migrate: extension %q embeds %s/ but it holds no NNNN_name.up.sql/.down.sql pair — a declared-but-empty layer reads as a schema that applied, so leave Migrations nil for a unit that owns no tables", e.Name, extension.MigrationsDir)
+		}
+		namespaces = append(namespaces, dbmigrate.Namespace{Name: namespace, Migrations: loaded})
+	}
+	return namespaces, nil
+}
+
+// reportExtensionNamespaces names the extension lanes BEFORE they are
+// applied, and says so explicitly when there are none.
+//
+// Printing nothing for the empty set would be the failure this whole wiring
+// exists to prevent: a migrate built against the vanilla stub, or run
+// without the composed workspace, applies zero extension migrations and is
+// otherwise indistinguishable from a correct run over a composition with no
+// schema. One line either way makes the difference visible in a log.
+func reportExtensionNamespaces(exts []dbmigrate.Namespace, stdout io.Writer) error {
+	if len(exts) == 0 {
+		_, err := fmt.Fprintln(stdout, "extension migration namespaces: none in the composed set")
+		if err != nil {
+			return fmt.Errorf("migrate up: writing the extension namespaces: %w", err)
+		}
+		return nil
+	}
+	named := make([]string, 0, len(exts))
+	for _, ns := range exts {
+		named = append(named, fmt.Sprintf("%s (%d declared)", ns.Name, len(ns.Migrations)))
+	}
+	if _, err := fmt.Fprintf(stdout, "extension migration namespaces: %s\n", strings.Join(named, ", ")); err != nil {
+		return fmt.Errorf("migrate up: writing the extension namespaces: %w", err)
 	}
 	return nil
 }

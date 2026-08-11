@@ -49,6 +49,12 @@ type Registry struct {
 	// `required` binds the surface rather than describing an intention that
 	// each handler then re-states in its own words.
 	requiredArgs map[string][]string
+	// unitOwned[tool] is true when an extension unit shipped that tool's
+	// handler, read off the registered tool once (mcp.UnitScopedTool). It is
+	// remembered rather than re-asserted because two decisions depend on it and
+	// must not diverge: what the schema advertises (withRetryKey) and what a
+	// call carrying `idempotency_key` is answered with (refuseUnkeyableCall).
+	unitOwned map[string]bool
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -83,6 +89,7 @@ func NewRegistry(approvals Approvals, gate *auth.Gate, opts ...RegistryOption) *
 		idArgs:       map[string]idArgSpec{},
 		numArgs:      map[string][]numBound{},
 		requiredArgs: map[string][]string{},
+		unitOwned:    map[string]bool{},
 		approvals:    approvals,
 		gate:         gate,
 	}

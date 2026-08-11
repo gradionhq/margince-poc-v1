@@ -21,8 +21,8 @@ func TestVanillaOutputMatchesTheCommittedStub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(stub, extensionsGen(nil)) {
-		t.Fatalf("composition/extensions_gen.go differs from the generator's vanilla output:\n--- stub ---\n%s\n--- generated ---\n%s", stub, extensionsGen(nil))
+	if !bytes.Equal(stub, extensionsGen(nil, nil, nil)) {
+		t.Fatalf("composition/extensions_gen.go differs from the generator's vanilla output:\n--- stub ---\n%s\n--- generated ---\n%s", stub, extensionsGen(nil, nil, nil))
 	}
 }
 
@@ -30,7 +30,7 @@ func TestExtensionsGenWiresUnitsInSortedOrder(t *testing.T) {
 	got := string(extensionsGen([]extensionUnit{
 		{Name: "alpha", ModulePath: "example.test/ext/alpha"},
 		{Name: "beta", ModulePath: "example.test/ext/beta"},
-	}))
+	}, nil, nil))
 	for _, want := range []string{
 		"ext0 \"example.test/ext/alpha\"",
 		"ext1 \"example.test/ext/beta\"",
@@ -40,6 +40,39 @@ func TestExtensionsGenWiresUnitsInSortedOrder(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated wiring misses %q:\n%s", want, got)
 		}
+	}
+}
+
+// A unit's module path is its own to choose, so the alias order (the enabled
+// set's unit-name order, which Extensions() wires in) and gofmt's import order
+// (by path) are two different orders. They coincide only while every unit is
+// published under the repo's own module prefix — which is exactly the tree the
+// generator sees locally, and exactly not the tree the extension-reference CI
+// job composes: it copies fixtures/extensions/crm-hello, published at
+// example.margince.dev, into the enabled set, where it sorts ahead of every
+// github.com/… unit. Emitting the import lines in alias order made that block
+// non-canonical and canonicalGoSource refused it.
+func TestExtensionsGenSortsImportsByPathNotByAlias(t *testing.T) {
+	// alpha is the first unit by name and therefore ext0, but its module path
+	// sorts LAST — the two orders disagree in both directions.
+	units := []extensionUnit{
+		{Name: "alpha", ModulePath: "zebra.test/ext/alpha"},
+		{Name: "beta", ModulePath: "aardvark.test/ext/beta"},
+	}
+	got := string(extensionsGen(units, nil, nil))
+	if _, err := canonicalGoSource("extensions_gen.go", []byte(got)); err != nil {
+		t.Fatalf("the emitted wiring is not canonical gofmt: %v\n%s", err, got)
+	}
+	// The import block is path-ordered…
+	wantImports := "\text1 \"aardvark.test/ext/beta\"\n\text0 \"zebra.test/ext/alpha\"\n"
+	if !strings.Contains(got, wantImports) {
+		t.Errorf("imports are not in path order:\n%s", got)
+	}
+	// …and the wiring is still in unit-name order, with each alias on its own
+	// unit. A fix that renumbered the aliases instead would pass the gofmt
+	// assertion above and silently reorder the composed set.
+	if !strings.Contains(got, "mustBe(\"alpha\", ext0.New()),\n\t\tmustBe(\"beta\", ext1.New()),") {
+		t.Errorf("the wiring order or the alias binding changed:\n%s", got)
 	}
 }
 
@@ -57,7 +90,7 @@ func TestEmittedWiringIsCanonicalGoSource(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := canonicalGoSource("extensions_gen.go", extensionsGen(units)); err != nil {
+			if _, err := canonicalGoSource("extensions_gen.go", extensionsGen(units, nil, nil)); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -107,7 +140,10 @@ func TestScanExtensions(t *testing.T) {
 		{name: "go files without a module", unit: "no-mod", files: map[string]string{"a.go": "package a\n"}, wantErr: "no go.mod"},
 		{name: "module without a root package", unit: "no-pkg", files: map[string]string{"go.mod": goMod}, wantErr: "no root package"},
 		{name: "invalid unit name", unit: "Bad_Name", files: map[string]string{}, wantErr: "not a valid unit name"},
-		{name: "unbuilt capability layer", unit: "with-api", files: map[string]string{"go.mod": goMod, "a.go": "package a\n", "api/api.yaml": "{}\n"}, wantErr: "api/ composition is not built yet"},
+		// api/ used to be here; it has a composition now (contracts.go), and
+		// its own refusal tests pin what replaced the blanket one —
+		// TestApiLayerIsGovernedByItsOwnRule with TestFragmentRefusals.
+		{name: "frontend layer", unit: "with-frontend", files: map[string]string{"go.mod": goMod, "a.go": "package a\n", "frontend/screen.tsx": "export {};\n"}, wantErr: "frontend/ composition is not built yet"},
 		{name: "empty unit", unit: "empty", files: map[string]string{}, wantErr: "nothing to compose"},
 	}
 	for _, tc := range cases {
@@ -120,6 +156,24 @@ func TestScanExtensions(t *testing.T) {
 			}
 		})
 	}
+
+	// The refusal mechanism, driven through the var rather than through the one
+	// name that is on it: the next capability layer arrives by joining this
+	// list, and the rule has to hold for a name nobody has written a fixture
+	// for.
+	t.Run("a layer with no composition is refused on sight", func(t *testing.T) {
+		defer func(prev []string) { unbuiltCapabilityLayers = prev }(unbuiltCapabilityLayers)
+		unbuiltCapabilityLayers = []string{"widgets"}
+
+		root := t.TempDir()
+		writeUnit(t, root, "with-widgets", map[string]string{
+			"go.mod": goMod, "a.go": "package a\n", "widgets/w.tsx": "export {};\n",
+		})
+		_, err := scanExtensions(root)
+		if err == nil || !strings.Contains(err.Error(), "widgets/ composition is not built yet") {
+			t.Fatalf("err = %v, want the unbuilt-layer refusal", err)
+		}
+	})
 
 	t.Run("well-formed unit", func(t *testing.T) {
 		root := t.TempDir()
@@ -180,6 +234,21 @@ func TestComposedWorkListsMembersSorted(t *testing.T) {
 	}
 }
 
+// The non-regular-file refusal: a symlink would digest as its target's bytes
+// while provenance points elsewhere, so a unit tree carrying one is refused
+// rather than hashed.
+func TestDigestTreeRefusesASymlinkInTheUnitsOwnFiles(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "u", map[string]string{"go.mod": "module m\n"})
+	dir := filepath.Join(root, "extensions", "u")
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "sneaky.go")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := digestTree(dir); err == nil || !strings.Contains(err.Error(), "only regular files") {
+		t.Fatalf("err = %v, want the non-regular-file refusal", err)
+	}
+}
+
 // TestDigestTreeIsOrderIndependentAndContentBound: same files → same
 // digest; one changed byte → a different one — the property the
 // staleness gate rests on.
@@ -207,5 +276,58 @@ func TestDigestTreeIsOrderIndependentAndContentBound(t *testing.T) {
 	}
 	if changed == first {
 		t.Fatal("digest unchanged after a content edit")
+	}
+}
+
+// TestVerifyNoExtraFilesGuardsOnlyTheGeneratedRoot pins both halves of this
+// gate's boundary in one place, because they are the same decision seen from
+// each side.
+//
+// Inside build/composition/ nothing rides along: a stale artifact from a
+// previous enabled set, or one somebody dropped in, would be compiled into the
+// composed binary while composition.json said the tree was current.
+//
+// Outside it, build/composition-frontend/ is a second composition root that
+// openapi-typescript writes, and it must NOT be folded in — this gate's claim is
+// that the verified tree holds exactly what the Go generator produced, and a
+// Node tool writing into it would break that claim on every run. Asserting the
+// exclusion is what stops a later reader "tidying up" the two roots into one.
+func TestVerifyNoExtraFilesGuardsOnlyTheGeneratedRoot(t *testing.T) {
+	root := t.TempDir()
+	outRoot := filepath.Join(root, "build", "composition")
+	if err := os.MkdirAll(filepath.Join(outRoot, "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outputs := map[string]string{"api/crm.yaml": "sha256:whatever"}
+	for _, rel := range []string{"api/crm.yaml", manifestFile} {
+		if err := os.WriteFile(filepath.Join(outRoot, filepath.FromSlash(rel)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifyNoExtraFiles(root, outputs); err != nil {
+		t.Fatalf("a tree holding exactly the outputs plus the manifest was refused: %v", err)
+	}
+
+	// The Node lane's root, beside the verified one.
+	sibling := filepath.Join(root, "build", "composition-frontend")
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "schema.d.ts"), []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyNoExtraFiles(root, outputs); err != nil {
+		t.Fatalf("build/composition-frontend/ was pulled into the verified tree: %v — it is a Node-produced root this gate cannot reproduce", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(outRoot, "api", "stale.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyNoExtraFiles(root, outputs)
+	if err == nil {
+		t.Fatal("a file the generation did not write was accepted inside build/composition/")
+	}
+	if !strings.Contains(err.Error(), "api/stale.yaml") {
+		t.Errorf("the refusal does not name the offending file: %v", err)
 	}
 }

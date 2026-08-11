@@ -126,7 +126,7 @@ export function OfferTemplatesScreen() {
     };
 
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <ListTable
         state={list}
         unit="unit.offerTemplates"

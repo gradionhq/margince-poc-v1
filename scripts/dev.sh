@@ -315,12 +315,22 @@ up)
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.
     [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
-    ( cd backend && go run ./cmd/migrate up --dsn "$dev_owner_url" )
-    echo "=== build api (once, before the readiness poll) ==="
     # The composed workspace (ADR-0069): materialize build/composition/
     # and build the role binaries against it, so an enabled extension set
     # under extensions/ reaches the dev stack; vanilla composes empty.
+    #
+    # gen-composition runs BEFORE the migration, not after it as it used to.
+    # cmd/migrate applies each enabled unit's migrations from the composed
+    # set, so it needs the same workspace cmd/api is built against — and it
+    # needs it to be current. Migrating first and composing after would
+    # migrate from a stale composition, or from none at all on a fresh
+    # checkout; migrating under the ROOT workspace (which is what a bare
+    # `go run` does) resolves the vanilla stub and applies zero extension
+    # migrations, leaving a composed api booting over a database with none
+    # of its extensions' tables.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
+    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up --dsn "$dev_owner_url" )
+    echo "=== build api (once, before the readiness poll) ==="
     # ONE revision for both halves of the stack, so the api and the documents it
     # fetches can be compared exactly as they are in a deployed installation.
     # Overridable: setting MARGINCE_BUILD_REVISION before `make dev` is how the
@@ -470,7 +480,20 @@ up)
   #
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
+  #
+  # MARGINCE_COMPOSITION_FRONTEND is the runtime half of the composition alias,
+  # and `make dev` must set it for the same reason it builds the api under the
+  # composed GOWORK above: this stack IS the composed installation. Without it
+  # the api served an enabled unit's routes while the SPA resolved the
+  # empty-tree registry, so #/ext/<unit> answered "no extension named …" on the
+  # one command the docs tell a developer to run — the whole frontend surface of
+  # the tier was unreachable locally, and only Dockerfile.web set the variable.
+  # Found by Task 14's UAT (F3).
+  #
+  # The directory is always present here: gen-composition runs in the boot
+  # block above, and vanilla composes an empty registry rather than no file.
   BACKEND_PORT="${api_port}" MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION}" \
+  MARGINCE_COMPOSITION_FRONTEND="$PWD/build/composition/frontend" \
     pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
   fe_pid=$!
 

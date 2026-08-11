@@ -3,11 +3,16 @@
 
 // Package yogi is a first-party reference extension shipping one governed
 // agent tool: yogi_quote returns a random Yogi Berra quote. It exercises
-// the whole served-tool path — the published Tool declaration,
-// the manifest's risk-tier request, and boot registration into the
-// same MCP registry and admission gate the core tools ride. The tool is
-// read-only with no arguments, so it requests the 🟢 auto-execute tier and
-// the read scope: nothing to confirm, nothing to mutate.
+// the whole served-tool path — the contract fragment that DECLARES the tool
+// (api/crm.yaml: its route, risk tier, Passport scope, prose and schemas), the
+// manifest derived from that declaration, and boot registration into the same
+// MCP registry and admission gate the core tools ride. The tool is read-only
+// with no arguments, so the contract requests the 🟢 auto-execute tier and the
+// read scope: nothing to confirm, nothing to mutate.
+//
+// Nothing about the tool's GOVERNANCE is repeated here. This file holds the
+// verb and the function; api/crm.yaml holds everything a reader, a client or an
+// operator needs, and gen-composition merges it into the effective contract.
 package yogi
 
 import (
@@ -25,27 +30,7 @@ func New() extension.Extension {
 		Name:    "yogi",
 		Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name:  "yogi_quote",
-			Title: "Yogi Berra quote",
-			Description: "Return one Yogi Berra quote, chosen at random, when a light note " +
-				"is what is wanted. It reads nothing from this workspace and changes nothing " +
-				"in it, so no record, person or deal is involved either way. There is nothing " +
-				"in the result to carry into a follow-up call.",
-			Version:        "1.0.0",
-			Tier:           extension.TierAutoExecute,
-			RequestedScope: extension.ScopeRead,
-			InputSchema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false
-}`),
-			OutputSchema: json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "quote": {"type": "string"}
-  },
-  "required": ["quote"],
-  "additionalProperties": false
-}`),
+			Name:   "yogi_quote",
 			Handle: quote,
 		}},
 	}
@@ -73,7 +58,10 @@ type quoteOut struct {
 
 // quote returns a random quote. It takes no arguments — the input is
 // ignored rather than decoded — so there is nothing to validate and
-// nothing that can fail but the JSON encode.
-func quote(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
+// nothing that can fail but the JSON encode. The Runtime is ignored too:
+// the quotes are a fixed slice in this file, so the tool reaches nothing in
+// the workspace and needs no capability. The parameter is taken and dropped
+// rather than wrapped away, because Handle must stay a bare identifier.
+func quote(_ context.Context, _ extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(quoteOut{Quote: quotes[rand.IntN(len(quotes))]})
 }

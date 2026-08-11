@@ -57,6 +57,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
       docker: ${{ steps.filter.outputs.docker }}
+      deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,6 +104,23 @@ jobs:
             frontend:
               - 'frontend/**'
               - 'backend/api/**'
+              # The frontend job runs BOTH SPA lanes (ADR-0069), and the
+              # composed one is derived from inputs that live nowhere near
+              # frontend/. A unit's api/ fragment is the ONLY thing that changes
+              # the composed registry and the merged contract the typed client
+              # is parameterised by — without these four entries a PR that adds
+              # or edits a fragment skips this job entirely, which is a lane
+              # skipping generation and passing silently: exactly the failure
+              # mode the composed lane exists to catch.
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
+              - 'backend/tools/gen-composition/**'
+              # And the Makefile, because the frontend GATE lives there:
+              # check-fe and fe-typecheck-composed are make targets, so a PR
+              # that edits what the lane does — and nothing else — would skip
+              # the lane that runs it.
+              - 'Makefile'
             e2e:
               - 'backend/**'
               - 'frontend/**'
@@ -116,6 +134,29 @@ jobs:
             docker:
               - 'Dockerfile.*'
               - '.dockerignore'
+            # Everything that can change WHICH packages are in the tree, and
+            # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
+            # is globbed on purpose: the only lockfile is frontend/pnpm-lock.yaml,
+            # so a bare `pnpm-lock.yaml` matches nothing — and a Renovate
+            # lockfile-only PR, which is precisely where new transitive packages
+            # (and their licenses) enter, would slip past unscanned.
+            deps:
+              - 'go.work'
+              - 'go.work.sum'
+              - '**/go.mod'
+              - '**/go.sum'
+              - '**/package.json'
+              - '**/pnpm-lock.yaml'
+              - '.syft.yaml'
+              - '.grant.yaml'
+              - 'sbom-schemas/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              # A composite action is cataloged as a package by the SBOM scan, so
+              # adding one changes what the license gate judges. Omitting this is
+              # how .github/actions/go-build-cache reached main unscanned and left
+              # the gate latently red for the next dependency PR.
+              - '.github/actions/**'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.
   # PR-only: the direct-to-main workflow signs off at push time, and history
@@ -598,6 +639,42 @@ jobs:
           path: backend/coverage.out
           if-no-files-found: ignore
           retention-days: 1
+      # The extension migration gate (ADR-0069) — the ONE gate in the tier that
+      # is not textual: it applies each unit's migrations as that unit's own
+      # restricted ext_<name> role against a throwaway database and checks the
+      # resulting catalog against the allowlist.
+      #
+      # It lives HERE, on the integration lane, and not in check-backend where
+      # it started. From the first unit that ships a migrations/ layer the gate
+      # needs a cluster, and deterministic-gates is the fastest merge gate and
+      # container-free: arming it there would put a compose-stack start on every
+      # backend PR forever, to buy locality once. This lane is already the slow,
+      # cluster-bearing path.
+      #
+      # It ARMS ITSELF off the same condition the script tests, so the first
+      # migrations/ layer to land gets the cluster with no workflow edit and
+      # nobody having to remember. `make db-up` is the same compose stack the
+      # shards use (infra/docker-compose.dev.yml + scripts/db-init.sql for the
+      # cluster-level margince_app role migration 0015 GRANTs to), not a
+      # hand-mirrored service container. No margince_test template is built:
+      # the gate deliberately migrates a FRESH database under the root
+      # workspace rather than cloning the shared template, because a template
+      # migrated under the COMPOSED workspace already holds the very
+      # ext.ext_<name>_* objects the gate is about to apply.
+      #
+      # If the glob matches and the cluster is missing, the script FAILS with a
+      # named error rather than skipping — a gate that quietly checks nothing
+      # looks exactly like a passing one.
+      - name: Extension migration gate (armed by the tree)
+        working-directory: .
+        run: |
+          if ls -d extensions/*/migrations >/dev/null 2>&1; then
+            echo "an enabled unit declares migrations/ — starting the test cluster"
+            make db-up
+          else
+            echo "no enabled unit declares a migrations/ layer — the gate stays hermetic"
+          fi
+          make check-ext-migrations
 
   # The root Dockerfiles (api, web, worker) are consumed only by downstream
   # deploy tooling — no other job builds them, so without this gate a FROM
@@ -681,6 +758,49 @@ jobs:
         with:
           flavor: plain
       - run: make vuln
+
+  # The dependency-license gate, and the reason it lives HERE rather than in
+  # sbom.yml: it is a GATE, and sbom.yml is an artifact producer. sbom.yml filters
+  # at the WORKFLOW level, so on a PR touching no dependency it produces no check
+  # run at all — and a required context that never posts blocks the merge forever
+  # (the same trap the sonarcloud job below is written to avoid). Gated at the JOB
+  # level like every other lane here, a path skip reports as passing instead.
+  #
+  # PR-only on purpose. On main the identical gate runs inside sbom.yml, where it
+  # is the precondition for signing: a keyless signature lands permanently in a
+  # public transparency log and cannot be retracted, so a policy-failing SBOM must
+  # never reach the sign job. Splitting the two events runs the gate exactly once
+  # per path rather than twice on main.
+  #
+  # `make sbom` first because sbom-check reads the generated document — the gate
+  # judges the resolved dependency graph, not the manifests.
+  license-gate:
+    name: license gate
+    needs: [changes]
+    if: >-
+      github.event_name == 'pull_request'
+      && needs.changes.outputs.deps == 'true'
+      && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # SBOM_VERSION is the release tag when HEAD sits exactly on one
+          # (`git describe --tags --exact-match`), else the full revision —
+          # resolving that needs the tags and history.
+          fetch-depth: 0
+      # syft and grant run through digest-pinned Docker images (see the Makefile),
+      # so the runner needs only Docker — pre-installed on ubuntu-latest.
+      - name: Generate the SBOMs
+        run: make sbom
+      - name: License gate
+        run: make sbom-check
 
   # CI-based SonarCloud scan. Unlike Automatic Analysis, the scanner reads the
   # committed sonar-project.properties (exclusions + rule tuning + coverage
@@ -880,12 +1000,30 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      # Go, in the FRONTEND job (ADR-0069). `make check-fe` now covers both SPA
+      # lanes, and the composed one needs build/composition/frontend/ — which
+      # only gen-composition can produce. There is no Node-only shortcut: the
+      # registry is derived from the merged contracts, which the Go generator
+      # owns. Without a toolchain here the composed lane would have to be
+      # dropped from the merge gate, and the vanilla lane alone cannot catch a
+      # descriptor shape the SPA no longer compiles against.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # Both SPA lanes: `make check-fe` runs fe-typecheck-composed (compose,
+      # then typecheck against the generated registry) and then frontend-check
+      # (the vanilla lane's DS gates, biome, vitest, tsc and vite build). The
+      # composed target fails loudly if generation produced nothing rather than
+      # falling back to the committed empty-tree stub.
+      #
       # FE_CHECK=check:ci instruments the ONE vitest run this lane already
       # performs, so the lcov the sonarcloud job downloads is a by-product of
       # the run that decides the verdict rather than a second execution of the
-      # same 170 files. Coverage costs about a third of a run; a repeat costs a
-      # whole one.
-      - run: make frontend-check FE_CHECK=check:ci
+      # same suite. Coverage costs about a third of a run; a repeat costs a
+      # whole one. The override is a command-line variable, so it reaches
+      # frontend-check through check-fe's sub-make.
+      - run: make check-fe FE_CHECK=check:ci
       - name: Upload FE coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

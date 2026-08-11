@@ -353,8 +353,15 @@ func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UserID) (roles []stri
 		}
 		doc, err := policy.Parse(raw)
 		if err != nil {
-			// A role carrying an invalid policy document is a data defect
+			// A role carrying an UNREADABLE policy document is a data defect
 			// the login must surface, not silently downgrade to no access.
+			//
+			// "Unreadable" is now a much narrower set than it was: malformed
+			// JSON, or a row_scope nothing can interpret. An object this
+			// installation does not know is dropped by Parse with a log line
+			// instead of failing here — because failing here failed the whole
+			// LOGIN, so removing a composed extension locked out every user
+			// whose role still carried its object (Task 14 UAT, F4).
 			return nil, nil, principal.Permissions{}, fmt.Errorf("crmauth: role %q: %w", key, err)
 		}
 		roles = append(roles, key)

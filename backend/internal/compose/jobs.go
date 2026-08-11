@@ -297,6 +297,9 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addSignalJobs(reg, pool, cfg, log),
 		addFinanceJobs(reg, pool, cfg, log),
 		registerTelegramPoll(reg, pool, cfg, log),
+		// The composed extension jobs, if any. Empty on every vanilla process:
+		// the ext_ kinds and their ticks do not exist there at all.
+		addExtensionJobs(reg, pool, log),
 
 		// The schedules this file places. Each carries its own gate — the
 		// cadence, the configuration it needs, and what an absent dependency

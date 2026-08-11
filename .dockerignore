@@ -1,8 +1,10 @@
 # Keep the image build context lean. The Go images need the whole repo (backend,
 # backend/tools, cli/craft, extensions/*, go.work, the composition/ stub) so the
 # gen-composition step can materialize build/composition/ — do NOT exclude those.
-# The web image needs frontend/ + backend/api/*.yaml. Only regenerable machine
-# debris is excluded here.
+# The web image ALSO composes (Dockerfile.web's composer stage) — its SPA lane is
+# selected the same way the Go lane is — so it needs the whole repo too, not just
+# frontend/ + backend/api/*.yaml. Only regenerable machine debris is excluded
+# here.
 .git
 **/node_modules
 .pnpm-store

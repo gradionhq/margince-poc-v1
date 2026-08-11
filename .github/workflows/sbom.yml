@@ -4,28 +4,38 @@ name: SBOM
 # SBOM pipeline itself (Makefile targets, syft/grant policy, this workflow)
 # changes. syft/grant/cosign run through digest-pinned Docker images (see the
 # Makefile), so the runner needs only Docker — pre-installed on ubuntu-latest.
+# main only. The PR-side license gate moved to ci.yml's `license gate` job, which
+# is gated at the JOB level and so reports a path skip as passing — a required
+# context has to post on every ready PR, and a workflow-level `paths:` filter
+# produces no check run at all when it does not match. What stays here is the
+# artifact work nobody waits on: generation, the gate that guards signing, and
+# signing itself.
+#
+# `**/pnpm-lock.yaml`, not `pnpm-lock.yaml`: the only lockfile in the tree is
+# frontend/pnpm-lock.yaml, so the unglobbed pattern matched nothing and a
+# lockfile-only dependency change — the shape Renovate raises most often, and
+# exactly where new transitive packages and their licenses arrive — never
+# triggered this workflow at all.
 on:
   workflow_dispatch:
-  # Anchored once, reused by both events (YAML alias — DRY).
-  pull_request:
-    # Match ci.yml: ready_for_review joins the defaults so leaving draft triggers
-    # a run, and the job's draft guard skips work while the PR is still a draft.
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths: &dep-paths
+  push:
+    branches: [main]
+    paths:
       - "go.work"
       - "go.work.sum"
       - "**/go.mod"
       - "**/go.sum"
-      - "pnpm-lock.yaml"
+      - "**/pnpm-lock.yaml"
       - "**/package.json"
       - "Makefile"
       - ".syft.yaml"
       - ".grant.yaml"
       - "sbom-schemas/**"
       - ".github/workflows/sbom.yml"
-  push:
-    branches: [main]
-    paths: *dep-paths
+      # Composite actions are cataloged as packages by the scan, so adding one
+      # changes what the license gate judges — and main must be re-scanned when it
+      # does. Its absence is why .github/actions/go-build-cache landed unscanned.
+      - ".github/actions/**"
 
 # contents: read is the floor for every job. The OIDC minting credential
 # (id-token: write) is NOT granted here — only the isolated sign job requests it,
@@ -37,8 +47,6 @@ jobs:
   sbom:
     name: sbom
     runs-on: ubuntu-latest
-    # A draft PR iterating on dependency bumps has no SBOM consumer — skip it.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,6 +57,10 @@ jobs:
           fetch-depth: 0
       - name: Generate SBOMs
         run: make sbom
+      # Kept on this path even though ci.yml gates every PR: it is the
+      # precondition for the sign job below (`needs: sbom`). A keyless signature
+      # lands permanently in a public transparency log and cannot be retracted,
+      # so a policy-failing SBOM must never reach it.
       - name: License gate
         run: make sbom-check
       - name: Publish SBOMs
@@ -57,8 +69,7 @@ jobs:
           name: sboms
           path: sboms/
           if-no-files-found: error
-          # PR artifacts are superseded by the next push; only main's linger.
-          retention-days: ${{ github.event_name == 'pull_request' && 14 || 90 }}
+          retention-days: 90
 
   # Keyless signing is isolated from generation so PR-controlled build code never
   # runs while id-token: write is in scope. Only main's SBOMs are signed: keyless

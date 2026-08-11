@@ -5,12 +5,19 @@
   "risk_tiers": [
     {
       "id": "tool/hello_ping",
+      "unit": "crm-hello",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
       "operation": "agent.tool.invoke",
+      "operation_id": "crmHelloPing",
+      "route": "/ext/crm-hello/ping",
+      "method": "POST",
       "scopes": [
         "read"
       ],
-      "tier": "yellow",
-      "digest": "sha256:a08883c717cbd6900cdea044d4fc9ea3d2faf914ce45574a5db0b6cc63f3b3cc"
+      "tier": "confirmation_required",
+      "fragment_hash": "e2521f46fc2ac909f254554c51ed4fc889c11de87fcc4266dfc6b33f8539946c",
+      "digest": "sha256:020126feeab24462abcac95311e0c1efe88202e25adb241bd4adb9cbf3b5a249"
     }
   ]
 }

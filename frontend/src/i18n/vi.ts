@@ -104,20 +104,29 @@ export const vi = {
   "shell.railAria": "Điều hướng chính",
   "shell.logoAria": "Margince",
   "shell.search": "Tìm kiếm",
-  "shell.searchHint": "Tìm kiếm hoặc chạy lệnh",
   "shell.signOutAria": "Đăng xuất",
   "shell.collapse": "Thu gọn thanh bên",
   "shell.expand": "Mở rộng thanh bên",
   "shell.accountAria": "Tài khoản",
+  "shell.accountSettings": "Cài đặt tài khoản",
   "shell.theme": "Giao diện",
   "shell.views": "Chế độ xem",
   "shell.more": "Thêm",
+  "shell.unknownPage": "Không tìm thấy",
+  "shell.closeMenu": "Đóng",
   "agent.title": "Margince AI",
+  "agent.regionAria": "Trạng thái Margince AI",
   "agent.configured": "Đã cấu hình",
   "agent.exampleActivity": "Đang bổ sung thông tin cho 4 contact mới",
   "agent.exampleRouting": "Cục bộ + đám mây",
-  "agent.exampleCost": "€2.41 hôm nay",
+  "agent.exampleCost": "€2.41",
   "agent.fixture": "Dữ liệu ví dụ",
+  "agent.approvals": "Phê duyệt đang chờ",
+  "agent.toolsTitle": "Công cụ tác nhân",
+  "agent.toolsSummary": "{auto} tự động · {confirm} xác nhận",
+  "agent.activityLabel": "Hoạt động",
+  "agent.routingLabel": "Định tuyến",
+  "agent.spendLabel": "Chi tiêu hôm nay",
   "locale.name.en": "English",
   "locale.name.de": "Deutsch",
   "locale.name.vi": "Tiếng Việt",
@@ -125,6 +134,10 @@ export const vi = {
 
   "screen.pending":
     "Chưa dựng — màn hình này sẽ có cùng ticket xây dựng của nó.",
+
+  "ext.notFound":
+    "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
+  "ext.operations": "Các thao tác đã công bố",
 
   "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
@@ -2330,7 +2343,8 @@ export const vi = {
   "consumerMail.baselineSearchLabel": "Tìm trong danh sách có sẵn",
   "consumerMail.baselinePlaceholder": "gmail.com",
   "consumerMail.baselineNone": "Không có tên miền có sẵn nào khớp.",
-  "consumerMail.baselineMore": "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
+  "consumerMail.baselineMore":
+    "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
 
   "ob.s4.googleVerifying": "Đang xác minh kết nối…",
   "ob.s4.googleDenied": "Bạn đã từ chối chấp thuận của Google",
@@ -3465,6 +3479,38 @@ export const vi = {
     "Đã xếp hàng — sẽ xong trong chốc lát và tự cập nhật.",
   "settings.voice.buildStatus.pending":
     "Vẫn đang dựng — việc này có thể mất một lát; xong sẽ tự cập nhật ở đây.",
+  "settings.tab.extensions": "Tiện ích mở rộng",
+  "extAccess.title": "Tiện ích mở rộng & quyền truy cập",
+  "extAccess.sub":
+    "Mỗi đơn vị tiện ích đã ghép vào bản cài đặt này mang theo những gì, và vai trò nào được dùng. Chỉ dành cho quản trị viên.",
+  "extAccess.adminOnly":
+    "Chỉ quản trị viên mới truy cập được phần tiện ích mở rộng.",
+  "extAccess.readOnly":
+    "Chỗ ngồi của bạn chỉ đọc được trang này. Muốn đổi quyền cần chỗ ngồi đầy đủ.",
+  "extAccess.empty":
+    "Chưa có đơn vị tiện ích nào được ghép vào bản cài đặt này.",
+  "extAccess.version": "Phiên bản {version}",
+  "extAccess.openUnit": "Mở trang {name}",
+  "extAccess.noPage":
+    "{name} đã được ghép vào API, nhưng bản dựng ứng dụng này không có trang cho nó — ứng dụng có lẽ cũ hơn máy chủ.",
+  "extAccess.brings.objects": "Đối tượng phân quyền",
+  "extAccess.brings.routes": "Tuyến đường dẫn",
+  "extAccess.brings.jobs": "Tác vụ nền",
+  "extAccess.brings.none": "Không có",
+  "extAccess.noObjects":
+    "Đơn vị này không đăng ký đối tượng phân quyền nào, nên không có gì để cấp.",
+  "extAccess.roleColumn": "Vai trò",
+  "extAccess.action.read": "Đọc",
+  "extAccess.action.create": "Tạo",
+  "extAccess.action.update": "Sửa",
+  "extAccess.action.delete": "Xoá",
+  "extAccess.matrixCaption": "Ai được làm gì với {object}",
+  "extAccess.cell": "Cho phép {role} {action} {object}",
+  "extAccess.versionSkew":
+    "Người khác đã thay đổi vai trò này trong lúc bạn đang xem, nên thay đổi của bạn không được áp dụng. Các quyền ở trên hiện là bản mới nhất — hãy thực hiện lại nếu bạn vẫn muốn.",
+  "extAccess.systemRole": "Vai trò dựng sẵn",
+  "extAccess.nobodyReads":
+    "Không vai trò nào được đọc {object}, nên mọi thành viên chỉ thấy màn hình trống ở nơi lẽ ra là tiện ích này. Hãy cấp quyền đọc cho ít nhất một vai trò bên dưới.",
   "settings.tab.users": "Người dùng & vai trò",
   "users.title": "Người dùng & vai trò",
   "users.sub":

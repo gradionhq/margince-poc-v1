@@ -153,14 +153,47 @@ func declaredTimeoutSeconds(p jobs.TimeoutPolicy) (int64, bool) {
 // a queue is actually holding, and work of a retired kind is work; removing
 // it there would make the depth gauge understate the queue in order to make
 // this one stand out.
+//
+// It reports the CORE namespace only. An ext_ row this process cannot place is
+// a different situation with a different response, and it gets its own family
+// below rather than being folded in here.
 func writeUnrecognisedKindGauge(w io.Writer, rows []jobs.StateRow) error {
-	counts := undeclaredKindCounts(rows)
+	core, composed := undeclaredKindCounts(rows)
+	if err := writeUndeclaredFamily(w, "margince_job_unrecognised_kind",
+		"Jobs whose kind the contract does not declare -- rows of a kind that was removed, outliving it in River's job retention. Present only when such work exists; investigate rather than graph. These rows are also counted in the gauges above, which report what each queue is actually holding.",
+		core); err != nil {
+		return err
+	}
+	// A SEPARATE family, and this is a posture rather than a taxonomy.
+	//
+	// An ext_ row a process cannot place means this binary was built without
+	// the unit that owns it while the database it scrapes was written by one
+	// that has it. That is not a retired kind outliving its declaration — it is
+	// the ORDINARY state of a rolling deploy, in both directions: every
+	// replica-by-replica rollout of a build that adds a unit, and every
+	// rollback of one, spends minutes with both binaries live against one
+	// database. Counting it in the family above would fire that alert on every
+	// such deploy, and an alert that fires on every deploy is one nobody reads
+	// by the time a genuinely retired kind appears.
+	//
+	// It is still PUBLISHED, because the same reading has a second cause that
+	// is not benign: the skew outlasting the deploy means a unit was removed
+	// from the build while its rows are still being enqueued by whatever else
+	// is running. So the series exists to be graphed and to be alerted on FOR
+	// DURATION, which is exactly the discrimination one family cannot make.
+	return writeUndeclaredFamily(w, "margince_job_unrecognised_extension_kind",
+		"Jobs in the ext_ namespace whose kind THIS build does not compose -- work of an extension unit this binary was not built with. Expected and transient during a rolling deploy or rollback that adds or removes a unit, since both builds run against one database; alert on DURATION rather than on presence. These rows are also counted in the gauges above.",
+		composed)
+}
+
+// writeUndeclaredFamily writes one count-by-kind family, or nothing at all when
+// it has nothing to report — the absent-unless-there-is-something posture both
+// families take.
+func writeUndeclaredFamily(w io.Writer, name, help string, counts map[string]int64) error {
 	if len(counts) == 0 {
 		return nil
 	}
-	const name = "margince_job_unrecognised_kind"
-	if err := writeFamilyHeader(w, name,
-		"Jobs whose kind the contract does not declare -- rows of a kind that was removed, outliving it in River's job retention. Present only when such work exists; investigate rather than graph. These rows are also counted in the gauges above, which report what each queue is actually holding."); err != nil {
+	if err := writeFamilyHeader(w, name, help); err != nil {
 		return err
 	}
 	for _, kind := range sortedKeysOf(counts, strings.Compare) {
@@ -171,17 +204,25 @@ func writeUnrecognisedKindGauge(w io.Writer, rows []jobs.StateRow) error {
 	return nil
 }
 
-// undeclaredKindCounts totals every row of every kind the contract does not
-// declare, across all states: the question is how much work of a kind nobody
-// declares is in this table, and a retired kind's discarded backlog is as
-// much an answer to that as its waiting rows are.
-func undeclaredKindCounts(rows []jobs.StateRow) map[string]int64 {
-	counts := map[string]int64{}
+// undeclaredKindCounts totals every row of every kind this process does not
+// declare, across all states — a retired kind's discarded backlog is as much an
+// answer to "how much work of a kind nobody declares is in this table" as its
+// waiting rows are — and splits them by namespace, because the two readings
+// call for different responses (see writeUnrecognisedKindGauge).
+func undeclaredKindCounts(rows []jobs.StateRow) (core, composed map[string]int64) {
+	core, composed = map[string]int64{}, map[string]int64{}
 	for _, r := range rows {
 		if _, declared := jobs.SpecFor(r.Kind); declared {
 			continue
 		}
-		counts[r.Kind] += r.Count
+		// The NAMESPACE, not the composed table: on a vanilla build that table
+		// is empty, and it is precisely the vanilla build scraping a composed
+		// database that this split exists for.
+		if jobs.IsExtensionKind(r.Kind) {
+			composed[r.Kind] += r.Count
+			continue
+		}
+		core[r.Kind] += r.Count
 	}
-	return counts
+	return core, composed
 }

@@ -37,6 +37,15 @@ import (
 // walked package owns them, so any direct module write needs a waiver.
 const storekitOwned = "internal/platform/database/storekit"
 
+// extSecretsStoreDir is the second platform package this gate walks (after
+// settingsStoreDir): the extension tier's secret namespace owns
+// extension_secret, so leaving it outside the sweep would let a future
+// second writer of that table land unnoticed. Named explicitly, for the
+// same reason settingsStoreDir is — the rest of platform owns no rows, and
+// widening to internal/platform would sweep in files this gate has not
+// judged.
+const extSecretsStoreDir = "internal/platform/extsecrets"
+
 // tableOwners maps every core-migration table to the ONE module whose store
 // owns its writes (module doc.go "Tables owned" declarations, kept in sync).
 // This map is the hand-maintained artifact: a new table gets an owner here
@@ -168,6 +177,13 @@ var tableOwners = map[string]string{
 	// (validator, freeze probe, per-entry audit verb) the entry already
 	// carries. The unusual owner is therefore the invariant, not an exception.
 	"setting": "internal/platform/settings",
+	// The extension tier's secret namespace (ADR-0069): the mapping from an
+	// extension's own key names onto keyvault refs. Owned by the platform
+	// mechanism for the same reason `setting` is — no module owns the row
+	// shape, and a second writer would be a second namespace wall, which is
+	// the one thing this table exists to be. platform/extsecrets is
+	// therefore a walked root below, so the ownership really is enforced.
+	"extension_secret": "internal/platform/extsecrets",
 	// search
 	"embedding":           "internal/modules/search",
 	"embed_store_binding": "internal/modules/search",
@@ -478,7 +494,7 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 	t.Helper()
 	writes := map[string][]tableWrite{} // owning dir → writes
 	fset := token.NewFileSet()
-	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir} {
+	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir, extSecretsStoreDir} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||

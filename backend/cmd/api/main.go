@@ -65,7 +65,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// snapshot serves registration and the boot inventory below, so both
 	// observe the same declarations.
 	extensions := composition.Extensions()
-	if err := compose.RegisterExtensions(extensions); err != nil {
+	if err := compose.RegisterExtensions(extensions, composition.Verbs(), composition.Jobs()); err != nil {
 		return err
 	}
 
@@ -80,6 +80,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
+	// Before anything reads or writes through it: a pool connecting as a role
+	// row-level security does not bind serves every tenant's rows to every
+	// request, and nothing later in this boot would say so.
+	if err := compose.AssertRuntimeRole(ctx, pool); err != nil {
+		return err
+	}
 
 	deployCfg, err := bindInstallation(ctx, cfg, pool, logger)
 	if err != nil {
@@ -128,23 +134,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer stopRelay()
 	opts = append(opts, relayOpts...)
 
+	// The model path comes back already bound to quotaMeter (MCP-SESS-COST);
+	// boot.go carries why that binding belongs with the path, not here.
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelOpts, modelPath, err := modelAndHandoffOptions(cfg, deployCfg, pool, logger)
+	modelOpts, modelPath, err := modelAndHandoffOptions(cfg, deployCfg, pool, logger, quotaMeter)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, modelOpts...)
-	// MCP-SESS-COST: the same meter the gate reads, charged where the tokens
-	// are known. A model path bound to a different meter would meter an agent's
-	// spend into a window nothing else looks at.
-	//
-	// Nil is a SUPPORTED deployment, not an error: an api started with neither
-	// --ai-routing nor --ai-fake resolves no model path at all, and every other
-	// consumer here guards it the same way. There is no model call to charge in
-	// that shape, so there is nothing to bind.
-	if modelPath != nil {
-		*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
-	}
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	viewOpts, stopViewRefresh, err := mcpAppViewsLane(ctx, cfg, deployCfg, logger)

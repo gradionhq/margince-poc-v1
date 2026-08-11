@@ -14,3 +14,20 @@ import (
 func Extensions() []extension.Extension {
 	return nil
 }
+
+// Verbs returns every governed operation the enabled units' contract
+// fragments declare, read out of the merged contracts at generation time and
+// re-emitted here as literals — so a bare role binary, which ships no
+// repository, still knows each operation's route, risk tier, requested scope
+// and selection prose.
+func Verbs() []extension.Verb {
+	return nil
+}
+
+// Jobs returns every scheduled job the enabled units' jobs.yaml fragments
+// declare, read out of the merged contract at generation time and re-emitted
+// here as literals — so a bare role binary knows each job's cadence, wall
+// clocks, queue, attempt cap, risk tier and requested scope.
+func Jobs() []extension.JobDeclaration {
+	return nil
+}
