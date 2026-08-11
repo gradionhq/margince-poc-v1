@@ -59,7 +59,7 @@ Consequences:
   backend too.
 - A **CI PR still runs the full backend lane** when it touches `ci.yml`, the
   `Makefile`, or `scripts/**`: those change what a gate *does*, so the gates
-  re-run to prove they still pass under the new definition. `patch.yml` and
+  re-run to prove they still pass under the new definition. `release.yml` and
   `sbom.yml` are outside the scope — neither runs a backend gate, and each
   proves itself when it runs.
 - **Draft PRs run nothing** until marked ready (`draft == false` guards every
@@ -70,7 +70,7 @@ Consequences:
   gated on the scope classifier. The **image-pin gate rides in `secret-scan`**
   for the same reason: it reads the whole workflow directory while the `backend`
   scope names one file, so gated on the classifier it would skip on exactly the
-  PR that unpins an action in `sbom.yml` or `patch.yml` — and Renovate, which
+  PR that unpins an action in `sbom.yml` or `release.yml` — and Renovate, which
   bumps `uses:` across all three workflows, auto-merges on green.
 
 ## Job graph

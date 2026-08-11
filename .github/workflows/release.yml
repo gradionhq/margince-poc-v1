@@ -240,7 +240,14 @@ jobs:
   publish:
     name: publish release
     needs: [draft, docker-image]
-    if: needs.draft.outputs.patched == 'true'
+    # `!= 'false'`, not `== 'true'`: on a re-run of failed jobs the draft job
+    # does not re-execute and GitHub drops its outputs, so an equality test
+    # against 'true' silently skipped the publish of a fully patched release.
+    # Fail open on a missing output — the only release that must not publish
+    # is one that KNOWS it has no patch, and the dist completeness gate backs
+    # this up server-side with a 409. The implicit success() still applies, so
+    # a failed draft or image job keeps blocking the publish.
+    if: needs.draft.outputs.patched != 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
