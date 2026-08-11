@@ -136,10 +136,13 @@ jobs:
               - '.dockerignore'
             # Everything that can change WHICH packages are in the tree, and
             # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
-            # is globbed on purpose: the only lockfile is frontend/pnpm-lock.yaml,
-            # so a bare `pnpm-lock.yaml` matches nothing — and a Renovate
-            # lockfile-only PR, which is precisely where new transitive packages
-            # (and their licenses) enter, would slip past unscanned.
+            # is globbed on purpose: a Renovate lockfile-only PR is precisely
+            # where new transitive packages (and their licenses) enter, and it
+            # must not slip past unscanned. The pattern predates the pnpm
+            # workspace root moving to the repository root — the lockfile is
+            # /pnpm-lock.yaml now, which `**/` still matches because it matches
+            # zero segments, so this keeps firing and needs no edit next time the
+            # workspace moves.
             deps:
               - 'go.work'
               - 'go.work.sum'
