@@ -38,11 +38,19 @@ const CachedSentencesMax = 5
 // is the guarantee stated as a dependency: this function reaches the cache and
 // the row scope, and there is no lane here for it to call.
 //
-// The fingerprint is deliberately NOT checked. A dossier assembled from facts
-// that have since moved is stale for the page that displays it as current
-// knowledge, and still true enough for a sentence of background in a draft the
-// rep reads before sending. Re-deriving it to find out would be the model call
-// this function exists to avoid.
+// Two halves of Service.Get's usable() test, treated differently and on
+// purpose. The stored VERSION is checked: a payload written in a shape this
+// build does not understand is a correctness question, and reading it would
+// hand a drafter fields that mean something else. The FINGERPRINT is not: it
+// says the source facts have moved since the dossier was assembled, which makes
+// it stale for the page that presents it as current knowledge, and still true
+// enough for a sentence of background in a draft the rep reads before sending.
+// Computing it would need BuildInput over the whole record — the work this
+// function exists to avoid.
+//
+// What that costs is bounded by what a caller may do with it: these sentences
+// are background in a draft a human edits, never a fact the product asserts on
+// its own. A drafter is not a place to learn something new about a company.
 func (s *Service) CachedSections(ctx context.Context, orgID ids.OrganizationID) []string {
 	// A nil *Service reaches here as a non-nil interface, which is how a
 	// dependency wired before its provider exists gets past a nil check and
@@ -60,7 +68,7 @@ func (s *Service) CachedSections(ctx context.Context, orgID ids.OrganizationID) 
 		return nil
 	}
 	cached, found, err := s.cached(ctx, userID, orgID)
-	if err != nil || !found {
+	if err != nil || !found || cached.Version != storedVersion {
 		return nil
 	}
 

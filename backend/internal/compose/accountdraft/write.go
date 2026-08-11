@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/gradionhq/margince/backend/internal/compose/draftcore"
 	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
@@ -237,7 +238,7 @@ func keepGroundedReasons(reasons []modelReason, in Input) []Reason {
 			}
 			keep.EntityType = reason.EntityType
 			keep.EntityID = reason.EntityID
-		} else if !citesNothing(kind, in) {
+		} else if !groundedWithoutCitation(kind, label, in) {
 			// A reason with no citation is only honest where nothing was there
 			// to cite. An uncited "deal" is a claim about a record with no
 			// record behind it — exactly what the grounding filter exists to
@@ -249,24 +250,79 @@ func keepGroundedReasons(reasons []modelReason, in Input) []Reason {
 	return out
 }
 
-// citesNothing reports whether this reason kind is honest with no citation.
+// groundedWithoutCitation reports whether this reason is honest with no record
+// behind it.
 //
-// Two are. The caller's own intent cites nothing by design — they typed it.
-// And a dossier fact is a sentence about what the company IS, drawn from the
-// supplied summary rather than from a record: it is grounded in input the model
-// really was given, and there is no page for a chip to open. It is only honest
-// when a dossier was actually supplied, which is what makes this a grounding
-// check rather than a hole in one — the kind was unreachable while the field
-// was dead, and it must go back to unreachable the moment nothing feeds it.
-func citesNothing(kind crmcontracts.AccountDraftReasonKind, in Input) bool {
+// Two kinds can be. The caller's own intent cites nothing by design — they
+// typed it. And a dossier fact is a sentence about what the company IS, drawn
+// from the supplied summary rather than from a record, so there is no page for
+// a chip to open.
+//
+// A dossier reason is checked against the dossier's own WORDS, not against the
+// mere presence of one. Keying on presence would let the model attach
+// "grounded in the dossier" to any claim at all as long as some unrelated
+// sentence was supplied — provenance that says the opposite of the truth, which
+// is worse than no provenance, because a reader trusts a chip.
+func groundedWithoutCitation(kind crmcontracts.AccountDraftReasonKind, label string, in Input) bool {
 	switch kind {
 	case crmcontracts.AccountDraftReasonKindIntent:
 		return true
 	case crmcontracts.AccountDraftReasonKindDossier:
-		return len(in.Dossier) > 0
+		return dossierSupports(label, in.Dossier)
 	default:
 		return false
 	}
+}
+
+// dossierMinOverlapWords is how many of a label's own words must appear in one
+// dossier sentence for that sentence to be what the label is about.
+//
+// A label is a chip: "dispatch software", "mid-market freight". Two content
+// words is enough to tie it to a sentence and too many to hit by accident,
+// which one shared word ("the", "software") would be.
+const dossierMinOverlapWords = 2
+
+// dossierSupports reports whether one supplied sentence is plausibly what this
+// label refers to.
+//
+// Word overlap rather than substring: the model writes the label in the
+// reader's words ("their own dispatch software"), not by quoting the sentence,
+// so an exact match would drop every honest label and keep nothing. This is
+// deliberately a weak test — it cannot tell a true summary from a slanted one —
+// and it does the one job the filter needs: a claim with nothing to do with the
+// dossier no longer arrives wearing the dossier's provenance.
+func dossierSupports(label string, dossier []string) bool {
+	wanted := contentWords(label)
+	if len(wanted) < dossierMinOverlapWords {
+		return false
+	}
+	for _, sentence := range dossier {
+		have := contentWords(sentence)
+		overlap := 0
+		for word := range wanted {
+			if have[word] {
+				overlap++
+			}
+		}
+		if overlap >= dossierMinOverlapWords {
+			return true
+		}
+	}
+	return false
+}
+
+// contentWords is the set of words in a text long enough to carry meaning.
+// Short words are the ones every sentence shares.
+func contentWords(text string) map[string]bool {
+	out := map[string]bool{}
+	for _, word := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len([]rune(word)) > 3 {
+			out[word] = true
+		}
+	}
+	return out
 }
 
 // parseKind narrows the model's string to the contract's closed vocabulary. An

@@ -59,3 +59,39 @@ func TestADossierReasonSurvivesOnlyWhenADossierWasSupplied(t *testing.T) {
 		t.Errorf("a dossier reason with no dossier behind it should be dropped, got %+v", got)
 	}
 }
+
+// The check reads the dossier's WORDS, not merely whether one was supplied.
+// Keying on presence would let the model tag any claim as "grounded in the
+// dossier" as long as some unrelated sentence was there — provenance that says
+// the opposite of the truth, which is worse than none, because a reader trusts
+// a chip.
+func TestADossierReasonMustActuallyComeFromTheDossier(t *testing.T) {
+	supplied := Input{
+		Recipient: RecipientIn{ID: "p1", Name: "Priya Raman"},
+		Dossier:   []string{"Runs its own dispatch software across three depots."},
+	}
+
+	cases := []struct {
+		name  string
+		label string
+		keep  bool
+	}{
+		{name: "the label is about the supplied sentence", label: "their own dispatch software", keep: true},
+		{name: "the label is written in the reader's words", label: "dispatch software across depots", keep: true},
+		{name: "a claim the dossier never made", label: "recently raised a Series B", keep: false},
+		{name: "one shared word is not grounding", label: "software licensing renewal", keep: false},
+		{name: "too short to tie to anything", label: "growth", keep: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			reasons := []modelReason{{
+				Kind:  string(crmcontracts.AccountDraftReasonKindDossier),
+				Label: c.label,
+			}}
+			got := keepGroundedReasons(reasons, supplied)
+			if (len(got) == 1) != c.keep {
+				t.Errorf("label %q: kept=%v, want %v", c.label, len(got) == 1, c.keep)
+			}
+		})
+	}
+}
