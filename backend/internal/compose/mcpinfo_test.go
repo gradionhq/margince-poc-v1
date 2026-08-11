@@ -61,8 +61,9 @@ const mcpInfoNote = "Generated from the served MCP surface by " +
 	"This is the ALL-SCOPE view: tools/list and resources/list are both filtered per caller, so a " +
 	"passport holding fewer scopes is served less than this. It is the CORE catalog: extension units " +
 	"register onto the same registry and are not composed here. It is captured as an Apps-capable " +
-	"host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; a client that does not " +
-	"declare the UI extension is served no such member. The `ui://` view descriptors ARE " +
+	"host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; only a MODERN request " +
+	"that declined the UI extension is served no such member — the handshake era, which has no way " +
+	"to declare one, is served views. The `ui://` view descriptors ARE " +
 	"included, and a deployment publishes each only once its boot has fetched and admitted that " +
 	"document, so an api serving neither advertises neither."
 

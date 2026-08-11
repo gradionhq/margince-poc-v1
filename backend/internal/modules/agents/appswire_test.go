@@ -101,17 +101,15 @@ func TestANegotiatedRequestIsToldWhichViewRendersATool(t *testing.T) {
 	}
 }
 
-// A request that did NOT declare the extension is served the tool with no view
-// on it. Offering one would hand a client a document it never said it could
-// render, and the legacy framing cannot decline because it has no place to
-// declare anything.
-func TestAnUnnegotiatedRequestIsServedNoView(t *testing.T) {
+// A MODERN request that did not declare the extension is served the tool with no
+// view on it. That era declares per call, so silence is an answer the client
+// chose to give, and offering anyway would override it.
+func TestAnUnnegotiatedModernRequestIsServedNoView(t *testing.T) {
 	d := dispatcherServingAView(t)
 	for _, tc := range []struct {
 		name string
 		fr   framing
 	}{
-		{"the handshake era, which cannot negotiate at all", legacyFraming},
 		{"the modern era with the extension undeclared", framing{modern: true}},
 		{"the modern era declaring only Tasks", framing{modern: true, tasks: true}},
 	} {
@@ -155,20 +153,43 @@ func TestAServerWithNoViewsClaimsNoAppExtension(t *testing.T) {
 	}
 }
 
-// A server that DOES serve views advertises the extension — but only in the era
-// that can negotiate one. Advertising to the handshake era offers a negotiation
-// the client has no way to enter, which is why Tasks is era-gated too.
-func TestTheAppExtensionIsAdvertisedOnlyToTheEraThatCanNegotiateIt(t *testing.T) {
+// A HANDSHAKE-era request is served the view, without declaring anything. That
+// era has no `_meta` to declare an extension in, and reading its silence as a
+// refusal withheld views from every host that connects in it — which is the era
+// the hosts that actually render them still use. Measured against Claude Desktop
+// on 2026-08-11: the same tools/list carried five `_meta.ui` members in the
+// modern framing and none in this one, on a server holding all five documents.
+func TestAHandshakeEraRequestIsServedTheView(t *testing.T) {
 	d := dispatcherServingAView(t)
-	extensions, claimed := d.capabilities(true)["extensions"].(map[string]any)
-	if !claimed {
-		t.Fatal("a server serving views advertises no extensions at all")
+	listed := d.toolList(agentHolding(principal.ScopeRead), legacyFraming)
+	if len(listed) != 1 {
+		t.Fatalf("tools/list returned %d entries, want the one registered tool", len(listed))
 	}
-	if _, advertised := extensions[extensionUI]; !advertised {
-		t.Errorf("the App extension is not advertised to a modern client: %v", extensions)
+	encoded, err := json.Marshal(listed[0])
+	if err != nil {
+		t.Fatalf("encoding the listed tool: %v", err)
 	}
-	if _, leaked := d.capabilities(false)["extensions"]; leaked {
-		t.Error("an extension is advertised to the handshake era, which has no way to declare one")
+	if !strings.Contains(string(encoded), `"_meta":{"ui":{"resourceUri":"`+viewURI+`"`) {
+		t.Errorf("a handshake-era tools/list does not name the tool's view, so no host in that era can render one:\n%s", encoded)
+	}
+}
+
+// A server that DOES serve views advertises the extension in BOTH eras, because
+// both are now served `_meta.ui`. Tasks stays modern-only: its handle is useless
+// to a client with no per-request way to say it can poll one.
+func TestTheAppExtensionIsAdvertisedToBothEras(t *testing.T) {
+	d := dispatcherServingAView(t)
+	for _, modern := range []bool{true, false} {
+		extensions, claimed := d.capabilities(modern)["extensions"].(map[string]any)
+		if !claimed {
+			t.Fatalf("a server serving views advertises no extensions at all (modern=%v)", modern)
+		}
+		if _, advertised := extensions[extensionUI]; !advertised {
+			t.Errorf("the App extension is not advertised (modern=%v): %v", modern, extensions)
+		}
+		if _, leaked := extensions[extensionTasks]; leaked && !modern {
+			t.Error("the Tasks extension is advertised to the handshake era, which has no way to poll a handle")
+		}
 	}
 }
 
@@ -428,34 +449,70 @@ func rpcRendering(t *testing.T, d *Dispatcher, method, params string) rpcRespons
 	return d.handle(agentHolding(principal.ScopeRead), req, framing{modern: true, apps: true})
 }
 
-// A client that did not declare the App extension is served the resource
-// surface exactly as it was before any view existed — which is the promise
-// apps.go's header makes, and which the tool listing kept while the document
-// catalogue did not.
+// rpcModernUndeclared is one request from the era that CAN decline the extension
+// and did. It is the only era that withholds the App members now, so it is the
+// era this pair of assertions is about.
+func rpcModernUndeclared(t *testing.T, d *Dispatcher, method, params string) rpcResponse {
+	t.Helper()
+	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method}
+	if params != "" {
+		req.Params = json.RawMessage(params)
+	}
+	return d.handle(agentHolding(principal.ScopeRead), req, framing{modern: true})
+}
+
+// A modern client that did not declare the App extension is served the resource
+// surface exactly as it was before any view existed.
 //
 // The two halves are asserted TOGETHER because the failure that matters is the
 // one where they disagree: a catalogue that hid a view while the read still
 // served it would let a client learn a document exists by asking for a URI it
 // was never shown.
-func TestAClientThatCannotRenderAViewIsNeitherShownOneNorServedOne(t *testing.T) {
+func TestAModernClientThatCannotRenderAViewIsNeitherShownOneNorServedOne(t *testing.T) {
+	d := dispatcherServingAView(t)
+
+	listed, err := json.Marshal(rpcModernUndeclared(t, d, "resources/list", "").Result)
+	if err != nil {
+		t.Fatalf("encoding resources/list: %v", err)
+	}
+	if strings.Contains(string(listed), viewURI) {
+		t.Errorf("a modern request that declined the extension is advertised a view anyway:\n%s", listed)
+	}
+
+	read := rpcModernUndeclared(t, d, "resources/read", `{"uri":"`+viewURI+`"}`)
+	if read.Error == nil {
+		t.Fatalf("a modern request that declined the extension read a view document: %v", read.Result)
+	}
+	// codeInvalidParams, not resourceNotFound: this era retired -32002 and moved
+	// its meaning to -32602 (finishModern). What matters is unchanged — it is the
+	// same answer an unknown URI gets in the same era, so the refusal does not
+	// report that the document exists.
+	if read.Error.Code != codeInvalidParams {
+		t.Errorf("reading a withheld view answered %d, want %d — the same answer an "+
+			"unknown URI gets in this era, or the refusal itself reports the document exists",
+			read.Error.Code, codeInvalidParams)
+	}
+}
+
+// And the handshake era gets BOTH halves, for the same consistency reason. A
+// tool listing that named a view the same client could not then read would send
+// every host in that era to a refusal for the document it was just told to
+// prefetch — which is the pairing the modern case above holds in the other
+// direction.
+func TestTheHandshakeEraIsBothShownAViewAndServedIt(t *testing.T) {
 	d := dispatcherServingAView(t)
 
 	listed, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
 	if err != nil {
 		t.Fatalf("encoding resources/list: %v", err)
 	}
-	if strings.Contains(string(listed), viewURI) {
-		t.Errorf("the legacy era is advertised a view it has no way to declare for:\n%s", listed)
+	if !strings.Contains(string(listed), viewURI) {
+		t.Errorf("the handshake era is not shown the view its tools now name:\n%s", listed)
 	}
 
 	read := rpc(t, d, "resources/read", `{"uri":"`+viewURI+`"}`)
-	if read.Error == nil {
-		t.Fatalf("the legacy era read a view document: %v", read.Result)
-	}
-	if read.Error.Code != resourceNotFound {
-		t.Errorf("reading a withheld view answered %d, want %d — the same answer an "+
-			"unknown URI gets, or the refusal itself reports the document exists",
-			read.Error.Code, resourceNotFound)
+	if read.Error != nil {
+		t.Fatalf("the handshake era cannot read the view it was just offered: %v", read.Error)
 	}
 }
 

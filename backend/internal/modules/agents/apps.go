@@ -169,13 +169,32 @@ func (s *Dispatcher) viewIsHeld(spec mcp.ToolSpec) bool {
 }
 
 // appsOffered reports whether THIS request is served the App extension's
-// members: the request declared it, and this server has views to declare.
+// members: this server has views to declare, and nothing about the request says
+// not to offer them.
 //
-// Both halves, because each alone produces a different broken promise. Without
-// the declaration a client is handed a member it never said it could render;
-// without a view the server advertises a capability it cannot honour.
+// The SERVED half is unconditional. A server with no view that advertised one
+// sends every prefetching host to a not-found, and no client declaration can
+// conjure a document.
+//
+// The DECLARED half is asked of the modern era only, and that asymmetry is the
+// whole of this function. A modern request negotiates per call, so a client that
+// COULD have declared the extension and did not is a client saying no, and
+// offering anyway would override an answer it gave. The handshake era gives no
+// such answer: it has no `_meta` to carry one, and reading silence there as "no"
+// withheld the feature from every client in that era — which, measured against
+// Claude Desktop on 2026-08-11, is the era the hosts that actually render views
+// still connect in. `_meta` is the member the protocol reserves for exactly this
+// and instructs a receiver to ignore what it does not understand, so the cost of
+// offering a view to a handshake client that cannot draw one is the bytes; the
+// cost of withholding it is the feature.
 func (s *Dispatcher) appsOffered(fr framing) bool {
-	return fr.apps && s.appsServed()
+	if !s.appsServed() {
+		return false
+	}
+	if fr.modern {
+		return fr.apps
+	}
+	return true
 }
 
 // toolUIWire is one tool's `_meta.ui` as a client reads it.
