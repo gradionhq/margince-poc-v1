@@ -78,6 +78,17 @@ func setupForecast(t *testing.T) *forecastEnv {
 		Rep1: ids.NewV7(), Rep3: ids.NewV7(), Team1: ids.NewV7(), Team2: ids.NewV7(),
 		stages: map[int]ids.UUID{},
 	}
+	// The installation's identity as settings rows: the forecast's
+	// slipped-category dimension resolves its zone from the SETTING now, and
+	// this env builds its workspace by raw SQL, so bootstrap never seeded them
+	// (issue #521).
+	if _, err := owner.Exec(ctx, `INSERT INTO setting (key, value) VALUES
+			('installation.name', '"Forecast"'::jsonb),
+			('installation.base_currency', '"EUR"'::jsonb),
+			('installation.timezone', '"UTC"'::jsonb)
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
+		t.Fatalf("seeding the installation settings: %v", err)
+	}
 	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Forecast', 'forecast', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +152,14 @@ func (e *forecastEnv) dealReadCtx(userID ids.UUID, teams []ids.UUID, scope princ
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID, TeamIDs: teams,
 		Permissions: principal.Permissions{
-			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+			Objects: map[string]principal.ObjectGrant{
+				"deal": {Read: true},
+				// The forecast buckets "today" in the installation's zone, and
+				// that zone is read behind this object now (issue #521). 0191
+				// grants it to all five seeded roles, so no real caller of a
+				// report is without it.
+				"installation_settings": {Read: true},
+			},
 			RowScope: scope,
 		},
 	})
@@ -453,5 +471,58 @@ func TestForecastDerivationHonorsRowScope(t *testing.T) {
 	full := e.explain(t, e.Admin(), result.DerivationURL)
 	if full.TotalRows != 3 {
 		t.Errorf("admin drill-through total = %d, want 3", full.TotalRows)
+	}
+}
+
+// forecastStatus runs the forecast and reports only the status code, for the
+// cases where the interesting outcome is a refusal rather than a result.
+func (e *forecastEnv) forecastStatus(ctx context.Context, body string) int {
+	req := httptest.NewRequest(http.MethodPost, "/v1/reports/forecast", strings.NewReader(body)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	e.handlers.RunReport(rec, req, "forecast")
+	return rec.Code
+}
+
+// The forecast's "today" comes from the SETTING's zone, not from
+// workspace.timezone (ADR-0091 phase 4, issue #521).
+//
+// It asserts a FLIP rather than a message. Asserting on a date would be
+// flaky — any two real zones agree about the date for part of every day, so
+// the outcome would turn on the hour the suite ran. And the zone never reaches
+// the response body: an unresolvable zone is a Postgres fault, which httperr
+// masks to an opaque 500 exactly as it should. So the fixture holds everything
+// constant and moves only the setting: the same report that answered 200
+// stops answering once the SETTING names a zone Postgres cannot resolve, while
+// workspace.timezone still says UTC. A reader on the column never notices.
+func TestTheForecastBucketsInTheZoneTheSettingNames(t *testing.T) {
+	e := setupForecast(t)
+	// A commit deal WITH a close date, because the zone sits inside a CASE
+	// that Postgres evaluates per row: over an empty result the expression is
+	// never reached, and the fixture would report success in both directions
+	// without ever consulting a zone at all.
+	commit := "commit"
+	amount := int64(100000)
+	e.seedOpenDeal(t, "Zoned", 60, nil, &amount, &commit)
+	body := `{"group_by":["forecast_category"]}`
+	if got := e.forecastStatus(e.Admin(), body); got != http.StatusOK {
+		t.Fatalf("the control run answered %d, want 200 — the fixture is broken before the setting moves", got)
+	}
+
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE setting SET value = '"Margince/Nowhere"'::jsonb WHERE key = 'installation.timezone'`); err != nil {
+		t.Fatal(err)
+	}
+	var column string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT timezone FROM workspace WHERE id = $1`, e.WS).Scan(&column); err != nil {
+		t.Fatal(err)
+	}
+	if column != "UTC" {
+		t.Fatalf("the fixture needs the two copies to DISAGREE; workspace.timezone = %q", column)
+	}
+
+	if got := e.forecastStatus(e.Admin(), body); got == http.StatusOK {
+		t.Error("the forecast still answered 200 with an unresolvable zone in the setting; " +
+			"the slipped-category dimension is reading workspace.timezone")
 	}
 }
