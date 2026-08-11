@@ -29,10 +29,6 @@ coverage.out
 !/extensions/notes
 !/extensions/de
 !/extensions/yogi
-# A unit's installed frontend dependencies. Its package.json and the workspace
-# lockfile are what ship; node_modules is what pnpm makes from them, and it is
-# per-member now that a unit's frontend layer is a workspace package.
-/extensions/*/frontend/node_modules/
 
 # Compiled cmd binaries left in the module dir by `go build ./cmd/<role>`
 # (anchored so they never match the cmd/<role> source directories; the api
