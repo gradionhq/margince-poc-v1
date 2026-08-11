@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
@@ -49,6 +50,47 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the person record page V2, and what it still owes (2026-08-11)
+
+The page ships (ADR-0096/0097/0098, concept `person-record-page-v2`): header,
+six-slot strip, seven URL-addressable tabs, the server-selected Today moment,
+the 2×2 grid, conversation memory, the six-card rail, and three wide drawers —
+composer, research, meeting brief. Both overview states render from real data
+and differ because the DATA differs. `scripts/seed-person-page.sh` seeds them
+through the production writers.
+
+What it owes, in the order it matters:
+
+**The extraction task has no writer running (#849).** `conversation_claim` is
+written today only by the demo seed and by research-save. The commitments and
+what-matters cards are therefore as good as the seed, and on a real mailbox
+they render their honest empty state. The three FKs on that table are
+classified `PENDING WRITER` in `migrations/schema_fitness_integration_test.go`
+rather than claimed as gated — replacing those entries is part of landing the
+task, and a stale entry fails the gate, so it cannot be forgotten.
+
+**Qualifying events are derived, not written (#850).** Only the inbound-message
+arm exists, computed at send time from the timeline. `inquiry`, `in_person` and
+`active_deal` have no writer, and an employer change does not reset the §7(3)
+flag. The behaviour under-allows rather than over-allows, so it is safe and
+incomplete.
+
+**No model lane is wired to any of it.** The person brief, the person draft and
+the meeting brief all render their deterministic floor and say so in
+`generated_by`. `WithPersonDraft` exists for the api role; the other two need
+the same treatment.
+
+**No research provider is registered**, which is the supported configuration
+(ADR-0096 D4): the drawer answers "no data provider yet connected" and writes
+nothing. Connecting one is a provider implementation, not a surface change.
+
+**The portrait is a monogram.** ADR-0096 D5 makes human upload the only writer,
+and no upload surface exists yet.
+
+**Playwright has no person-record spec.** The page was verified by hand at
+1536×1024 and by clicking every button; the visual baselines the plan called
+for are not written.
 
 ## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
 
