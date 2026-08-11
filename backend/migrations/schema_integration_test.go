@@ -196,7 +196,7 @@ func TestAttachmentScanStatusBackfill(t *testing.T) {
 // seedWorkspace inserts a workspace at WHATEVER schema version the caller has
 // migrated to. The replay suites apply core only as far as some past release,
 // where name and base_currency are still NOT NULL columns; the head suites run
-// after 0209 dropped them. One helper serves both, so it asks the catalog
+// after 0211 dropped them. One helper serves both, so it asks the catalog
 // which shape it is talking to rather than assuming the newest.
 func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 	t.Helper()
@@ -686,9 +686,9 @@ func assertSignal(t *testing.T, conn *pgx.Conn, id, wantVisibility string, wantO
 // installation IS (ADR-0061 §3).
 //
 // The replay suites plant several workspaces to model several historical
-// installations in one database. That shape stops upgrading cleanly at 0209:
+// installations in one database. That shape stops upgrading cleanly at 0211:
 // the installation's identity moved into `setting`, 0191 only backfills it
-// where a single live workspace can speak for the install, and 0209 refuses to
+// where a single live workspace can speak for the install, and 0211 refuses to
 // drop the columns while a live workspace holds identity nothing stored. The
 // fixtures cannot pre-seed those rows either — `setting` does not exist yet at
 // the legacy version they start from.

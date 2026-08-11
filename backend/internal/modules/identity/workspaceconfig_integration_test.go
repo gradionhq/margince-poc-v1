@@ -128,7 +128,7 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		Scan(&mode, &incumbent, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
 	}
-	// The installation's identity is settings rows now (0209), and this is
+	// The installation's identity is settings rows now (0211), and this is
 	// still the claim under test: a reset wipes the DATA, not the
 	// installation. platform/settings.ResetConfig spares these three, so they
 	// must read back exactly as bootstrap wrote them.
