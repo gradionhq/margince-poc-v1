@@ -41,7 +41,8 @@ import (
 func WithAccountDraft(brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		svc := accountdraft.NewService(s.org360Svc, brain).
-			WithEnvelope(draftEnvelope(pool, s.log))
+			WithEnvelope(draftEnvelope(pool, s.log)).
+			WithDossier(s.orgDossierSvc)
 		s.accountDraftHandlers = accountdraft.NewHandlers(svc, s.sorDispatch.isOverlay)
 	}
 }

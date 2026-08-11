@@ -237,16 +237,36 @@ func keepGroundedReasons(reasons []modelReason, in Input) []Reason {
 			}
 			keep.EntityType = reason.EntityType
 			keep.EntityID = reason.EntityID
-		} else if kind != crmcontracts.AccountDraftReasonKindIntent {
-			// A reason with no citation is only honest for the caller's own
-			// intent, which cites nothing by design. An uncited "deal" or
-			// "dossier" reason is a claim about a record with no record behind
-			// it — exactly what the grounding filter exists to drop.
+		} else if !citesNothing(kind, in) {
+			// A reason with no citation is only honest where nothing was there
+			// to cite. An uncited "deal" is a claim about a record with no
+			// record behind it — exactly what the grounding filter exists to
+			// drop.
 			continue
 		}
 		out = append(out, keep)
 	}
 	return out
+}
+
+// citesNothing reports whether this reason kind is honest with no citation.
+//
+// Two are. The caller's own intent cites nothing by design — they typed it.
+// And a dossier fact is a sentence about what the company IS, drawn from the
+// supplied summary rather than from a record: it is grounded in input the model
+// really was given, and there is no page for a chip to open. It is only honest
+// when a dossier was actually supplied, which is what makes this a grounding
+// check rather than a hole in one — the kind was unreachable while the field
+// was dead, and it must go back to unreachable the moment nothing feeds it.
+func citesNothing(kind crmcontracts.AccountDraftReasonKind, in Input) bool {
+	switch kind {
+	case crmcontracts.AccountDraftReasonKindIntent:
+		return true
+	case crmcontracts.AccountDraftReasonKindDossier:
+		return len(in.Dossier) > 0
+	default:
+		return false
+	}
 }
 
 // parseKind narrows the model's string to the contract's closed vocabulary. An
