@@ -3524,6 +3524,10 @@ export const vi = {
   "users.deactivateConfirmTitle": "Vô hiệu hoá {name}?",
   "users.deactivateConfirmBody":
     "Người đó sẽ bị đăng xuất ở mọi nơi và mọi passport Agent của họ bị thu hồi ngay. Bạn có thể kích hoạt lại sau, nhưng họ sẽ phải đăng nhập lại.",
+  "users.deactivateAgentConfirmBody":
+    "Đây là danh tính Agent của không gian làm việc. Vô hiệu hoá nó sẽ dừng mọi tác vụ chạy mà không có người đứng sau, kể cả tiện ích mở rộng, cho đến khi bạn kích hoạt lại. Không ai mất quyền truy cập — nó không đăng nhập ở đâu cả.",
+  "users.agentSeat": "Agent",
+  "users.agentSeatRole": "Hành động theo passport, không theo vai trò",
   "users.roleLabel": "Vai trò cho thành viên mới",
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
