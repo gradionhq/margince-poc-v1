@@ -48,7 +48,10 @@ fi
 export MARGINCE_SCHEMA_DSN="${MARGINCE_SCHEMA_DSN:-$MARGINCE_OWNER_DSN}"
 
 echo "entrypoint: applying core + custom migrations (owner role)…"
-margince-migrate up --dsn "$MARGINCE_OWNER_DSN"
+# No --dsn: cmd/migrate reads MARGINCE_OWNER_DSN itself, and the assertion above
+# has already refused to start without it. Passing it as an argument would put the
+# owner credential in this container's process list.
+margince-migrate up
 
 echo "entrypoint: starting api…"
 exec margince-api

@@ -58,7 +58,7 @@ parse_test_dsn() {
 # maintenance `postgres` db is the target: CREATE/DROP DATABASE never runs
 # inside the database being dropped. Runs from the repo root, like build_template.
 db_admin() {
-  ( cd backend && go run ./cmd/migrate "$@" --dsn "${O_PREFIX}/postgres${O_QUERY:+?$O_QUERY}" )
+  ( cd backend && MARGINCE_OWNER_DSN="${O_PREFIX}/postgres${O_QUERY:+?$O_QUERY}" go run ./cmd/migrate "$@" )
 }
 
 # The migrated template every per-package clone is copied from. Exported so the
@@ -92,7 +92,7 @@ migrate_template() {
   # front of the summary this classifies on and report a template at head as
   # behind. Left alone it goes to the terminal, which is where a real failure
   # belongs anyway.
-  out="$( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" )" || rc=$?
+  out="$( cd backend && MARGINCE_OWNER_DSN="$(owner_clone_dsn "$TEMPLATE_NAME")" go run ./cmd/migrate up )" || rc=$?
   if (( rc != 0 )); then
     return "$rc"
   fi

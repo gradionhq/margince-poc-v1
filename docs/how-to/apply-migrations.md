@@ -16,23 +16,39 @@ make migrate  # apply everything pending
 `make migrate` runs:
 
 ```sh
-go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:55432/margince"
+MARGINCE_OWNER_DSN="<the owner DSN>" go run ./cmd/migrate up
 ```
+
+The DSN reaches the command through the environment rather than argv — it carries
+a password, and argv is world-readable. The recipe announces its target with the
+credential stripped (`postgres://***@localhost:55432/margince`), so `migrate-down`
+says which database it is about to revert.
 
 ## Direct invocation
 
 ```sh
-migrate up   --dsn <owner-dsn>
-migrate down --dsn <owner-dsn> --steps 1
+MARGINCE_OWNER_DSN=<owner-dsn> migrate up
+MARGINCE_OWNER_DSN=<owner-dsn> migrate down --steps 1
 ```
+
+`--dsn <owner-dsn>` still works and takes precedence; prefer the environment so
+the credential stays out of the process list.
 
 - `up` applies every pending core + custom migration.
 - `down` reverts the most recent `--steps` migrations (default 1).
   Migrations are written reversible, but treat `down` as a dev tool —
   shipped core migrations are additive-only and are never edited.
 
-`--dsn` falls back to `MARGINCE_DSN`. Point it at the owner role: RLS
-policies, roles, and triggers need owner privileges to create.
+With no `--dsn`, the DSN comes from `MARGINCE_OWNER_DSN`, else `MARGINCE_DSN`.
+The owner variable takes precedence because every verb here runs DDL — RLS
+policies, roles and triggers need owner privileges to create — while
+`MARGINCE_DSN` is the app role elsewhere in the product (`NOSUPERUSER
+NOBYPASSRLS`, no DDL rights). `MARGINCE_DSN` remains the last resort for an
+installation running everything under one sufficiently-privileged credential.
+
+An explicitly empty `--dsn ""` is refused rather than falling through to the
+environment, so a wrapper passing an unset variable aborts instead of running
+`down` or `drop-db` against whatever the ambient DSN names.
 
 ## Writing a migration
 

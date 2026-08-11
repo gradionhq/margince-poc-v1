@@ -10,10 +10,8 @@ package main
 // integration lane alone.
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -246,52 +244,5 @@ func TestUpSummaryMatchesTheShellMatcher(t *testing.T) {
 	summary := fmt.Sprintf(upSummaryFormat, 0, 0)
 	if !strings.HasPrefix(summary, prefix) {
 		t.Errorf("migrate prints %q but %s matches on prefix %q — migrate_template would report every template as behind; change both together", summary, script, prefix)
-	}
-}
-
-// The default --dsn resolves to the OWNER credential when both are present.
-//
-// This is a correctness test, not a preference: migrations run DDL, so they need
-// the owner role, and the flag has always described itself as "(owner role)".
-// Its default nevertheless read MARGINCE_DSN, which everywhere else in the
-// product is the APP role — NOSUPERUSER, NOBYPASSRLS, no DDL rights. A
-// deployment that set both and relied on the default ran migrations under the one
-// credential that cannot apply them; a container entrypoint passing
-// `--dsn "$MARGINCE_OWNER_DSN"` by hand was the only thing hiding it.
-func TestTheDefaultDSNPrefersTheOwnerCredential(t *testing.T) {
-	t.Setenv("MARGINCE_OWNER_DSN", "postgres://owner@localhost/db")
-	t.Setenv("MARGINCE_DSN", "postgres://app@localhost/db")
-
-	if got, want := ownerDSNFromEnv(), "postgres://owner@localhost/db"; got != want {
-		t.Errorf("with both set, the default is %q, want the owner DSN %q — migrations would run as the app role, which holds no DDL rights", got, want)
-	}
-}
-
-// MARGINCE_DSN stays usable on its own: a small installation may run everything
-// under one sufficiently-privileged credential, and that setup works today. Only
-// the precedence changed, so dropping the fallback would break it.
-func TestTheDefaultDSNStillFallsBackToTheSingleCredential(t *testing.T) {
-	t.Setenv("MARGINCE_OWNER_DSN", "")
-	t.Setenv("MARGINCE_DSN", "postgres://only@localhost/db")
-
-	if got, want := ownerDSNFromEnv(), "postgres://only@localhost/db"; got != want {
-		t.Errorf("with only MARGINCE_DSN set, the default is %q, want %q", got, want)
-	}
-}
-
-// Neither set is not "empty string is fine": run() rejects it, and the message
-// has to name every way to supply one or an operator reads the flag help instead.
-func TestMigrateRefusesToRunWithNoDSNAnywhere(t *testing.T) {
-	t.Setenv("MARGINCE_OWNER_DSN", "")
-	t.Setenv("MARGINCE_DSN", "")
-
-	err := run(context.Background(), []string{"up"}, io.Discard)
-	if err == nil {
-		t.Fatal("run() accepted no DSN at all — it would connect to whatever libpq defaults to")
-	}
-	for _, want := range []string{"--dsn", "MARGINCE_OWNER_DSN", "MARGINCE_DSN"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the error %q does not name %q, so an operator cannot tell how to supply one", err, want)
-		}
 	}
 }

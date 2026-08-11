@@ -90,21 +90,12 @@ app_prefix="${APP_DSN%/*}"
 dev_owner_url="${owner_prefix}/${db}"
 dev_app_url="${app_prefix}/${db}"
 
-# Publish the owner DSN under the name cmd/migrate reads, so a bare
-# `margince-migrate up` — or `go run ./cmd/migrate up` — works here exactly as it
-# does in a container, against whichever database THIS stack is using rather than
-# the base one. Both callers used to pass --dsn explicitly (the Makefile from
-# OWNER_DSN, the container entrypoint from MARGINCE_OWNER_DSN), so the env default
-# was never exercised locally, and for a while it pointed at MARGINCE_DSN — the
-# app role, which holds no DDL rights. A default nothing runs is a default nobody
-# checks.
-#
-# Deliberately NOT equal to the app DSN. margince_owner is the compose Postgres's
-# POSTGRES_USER, a superuser, and FORCE row-level security does not reach a
-# superuser: point the api at this and RLS silently stops applying in dev while
-# still applying in production, which is the one divergence this stack exists to
-# avoid. The api keeps connecting as margince_app.
-export MARGINCE_OWNER_DSN="$dev_owner_url"
+# The owner DSN reaches cmd/migrate through the environment rather than argv (it
+# carries a password, and argv is world-readable), but it is assigned PER COMMAND
+# below — never exported here. An export would hand the superuser credential to
+# every child this script starts, and the api and worker have no use for it: the
+# api connects as margince_app precisely so FORCE row-level security binds it,
+# which it does not for the superuser margince_owner is in the compose stack.
 
 # psql is NOT a host requirement (hosts need Go + Docker only): every ad-hoc
 # SQL statement runs inside the compose postgres container, the same way
@@ -345,7 +336,8 @@ up)
     # migrations, leaving a composed api booting over a database with none
     # of its extensions' tables.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
-    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up --dsn "$dev_owner_url" )
+    ( cd backend && MARGINCE_OWNER_DSN="$dev_owner_url" \
+      GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up )
     echo "=== build api (once, before the readiness poll) ==="
     # ONE revision for both halves of the stack, so the api and the documents it
     # fetches can be compared exactly as they are in a deployed installation.

@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 )
@@ -100,21 +101,22 @@ func parseAITaskFlags(args []string) (aiTaskFlags, error) {
 	}
 
 	fs := flag.NewFlagSet("worker aitask "+cfg.verb, flag.ContinueOnError)
+	var env cliflags.Env
 	fs.StringVar(&cfg.site, "site", "", "invocation site as <task>/<variant> (e.g. rate_extract/pricing)")
 	fs.StringVar(&cfg.scenarioPath, "scenario", "", "scenario file in the corpus format, carrying both fixture and expectation")
 	fs.StringVar(&cfg.fixturePath, "fixture", "", "fixture JSON file; needs --site, and --expect for sites that validate one")
 	fs.StringVar(&cfg.expectPath, "expect", "", "expected-answer JSON file, the half --fixture does not carry")
-	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml")
 	fs.StringVar(&cfg.modelSpec, "model", "", "direct model override, provider:model (e.g. anthropic:claude-sonnet-4-6)")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "offline fake model: drives the seam without spending anything")
 	fs.StringVar(&cfg.jsonPath, "json", "", "write the machine-readable probe result here ('-' = stdout)")
 	fs.StringVar(&cfg.dumpDir, "dump-request", "", "directory to write each post-stripper request into")
 	fs.StringVar(&cfg.corpusDir, "corpus", corpusDirDefault, "corpus directory, read by list and scaffold")
-	fs.StringVar(&cfg.workDir, "work-dir", envOr("MARGINCE_AITASK_DIR", workDirDefault),
+	env.String(fs, &cfg.workDir, "work-dir", "MARGINCE_AITASK_DIR", workDirDefault,
 		"gitignored directory probe artifacts are written to; they carry whatever the probed source carried")
 	fs.StringVar(&cfg.outPath, "out", "", "write this verb's artifact here instead of the work directory ('-' = stdout)")
-	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")
+	env.String(fs, &cfg.logFormat, "log-format", "MARGINCE_LOG_FORMAT", "text", "log format: text|json")
 
 	// stdlib flag stops at the first positional; re-parsing the remainder lets
 	// the positional and the flags interleave, as siteread's seeds do.
