@@ -130,3 +130,139 @@ func TestAPleasantryIsOnlyFillerAtTheOpening(t *testing.T) {
 		t.Errorf("a pleasantry far into the body is not an opener, got %+v", findings)
 	}
 }
+
+// The chip that reached a real draft on the real Marek thread while the body
+// beside it was correct:
+//
+//	"Follow-up to previous introduction by Romina Medici"
+//
+// Romina did not make that introduction. The product holds no person-to-person
+// referral record at all, so any directed introduction fact in a draft was read
+// out of quoted correspondence — which is how the reported defect got the
+// direction backwards in the first place.
+func TestAnInventedIntroductionInAChipIsCaught(t *testing.T) {
+	labels := []string{"Follow-up to previous introduction by Romina Medici"}
+
+	findings := draftcheck.Reasoning(labels, textlang.English, convstate.BandFresh)
+	if len(findings) == 0 {
+		t.Fatal("the chip that shipped the original defect passed the check")
+	}
+	if findings[0].Rule != "invented-relationship" {
+		t.Errorf("expected an invented-relationship finding, got %q", findings[0].Rule)
+	}
+}
+
+// A chip is the product explaining itself, and the phrase lists that judge the
+// body apply to it too — an invented pitch is an invented pitch wherever it is
+// shown.
+func TestAChipIsJudgedByTheSamePhraseListsAsTheBody(t *testing.T) {
+	labels := []string{"our solution for their dispatch problem"}
+
+	if findings := draftcheck.Reasoning(labels, textlang.English, convstate.BandNone); len(findings) == 0 {
+		t.Error("an invented pitch in a chip should be caught the way one in the body is")
+	}
+}
+
+// An honest chip passes. The check must not fire on ordinary provenance, or
+// every draft retries and the retry buys nothing.
+func TestHonestChipsPassCleanly(t *testing.T) {
+	labels := []string{"pricing concern", "asked about onboarding", "Angebot vom 25. Juli"}
+
+	if findings := draftcheck.Reasoning(labels, textlang.German, convstate.BandWeeks); len(findings) != 0 {
+		t.Errorf("ordinary provenance should pass, got %+v", findings)
+	}
+}
+
+// German and Vietnamese carry their own phrasings, so a German chip is judged
+// against German words rather than translated English ones.
+func TestAnInventedIntroductionIsCaughtInEveryLanguage(t *testing.T) {
+	for lang, label := range map[textlang.Lang]string{
+		textlang.German:     "Nachfassen zur Vorstellung durch Romina Medici",
+		textlang.Vietnamese: "Tiếp theo sau khi được giới thiệu bởi Romina",
+	} {
+		if findings := draftcheck.Reasoning([]string{label}, lang, convstate.BandFresh); len(findings) == 0 {
+			t.Errorf("%s: %q was not caught", lang, label)
+		}
+	}
+}
+
+// The grammar around the noun is not predictable, so the noun is the refusal.
+// A first attempt enumerated "introduction by" and "introduced by"; the model
+// wrote "introduction TO" and walked straight through, twice, on a live stack.
+func TestTheIntroductionNounIsCaughtInAnyGrammar(t *testing.T) {
+	seen := []string{
+		"follow up on introduction to Romina Medici (ERGO)",
+		"follow-up on previous introduction",
+		"Follow-up to previous introduction by Romina Medici",
+		"intro made last month",
+		"referral from a colleague",
+	}
+	for _, label := range seen {
+		if findings := draftcheck.Reasoning([]string{label}, textlang.English, convstate.BandFresh); len(findings) == 0 {
+			t.Errorf("%q was not caught", label)
+		}
+	}
+}
+
+// A chip is written for the rep, not the recipient, and the model reaches for
+// English there even under German prose. "shared contact introduction" appeared
+// on a live stack beside a German body, and a German-only list did not see it.
+func TestAChipIsCheckedAgainstEveryLanguage(t *testing.T) {
+	if findings := draftcheck.Reasoning([]string{"shared contact introduction"},
+		textlang.German, convstate.BandFresh); len(findings) == 0 {
+		t.Error("an English chip on a German draft should still be caught")
+	}
+	if findings := draftcheck.Reasoning([]string{"Vorstellung durch einen Kollegen"},
+		textlang.English, convstate.BandFresh); len(findings) == 0 {
+		t.Error("a German chip on an English draft should still be caught")
+	}
+}
+
+// Every form the model has actually produced on a live stack, plus the ones
+// enumerating word forms kept missing. The stem is what generalizes: matching
+// "introduction by" missed "introduction to", and matching the noun missed
+// "introductory".
+func TestEveryFormOfAnInventedIntroductionIsCaught(t *testing.T) {
+	seen := []string{
+		"Follow-up to previous introduction by Romina Medici",
+		"follow up on introduction to Romina Medici (ERGO)",
+		"follow-up on previous introduction",
+		"introductory connection to Romina Medici",
+		"shared contact introduction",
+		"introducing us to the team",
+		"referral from a colleague",
+		"Vorstellung durch einen Kollegen",
+		"vorgestellt von Marek",
+	}
+	for _, label := range seen {
+		if findings := draftcheck.Reasoning([]string{label}, textlang.English, convstate.BandFresh); len(findings) == 0 {
+			t.Errorf("%q was not caught", label)
+		}
+	}
+}
+
+// The stem must not fire on unrelated words that merely contain those letters.
+func TestTheStemDoesNotFireOnUnrelatedWords(t *testing.T) {
+	honest := []string{
+		"pricing concern", "asked about onboarding", "Angebot vom 25. Juli",
+		"deferred the decision", "preferred delivery window",
+	}
+	if findings := draftcheck.Reasoning(honest, textlang.English, convstate.BandFresh); len(findings) != 0 {
+		t.Errorf("ordinary provenance was flagged: %+v", findings)
+	}
+}
+
+// German compounds the model produced on a live stack. A stem requiring a
+// trailing space saw none of them.
+func TestGermanCompoundsCarryingTheStemAreCaught(t *testing.T) {
+	seen := []string{
+		"Folge-Email nach Intro",
+		"Folgekontakt zum Intro-Thema",
+		"Folgekontakt nach Intro",
+	}
+	for _, label := range seen {
+		if findings := draftcheck.Reasoning([]string{label}, textlang.German, convstate.BandFresh); len(findings) == 0 {
+			t.Errorf("%q was not caught", label)
+		}
+	}
+}

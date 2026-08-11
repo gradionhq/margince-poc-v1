@@ -49,10 +49,18 @@ type Observer interface {
 	RetryDidNotClear(ctx context.Context, rule, phrase string, remaining int)
 }
 
-// BodyOf reads the prose a draft would put in front of a recipient. The check
-// judges the body alone: a subject is one line with its own rules, and a
-// concatenation would let a phrase banned in prose hide in a subject.
-type BodyOf[D any] func(D) string
+// TextOf reads the two channels of a draft a check has to judge.
+//
+// Both, because they fail differently and only one used to be read. The BODY is
+// what the recipient sees. The REASONING labels are what the product tells the
+// rep it wrote from, and a rep reads a chip less critically than the sentence
+// they are about to send — so a wrong chip is the worse of the two. An invented
+// "introduction by Romina Medici" reached one on a real thread while the body
+// beside it was correct.
+//
+// The subject is deliberately absent: it is one line with its own rules, and
+// folding it in would let a phrase banned in prose hide there.
+type TextOf[D any] func(D) (body string, reasoning []string)
 
 // CorrectOnce writes a draft, checks it against the correspondence it was
 // written into, and gives the model exactly one chance to fix what it got wrong.
@@ -71,15 +79,21 @@ type BodyOf[D any] func(D) string
 // only evidence available without asking a model to judge its own output.
 func CorrectOnce[D any](
 	ctx context.Context, lang textlang.Lang, band convstate.Band,
-	write Writer[D], bodyOf BodyOf[D], observe Observer,
+	write Writer[D], textOf TextOf[D], observe Observer,
 ) (D, error) {
+	check := func(draft D) []draftcheck.Finding {
+		body, reasoning := textOf(draft)
+		return append(draftcheck.Body(body, lang, band),
+			draftcheck.Reasoning(reasoning, lang, band)...)
+	}
+
 	draft, err := write(ctx, "")
 	if err != nil {
 		var zero D
 		return zero, err
 	}
 
-	findings := draftcheck.Body(bodyOf(draft), lang, band)
+	findings := check(draft)
 	if len(findings) == 0 {
 		return draft, nil
 	}
@@ -94,7 +108,7 @@ func CorrectOnce[D any](
 		return draft, nil
 	}
 
-	remaining := draftcheck.Body(bodyOf(retried), lang, band)
+	remaining := check(retried)
 	if len(remaining) == 0 {
 		return retried, nil
 	}

@@ -18,7 +18,7 @@ import (
 // reads its body, which is the point of taking a reader rather than a type.
 type draft struct{ body string }
 
-func bodyOf(d draft) string { return d.body }
+func bodyOf(d draft) (string, []string) { return d.body, nil }
 
 // scripted answers with each body in turn and records the corrections it was
 // given, so a test can assert both what came back and what the model was told.

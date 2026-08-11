@@ -127,7 +127,7 @@ func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) 
 		func(ctx context.Context, correction string) (Draft, error) {
 			return writeWithModel(ctx, lane, in, correction)
 		},
-		func(d Draft) string { return d.Body },
+		func(d Draft) (string, []string) { return d.Body, reasonLabels(d.Reasoning) },
 		// No observer: this package holds no logger, and a retry that does not
 		// help still returns a real draft. The reply surface, which has one,
 		// reports it.
@@ -305,3 +305,14 @@ var (
 // gate that asserts every drafting surface writes under the same shared rules.
 // Exported for that assertion alone: the surface itself calls draftSystemFor.
 func SystemPromptFor(fence promptfence.Fence) string { return draftSystemFor(fence) }
+
+// reasonLabels is the provenance a draft shows the rep, for the checks that
+// judge it. The labels alone: an entity id is a citation the filter already
+// grounded, and reading it as prose would flag every uuid.
+func reasonLabels(reasons []Reason) []string {
+	out := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		out = append(out, reason.Label)
+	}
+	return out
+}

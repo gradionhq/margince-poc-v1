@@ -108,6 +108,82 @@ var invention = map[textlang.Lang][]string{
 	},
 }
 
+// directedRelationship are the ways a draft claims who introduced, referred or
+// first contacted whom.
+//
+// The product holds no person-to-person referral record — referred_by is
+// constrained org-to-org — so a directed introduction fact in a draft is
+// necessarily read out of quoted correspondence, which is how the reported
+// defect got the direction backwards. Silence about introductions is the
+// correct behaviour today (DRAFT-AC-E-7), which makes this list a flat refusal
+// rather than a judgement about which direction is right.
+// The NOUN, not the preposition. A first attempt enumerated "introduction by",
+// "introduced by" and the rest; the model wrote "introduction TO" and walked
+// straight through. There is no honest use of these words in a chip while the
+// product holds no referral record, so the word itself is the refusal and the
+// grammar around it does not have to be predicted.
+var directedRelationship = map[textlang.Lang][]string{
+	textlang.English: {
+		// Stems, matched as a word PREFIX, because the word form is not
+		// predictable and enumerating it has failed twice on a live stack:
+		// "introduction by" missed "introduction to", and the noun list missed
+		// "introductory". "introduc" covers introduction/introduced/introducing/
+		// introductory; "refer" covers referral/referred/referring.
+		"introduc", "intro", "refer",
+		"put us in touch", "connected us",
+	},
+	textlang.German: {
+		"vorstell", "vorgestellt", "empfehl", "empfohlen",
+		"vermittl", "vermittelt", "in kontakt gebracht",
+	},
+	textlang.Vietnamese: {
+		"giới thiệu", "được giới thiệu",
+	},
+}
+
+// Reasoning reads the labels a draft shows the rep as its provenance.
+//
+// A chip is the product explaining itself, and a rep reads it less critically
+// than the body they are about to send — so a wrong one is worse there. It gets
+// the same phrase lists as the body, plus the directed-relationship refusal,
+// which caught "Follow-up to previous introduction by Romina Medici" on a
+// thread where the other party made the introduction.
+//
+// Nothing here is gated on the band: a chip is not prose, and "as discussed" in
+// a label is a claim about the record rather than a turn of phrase.
+func Reasoning(labels []string, lang textlang.Lang, band convstate.Band) []Finding {
+	var findings []Finding
+	for _, label := range labels {
+		lowered := strings.ToLower(label)
+		// EVERY language, not just the draft's. A chip is written for the rep
+		// rather than the recipient, and the model reaches for English there
+		// even on a German draft — "shared contact introduction" appeared under
+		// German prose on a live stack, and a German-only list did not see it.
+		for _, phrase := range allDirectedRelationshipPhrases() {
+			if startsWord(lowered, phrase) {
+				findings = append(findings, Finding{
+					Rule:   "invented-relationship",
+					Phrase: phrase,
+					Why: "no referral record exists to support who introduced whom, so a " +
+						"chip asserting one states a fact the product does not hold",
+				})
+			}
+		}
+		findings = append(findings, Body(label, lang, band)...)
+	}
+	return findings
+}
+
+// allDirectedRelationshipPhrases is every language's list at once, for the
+// reasoning channel. A chip's own language is not the draft's.
+func allDirectedRelationshipPhrases() []string {
+	var out []string
+	for _, phrases := range directedRelationship {
+		out = append(out, phrases...)
+	}
+	return out
+}
+
 // Body reads a draft body against the state it was written in.
 //
 // Nothing is checked at band fresh except the pleasantries: a live exchange may
@@ -187,6 +263,33 @@ func contains(text, phrase string) bool {
 		start := offset + i
 		end := start + len(phrase)
 		if boundary(text, start-1) && boundary(text, end) {
+			return true
+		}
+		offset = start + 1
+		if offset >= len(text) {
+			return false
+		}
+	}
+}
+
+// startsWord reports whether text holds phrase beginning at a word boundary,
+// with no requirement about where it ENDS.
+//
+// A stem match: "introduc" has to start a word, so it catches introduction,
+// introduced and introductory alike, and does not fire inside an unrelated word
+// that merely contains those letters.
+//
+// A hyphen counts as a boundary, which German needs: the model wrote
+// "Intro-Thema" and "Folgekontakt nach Intro" on a live stack, and a stem
+// requiring a trailing space saw neither.
+func startsWord(text, phrase string) bool {
+	for offset := 0; ; {
+		i := strings.Index(text[offset:], phrase)
+		if i < 0 {
+			return false
+		}
+		start := offset + i
+		if boundary(text, start-1) {
 			return true
 		}
 		offset = start + 1
