@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman, follow-up): a same-kind consumer-mail re-add stays on the create grant, so a rep retrying a lost response gets the existing entry instead of a 403 (PR #888, found by the Codex review of #872). Open upstream: spec capture.md CAP-PARAM-5 predates the workspace consumer-mail surface entirely (still says baseline + margince.yaml, no UI) — reconcile in the spec repo.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
 - Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
 - [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
