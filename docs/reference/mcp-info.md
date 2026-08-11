@@ -24,6 +24,24 @@ clause the transport appends. The Surface-B listing a run re-sends every step is
 smaller — name, description and input schema only — and is held against its own
 budget in `agenttooldescriptions_test.go`.
 
+### What the tool catalog is made of
+
+| Part | Bytes | Share | In a run's prompt? |
+|---|---:|---:|---|
+| Output schemas | 44.0 KB | 42% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 27.6 KB | 26% | Yes, every step |
+| Input schemas | 23.1 KB | 22% | Yes, every step |
+| _Names, annotations, punctuation_ | 7.9 KB | 7% | Partly |
+| **Description + input schema** | **50.7 KB** | **49%** | **the recurring cost** |
+
+So the headline total is dominated by the part a model is never charged for, and
+descriptions are a minority of it. Trimming the copy to shrink the total trades a
+MEASURED gain — the same copy took gemini's tool selection from 0.80 to 0.87, and
+one restraint scenario from 0/3 to 3/3 on a single sentence — for bytes that were
+not the cost. `agenttooldescriptions_test.go` records that argument and the
+budget decision it produced; the room is bought by publishing a vocabulary as a
+resource, the way `margince://schema/record-fields` did, not by writing less.
+
 ## Index
 
 ### Resources (8)
