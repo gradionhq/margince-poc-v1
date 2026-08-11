@@ -109,16 +109,40 @@ func deterministicOpener(in Input) string {
 	return ""
 }
 
-// The claim kinds a first message can honestly open on, most actionable first.
-// An open question and an objection are both things the reader is waiting on us
-// for; a priority is what they told us matters. The other kinds — our own
-// commitments, decisions already taken — are not openers for a message TO them.
+// The claim kinds a message can honestly open on, most actionable first.
+//
+// An OVERDUE commitment leads, and it leads for a reason worth stating: it is
+// the one thing on this list the recipient is owed rather than merely
+// interested in. We said we would do something by a date, the date has passed,
+// and a message that opens on anything else while that is outstanding reads as
+// having forgotten. It is also the archetype the whole grounding effort is for
+// — the email a rep knows they should send and does not.
+//
+// A commitment with no due date, or one not yet due, stays out. "We said we
+// would look into it" is not a reason to write today, and leading on it invents
+// an urgency nobody agreed to.
+//
+// Below it the order is unchanged: an open question and an objection are both
+// things the reader is waiting on US for, and a priority is what they told us
+// matters.
 var openingClaimKinds = []string{"open_question", "objection", "priority"}
+
+// commitmentKind is the claim kind that records something one side said they
+// would do. Only OUR overdue ones open a draft; the rest of the ranking is
+// about what THEY said.
+const commitmentKind = "commitment"
 
 // leadClaim picks the claim the opener refers to: the first one of the
 // highest-ranked kind present. The 360 hands claims over newest-first, so
 // within a kind the first is the most recent.
 func leadClaim(in Input) (ClaimIn, bool) {
+	// An overdue promise outranks every kind below: it is the only one the
+	// recipient is owed, and the newest is the one most likely to still matter.
+	for _, claim := range in.Claims {
+		if claim.Kind == commitmentKind && claim.Overdue {
+			return claim, true
+		}
+	}
 	for _, kind := range openingClaimKinds {
 		for _, claim := range in.Claims {
 			if claim.Kind == kind {
@@ -135,6 +159,8 @@ func leadClaim(in Input) (ClaimIn, bool) {
 // the same way would put "you objected to" in a message about a preference.
 func claimOpener(claim ClaimIn, lines draftfloor.Substance) string {
 	switch claim.Kind {
+	case commitmentKind:
+		return draftfloor.Fill(lines.Commitment, claim.Body)
 	case "open_question":
 		return draftfloor.Fill(lines.OpenQuestion, claim.Body)
 	case "objection":

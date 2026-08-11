@@ -126,6 +126,16 @@ type ClaimIn struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	Body string `json:"body"`
+	// Due is when this was promised for, RFC3339, empty when nothing was
+	// promised by a date. It is the difference between "we said we would send
+	// the scope" and "we said we would send the scope by the 25th, and it is
+	// the 11th of August" — one is a note, the other is a reason to write
+	// today, and the drafter cannot tell them apart without the date.
+	Due string `json:"due,omitempty"`
+	// Overdue says the due date has passed. Derived here rather than left to
+	// the model, which has "now" and a date and would still have to do the
+	// arithmetic in prose.
+	Overdue bool `json:"overdue,omitempty"`
 	// SourceID is the activity the claim was read from — carried so a reason
 	// about a claim cites the conversation the reader can open rather than the
 	// derived row, which has no page.
@@ -153,7 +163,7 @@ func FromView(view crmcontracts.Person360, req Request) Input {
 		SectionsOmitted: omittedNames(view.SectionsOmitted),
 	}
 	foldCommercial(&in, view)
-	foldClaims(&in, view)
+	foldClaims(&in, view, req.Envelope.At())
 	foldRecent(&in, view)
 	return in
 }
@@ -299,7 +309,7 @@ func foldCommercial(in *Input, view crmcontracts.Person360) {
 // foldClaims keeps the claims a message can honestly refer to. A dismissed
 // claim is one a human said was never true, and writing an email from it would
 // resurrect it in front of the customer.
-func foldClaims(in *Input, view crmcontracts.Person360) {
+func foldClaims(in *Input, view crmcontracts.Person360, now time.Time) {
 	if view.Claims == nil {
 		return
 	}
@@ -310,12 +320,17 @@ func foldClaims(in *Input, view crmcontracts.Person360) {
 		if claim.Status == crmcontracts.ConversationClaimStatusDismissed {
 			continue
 		}
-		in.Claims = append(in.Claims, ClaimIn{
+		folded := ClaimIn{
 			ID:       claim.Id.String(),
 			Kind:     string(claim.Kind),
 			Body:     claim.Body,
 			SourceID: claim.SourceActivityId.String(),
-		})
+		}
+		if claim.DueAt != nil {
+			folded.Due = claim.DueAt.UTC().Format(time.RFC3339)
+			folded.Overdue = claim.DueAt.Before(now)
+		}
+		in.Claims = append(in.Claims, folded)
 	}
 }
 
