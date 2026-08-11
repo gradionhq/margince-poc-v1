@@ -193,13 +193,28 @@ func TestAttachmentScanStatusBackfill(t *testing.T) {
 	}
 }
 
+// seedWorkspace inserts a workspace at WHATEVER schema version the caller has
+// migrated to. The replay suites apply core only as far as some past release,
+// where name and base_currency are still NOT NULL columns; the head suites run
+// after 0209 dropped them. One helper serves both, so it asks the catalog
+// which shape it is talking to rather than assuming the newest.
 func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 	t.Helper()
+	ctx := context.Background()
+	var preDrop bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			 WHERE table_schema = 'public' AND table_name = 'workspace' AND column_name = 'name')`,
+	).Scan(&preDrop); err != nil {
+		t.Fatalf("reading the workspace shape: %v", err)
+	}
+	stmt := `INSERT INTO workspace (slug) VALUES ($1) RETURNING id`
+	if preDrop {
+		stmt = `INSERT INTO workspace (slug, name, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`
+	}
 	var id string
-	err := conn.QueryRow(context.Background(),
-		`INSERT INTO workspace (slug) VALUES ($1) RETURNING id`,
-		slug).Scan(&id)
-	if err != nil {
+	if err := conn.QueryRow(ctx, stmt, slug).Scan(&id); err != nil {
 		t.Fatalf("seeding workspace %s: %v", slug, err)
 	}
 	return id
