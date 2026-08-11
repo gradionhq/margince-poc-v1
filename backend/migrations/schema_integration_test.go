@@ -77,7 +77,7 @@ func migrateAll(t *testing.T, conn *pgx.Conn) {
 // CASCADE here, where the migration's own down half deliberately uses RESTRICT:
 // this is a test reset primitive over a throwaway clone, and refusing to clear
 // a leftover extension table would only strand the next run. RESTRICT belongs
-// in 0210_ext_schema.down.sql, where the data is real.
+// in 0211_ext_schema.down.sql, where the data is real.
 func resetSchema(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
 	ctx := context.Background()
