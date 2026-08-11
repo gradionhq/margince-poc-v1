@@ -284,8 +284,8 @@
     z-index: 2;
     margin: 12px 0 0;
     padding: var(--space-2) 0;
-    background: var(--bg);
-    border-top: 1px solid var(--border);
+    background: var(--bgPage);
+    border-top: 1px solid var(--borderSubtle);
   }
   /* Inside the header the verbs are a right-aligned row of their own, which
      on a phone would leave the sticky bar half a screen wide and pinned to
@@ -563,5 +563,5 @@
 .tl-group-members {
   margin-block-start: 0.4rem;
   padding-inline-start: 0.6rem;
-  border-inline-start: 2px solid var(--border);
+  border-inline-start: 2px solid var(--borderSubtle);
 }
