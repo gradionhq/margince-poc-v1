@@ -2315,6 +2315,16 @@ export const en = {
   "consumerMail.remove": "Remove",
   "consumerMail.none": "Nothing added. The shipped list decides every domain.",
   "consumerMail.adminOnly": "You do not have permission to change this list.",
+  "consumerMail.addOnly":
+    "You can add consumer-mail domains. Overriding the shipped list and removing entries need an admin.",
+  "consumerMail.baselineTitle": "Shipped list",
+  "consumerMail.baselineCount":
+    "Margince ships with {total} known consumer-mail domains.",
+  "consumerMail.baselineSearchLabel": "Search the shipped list",
+  "consumerMail.baselinePlaceholder": "gmail.com",
+  "consumerMail.baselineNone": "No shipped domain matches.",
+  "consumerMail.baselineMore":
+    "Showing the first {shown} of {matched} matches.",
 
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
@@ -3774,6 +3784,7 @@ export const en = {
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
   "settings.tab.installation": "Installation",
+  "settings.tab.capture": "Capture",
   "installationSettings.title": "Installation",
   "installationSettings.sub":
     "What this installation is called, and the zone and currency every report is computed in.",

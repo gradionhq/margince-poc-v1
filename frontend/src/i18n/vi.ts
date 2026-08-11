@@ -2326,6 +2326,15 @@ export const vi = {
   "consumerMail.none":
     "Chưa thêm gì. Danh sách có sẵn quyết định mọi tên miền.",
   "consumerMail.adminOnly": "Bạn không có quyền thay đổi danh sách này.",
+  "consumerMail.addOnly":
+    "Bạn có thể thêm tên miền thư cá nhân. Ghi đè danh sách có sẵn và gỡ mục cần quản trị viên.",
+  "consumerMail.baselineTitle": "Danh sách có sẵn",
+  "consumerMail.baselineCount":
+    "Margince có sẵn {total} tên miền thư cá nhân đã biết.",
+  "consumerMail.baselineSearchLabel": "Tìm trong danh sách có sẵn",
+  "consumerMail.baselinePlaceholder": "gmail.com",
+  "consumerMail.baselineNone": "Không có tên miền có sẵn nào khớp.",
+  "consumerMail.baselineMore": "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
 
   "ob.s4.googleVerifying": "Đang xác minh kết nối…",
   "ob.s4.googleDenied": "Bạn đã từ chối chấp thuận của Google",
@@ -3784,6 +3793,7 @@ export const vi = {
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
   "settings.tab.installation": "Cài đặt hệ thống",
+  "settings.tab.capture": "Thu thập",
   "installationSettings.title": "Cài đặt hệ thống",
   "installationSettings.sub":
     "Tên của bản cài đặt này, cùng múi giờ và đơn vị tiền tệ dùng để tính mọi báo cáo.",

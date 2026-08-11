@@ -11335,6 +11335,18 @@ type ConsentRequest struct {
 	Passports []ConsentPassportOption `json:"passports"`
 }
 
+// ConsumerMailBaselineResponse defines model for ConsumerMailBaselineResponse.
+type ConsumerMailBaselineResponse struct {
+	// Data The first 50 matching baseline domains, alphabetical.
+	Data []string `json:"data"`
+
+	// Matched How many baseline domains matched the filter in total.
+	Matched int `json:"matched"`
+
+	// Total The size of the whole shipped baseline.
+	Total int `json:"total"`
+}
+
 // ConsumerMailDomain One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
 // consumer domain the shipped baseline missed; `never` takes one back out of the baseline
 // that claimed it. Either way the domain is stored in its registrable form, which is what
@@ -18192,6 +18204,12 @@ type BookMeetingParams struct {
 
 // BookMeetingJSONBodyLinksEntityType defines parameters for BookMeeting.
 type BookMeetingJSONBodyLinksEntityType string
+
+// ListConsumerMailBaselineParams defines parameters for ListConsumerMailBaseline.
+type ListConsumerMailBaselineParams struct {
+	// Q Case-insensitive substring filter. Absent or empty lists from the top.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
 
 // GetCompanyContextParams defines parameters for GetCompanyContext.
 type GetCompanyContextParams struct {
@@ -27249,10 +27267,13 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// Search the shipped consumer-mail baseline (CAP-PARAM-5).
+	// (GET /capture/consumer-mail-baseline)
+	ListConsumerMailBaseline(w http.ResponseWriter, r *http.Request, params ListConsumerMailBaselineParams)
 	// The workspace's own consumer-mail domain list (CAP-PARAM-5).
 	// (GET /capture/consumer-mail-domains)
 	ListConsumerMailDomains(w http.ResponseWriter, r *http.Request)
-	// Add a consumer-mail domain, or carve one out (admin/ops).
+	// Add a consumer-mail domain, or carve one out.
 	// (POST /capture/consumer-mail-domains)
 	AddConsumerMailDomain(w http.ResponseWriter, r *http.Request)
 	// Withdraw a consumer-mail list entry (admin/ops).
@@ -28437,13 +28458,19 @@ func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Search the shipped consumer-mail baseline (CAP-PARAM-5).
+// (GET /capture/consumer-mail-baseline)
+func (_ Unimplemented) ListConsumerMailBaseline(w http.ResponseWriter, r *http.Request, params ListConsumerMailBaselineParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The workspace's own consumer-mail domain list (CAP-PARAM-5).
 // (GET /capture/consumer-mail-domains)
 func (_ Unimplemented) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Add a consumer-mail domain, or carve one out (admin/ops).
+// Add a consumer-mail domain, or carve one out.
 // (POST /capture/consumer-mail-domains)
 func (_ Unimplemented) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -32521,6 +32548,45 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SnoozeBriefItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConsumerMailBaseline operation middleware
+func (siw *ServerInterfaceWrapper) ListConsumerMailBaseline(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListConsumerMailBaselineParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConsumerMailBaseline(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45988,6 +46054,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/consumer-mail-baseline", wrapper.ListConsumerMailBaseline)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/consumer-mail-domains", wrapper.ListConsumerMailDomains)
