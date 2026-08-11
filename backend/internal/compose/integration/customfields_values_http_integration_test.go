@@ -95,9 +95,9 @@ func assertOrganizationWireRoundTrip(t *testing.T, e *apptest.AppEnv, col string
 // core objects the fieldcatalog seam rides (person/organization/deal/lead).
 func assertDealWireRoundTrip(t *testing.T, e *apptest.AppEnv, col string) {
 	t.Helper()
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 	created, id := createWithCF(t, e, "/v1/deals", apptest.AnyMap{
-		"name": "Acme Renewal", "pipeline_id": stages.pipelineID, "stage_id": stages.open,
+		"name": "Acme Renewal", "pipeline_id": stages.PipelineID, "stage_id": stages.Open,
 		"source": "ui", col: "enterprise",
 	})
 	assertWireCF(t, created, col, "enterprise")

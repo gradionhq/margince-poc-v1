@@ -22,7 +22,7 @@ import (
 func TestMorningBriefHTTPSurface(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 
 	// Two deals closing this week clear the §10 honest-short bar on timing
 	// alone: one to act on, one to snooze.
@@ -82,15 +82,15 @@ func TestMorningBriefHTTPSurface(t *testing.T) {
 
 // createDealClosingThisWeek seeds one open deal whose close date clears
 // the §10 timing bar, so it ranks into the rep's brief.
-func createDealClosingThisWeek(t *testing.T, e *apptest.AppEnv, stages seededStages, name string) string {
+func createDealClosingThisWeek(t *testing.T, e *apptest.AppEnv, stages apptest.SeededStages, name string) string {
 	t.Helper()
 	var created struct {
 		Id string `json:"id"`
 	}
 	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name":                name,
-		"pipeline_id":         stages.pipelineID,
-		"stage_id":            stages.open,
+		"pipeline_id":         stages.PipelineID,
+		"stage_id":            stages.Open,
 		"expected_close_date": time.Now().UTC().AddDate(0, 0, 3).Format("2006-01-02"),
 		"source":              "manual",
 	}, nil, &created); status != http.StatusCreated {

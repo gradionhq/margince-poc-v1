@@ -19,51 +19,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
-// seededStages is the seeded default pipeline's stage vocabulary a
-// scenario advances deals through.
-type seededStages struct {
-	pipelineID string
-	open       string
-	won        string
-	lost       string
-}
-
-// discoverSeededPipeline asserts the bootstrap seeded exactly one default
-// pipeline with its six stages and resolves the semantic stage ids.
-func discoverSeededPipeline(t *testing.T, e *apptest.AppEnv) seededStages {
-	t.Helper()
-	var pipelines struct {
-		Data []struct {
-			Id        string `json:"id"`
-			IsDefault bool   `json:"is_default"`
-			Stages    []struct {
-				Id       string `json:"id"`
-				Semantic string `json:"semantic"`
-			} `json:"stages"`
-		} `json:"data"`
-	}
-	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
-		t.Fatalf("pipelines status = %d", status)
-	}
-	if len(pipelines.Data) != 1 || !pipelines.Data[0].IsDefault || len(pipelines.Data[0].Stages) != 6 {
-		t.Fatalf("seeded pipeline shape wrong: %+v", pipelines.Data)
-	}
-	stages := seededStages{pipelineID: pipelines.Data[0].Id}
-	for _, s := range pipelines.Data[0].Stages {
-		switch s.Semantic {
-		case "won":
-			stages.won = s.Id
-		case "lost":
-			stages.lost = s.Id
-		case "open":
-			if stages.open == "" {
-				stages.open = s.Id
-			}
-		}
-	}
-	return stages
-}
-
 // exercisePersonWriteInvariants runs the person write shape: create with
 // server-stamped provenance, duplicate-email 409 with the existing id,
 // If-Match version skew, then the versioned update. Returns the person id.
@@ -112,50 +67,6 @@ func exercisePersonWriteInvariants(t *testing.T, e *apptest.AppEnv, adminUserID 
 	return personID
 }
 
-// exerciseDealToWon creates the organization + deal, asserts losing
-// without a reason is refused, and closes the deal as won. Returns the
-// deal id.
-func exerciseDealToWon(t *testing.T, e *apptest.AppEnv, stages seededStages) string {
-	t.Helper()
-	var org apptest.AnyMap
-	status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{
-		"display_name": "Acme GmbH",
-		"source":       "ui",
-		"domains":      []apptest.AnyMap{{"domain": "acme.example", "is_primary": true}},
-	}, nil, &org)
-	if status != http.StatusCreated {
-		t.Fatalf("create org = %d %v", status, org)
-	}
-
-	var deal apptest.AnyMap
-	status = e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
-		"name":            "Acme rollout",
-		"amount_minor":    250_000_00,
-		"currency":        "EUR",
-		"pipeline_id":     stages.pipelineID,
-		"stage_id":        stages.open,
-		"organization_id": org["id"],
-		"source":          "ui",
-	}, nil, &deal)
-	if status != http.StatusCreated {
-		t.Fatalf("create deal = %d %v", status, deal)
-	}
-	dealID := deal["id"].(string)
-
-	// Losing without a reason is refused (deal_lost_reason).
-	var lostErr apptest.AnyMap
-	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.lost}, nil, &lostErr)
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("lost without reason = %d %v, want 422", status, lostErr)
-	}
-
-	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.won}, nil, &deal)
-	if status != http.StatusOK || deal["status"] != "won" || deal["closed_at"] == nil {
-		t.Fatalf("advance to won = %d %v", status, deal)
-	}
-	return dealID
-}
-
 // exerciseActivityIdempotentCapture logs an email activity against the
 // deal and replays the identical capture, asserting the replay is a
 // silent 200 onto the same activity.
@@ -196,9 +107,9 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 		t.Fatalf("/me email = %v", got)
 	}
 
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 	personID := exercisePersonWriteInvariants(t, e, me["user"].(apptest.AnyMap)["id"].(string))
-	dealID := exerciseDealToWon(t, e, stages)
+	dealID := apptest.ExerciseDealToWon(t, e, stages)
 
 	exerciseActivityIdempotentCapture(t, e, dealID)
 
