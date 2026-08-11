@@ -115,7 +115,7 @@ func everyDeclaredView() map[string]string { return apps.DeclaredViews() }
 // automatically rather than being a list somebody has to remember.
 func composedResources(t *testing.T) mcp.ResourceProvider {
 	t.Helper()
-	return composeResources(mcpResourceProviders(nil, primedViews(t, everyDeclaredView()))...)
+	return composeResources(mcpResourceProviders(nil, nil, primedViews(t, everyDeclaredView()))...)
 }
 
 // readerCtx is an agent holding `read`, which is the scope a view requires. The
@@ -275,11 +275,12 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 func TestTheProductionProvidersClaimDisjointURIs(t *testing.T) {
 	// Derived from the transport's own list, so a FOURTH provider is measured the
 	// commit it is wired rather than the commit somebody remembers this test.
-	wired := mcpResourceProviders(nil, primedViews(t, everyDeclaredView()))
-	if len(wired) != 3 {
-		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the query "+
-			"vocabulary, the write vocabulary and the views. Add the new one's URI below before it can collide "+
-			"with one of them", len(wired))
+	wired := mcpResourceProviders(
+		agents.NewCapabilitiesResource(NewRegistry(nil, SendPath{})), nil, primedViews(t, everyDeclaredView()))
+	if len(wired) != 4 {
+		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about "+
+			"capabilities, the query vocabulary, the write vocabulary and the views. Add the new one's URI "+
+			"below before it can collide with one of them", len(wired))
 	}
 	for _, r := range primedViews(t, everyDeclaredView()).Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
@@ -294,15 +295,22 @@ func TestTheProductionProvidersClaimDisjointURIs(t *testing.T) {
 	schemas := map[string]string{
 		"the query vocabulary": search.QuerySchemaURI,
 		"the write vocabulary": agents.RecordFieldsURI,
+		"capabilities":         agents.CapabilitiesURI,
 	}
+	// A SET, not a pairwise comparison. Two documents could be checked against
+	// each other by hand; three cannot without three comparisons, and the
+	// fourth document is where somebody writes two of them and calls it done.
+	claimed := map[string]string{}
 	for name, uri := range schemas {
 		if strings.HasPrefix(uri, mcp.AppURIScheme) {
 			t.Errorf("%s publishes %s, inside the view scheme %s", name, uri, mcp.AppURIScheme)
 		}
-	}
-	if search.QuerySchemaURI == agents.RecordFieldsURI {
-		t.Errorf("both vocabularies publish %s; the fan-out serves whichever was composed first and the other "+
-			"is unreachable — a caller reading it gets the wrong document, not an error", search.QuerySchemaURI)
+		if other, taken := claimed[uri]; taken {
+			t.Errorf("%s and %s both publish %s; the fan-out serves whichever was composed first and the "+
+				"other is unreachable — a caller reading it gets the wrong document, not an error",
+				other, name, uri)
+		}
+		claimed[uri] = name
 	}
 }
 
