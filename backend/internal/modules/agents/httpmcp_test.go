@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // discardLog is the logger for the cases that assert something other than what
@@ -426,5 +427,98 @@ func TestPostWithEventStreamAcceptFramesASingleDataFrame(t *testing.T) {
 	}
 	if frame.Error != nil {
 		t.Errorf("ping returned an error: %+v", frame.Error)
+	}
+}
+
+// BYO-WIRE-1: the catalog this transport serves is cut to the presenting
+// passport's scopes, so a shared cache holding one answer and replaying it to
+// another credential discloses a surface that principal was never admitted to
+// — and the replayed request never reaches the server, so nothing is audited.
+//
+// Both halves are asserted, and the first is why this is not a header test.
+// Checking only the directive would pass just as well against a transport that
+// had stopped filtering by scope altogether — the very state that makes the
+// directive necessary. So the two answers must differ FIRST, and then both must
+// refuse to be stored.
+func TestTheScopeFilteredCatalogRefusesToBeStored(t *testing.T) {
+	listing := func(t *testing.T, scopes ...principal.Scope) (tools []string, cacheControl string) {
+		t.Helper()
+		authenticate := func(*http.Request) (context.Context, error) {
+			ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+			return principal.WithActor(ctx, principal.Principal{
+				Type: principal.PrincipalAgent, ID: "agent:catalog", OnBehalfOf: ids.NewV7(),
+				Scopes: principal.NewScopeSet(scopes...),
+			}), nil
+		}
+		registry := NewRegistry(nil, nil)
+		for name, scope := range map[string]principal.Scope{
+			"read_tool":  principal.ScopeRead,
+			"write_tool": principal.ScopeWrite,
+		} {
+			registry.Register(&fakeTool{spec: mcp.ToolSpec{
+				Name: name, Title: name, Version: testToolVersion,
+				Description:   name + " is offered to whoever holds its scope.",
+				RequiredScope: scope, Tier: mcp.TierAutoExecute,
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			}})
+		}
+		h := NewHTTPHandler(registry, authenticate,
+			func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
+		// A real listener rather than a recorder: dispatch extends the write
+		// deadline through http.ResponseController, which the recorder does
+		// not implement.
+		server := httptest.NewServer(h)
+		t.Cleanup(server.Close)
+
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, server.URL,
+			strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		if err != nil {
+			t.Fatalf("building the tools/list request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatalf("tools/list: %v", err)
+		}
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("closing the response body: %v", err)
+			}
+		}()
+		var decoded struct {
+			Result struct {
+				Tools []struct {
+					Name string `json:"name"`
+				} `json:"tools"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+			t.Fatalf("decoding the catalog: %v", err)
+		}
+		for _, tool := range decoded.Result.Tools {
+			tools = append(tools, tool.Name)
+		}
+		return tools, resp.Header.Get("Cache-Control")
+	}
+
+	readOnly, readOnlyCache := listing(t, principal.ScopeRead)
+	writing, writingCache := listing(t, principal.ScopeRead, principal.ScopeWrite)
+
+	if len(readOnly) == 0 || len(writing) == 0 {
+		t.Fatalf("a passport was served no tools at all (read %d, write %d) — this proves nothing about caching",
+			len(readOnly), len(writing))
+	}
+	if slices.Equal(readOnly, writing) {
+		t.Fatalf("both passports were served the same %d tools, so this response does not vary by scope — "+
+			"either the filter is gone or this test no longer exercises it", len(readOnly))
+	}
+	for _, tc := range []struct {
+		passport, got string
+	}{{"read-only", readOnlyCache}, {"read+write", writingCache}} {
+		if tc.got != "private, no-store" {
+			t.Errorf("the %s passport's catalog was served with Cache-Control %q, want %q — a shared cache "+
+				"may store it and answer another credential from it, and that request never reaches the server to be audited",
+				tc.passport, tc.got, "private, no-store")
+		}
 	}
 }
