@@ -98,7 +98,7 @@ func TestABookingIsBoundedAndDeduplicatedBeforeItReadsAnything(t *testing.T) {
 	slot := `"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z"`
 
 	t.Run("refuses more links than a meeting could mean", func(t *testing.T) {
-		links := make([]string, maxBookingLinks+1)
+		links := make([]string, maxRecordLinks+1)
 		for i := range links {
 			links[i] = fmt.Sprintf(`{"entity_type":"deal","entity_id":%q}`, ids.NewV7())
 		}

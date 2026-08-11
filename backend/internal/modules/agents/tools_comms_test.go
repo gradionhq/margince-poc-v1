@@ -28,6 +28,9 @@ type recordingComms struct {
 	// booked records that the seam was reached at all, so a test can assert a
 	// refusal stopped SHORT of it rather than merely returning an error.
 	booked *BookMeetingArgs
+	// accountSent is the same evidence for the account-started send: the links
+	// the seam was reached with, nil when the call never got that far.
+	accountSent []RecordLink
 }
 
 func (c *recordingComms) DraftEmail(context.Context, ids.UUID, string) (string, string, error) {
@@ -36,6 +39,11 @@ func (c *recordingComms) DraftEmail(context.Context, ids.UUID, string) (string, 
 
 func (c *recordingComms) SendEmail(context.Context, ids.UUID, SendEmailArgs) (SendEmailResult, error) {
 	return SendEmailResult{}, nil
+}
+
+func (c *recordingComms) SendAccountEmail(_ context.Context, links []RecordLink, _ SendEmailArgs) (SendEmailResult, error) {
+	c.accountSent = links
+	return SendEmailResult{ActivityID: ids.New[ids.ActivityKind]().UUID, Status: "accepted"}, nil
 }
 
 func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (AvailabilityResult, error) {
@@ -441,7 +449,7 @@ func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
 			Start: time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC),
 			End:   time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC),
 		}
-		got := describeBooking(args, []bookingLink{
+		got := describeBooking(args, []RecordLink{
 			{EntityType: "deal", EntityID: deal}, {EntityType: "organization", EntityID: org},
 		})
 		for _, want := range []string{host.String(), "2 record(s)", `"Review"`} {

@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 37 |
+| Tools | 38 |
 | Resources | 8 |
-| Tool catalog | 102.5 KB |
+| Tool catalog | 105.7 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 27028 |
+| Approx. wire tokens | 27831 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -37,7 +37,7 @@ budget in `agenttooldescriptions_test.go`.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (37)
+### Tools (38)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -73,6 +73,7 @@ budget in `agenttooldescriptions_test.go`.
 | [`run_report`](#run_report) | Run a report | yes |  | 4.0 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.5 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.1 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 2.6 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
@@ -6035,6 +6036,199 @@ Find people, organizations, deals, leads and projects when you know roughly what
       },
       "required": [
         "records"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### send_account_email
+
+**Start an email conversation from a record**
+
+Put a mail on the wire to a real recipient, from this workspace, starting a new conversation rather than answering one, and file it on the records it is about. It sends EXACTLY the subject and body it is given and composes nothing. It needs at least one link naming the records the conversation belongs to and is refused without one. Every recipient must have granted the consent purpose the call names, and a person approves the send before it leaves — a message leaving the workspace cannot be recalled. Use send_email when the message answers a conversation already recorded here: that keeps the reply on its own thread, where this starts a separate one beside it. Keep the staged approval id and re-send the identical text and links: the approval is bound to that exact message. The activity_id that comes back is the new conversation. (Governance: a person approves every call before it runs; requires passport scope "send".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "description": "Set on retry after a human approved the staged call",
+      "format": "uuid",
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "cc": {
+      "items": {
+        "format": "email",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "consent_purpose": {
+      "description": "Purpose key the recipients must have granted",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "links": {
+      "description": "The records this conversation is filed under; at least one. The send is refused without it.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "entity_type": {
+            "enum": [
+              "person",
+              "organization",
+              "deal",
+              "lead"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 25,
+      "minItems": 1,
+      "type": "array"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "to": {
+      "items": {
+        "format": "email",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "to",
+    "subject",
+    "body",
+    "consent_purpose",
+    "links"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "activity_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "status"
       ],
       "type": "object"
     },

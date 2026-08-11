@@ -57,6 +57,12 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 		// while proving nothing.
 		"book_meeting": fmt.Sprintf(
 			`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","subject":"s","links":[{"entity_type":"deal","entity_id":%q}]}`, deal),
+		// The account-started send has no anchor either, and for the same
+		// reason: it starts the conversation instead of answering one. Its
+		// links are what carry the refusal here.
+		"send_account_email": fmt.Sprintf(
+			`{"to":["a@example.test"],"subject":"s","body":"b","consent_purpose":"support",`+
+				`"links":[{"entity_type":"organization","entity_id":%q}]}`, ids.NewV7()),
 	}
 
 	registry := NewRegistry(&recordingApprovals{}, nil)

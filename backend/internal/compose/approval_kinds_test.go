@@ -66,6 +66,10 @@ func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (age
 	return agents.SendEmailResult{}, nil
 }
 
+func (stubComms) SendAccountEmail(context.Context, []agents.RecordLink, agents.SendEmailArgs) (agents.SendEmailResult, error) {
+	return agents.SendEmailResult{}, nil
+}
+
 func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (agents.SendMessageResult, error) {
 	return agents.SendMessageResult{}, nil
 }

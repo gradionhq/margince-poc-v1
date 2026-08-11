@@ -78,7 +78,34 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 // anyway, and naming a reference here would only make that refusal look like
 // an accident of wiring.
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (agents.SendEmailResult, error) {
-	sent, err := c.store.SendEmail(ctx, activities.FromActivity(ids.From[ids.ActivityKind](anchor)), activities.SendEmailInput{
+	return c.send(ctx, activities.FromActivity(ids.From[ids.ActivityKind](anchor)), in)
+}
+
+// SendAccountEmail starts a NEW conversation instead of continuing one
+// (ADR-0087). It differs from the reply above in the origin and in nothing
+// else: the records the message is filed under are named by the caller because
+// there is no anchor to inherit them from, and each is row-scope probed by the
+// store before the send runs.
+func (c commsAdapter) SendAccountEmail(
+	ctx context.Context, links []agents.RecordLink, in agents.SendEmailArgs,
+) (agents.SendEmailResult, error) {
+	filed := make([]activities.ActivityLinkInput, 0, len(links))
+	for _, l := range links {
+		filed = append(filed, activities.ActivityLinkInput{EntityType: l.EntityType, EntityID: l.EntityID})
+	}
+	return c.send(ctx, activities.FromAccount(filed), in)
+}
+
+// send is the mail send both origins share, spelled once so the two tools
+// cannot drift onto different consent gates, different delivery stagers or
+// different readings of who the recipients are. Cc is merged into Recipients
+// because consent is owed to every addressee — the same rule the HTTP
+// transport's sendInputFrom states, and the reason neither is hand-rolled per
+// call site.
+func (c commsAdapter) send(
+	ctx context.Context, origin activities.SendOrigin, in agents.SendEmailArgs,
+) (agents.SendEmailResult, error) {
+	sent, err := c.store.SendEmail(ctx, origin, activities.SendEmailInput{
 		Recipients:     append(append([]string{}, in.To...), in.Cc...),
 		Cc:             append([]string{}, in.Cc...),
 		Subject:        in.Subject,
