@@ -116,12 +116,18 @@ func TestACustomFieldReachesThePublishedVocabularyWithoutADeploy(t *testing.T) {
 	var created struct {
 		ID         string `json:"id"`
 		ColumnName string `json:"column_name"`
+		// The refusal body, kept because a non-201 here is usually the 501 the
+		// comment above names, and its detail is the whole diagnosis. Decoding
+		// the problem into the same target works because a success carries
+		// neither key.
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
 	}
 	status := env.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
 		"object": "deal", "label": "Renewal risk", "type": "text", "source": "ui",
 	}, nil, &created)
 	if status != http.StatusCreated {
-		t.Fatalf("adding a custom field → %d", status)
+		t.Fatalf("adding a custom field → %d %s: %s", status, created.Title, created.Detail)
 	}
 	if created.ColumnName != "cf_renewal_risk" {
 		t.Fatalf("the engine named the column %q; this test asks the vocabulary for cf_renewal_risk", created.ColumnName)
@@ -154,9 +160,10 @@ func TestAnUnservedResourceURIIsRefusedOverTheTransport(t *testing.T) {
 }
 
 // readPassport mints a read-scoped passport, which is the credential every
-// exchange in this file presents. It answers the bare token rather than a
-// header map: these exchanges post JSON-RPC bodies, so the header set differs
-// from the REST helper's next to it.
+// exchange in this file presents. It answers the bare token rather than a header
+// map, because these exchanges post JSON-RPC bodies and assemble their own
+// headers — which is why apptest.PassportBearer, whose whole answer is a REST
+// Authorization header, cannot serve them.
 func readPassport(t *testing.T, e *apptest.AppEnv, label string) string {
 	t.Helper()
 	var minted struct {

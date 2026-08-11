@@ -7,7 +7,6 @@ package integration
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -31,21 +30,6 @@ import (
 // imports compose, and compose's white-box tests import this package, so an
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
-
-// AppDSN is the app-role DSN the lane hands each package, for a suite that opens
-// its own connection rather than riding a fixture's pool.
-//
-// Fatal rather than skipped when unset, like every other entry point into this
-// lane: a security suite that skipped because its DSN was missing would look
-// exactly like one that passed.
-func AppDSN(t *testing.T) string {
-	t.Helper()
-	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if dsn == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	return dsn
-}
 
 // ExtractStagedApprovalID pulls the staged approval's id out of the 403
 // approval_required detail — the same reference the human inbox lists.

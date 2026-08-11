@@ -12,7 +12,7 @@
 //
 // The credentials and the transport are one package on purpose. ADR-0055 governs a
 // passport identically whether it arrives on REST or on /mcp, and the suites
-// reflect that: they share the connector harness and the minted-passport fixture,
+// reflect that: they share the connector harness, and each mints passports,
 // and splitting them would put a token's issue and its presentation in different
 // binaries.
 //
@@ -21,9 +21,15 @@
 // to be the lane's long pole by itself. Its suites ride integration's exported
 // fixtures and integration/apptest's.
 //
-// Where the boundary fell, since the names do not predict it. agentscope and
-// approval_bundle stayed in the parent even though they mint passports — they turn
-// on approvals, not on admission, and the fixture they shared is now
-// apptest.PassportBearer. agenttools_http stayed too: it pins the wire shape of
-// /v1/agent-tools, which mcp_transport only reads two fields of.
+// Where the boundary fell, and it is fixture entanglement rather than subject
+// matter. agentscope and approval_bundle mint passports and assert on admission
+// too, so they belong here by charter; they stayed because the assertions they
+// turn on — assertNothingStaged and the approval-inbox queries — live in the
+// parent's _test.go files, which a subpackage cannot reach at all. The fixture
+// they DID share is now apptest.PassportBearer, so what remains behind is those
+// assertions, not the minting.
+//
+// agenttools_http stayed for the cheaper version of the same reason: it pins the
+// full wire shape of /v1/agent-tools, and mcp_transport needs two fields of it,
+// which it declares inline rather than dragging the shape across the boundary.
 package agentaccess

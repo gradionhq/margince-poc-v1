@@ -65,7 +65,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 		t.Fatalf("approve response lacks a compact JWS: %+v", approved.ApprovalToken)
 	}
 
-	pool, err := database.NewPool(context.Background(), integration.AppDSN(t))
+	pool, err := database.NewPool(context.Background(), apptest.AppDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	_, body := o.exchange(t, url.Values{"code": {code}})
 	token := body["access_token"].(string)
 
-	pool, err := database.NewPool(context.Background(), integration.AppDSN(t))
+	pool, err := database.NewPool(context.Background(), apptest.AppDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
