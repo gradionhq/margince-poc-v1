@@ -56,50 +56,6 @@ type Brain interface {
 	Complete(ctx context.Context, req model.Request) (model.Response, Meta, error)
 }
 
-// Budget bounds one run (architecture/07 §4). Both are HARD per-run
-// ceilings, deliberately independent of workspace-level budgets: one
-// unattended run can never claim the whole workspace budget (RT-AI-H5).
-type Budget struct {
-	MaxSteps        int
-	MaxOutputTokens int
-}
-
-// The §4 RATIFY defaults: 40 reason-act cycles sized to one deal-bundle
-// pass, 50k output tokens per run.
-const (
-	DefaultMaxSteps        = 40
-	DefaultMaxOutputTokens = 50_000
-)
-
-func (b Budget) withDefaults() Budget {
-	if b.MaxSteps <= 0 {
-		b.MaxSteps = DefaultMaxSteps
-	}
-	if b.MaxOutputTokens <= 0 {
-		b.MaxOutputTokens = DefaultMaxOutputTokens
-	}
-	return b
-}
-
-// Job is one runner invocation: a goal over seed grounding under a
-// budget. Authority is NOT here — it rides the context principal, the
-// same way every other surface carries it.
-type Job struct {
-	Goal       string
-	TriggerRef string
-	Grounding  []Grounding
-	Budget     Budget
-}
-
-// Grounding is one provenance-stamped seed context item (§3): T2
-// content is spotlighted as data-not-instructions before it enters the
-// prompt.
-type Grounding struct {
-	SourceID  string
-	TrustTier string // "T0" | "T1" | "T2"
-	Content   string
-}
-
 type Outcome string
 
 const (
@@ -179,7 +135,14 @@ func New(tools Invoker, brain Brain) *Runner {
 // Run executes a fresh job until terminal answer, suspension, or a
 // budget guarantee fires.
 func (r *Runner) Run(ctx context.Context, job Job) (Result, error) {
-	win := newWindow(job, r.tools.Offered(ctx), r.tools.Specs())
+	admitted := r.tools.Offered(ctx)
+	if missing := unfundedTools(job, admitted); len(missing) > 0 {
+		// Before the first completion, so a misconfigured agent costs no
+		// model spend on its way to failing.
+		return r.degrade(Result{}, "this agent's passport does not admit "+
+			strings.Join(missing, ", ")+" — grant the scope those tools need, or narrow the agent's catalog entry"), nil
+	}
+	win := newWindow(job, offeredToJob(job, admitted), r.tools.Specs())
 	return r.loop(ctx, job, win, Result{})
 }
 
@@ -195,7 +158,17 @@ type Decision struct {
 // silently changed under an approved diff). Rejected: the refusal is
 // observed and the model re-plans without that action.
 func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, error) {
-	win, err := windowFromSnapshot(job, r.tools.Offered(ctx), r.tools.Specs(),
+	admitted := r.tools.Offered(ctx)
+	// The same shortfall check Run makes, at the same strength. A resumed run
+	// whose entry the passport can no longer fund is as misconfigured as a
+	// fresh one, and a half-authorised resume is the worse of the two: it
+	// carries a transcript that reads like progress.
+	if missing := unfundedTools(job, admitted); len(missing) > 0 {
+		return r.degrade(Result{StepsUsed: dec.Pending.StepsUsed, OutputTokens: dec.Pending.OutputTokens},
+			"this agent's passport does not admit "+strings.Join(missing, ", ")+
+				" — the run cannot resume under an entry its passport cannot fund"), nil
+	}
+	win, err := windowFromSnapshot(job, offeredToJob(job, admitted), r.tools.Specs(),
 		dec.Pending.Window, dec.Pending.Fence, dec.Pending.TranscriptVersion)
 	if err != nil {
 		return Result{}, err
@@ -218,7 +191,14 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	out, err := r.tools.Invoke(ctx, dec.Pending.Tool, args)
+	// The allowlist is re-checked HERE and not only in the loop. A staged
+	// call redeems before the resumed loop takes its first step, so a tool
+	// the catalog entry no longer names would otherwise execute on the
+	// strength of an approval granted while it still did. The human's yes
+	// authorised an action, never an authority that outlives the entry —
+	// the same posture Resume already takes when the passport died while
+	// the run was parked.
+	out, err := r.invokePermitted(ctx, job, dec.Pending.Tool, args)
 	observation := string(out)
 	admission := "executed"
 	if err != nil {
@@ -255,8 +235,13 @@ func observeRefusal(win *window, step modelStep, err error, meta Meta, resp mode
 	// trace keeps both halves joined — a trace is a record of what happened,
 	// not a prompt.
 	directive := ""
-	if errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+	switch {
+	case errors.Is(err, apperrors.ErrUnsupportedBySoR):
 		directive = "this workspace's system of record cannot serve this tool at all; do not call it again in this run"
+	case errors.Is(err, errOutsideAgentSpec):
+		// Permanent for the same reason and for a different cause: the
+		// allowlist is code, so no re-plan reaches it within this run.
+		directive = "this tool is outside what this agent may do; do not call it again in this run"
 	}
 	win.observeThen(step.Tool, observation, directive)
 	// Reserve the directive's room inside the cap: provider text whose LENGTH is
@@ -323,7 +308,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			return acc, nil
 		}
 
-		out, err := r.tools.Invoke(ctx, step.Tool, step.Args)
+		out, err := r.invokePermitted(ctx, job, step.Tool, step.Args)
 		var staged *workflow.StagedApprovalError
 		switch {
 		case errors.As(err, &staged):
