@@ -42,6 +42,28 @@ type RunnerService struct {
 	identity  *identity.Service
 	retriever retrieval.Retriever
 	log       *slog.Logger
+	// specByName resolves a stored job's catalog entry. It defaults to
+	// runner.SpecByName — the catalog IS code and this does not make it
+	// configuration.
+	//
+	// It is a seam because the integration lane needs a spec that can stage
+	// an approval, and no shipped agent has one: every tool both catalog
+	// entries name is auto-execute, so the runner's suspend/approve/resume
+	// path is unreachable from the catalog. Before the allowlist bound, that
+	// path was reached by driving the sweep to archive_record — an action its
+	// own goal forbids — so the coverage was only ever there by way of a
+	// prohibited call. Rather than lose it, the lane reaches for the wiring.
+	specByName func(string) (runner.AgentSpec, bool)
+}
+
+// RunnerOption adjusts a RunnerService at construction.
+type RunnerOption func(*RunnerService)
+
+// WithSpecResolver replaces the catalog lookup. ONLY the integration lane
+// passes it: production always resolves against runner.Catalog, and a
+// deployment cannot reach this.
+func WithSpecResolver(resolve func(string) (runner.AgentSpec, bool)) RunnerOption {
+	return func(s *RunnerService) { s.specByName = resolve }
 }
 
 // NewRunnerService assembles the runner over the SAME governed registry
@@ -52,14 +74,19 @@ type RunnerService struct {
 // Surface-B run's agent tool writes a record; the worker passes a FromEnv
 // vault-backed resolver, and nil degrades write-back to errNoWriteIncumbent
 // (reads and non-SoR tools are unaffected).
-func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *RunnerService {
-	return &RunnerService{
-		store:     runner.NewStore(pool),
-		runner:    runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
-		identity:  identity.NewService(pool),
-		retriever: retriever,
-		log:       log,
+func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, opts ...RunnerOption) *RunnerService {
+	svc := &RunnerService{
+		store:      runner.NewStore(pool),
+		runner:     runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
+		identity:   identity.NewService(pool),
+		specByName: runner.SpecByName,
+		retriever:  retriever,
+		log:        log,
 	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
 }
 
 // TickWorkspace is ONE tenant's scheduler pass: close the runs abandoned since
@@ -150,7 +177,7 @@ func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context) {
 // executeJob runs one claimed job to its outcome. Failures land on the
 // job row — a brief that never ran must say why, not vanish.
 func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) {
-	spec, known := runner.SpecByName(job.SpecName)
+	spec, known := s.specByName(job.SpecName)
 	if !known {
 		s.finishJob(wsCtx, job.ID, nil, fmt.Sprintf("agent spec %q is not in the catalog", job.SpecName))
 		return
@@ -258,7 +285,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	runCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, agentIdentity.Principal()), ids.NewV7())
 	runCtx = principal.WithAgentRunID(runCtx, suspended.RunID)
 
-	spec, known := runner.SpecByName(suspended.SpecName)
+	spec, known := s.specByName(suspended.SpecName)
 	if !known {
 		return s.store.MarkFailed(wsCtx, suspended.RunID, fmt.Sprintf("agent spec %q left the catalog while suspended", suspended.SpecName))
 	}

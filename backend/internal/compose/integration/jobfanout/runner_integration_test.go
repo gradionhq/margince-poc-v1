@@ -49,6 +49,36 @@ type runnerEnv struct {
 	passportID ids.PassportID
 }
 
+// stagingSpecName is the catalog entry the 🟡 tests drive.
+//
+// It exists because no SHIPPED agent can stage an approval: every tool
+// morning_brief and overnight_at_risk_sweep name is auto-execute, which is what
+// their goals ask for. Before AgentSpec.Tools bound, these tests reached
+// suspend/approve/resume by scripting the sweep to call archive_record — an
+// action its own goal forbids — so the coverage existed only by way of a call
+// the product now refuses (and TestTheSweepMayNotArchiveEvenWithAModelThatTriesTo
+// asserts that refusal).
+//
+// This spec is the same shape a real entry has and differs in one way that
+// matters: its allowlist NAMES archive_record, so the confirm-first path is
+// reachable the way it would be for any future agent that legitimately proposes
+// a risky action.
+const stagingSpecName = "e2e_staging_agent"
+
+// stagingSpec resolves the catalog for the 🟡 tests: the shipped entries
+// unchanged, plus the one above.
+func stagingSpec(name string) (runner.AgentSpec, bool) {
+	if name == stagingSpecName {
+		return runner.AgentSpec{
+			Name:       stagingSpecName,
+			Goal:       "Archive the duplicate records this workspace has accumulated, one at a time.",
+			DueHourUTC: 2,
+			Tools:      []string{"search_records", "read_record", "archive_record"},
+		}, true
+	}
+	return runner.SpecByName(name)
+}
+
 func setupRunner(t *testing.T) *runnerEnv {
 	t.Helper()
 	e := apptest.SetupApp(t)
@@ -97,9 +127,10 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return &runnerEnv{
-		AppEnv:     e,
-		pool:       pool,
-		svc:        compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, nil, logger, nil, compose.SendPath{}),
+		AppEnv: e,
+		pool:   pool,
+		svc: compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, nil, logger, nil,
+			compose.SendPath{}, compose.WithSpecResolver(stagingSpec)),
 		store:      runner.NewStore(pool),
 		brain:      brain,
 		wsID:       wsID,
@@ -219,7 +250,7 @@ func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
 		`{"final":{"summary":"archive executed after approval"}}`,
 	)
-	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
+	re.enqueue(t, stagingSpecName, trigger, &re.passportID)
 	re.tick(t)
 
 	status, _, approvalID := re.runRow(t, trigger)
@@ -276,7 +307,7 @@ func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
 		`{"final":{"summary":"left the record alone after rejection"}}`,
 	)
-	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
+	re.enqueue(t, stagingSpecName, trigger, &re.passportID)
 	re.tick(t)
 	_, _, approvalID := re.runRow(t, trigger)
 	if approvalID == nil {
@@ -368,7 +399,7 @@ func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
 		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
 		`{"final":{"summary":"archive executed after approval"}}`,
 	)
-	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
+	re.enqueue(t, stagingSpecName, trigger, &re.passportID)
 	re.tick(t)
 	_, _, approvalID := re.runRow(t, trigger)
 	if approvalID == nil {
@@ -411,5 +442,58 @@ func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
 	}
 	if archives != 1 {
 		t.Errorf("the approved archive was applied %d times, want 1", archives)
+	}
+}
+
+// The sweep's goal has always said "do not advance stages, send anything, or
+// archive anything". Until AgentSpec.Tools bound, that was prose: the scope
+// model grants `write` in one block, so the passport admitted archive_record and
+// only the prompt discouraged it.
+//
+// This drives the real shipped entry with a model that tries anyway — the exact
+// script the three tests above used to rely on — and proves the refusal reaches
+// the governed surface rather than the prompt: the run completes without
+// parking, no approval is staged, and the target is untouched.
+func TestTheSweepMayNotArchiveEvenWithAModelThatTriesTo(t *testing.T) {
+	re := setupRunner(t)
+
+	var person struct {
+		ID string `json:"id"`
+	}
+	if status := re.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Stale Duplicate"}, nil, &person); status != http.StatusCreated {
+		t.Fatalf("create person → %d", status)
+	}
+
+	trigger := "overnight_at_risk_sweep:e2e-archive-refused"
+	re.brain.Script(
+		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
+		`{"final":{"summary":"could not archive; noted the risk instead"}}`,
+	)
+	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
+	re.tick(t)
+
+	status, trace, approvalID := re.runRow(t, trigger)
+	if approvalID != nil {
+		t.Fatalf("a tool outside the sweep's entry staged an approval: %v", approvalID)
+	}
+	if status != "completed" {
+		t.Fatalf("run = %s, want completed — the refusal is an observation, not a crash", status)
+	}
+	// The refusal must be the governed surface's, recorded on the step.
+	var refused bool
+	for _, step := range trace {
+		if step.Tool == "archive_record" && step.Admission == "refused" {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatalf("no refused archive_record step in the trace: %+v", trace)
+	}
+	// And the target is untouched, which is the property that actually matters.
+	var after struct {
+		ArchivedAt *string `json:"archived_at"`
+	}
+	if got := re.Call(t, "GET", "/v1/people/"+person.ID, nil, nil, &after); got != http.StatusOK || after.ArchivedAt != nil {
+		t.Fatalf("the sweep archived a record it may not archive: GET → %d archived_at=%v", got, after.ArchivedAt)
 	}
 }
