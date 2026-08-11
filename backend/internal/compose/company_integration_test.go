@@ -257,6 +257,54 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	}
 }
 
+func TestFormResaveDoesNotClobberAHeaderDescriptionEdit(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	// The first form save fills the empty header line from the summary.
+	saved, err := store.SaveCompany(ctx, people.SaveCompanyInput{
+		DisplayName: "Acme GmbH",
+		Website:     strptr("https://acme.example"),
+		Fields:      map[string]*string{"offer_summary": strptr("Revenue operations software")},
+	})
+	if err != nil {
+		t.Fatalf("SaveCompany: %v", err)
+	}
+	readDescription := func() *string {
+		var description *string
+		if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT description FROM organization WHERE id = $1`, saved.OrganizationID).Scan(&description)
+		}); err != nil {
+			t.Fatalf("reading description: %v", err)
+		}
+		return description
+	}
+	if got := readDescription(); got == nil || *got != "Revenue operations software" {
+		t.Fatalf("description after the first form save = %v, want the typed summary", got)
+	}
+
+	// The header's inline edit is the one editor of a standing value.
+	if _, err := store.UpdateOrganization(ctx, saved.OrganizationID, people.UpdateOrganizationInput{
+		Description: strptr("The RevOps platform for manufacturers"),
+	}); err != nil {
+		t.Fatalf("UpdateOrganization: %v", err)
+	}
+
+	// A later form save re-sends the unchanged summary; the newer header line
+	// must survive it.
+	if _, err := store.SaveCompany(ctx, people.SaveCompanyInput{
+		DisplayName: "Acme GmbH",
+		Fields:      map[string]*string{"offer_summary": strptr("Revenue operations software")},
+	}); err != nil {
+		t.Fatalf("second SaveCompany: %v", err)
+	}
+	if got := readDescription(); got == nil || *got != "The RevOps platform for manufacturers" {
+		t.Fatalf("description after a form resave = %v, want the header edit kept", got)
+	}
+}
+
 func TestAcceptedOfferSummaryFillsTheDescriptionColumn(t *testing.T) {
 	e := integration.Setup(t)
 	store := people.NewStore(e.Pool)
