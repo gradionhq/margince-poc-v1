@@ -14,11 +14,21 @@ import {
   StatCard,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
-import { formatDate, formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatMoneyCompact,
+} from "../format/format";
 
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, throwProblem } from "./common";
+import {
+  problemCodeOf,
+  problemMessageOf,
+  throwProblem,
+  useFinanceSummary,
+} from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -48,6 +58,7 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 
 // What each signal kind is, in words. The badge rendered the stored enum, so
 // a German reader met `buying_intent` and an English one met an identifier.
@@ -1254,7 +1265,12 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
+              {/* The SEVERITY colours the row. A tone-neutral badge made an
+                  urgent risk look like an informational note, which is the one
+                  distinction a reader scans this card for. */}
+              <Badge tone={signalTone(signal.severity)}>
+                {t(SIGNAL_KIND_LABELS[signal.kind])}
+              </Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>
@@ -1529,9 +1545,21 @@ type Suggestion = components["schemas"]["Organization360Suggestion"];
 export function SentenceList({
   sentences,
   onOpenRecord,
+  citations = "per-sentence",
 }: Readonly<{
   sentences: BriefSentence[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // WHERE the receipts go, which is a reading decision rather than a styling
+  // one.
+  //
+  // "per-sentence" is the brief's: each line is a separate claim a reader
+  // checks on its own, so its chips belong beside it.
+  //
+  // "collected" is the dossier's: it is one continuous description of a
+  // company, and a chip after every clause turned three sentences into a wall
+  // of "fact fact fact". The sources are the same, gathered once underneath —
+  // every claim stays checkable, and the prose stays readable.
+  citations?: "per-sentence" | "collected";
 }>) {
   const t = useT();
   return (
@@ -1552,9 +1580,22 @@ export function SentenceList({
             </Badge>
           )}{" "}
           {sentence.text}
-          <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
+          {citations === "per-sentence" && (
+            <Citations
+              evidence={sentence.evidence}
+              onOpenRecord={onOpenRecord}
+            />
+          )}
         </li>
       ))}
+      {citations === "collected" && (
+        <li className="co-brief-sources">
+          <Citations
+            evidence={sentences.flatMap((sentence) => sentence.evidence)}
+            onOpenRecord={onOpenRecord}
+          />
+        </li>
+      )}
     </ul>
   );
 }
@@ -1941,11 +1982,138 @@ type Health = NonNullable<Organization360["health"]>;
  * A part the server could not compute is ABSENT, never zero. Zero is a claim
  * about the account; absence is a fact about the reading.
  */
-export function HealthCard({ health }: Readonly<{ health?: Health }>) {
+// The rating vocabulary, worst first. The ORDER is the worst-of rule: a
+// verdict is the lowest-ranked rating among the dimensions that have one
+// (PO-AC-N-11).
+// fitStripColumns sets the grid's column count to the number of slots that
+// actually rendered. A fixed template reserves a cell for a reading the account
+// does not have, and an empty cell in a bordered row reads as a figure that
+// failed to load.
+function fitStripColumns(node: HTMLElement | null) {
+  if (!node) {
+    return;
+  }
+  node.style.setProperty("--co-strip-slots", String(node.childElementCount));
+}
+
+const HEALTH_RANK = ["at_risk", "good", "strong"] as const;
+type HealthRating = (typeof HEALTH_RANK)[number];
+
+const HEALTH_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
+  at_risk: "danger",
+  good: "warn",
+  strong: "success",
+};
+
+const HEALTH_DIMENSION_LABEL: Record<
+  "relationship" | "commercial" | "payment",
+  MessageKey
+> = {
+  relationship: "co.health.dim.relationship",
+  commercial: "co.health.dim.commercial",
+  payment: "co.health.dim.payment",
+};
+
+/**
+ * Payment health, read from the finance summary the page already fetches.
+ *
+ * Rated from the median days after due, which is the reading that says how they
+ * PAY rather than what they owe: one late invoice is an exception, a habit is a
+ * habit. Below the sample floor the server sends no median, and this returns
+ * nothing — "pays on time" concluded from four invoices is a claim about a
+ * habit nobody has observed yet.
+ *
+ * Overdue money outranks the median. An account that pays promptly and has
+ * money outstanding right now is at risk today, whatever its habit.
+ */
+function usePaymentHealth(orgId?: string) {
   const t = useT();
+  const { data } = useFinanceSummary(orgId ?? "");
+  if (!orgId || !data) {
+    return undefined;
+  }
+  const overdue = data.overdue?.amount_minor ?? 0;
+  if (overdue > 0) {
+    return {
+      rating: "at_risk" as const,
+      reason: t("co.health.payment.overdue"),
+    };
+  }
+  const median = data.median_days_after_due;
+  if (median == null) {
+    return undefined;
+  }
+  if (median > paymentLateDays) {
+    return {
+      rating: "good" as const,
+      reason: t("co.health.payment.late", { days: median }),
+    };
+  }
+  return {
+    rating: "strong" as const,
+    reason:
+      median < 0
+        ? t("finance.medianEarly", { days: Math.abs(median) })
+        : t("co.health.payment.onTime"),
+  };
+}
+
+// How many days past due a median has to run before it reads as a habit worth
+// naming. Named rather than inlined so the threshold is one number a reader can
+// find and argue with.
+const paymentLateDays = 5;
+
+const HEALTH_RATING_LABEL: Record<HealthRating, MessageKey> = {
+  at_risk: "co.health.rating.atRisk",
+  good: "co.health.rating.good",
+  strong: "co.health.rating.strong",
+};
+
+/**
+ * The account's health as its named dimensions and one verdict over them.
+ *
+ * `overall` is the WORST rating present, never an average: an average lets a
+ * strong relationship hide a payment problem, and payment problems are the ones
+ * a rep must not miss. It is also a sentence a reader can check — "at risk,
+ * because payment is at risk" — where a composite number is not.
+ *
+ * A dimension with no rating is not in the verdict, and the card says how many
+ * it was computed from. Three-of-three and one-of-three are different claims.
+ */
+export function worstOf(
+  dimensions: ReadonlyArray<{ rating?: string } | undefined>,
+): { overall?: HealthRating; rated: number } {
+  const present = dimensions
+    .map((dimension) => dimension?.rating)
+    .filter((rating): rating is HealthRating =>
+      HEALTH_RANK.includes(rating as HealthRating),
+    );
+  if (present.length === 0) {
+    return { rated: 0 };
+  }
+  const worst = HEALTH_RANK.find((rating) => present.includes(rating));
+  return { overall: worst, rated: present.length };
+}
+
+export function HealthCard({
+  health,
+  orgId,
+}: Readonly<{ health?: Health; orgId?: string }>) {
+  const t = useT();
+  // PAYMENT is composed here rather than served with the other two. The finance
+  // mirror is another module's, and a module never imports a sibling — so the
+  // 360 carries relationship and commercial, and the surface that already reads
+  // the finance summary folds in the third. Same query the KPI strip and the
+  // finance card run, so it costs no request and the three cannot disagree.
+  const payment = usePaymentHealth(orgId);
   if (!health) {
     return null;
   }
+  const { overall, rated } = worstOf([
+    health.relationship,
+    health.commercial,
+    payment,
+  ]);
   const lines: string[] = [];
   if (health.days_since_last_inbound != null) {
     lines.push(
@@ -1969,7 +2137,7 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       t("co.health.openCommitments", { count: health.open_commitments }),
     );
   }
-  if (lines.length === 0) {
+  if (lines.length === 0 && rated === 0) {
     return null;
   }
   return (
@@ -1980,6 +2148,42 @@ export function HealthCard({ health }: Readonly<{ health?: Health }>) {
       // because "how it stands: nothing" is not a reading of an account.
       emptyLabel={t("co.health.title")}
     >
+      {/* The dimensions lead, each with its rating. A dimension with no rating
+          is absent rather than shown as unknown — absence is a fact about the
+          reading, and a permanently unknown row teaches a reader to skip the
+          card (ADR-0095/A146). */}
+      <ul className="co-health-rows">
+        {(
+          [
+            ["relationship", health.relationship],
+            ["commercial", health.commercial],
+            ["payment", payment],
+          ] as const
+        ).map(([name, dimension]) =>
+          dimension?.rating ? (
+            <li key={name} className="co-health-row">
+              <span>{t(HEALTH_DIMENSION_LABEL[name])}</span>
+              <Badge tone={HEALTH_TONE[dimension.rating as HealthRating]}>
+                {t(HEALTH_RATING_LABEL[dimension.rating as HealthRating])}
+              </Badge>
+              <span className="co-row-meta">{dimension.reason}</span>
+            </li>
+          ) : null,
+        )}
+        {overall && (
+          <li className="co-health-row co-health-overall">
+            <span>{t("co.health.overall")}</span>
+            <Badge tone={HEALTH_TONE[overall]}>
+              {t(HEALTH_RATING_LABEL[overall])}
+            </Badge>
+            {/* How many dimensions the verdict was read from. Three-of-three
+                and one-of-three are different claims. */}
+            <span className="co-row-meta">
+              {t("co.health.ratedOf", { rated })}
+            </span>
+          </li>
+        )}
+      </ul>
       <ul className="co-list">
         {lines.map((line) => (
           <li key={line} className="co-row">
@@ -2021,28 +2225,28 @@ const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the three readings the overview leads with (AC-company-13):
- * where the account stands, whose move it is, and what commercial work is open.
+ * StateStrip is the KPI row directly under the header: SIX slots, and which
+ * six depends on where the account stands. A customer is asked about money and
+ * health; everyone else about pipeline, timing and engagement. Showing one set
+ * to both makes half of them noise.
  *
- * Each half is drawn only when the server answered it. A null engagement means
+ * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
  * from that would state a business conclusion the page has no basis for — the
  * one a rep would act on.
  */
-// The compact KPI row (plan §4.2): at most four cards, and WHICH four depends
-// on where the account stands. A customer is asked about money and health; a
-// prospect is asked about pipeline, timing and fit. Showing one set to both
-// makes half of them noise.
 //
 // What it must never render is the harder half of the rule, and every omission
 // below is one of its bullets: no €0 when the figure is unavailable, no
 // cross-currency sum without its conversion source, and nothing called
 // "revenue" that is only a count of open deals.
 export function StateStrip({
+  orgId,
   view,
   lifecycleLabel,
   relationshipLabels,
 }: Readonly<{
+  orgId: string;
   view?: Organization360;
   lifecycleLabel: (value: string) => string;
   relationshipLabels: (values: readonly string[]) => string;
@@ -2060,45 +2264,87 @@ export function StateStrip({
   // reads as though the relationship were still running.
   const customer = strip.account.lifecycle === "customer";
   return (
-    <section className="co-strip" aria-label={t("co.strip.title")}>
-      {/* Four cards is the cap (§4.2). On a CUSTOMER the two money readings
-          lead, because "do they pay us, and on time?" is the question a
-          customer page is opened with — on everyone else there is no such
-          question and the account's own state leads instead. */}
-      {/* Where the account stands holds the first slot on every page. It is
-          the one reading that is true of every company, and a page that leads
-          with money on some accounts and with state on others gives the reader
-          no fixed place to look. */}
-      <StatCard
-        label={t("co.strip.account")}
-        value={lifecycleLabel(strip.account.lifecycle)}
-        detail={types.length > 0 ? relationshipLabels(types) : undefined}
-      />
-      {/* On a customer the second slot is money — "do they pay us?" is the
-          question their page is opened with, and it is the slot the mockup's
-          State D gives to net invoiced. On everyone else there are no invoices
-          to ask about and the question is when the next deal lands. */}
+    <section
+      className="co-strip"
+      aria-label={t("co.strip.title")}
+      // The grid draws exactly the slots this account has. A customer's row is
+      // six; a non-customer with no open signal is five, and a template that
+      // reserved a sixth would leave a grey cell where a reading never was.
+      // Counted from the DOM rather than predicted: several slots return null
+      // on their own (engagement with no grant, pipeline with no deals), so an
+      // expression here would have to restate every one of their conditions and
+      // would drift the moment one changed.
+      ref={fitStripColumns}
+    >
+      {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
+          and how it is held: what they have ever been worth, what lately,
+          what is outstanding, what is late, how late they usually are, and
+          whether the relationship stays that way.
+
+          Where the account STANDS is not among them. The mockups put
+          lifecycle and owner in the header beside the name, and repeating it
+          here would spend a money slot on a value the reader has already
+          passed. On a non-customer there are no invoices to ask about, so the
+          account's own state leads and the row keeps its shape. */}
       {customer ? (
-        <FinanceStat reading="netInvoiced" t={t} />
+        <>
+          {/* Lifetime beside the trailing year, which is the comparison the
+              mockup draws: what this account has ever been worth, and what it
+              has been worth lately. Each refuses on its own — a widened window
+              can be unconvertible while the narrow one is not. */}
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoicedLifetime"
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="netInvoiced"
+            namesSource
+            locale={locale}
+            t={t}
+          />
+          <FinanceStat
+            orgId={orgId}
+            reading="openInvoices"
+            locale={locale}
+            t={t}
+          />
+          {/* What is late, then how late they usually are: the amount is the
+              exception standing open, the median is the habit behind it. */}
+          <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
+          <PaidAfterDueStat orgId={orgId} t={t} />
+          {/* Health closes the row, as the mockup draws it: the money above is
+              what the account IS worth, and this is whether it stays that way. */}
+          <HealthStat health={view?.health} t={t} />
+        </>
       ) : (
-        <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
-      )}
-      {customer ? (
-        <HealthStat health={view?.health} t={t} />
-      ) : (
-        <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
-      )}
-      {/* The signal, when one is open, takes the last slot rather than adding
-          a fifth — the worst thing standing open is the more urgent reading. */}
-      {strip.signal ? (
-        <StatCard
-          label={t("co.strip.signal")}
-          value={signalKindLabel(strip.signal.kind, t)}
-          tone={signalTone(strip.signal.severity)}
-          detail={strip.signal.summary}
-        />
-      ) : (
-        <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
+        <>
+          {/* No invoices to ask about, so the account's own standing leads and
+              the commercial readings follow it. */}
+          <StatCard
+            label={t("co.strip.account")}
+            value={lifecycleLabel(strip.account.lifecycle)}
+            detail={types.length > 0 ? relationshipLabels(types) : undefined}
+          />
+          <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+          <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
+          <HealthStat health={view?.health} t={t} />
+          <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
+          {/* An open signal ADDS a sixth slot rather than replacing one: the
+              worst thing standing open is the most urgent reading on the row.
+              With none open the row is five, because an "all clear" nobody
+              asked for spends a slot saying a rule did not fire. */}
+          {strip.signal ? (
+            <StatCard
+              label={t("co.strip.signal")}
+              value={signalKindLabel(strip.signal.kind, t)}
+              tone={signalTone(strip.signal.severity)}
+              detail={strip.signal.summary}
+            />
+          ) : null}
+        </>
       )}
     </section>
   );
@@ -2118,20 +2364,224 @@ export function StateStrip({
  * simply has no money reading tells a reader nothing is missing; this one
  * tells them what to connect.
  */
+// Which field of the summary each strip slot reads. A map rather than a chain
+// of ternaries so a new slot is one line and cannot silently fall through to
+// the wrong figure.
+const FINANCE_READINGS = {
+  netInvoicedLifetime: (data?: FinanceSummary) => data?.net_invoiced_lifetime,
+  netInvoiced: (data?: FinanceSummary) => data?.net_invoiced,
+  openInvoices: (data?: FinanceSummary) => data?.open_balance,
+  overdue: (data?: FinanceSummary) => data?.overdue,
+} as const;
+
 function FinanceStat({
+  orgId,
   reading,
+  namesSource,
+  locale,
   t,
 }: Readonly<{
-  reading: "netInvoiced" | "openInvoices";
+  orgId: string;
+  reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
+  // Whether this slot carries the provider badge. True on exactly one slot per
+  // row; see the note beside `source` below.
+  namesSource?: boolean;
+  locale: Locale;
   t: ReturnType<typeof useT>;
 }>) {
+  // The SAME query the finance card runs, so every reading on one page agrees
+  // and all but the first cost no request.
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  // A refusal is not a failure and neither is a setup gap. A reader whose role
+  // cannot see finance told to "connect your accounting" is sent to a settings
+  // page to fix a permission — the one thing they cannot fix from there.
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const amount = FINANCE_READINGS[reading](data);
+  const caveat = staleDetailKey(data?.state);
+  // No figure is not €0, and the six reasons there is none are not one reason.
+  // "Connect your accounting" is wrong advice for a connection that exists and
+  // is syncing, stale, errored or unmatched — it sends the reader to set up
+  // something they already have.
+  if (!amount || amount.amount_minor == null || !amount.currency) {
+    return (
+      <StatCard
+        label={t(`co.strip.${reading}`)}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          financeDetailKey({
+            pending: isPending,
+            withheld,
+            failed: isError && !withheld,
+            state: data?.state,
+          }),
+        )}
+      />
+    );
+  }
   return (
     <StatCard
       label={t(`co.strip.${reading}`)}
-      value={t("co.strip.financeUnknown")}
-      detail={t("co.strip.connectFinance")}
+      value={formatMoneyCompact(amount.amount_minor, amount.currency, locale)}
+      source={
+        namesSource && data?.provider ? (
+          <Badge>{data.provider}</Badge>
+        ) : undefined
+      }
+      // The source is named ONCE, on the trailing-year slot — the row's
+      // primary money reading, and the one a connected account always has. Which
+      // accounting system a figure came from is a fact about the CONNECTION,
+      // not about each figure, and five slots reading one query would repeat
+      // it five times across a strip that has to stay one line.
+      //
+      // A figure that is not current is shown WITH its caveat rather than
+      // withheld: the last known number is usually the right one, and hiding
+      // it tells the reader less than showing it qualified would.
+      //
+      // The two cases say DIFFERENT things, which is why they are not one
+      // branch. `stale` is a sync that SUCCEEDED, just long enough ago that
+      // the date matters. `error` is the last good answer after an attempt
+      // that failed. Calling either one the other is a wrong claim about
+      // whether anything is broken.
+      detail={caveat && t(caveat)}
     />
   );
+}
+
+/**
+ * How late this customer pays, as the strip's sixth slot (FIN-FORM-3).
+ *
+ * Not a FinanceStat: the value is a count of DAYS rather than money, and the
+ * two directions read as opposite facts. A negative median means they pay
+ * BEFORE the due date, so it is rendered as "typically N days early" — the
+ * literal "-4 days after due" is a puzzle rather than a reading.
+ *
+ * A missing median has one reason the money slots do not share: the server
+ * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
+ * payment habit read off four invoices is an anecdote. That case says so.
+ * Delegating it to the money slots' reason would put "Nothing invoiced yet"
+ * beside a lifetime total of €186,420 — two slots on one row contradicting
+ * each other, and the wrong one stating a fact about the account.
+ */
+function PaidAfterDueStat({
+  orgId,
+  t,
+}: Readonly<{ orgId: string; t: ReturnType<typeof useT> }>) {
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const median = data?.median_days_after_due;
+  if (median == null) {
+    // A read that SUCCEEDED against a live connection and still carries no
+    // median is the sample floor. Every other reason — no source, unmapped,
+    // syncing, denied, failed — means the same for this slot as for the money
+    // beside it, so those keep the shared wording.
+    const settled = data?.state === "connected" || data?.state === "stale";
+    return (
+      <StatCard
+        label={t("co.strip.paidAfterDue")}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          settled && !isPending && !isError
+            ? "co.strip.fin.tooFewSettled"
+            : financeDetailKey({
+                pending: isPending,
+                withheld,
+                failed: isError && !withheld,
+                state: data?.state,
+              }),
+        )}
+      />
+    );
+  }
+  const caveat = staleDetailKey(data?.state);
+  return (
+    <StatCard
+      label={t("co.strip.paidAfterDue")}
+      value={medianDaysLabel(median, t)}
+      detail={caveat && t(caveat)}
+    />
+  );
+}
+
+/**
+ * A median days-after-due as a sentence (FIN-FORM-3).
+ *
+ * Negative days mean they pay BEFORE the due date. "-4 days after due" is a
+ * puzzle; "typically 4 days early" is the reading. Shared by the KPI slot and
+ * the finance card so the two cannot come to describe earliness differently —
+ * spelled twice, only one of the copies would be changed.
+ */
+export function medianDaysLabel(
+  median: number,
+  t: ReturnType<typeof useT>,
+): string {
+  return median < 0
+    ? t("finance.medianEarly", { days: Math.abs(median) })
+    : t("finance.medianAfterDue", { days: median });
+}
+
+// The caveat on a figure that IS shown but is not current. Undefined when the
+// figure is current and needs none.
+function staleDetailKey(
+  state?: components["schemas"]["FinanceSummaryState"],
+): MessageKey | undefined {
+  switch (state) {
+    case "stale":
+      return "co.strip.fin.staleFigure";
+    case "error":
+      return "co.strip.fin.errorFigure";
+    case "syncing":
+      // The first pass has not finished, so what is shown may be partial.
+      return "co.strip.fin.syncing";
+    default:
+      return undefined;
+  }
+}
+
+// Why there is no figure, in the reader's terms. Each state has its own fix,
+// and naming the wrong one costs the reader a trip to a settings page they did
+// not need.
+function financeDetailKey({
+  pending,
+  withheld,
+  failed,
+  state,
+}: Readonly<{
+  pending: boolean;
+  withheld: boolean;
+  failed: boolean;
+  state?: components["schemas"]["FinanceSummaryState"];
+}>): MessageKey {
+  if (pending) {
+    return "co.strip.fin.loading";
+  }
+  // Both before the state switch: with no answer there is no state to read,
+  // and guessing one from its absence is how a denial became setup advice.
+  if (withheld) {
+    return "co.strip.fin.withheld";
+  }
+  if (failed) {
+    return "co.strip.fin.error";
+  }
+  switch (state) {
+    case "unmapped":
+      return "co.strip.fin.unmapped";
+    case "syncing":
+      return "co.strip.fin.syncing";
+    case "stale":
+      return "co.strip.fin.staleFigure";
+    case "error":
+      return "co.strip.fin.error";
+    case "connected":
+      // A live, mapped source that produced no figure. Nothing is broken and
+      // there is nothing to set up — we have simply never billed them, or no
+      // invoice could be converted. Setup advice here sends the reader to fix
+      // a connection that is already working.
+      return "co.strip.fin.nothingBilled";
+    default:
+      // no_connection, and the read that never answered. Both mean there is
+      // no source to read, which is the one case the setup advice fits.
+      return "co.strip.fin.noConnection";
+  }
 }
 
 type StripCommercial = NonNullable<
@@ -2252,7 +2702,7 @@ function CloseDateStat({
 // It reports the BALANCE of the exchange rather than its recency, because the
 // engagement card beside it already answers "whose move is it" — two cards
 // saying "in conversation" in different words is one card's worth of
-// information taking two of the four slots. A relationship where they write
+// information taking two slots of six. A relationship where they write
 // and we do not answer, and one where we write into silence, are both
 // "in conversation" by recency and are opposite problems.
 function HealthStat({
@@ -2386,6 +2836,7 @@ export function SuggestionsSection({
   // the deal and the task form all live above it.
   onPerform?: (action: SuggestionAction) => void;
 }>) {
+  const { locale } = useLocale();
   const t = useT();
   const client = useQueryClient();
   const dismiss = useMutation({
@@ -2427,13 +2878,24 @@ export function SuggestionsSection({
         {suggestions.map((suggestion) => (
           <li key={suggestion.fingerprint} className="co-row">
             <span>
+              {/* The title leads where the rule gave one: it says what to DO,
+                  where the kind says which rule fired. Absent on a rule that
+                  named none, and the kind carries the row alone. */}
               <span className="co-suggest-kind">
-                {t(`co.suggest.kind.${suggestion.kind}`)}
+                {suggestion.title ?? t(`co.suggest.kind.${suggestion.kind}`)}
               </span>
               {/* The reason is the suggestion. Everything else is chrome. */}
               <span className="co-suggest-reason">{suggestion.reason}</span>
             </span>
             <span className="co-row-meta">
+              {/* The date the EVIDENCE carries — when the thread went quiet,
+                  when the deal last moved. Never a deadline the system chose,
+                  which is why a rule firing on an absence shows none. */}
+              {suggestion.due_at && (
+                <span>
+                  {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
+                </span>
+              )}
               <Citations
                 evidence={suggestion.evidence}
                 onOpenRecord={onOpenRecord}

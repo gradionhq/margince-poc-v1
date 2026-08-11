@@ -171,6 +171,15 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
+	// The commercial reads: what this workspace promised and has not
+	// delivered, and what the delivery side of a project is being handed.
+	// Both ride the owning modules' own gated store paths
+	// (commercialseams.go), and both take the outermost overlay guard the
+	// other native-only engines do — a mirrored workspace has no task
+	// projection and no project at all, and "nothing is outstanding" is the
+	// one wrong answer here that reads as good news.
+	agents.RegisterCommitmentTool(registry, nativeOnlyCommitments(sorMode, commitmentLister(pool)))
+	agents.RegisterHandoffTool(registry, nativeOnlyHandoff(sorMode, handoffReader(pool)))
 	// The relationship-graph reads (ADR-0078): who here knows this contact,
 	// how a deal is covered, who can get us into an account, and which of the
 	// caller's deals the coverage rules flag. All 🟢 — they name people, they

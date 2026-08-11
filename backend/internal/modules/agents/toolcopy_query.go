@@ -11,8 +11,8 @@ var queryWorkspaceCopy = toolCopy{
 		"hop to a related record, or a likeness to describe — by sending a plan and reading back " +
 		"the records that satisfy it, together with what kind of answer it is.",
 	Limits: "Every name in a plan comes from the published vocabulary, and a name outside it is " +
-		"refused rather than guessed at: read the margince://schema/query resource first, because " +
-		"that document — not this description — is what says which record types, fields, operators " +
+		"refused by name rather than guessed at. The margince://schema/query resource — not this " +
+		"description — is what says which record types, fields, operators " +
 		"and relationships this workspace can actually be asked about. A plan takes at most one " +
 		"similarity clause and at most one relationship hop. It cannot group, count or total, and " +
 		"there is no cursor: an answer that hit its limit says so instead of offering a next page.",

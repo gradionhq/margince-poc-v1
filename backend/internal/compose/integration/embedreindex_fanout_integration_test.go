@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -65,8 +66,8 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 // reached every workspace it is ever going to.
 func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	re := setupReembedFleet(t)
-	healthy := seedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
-	archived := seedExtraWorkspace(t, re.Owner, "reindex-archived", true)
+	healthy := SeedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
+	archived := SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
 	// Both live tenants get an entity to embed, so each child has real work and
 	// the victim's write actually reaches the fault.
@@ -81,7 +82,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	// complete on a later attempt and read as green — the outcome this denies.
 	failEmbeddingWritesFor(t, re.Owner, re.WS)
 
-	runner, completed, failed := startTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
+	runner, completed, failed := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -94,7 +95,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	kind := compose.EmbedReindexWorkspaceArgs{}.Kind()
-	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
+	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
 
 	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
 		t.Errorf("no re-embed ran for workspace %s — a tenant the fan-out skipped keeps a stale index, and no row records that it did not", healthy)
@@ -185,7 +186,7 @@ func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) 
 		t.Fatalf("archiving the only workspace: %v", err)
 	}
 
-	runner, completed, _ := startTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
+	runner, completed, _ := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -196,7 +197,7 @@ func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) 
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
+	jobtest.AwaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
 
 	populated, status, _, err := re.Store.PopulatedIdentity(context.Background())
 	if err != nil {

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -15,6 +16,17 @@ import {
 
 type GrowthFit = components["schemas"]["OrganizationGrowthFit"];
 type Band = GrowthFit["band"];
+
+type SubScoreDimension = NonNullable<
+  GrowthFit["sub_scores"]
+>[number]["dimension"];
+
+const SUB_SCORE_LABELS: Record<SubScoreDimension, MessageKey> = {
+  industry_fit: "co.growthFit.dim.industryFit",
+  company_size: "co.growthFit.dim.companySize",
+  transformation_need: "co.growthFit.dim.transformationNeed",
+  access: "co.growthFit.dim.access",
+};
 
 const BAND_LABELS: Record<Band, MessageKey> = {
   strong: "co.growthFit.band.strong",
@@ -167,6 +179,37 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
           {t("co.growthFit.completeness", { present, expected })}
         </span>
       </p>
+      {/* The band, taken apart (DOSS-AC-17). Four named dimensions over the
+          same evidence the band was read from, so a reader who disagrees with
+          the verdict can see which input carried it.
+
+          Absent below the abstention floor, with the claims that justified a
+          judgment the assembly declined to make — never drawn as zeroes, which
+          would be a claim about the company rather than about the reading. */}
+      {fit.sub_scores && fit.sub_scores.length > 0 && (
+        <ul className="co-growth-fit-scores">
+          {fit.sub_scores.map((sub) => (
+            <li key={sub.dimension} className="co-growth-fit-score">
+              {/* The label and the figure are DRAWN, not only announced:
+                  Meter carries its label to assistive tech as an aria-label
+                  and renders none, so a row of bare bars would say nothing
+                  about which dimension is which. */}
+              <span className="co-growth-fit-score-head">
+                <span>{t(SUB_SCORE_LABELS[sub.dimension])}</span>
+                <span className="co-growth-fit-score-value">{sub.score}</span>
+              </span>
+              <Meter
+                value={sub.score}
+                max={100}
+                label={t(SUB_SCORE_LABELS[sub.dimension])}
+              />
+              {/* The reason travels WITH the bar. A number and no sentence is
+                  the unexplainable score this model replaced. */}
+              <span className="co-row-meta">{sub.reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {missing && missing.length > 0 && (
         <p className="co-growth-fit-missing">
           {t("co.growthFit.missing", { inputs: missing.join(", ") })}

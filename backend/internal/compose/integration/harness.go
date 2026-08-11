@@ -3,42 +3,6 @@
 
 //go:build integration
 
-// Package integration holds the cross-module integration suites — the
-// compose charter exercised end to end over a real migrated Postgres —
-// and the shared fixtures they ride. There are three, all exported, all in
-// non-test files:
-//
-//   - Env, here — a migrated database plus the core stores.
-//   - SearchEnv, in searchenv.go — lighter, and despite the name mostly taken
-//     for the database rather than the search store.
-//   - apptest.AppEnv, in the apptest subpackage — the booted application behind
-//     a TLS test server.
-//
-// Env and SearchEnv live here because the white-box suites that must stay in
-// their own package (compose root, briefs) import them, so neither may import
-// compose. AppEnv boots a compose handler stack and therefore CANNOT live here:
-// that would close a cycle through those same white-box tests. It sits one level
-// down instead, and nothing in apptest may import this package, or the cycle
-// closes from the other side.
-//
-// Suites also live in sibling packages that import this one. That is how the
-// lane gets more than one scheduling slot: one package is one slot, and this
-// package is large enough to be the lane's long pole on its own. The set of such
-// packages is the subdirectories of this one, which is where to look rather than
-// a list here that the next split would have to remember to extend — apptest is
-// the exception, a fixture package rather than a suite slot.
-//
-// Split a group out when it is a closed seam: it rides one of the three exported
-// fixtures, and it neither needs nor owes an unexported helper across the
-// boundary. Any of the three will do — a group riding AppEnv is no longer stuck.
-// A helper that two such groups need is promoted here; one that only a group
-// needs stays with it.
-//
-// Two things a split reliably runs into. A fixture is only importable if its
-// METHODS are in a non-test file too, since a method declared in a _test.go file
-// is not part of the package a sibling imports. And once the fixture's type is
-// foreign, a suite cannot declare methods on it at all — helpers a group keeps
-// become plain functions taking the fixture.
 package integration
 
 import (
@@ -49,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -112,6 +77,7 @@ func Setup(t *testing.T) *Env {
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Authz', 'authz', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
+	seedInstallationIdentity(ctx, t, owner)
 	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
 		if _, err := owner.Exec(ctx,
 			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
@@ -144,7 +110,7 @@ func Setup(t *testing.T) *Env {
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool)
+	e.Deals = deals.NewStore(pool, installseam.Deals())
 	e.Activities = activities.NewStore(pool)
 	return e
 }
@@ -196,6 +162,12 @@ const (
 	objActivity = "activity"
 	objDeal     = "deal"
 	objOrg      = "organization"
+	objPipeline = "pipeline"
+	// objInstallSettings gates the read of the installation's own values —
+	// name, base currency, timezone. Every fixture that reads deals or
+	// accounts carries it, because those reads resolve the basis they are
+	// reported in (issue #521), and 0191 grants it to all five seeded roles.
+	objInstallSettings = "installation_settings"
 )
 
 // permissions fixtures mirror the RBAC matrix rows the suites
@@ -204,9 +176,10 @@ var (
 	RepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson:  {Create: true, Read: true, Update: true},
-			objDeal:    {Create: true, Read: true, Update: true},
-			"pipeline": {Read: true},
+			objPerson:          {Create: true, Read: true, Update: true},
+			objDeal:            {Create: true, Read: true, Update: true},
+			objPipeline:        {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
@@ -220,20 +193,22 @@ var (
 	AccountRepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			objOrg:      {Read: true},
-			objPerson:   {Create: true, Read: true, Update: true},
-			objDeal:     {Create: true, Read: true, Update: true},
-			objActivity: {Create: true, Read: true, Update: true},
-			"pipeline":  {Read: true},
-			"tag":       {Read: true},
-			"list":      {Read: true},
+			objOrg:             {Read: true},
+			objPerson:          {Create: true, Read: true, Update: true},
+			objDeal:            {Create: true, Read: true, Update: true},
+			objActivity:        {Create: true, Read: true, Update: true},
+			objPipeline:        {Read: true},
+			"tag":              {Read: true},
+			"list":             {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
 	ReadOnlyPerms = principal.Permissions{
 		RoleKeys: []string{"read_only"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson: {Read: true}, objDeal: {Read: true}, "pipeline": {Read: true},
+			objPerson: {Read: true}, objDeal: {Read: true}, objPipeline: {Read: true},
+			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -251,7 +226,7 @@ var (
 			objDeal:     {Create: true, Read: true, Update: true, Delete: true},
 			"lead":      {Create: true, Read: true, Update: true, Delete: true},
 			objActivity: {Create: true, Read: true, Update: true, Delete: true},
-			"pipeline":  {Create: true, Read: true, Update: true, Delete: true},
+			objPipeline: {Create: true, Read: true, Update: true, Delete: true},
 			// computed_field is read-only for every system role, admin
 			// included (RD-AC-7: no runtime formula-authoring surface
 			// exists) — identity/internal/policy.go's real seed, mirrored
@@ -267,6 +242,10 @@ var (
 			// set — including the company-domain change that feeds it, since
 			// that decides whose mail is stored at all.
 			"capture_settings": {Read: true, Update: true},
+			// installation_settings mirrors 0191's real seed: readable by every
+			// system role, updatable by admin/ops. Money readers resolve the
+			// base currency through this gate.
+			objInstallSettings: {Read: true, Update: true},
 			"project":          {Create: true, Read: true, Update: true, Delete: true},
 			"relationship":     {Create: true, Read: true, Update: true, Delete: true},
 		},
@@ -454,10 +433,10 @@ var SchedulerPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-// ApplyRiverSchema gives this package's suites River's schema on the
-// harness-migrated database, as cmd/migrate does after core and custom. Several
-// suites here and in package compose drive a real River runner and each needs it
-// present.
+// ApplyRiverSchema gives a suite River's schema on the harness-migrated
+// database, as cmd/migrate does after core and custom. Every suite that drives a
+// real River runner needs it present, and those sit here, in package compose,
+// and in the sibling suite packages alike.
 //
 // Call it AFTER Setup — testdb.EnsureRiverSchema explains why the order matters
 // and why the guard probes the table rather than a flag.

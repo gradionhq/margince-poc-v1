@@ -69,7 +69,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = createDealTx(ctx, tx, in, by, active)
+		out, err = s.createDealTx(ctx, tx, in, by, active)
 		return err
 	})
 	return out, err
@@ -78,7 +78,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 // createDealTx guards the birth invariants (open stage, future close,
 // visible organization), inserts the deal with its first stage-history
 // row, and runs the write shape — all inside the caller's transaction.
-func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
+func (s *Store) createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
 	wsID := storekit.MustWorkspace(ctx)
 
 	if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
@@ -88,7 +88,7 @@ func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string,
 	// INV-CLOSE-PAST (formulas §11): deals are born open, and an open
 	// deal never claims a past close date — reject at source rather
 	// than let the nightly corrector inherit a knowingly-invalid row.
-	if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
+	if err := s.rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 
@@ -216,7 +216,7 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crm
 // as a field patch. Re-pointing the deal at an organization (or partner
 // organization) is a read of that record, so each link target must be
 // visible under the caller's row scope before it lands in the patch.
-func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in UpdateDealInput) (*storekit.Patch, error) {
+func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in UpdateDealInput) (*storekit.Patch, error) {
 	p := storekit.NewPatch()
 	if in.Name != nil {
 		p.Set("name", current.Name, *in.Name)
@@ -227,32 +227,14 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 	if in.Currency != nil {
 		p.Set("currency", current.Currency, *in.Currency)
 	}
-	if in.OrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
-			return nil, err
-		}
-		p.Set("organization_id", current.OrganizationId, *in.OrganizationID)
-	}
-	if in.OwnerID != nil {
-		p.Set("owner_id", current.OwnerId, *in.OwnerID)
-	}
-	if in.ProjectID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
-			return nil, err
-		}
-		p.Set("project_id", current.ProjectId, *in.ProjectID)
-	}
-	if in.PartnerOrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
-			return nil, err
-		}
-		p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
+	if err := applyDealLinkPatches(ctx, tx, current, in, p); err != nil {
+		return nil, err
 	}
 	if in.ExpectedClose != nil {
 		// INV-CLOSE-PAST (formulas §11): an open deal never claims a past
 		// close date. Closed deals keep their historical dates editable.
 		if string(current.Status) == "open" {
-			if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
+			if err := s.rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
 				return nil, err
 			}
 		}
@@ -272,6 +254,38 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 	return p, nil
 }
 
+// applyDealLinkPatches sets the fields that point at another record. They are
+// grouped because they share an obligation the plain columns do not: a link is
+// only settable to a target the caller may see, so each one gates before it
+// patches (auth.EnsureLinkTarget), and a miss reads as not-found rather than
+// disclosing that the row exists.
+func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
+	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+) error {
+	if in.OrganizationID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+			return err
+		}
+		p.Set("organization_id", current.OrganizationId, *in.OrganizationID)
+	}
+	if in.OwnerID != nil {
+		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+	}
+	if in.ProjectID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+			return err
+		}
+		p.Set("project_id", current.ProjectId, *in.ProjectID)
+	}
+	if in.PartnerOrganizationID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
+			return err
+		}
+		p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
+	}
+	return nil
+}
+
 // applyMoneyInvariants enforces the amount/currency rules on the
 // RESULTING row, not just the request. The pair comes together or not at
 // all: an amount stranded without a currency would skip the FX freeze at
@@ -281,7 +295,9 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 // — a deal closed amountless has no frozen rate at all, so adding an
 // amount later would trip deal_closed_fx. Same-day rate lookup as at
 // close, so roll-ups stay reproducible.
-func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch) error {
+func (s *Store) applyMoneyInvariants(ctx context.Context, tx pgx.Tx,
+	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+) error {
 	resultingAmount := current.AmountMinor
 	if in.AmountMinor != nil {
 		resultingAmount = in.AmountMinor
@@ -304,7 +320,11 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	if string(current.Status) != "open" && resultingAmount != nil &&
 		(in.AmountMinor != nil || in.Currency != nil) {
 		// deal_closed_at guarantees ClosedAt on a non-open row.
-		rate, rateDate, err := freezeFx(ctx, tx, *resultingCurrency, *current.ClosedAt)
+		base, err := s.installation.BaseCurrency(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rate, rateDate, err := s.freezeFx(ctx, tx, base, *resultingCurrency, *current.ClosedAt)
 		if err != nil {
 			return fmt.Errorf("re-freeze fx for closed deal: %w", err)
 		}
@@ -319,11 +339,11 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 // data-semantics §2 r4) on an open deal is an invalid state, not a
 // hygiene warning. The nightly corrector is the other half — it clears
 // rows that age into the past.
-func rejectPastCloseDate(ctx context.Context, tx pgx.Tx, expectedClose *time.Time) error {
+func (s *Store) rejectPastCloseDate(ctx context.Context, tx pgx.Tx, expectedClose *time.Time) error {
 	if expectedClose == nil {
 		return nil
 	}
-	today, err := workspaceToday(ctx, tx)
+	today, err := s.installationToday(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -334,16 +354,20 @@ func rejectPastCloseDate(ctx context.Context, tx pgx.Tx, expectedClose *time.Tim
 	return nil
 }
 
-// workspaceToday reads "today" as the workspace's reporting zone sees it
+// installationToday reads "today" as the installation's reporting zone sees it
 // (data-semantics §2 r4), returned as UTC midnight like every scanned
 // date column.
-func workspaceToday(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var today time.Time
-	err := tx.QueryRow(ctx,
-		`SELECT (timezone(timezone, now()))::date FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&today)
+func (s *Store) installationToday(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	zone, err := s.installation.Timezone(ctx, tx)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("resolve workspace-zone today: %w", err)
+		return time.Time{}, err
+	}
+	// Postgres still does the arithmetic: the zone is now a bind parameter
+	// instead of a column on the row, so the DST rules and the date boundary
+	// stay where they were rather than being re-derived in Go.
+	var today time.Time
+	if err := tx.QueryRow(ctx, `SELECT (timezone($1, now()))::date`, zone).Scan(&today); err != nil {
+		return time.Time{}, fmt.Errorf("resolve the installation's today: %w", err)
 	}
 	return dateOnly(today), nil
 }

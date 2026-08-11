@@ -26,6 +26,7 @@ type apiConfig struct {
 	logLevel            string
 	logFormat           string
 	publicBaseURL       string
+	mcpAppsBaseURL      string
 	apiBaseURL          string
 	gmailClientID       string
 	gmailClientSecret   string
@@ -61,6 +62,8 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail/Graph OAuth callback")
+	fs.StringVar(&cfg.mcpAppsBaseURL, "mcp-apps-base-url", os.Getenv("MARGINCE_MCP_APPS_BASE_URL"),
+		"origin the api reads the MCP App view documents from (defaults to --public-base-url); must be API-reachable, which is not the same as publicly reachable")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
 	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail (empty = route absent)")

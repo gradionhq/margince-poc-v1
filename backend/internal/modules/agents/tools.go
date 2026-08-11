@@ -213,7 +213,7 @@ func (t createRecord) Spec() mcp.ToolSpec {
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
-			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes, createRecordShapes)) + `}},
+			"fields":{"type":"object","description":` + jsonString(recordFieldsDescription) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[wireRecord](),
 	}
@@ -364,12 +364,16 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	pin, err := pinForWrite(ctx, args.IfVersion)
+	if err != nil {
+		return nil, err
+	}
 	ref, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  pinForWrite(ctx, args.IfVersion),
+		IfVersion:  pin,
 	})
 	if err != nil {
 		return nil, err

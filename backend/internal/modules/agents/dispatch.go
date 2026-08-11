@@ -114,6 +114,16 @@ type Dispatcher struct {
 	// It arrives WITH the store, because neither half of the extension is
 	// usable without the other.
 	taskApprovals TaskApprovals
+	// viewHeld answers whether one `ui://` document is being SERVED right now,
+	// which is not the same question as whether a tool declares one.
+	//
+	// It is injected because the two halves are composed independently: a tool's
+	// UI.ResourceURI is a constant baked at registration, and whether that
+	// document arrived is a runtime fact owned by the view provider. Nil is a
+	// composition with no view provider at all, and it answers "held nothing" —
+	// which withdraws every `_meta.ui` rather than advertising documents that
+	// cannot be read. Every tool still answers in text.
+	viewHeld func(uri string) bool
 	// log receives the true cause of failures the tool client only sees
 	// generically — the client is an untrusted agent, so infrastructure
 	// detail (DSNs, hosts, wrap chains) stays server-side.
@@ -229,11 +239,11 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 		// after initialize regardless, and an unadvertised capability
 		// answering -32601 there reads as a broken server rather than a
 		// legitimate empty catalog.
-		resp.Result = map[string]any{"resources": s.resourceList(ctx)}
+		resp.Result = map[string]any{"resources": s.resourceList(ctx, fr)}
 	case methodResourcesRead:
 		// Assigned on separate branches so a failed read never carries a
 		// result alongside its error, which JSON-RPC forbids.
-		if result, rpcErr := s.readResource(ctx, req.Params); rpcErr != nil {
+		if result, rpcErr := s.readResource(ctx, req.Params, fr); rpcErr != nil {
 			resp.Error = rpcErr
 		} else {
 			resp.Result = result

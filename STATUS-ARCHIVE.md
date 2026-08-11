@@ -21,6 +21,168 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-10 — the MCP App views move to `frontend/` (#742, PR #793)
+
+The two `ui://` views left `go:embed` and became a frontend build target. The api
+fetches each document over HTTP, admits it, and holds an immutable per-URI
+snapshot that `resources/list`, `resources/read` and every tool's `_meta.ui` read
+from. #742's three complaints are answered: the views wear the design system's
+tokens and spacing, they have a real test lane, and the checks are no longer only
+substring checks.
+
+**The architectural blocker two review rounds found, restated because it is the
+thing to remember.** `appsServed()` derived availability from the REGISTRY and
+said so in its own comment, while `ToolSpec.UI.ResourceURI` is a constant baked
+at registration — so a view whose fetch failed was still named by its tool, and a
+host that prefetches gets a 404 and a panel that silently never appears.
+Availability is per-URI now and every surface reads one snapshot. Partial
+availability is the case that matters: one view missing suppresses ONE tool's
+`_meta.ui` and that tool keeps answering in text.
+
+**What only a live stack could find.** The first `make dev` run showed both views
+permanently unadvertised in every dev stack: `dev.sh` started vite AFTER the api,
+so priming met a cold origin, and the advertised set freezes once Prime gives up.
+Two fixes, because either alone leaves it broken — the startup fetch re-asks a
+tier that is still coming up (a rolling deploy hits the same thing), and `make
+dev` starts the FE first. No gate could have caught this; it needed the stack.
+
+**The defect class that keeps paying rent: two components reading one value by
+different means.** Three instances in one branch. A configured origin that boot
+admitted and every fetch refused (`http://web.internal` — the private-network case
+the setting exists for — started cleanly and served nothing). A shared vocabulary
+that Go decoded into a fixed struct, so a class added upstream would be enforced
+on one side only WHILE the byte-equality test kept passing, because the bytes
+really are identical. And `Resources()` re-loading the snapshot pointer per
+catalog entry, so a refresh mid-iteration could advertise a pair no immutable set
+ever contained — the exact property the snapshot exists to provide.
+
+**A design that could not be implemented as written, and why that was fine.** The
+approved design put a `@media (prefers-color-scheme: dark)` arm in `view.css`.
+That is impossible under the design's own other constraint: `check-ds-purity.sh`
+fails any hex outside `tokens.css`, and the dark palette is literal values. It
+was resolved at the root cause the design itself identified, with the pattern
+`app/theme.ts` already uses — the bridge resolves the theme and always stamps the
+attribute. Net effect is better than the design: no second partial dark palette
+exists anywhere. **When a design's two constraints contradict, the one that is a
+GATE wins, and the resolution belongs at the root cause the design named.**
+
+**A gate that would not have run.** `ci.yml` classified the authored
+`forbidden.json` as frontend-only, so a PR editing only it would never have run
+the lane carrying the parity test — the shared file's whole purpose, defeated by
+a path filter.
+
+**Found and filed rather than fixed: [#798].** The finance offline ledger anchors
+invoices to a fixed `offlineEpoch` while the timeliness window is measured from
+`now`. The window slides, the ledger does not, and the settled-invoice count
+falls past FIN-FORM-3's floor: exactly at it today (so one dispute fails a run),
+below it unconditionally from 2026-09-01. Came out of a red integration shard
+this branch did not cause.
+
+**[#652] got measurements it never had.** It failed this PR three consecutive
+times. Under CI's exact command, locally: main 96.96s / 2048 tests, this branch
+98.15s / 2115 — **+1.2%**, against a CI run-to-run spread of 10%. The failure
+tracks the runner, not the branch, and the failing waiter is TEN seconds, which
+is not a slow-machine number.
+
+**[#670] closed on the way past.** `sbom` had been red on main since the
+`pgerrcode` bump; PostgreSQL is admitted to the allowlist as the maintainer
+decision it is, on the reasoning that it is BSD/MIT-shaped and the package is
+linked into the shipped product.
+
+**Also worth carrying:** esbuild strips every comment even unminified, so the
+SPDX header is injected as an HTML comment — after the doctype, because a comment
+before it puts the document into quirks mode. The Playwright zero-request lane
+was verified to FAIL against an injected computed sink; a zero-request assertion
+nobody has made fail is indistinguishable from one that does nothing.
+
+[#652]: https://github.com/gradionhq/margince-poc-v1/issues/652
+[#670]: https://github.com/gradionhq/margince-poc-v1/issues/670
+[#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
+
+## 2026-08-10 — the integration lane, and three ways of being confidently wrong about pgx
+
+Closes #539, #524, #482. Landed as #552, #556, #561, #563, #568, #574, #584
+(splitting and harness promotion), #625 (Redis), #626 + #769 (the shared pool),
+#671 (Postgres locks), #775 (the last split). An earlier version of this entry
+was written in #640 and removed by #674's restructuring; this one replaces it and
+covers what came after.
+
+**The lane went from ~300s to ~192s.** Most of that was not the thing that looked
+promising.
+
+**What worked.** One Postgres pool per test PROCESS instead of one per test
+(#626), a per-package Redis logical db once the lane outgrew 15 packages (#625),
+a lock table sized for the lane rather than for one app (#671), and four package
+splits so the wall clock is not hostage to one long pole.
+
+**What did not.** Splitting is spent: the wall clock stopped being bound by the
+longest package, so the final split bought ~9% and the next would buy less.
+Raising `INTEGRATION_JOBS` from 8 to 16 made the lane *slower* (200s vs 185s) —
+it is bound by one Postgres container, not by CPU; only ~1.2 of 8 cores are busy
+during a run. Both are recorded so nobody re-runs the experiment.
+
+### The part worth reading: the exec mode
+
+Sharing a pool costs you the statement cache, and I got the reason wrong twice
+before getting it right.
+
+`cache_describe` was chosen on the reasoning that holding no server-side plan
+made it safe under a changing schema. pgx's own doc says otherwise in the same
+sentence for both caching modes — the cached description is *assumed* stable and
+the first execution after a schema change may fail. A craft reviewer said so at
+the time; I overrode it with a mechanism argument. The lane then failed in CI
+with `cache lookup failed for type N (SQLSTATE XX000)` in reembed's baseline
+seed, a suite with nothing to do with the cause: `search`'s embedding upsert
+binds `$5::vector`, the server types that parameter as pgvector's, and
+perfbench's ratified inline remigration recreates the extension with a new OID
+under the live pool.
+
+Four repairs were measured, same sitting, Postgres restarted before each:
+`cache_describe` 190s but unsound; `DeallocateAll` per reset 215s but it acquires
+every idle connection at each reset and surfaced a straggler; `describe_exec`
+244s and sound; `pgxpool.Reset` per reset 254s. `describe_exec` won, and it is
+the mode pgx documents for exactly this — the one the first reviewer named.
+
+**So correctness ate most of the sharing win.** Whether sharing still pays
+against per-test pools on today's tree is an open question, not a settled one,
+and `testdb.Pool`'s doc says so rather than implying the trade is obviously
+right.
+
+### Four things that generalize
+
+**Mutation-test the gate, not just the code.** Every fitness function this arc
+added was mutation-tested, and two of them changed what I believed. The typed-id
+slice assertion in `pool_integration_test.go` cannot fail under
+`describe_exec` — the server always supplies the OID — so `jit=off` is the half
+that actually detects a hand-built pool. And the first version of
+`retentionscope_test.go` matched call expressions only, so
+`var alias = RetentionPassCtx` was invisible to it *and* did not increment its
+liveness counter; the tree already had the right shape in
+`integrationmigrateonce_test.go`, which matches *references* and says why.
+
+**A baseline from another sitting is not a baseline.** A freshly restarted
+Postgres container is worth ~25%, so early numbers in this arc that compared
+across a restart were meaningless. Every claim above compares two runs taken
+today.
+
+**One package is one binary.** Process-global state does not follow a split and
+the compiler will not say so: `retention_jurisdiction_integration_test.go` arms a
+statutory retention floor in `init()`, and a retention suite moved to a sibling
+package would run with no floor and go green while asserting the opposite of its
+sibling. Harmless today, silent by construction, now written into the split rule.
+
+**Never retarget a PR with auto-merge armed.** #672 merged into a feature branch
+with a red shard because retargeting moved it from protected `main` to an
+unprotected base, and auto-merge does not re-check whether the new base has
+gates. Nothing unreviewed reached `main`, but the PR it landed in then described
+one file while carrying nineteen.
+
+Open follow-ups: #779 (River's clock, ~28s of real waiting), #548 (contention
+probes), #770 (a straggling connection), #639 (two hand-rolled pools), and #772 —
+the one that matters beyond the lane, because production runs
+`cache_statement` while `customfields` alters record tables at runtime, and the
+fixture that would have caught it is the one now made immune.
+
 ## Session pickup — 2026-08-09 (a meeting becomes an anchor, and what the tool copy cost, PR #686)
 
 `prep_for_meeting`, `catch_me_up_on` and `GET /records/{entity_type}/{id}/context`

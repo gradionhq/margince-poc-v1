@@ -257,6 +257,29 @@ func (d stored) wire(orgID ids.OrganizationID, now time.Time) crmcontracts.Organ
 	return out
 }
 
+// wireSubScores maps the grounded sub-scores onto the contract.
+//
+// A sub-score whose evidence cannot be resolved is DROPPED whole, exactly as a
+// sentence is: keeping the number and losing its receipts would render an
+// unbacked score on the one card whose promise is that the band can be taken
+// apart and checked.
+func wireSubScores(in []GrowthFitSubScore) []crmcontracts.GrowthFitSubScore {
+	out := make([]crmcontracts.GrowthFitSubScore, 0, len(in))
+	for _, sub := range in {
+		evidence, ok := wireEvidence(sub.Evidence)
+		if !ok {
+			continue
+		}
+		out = append(out, crmcontracts.GrowthFitSubScore{
+			Dimension: crmcontracts.GrowthFitSubScoreDimension(sub.Dimension),
+			Score:     sub.Score,
+			Reason:    sub.Reason,
+			Evidence:  &evidence,
+		})
+	}
+	return out
+}
+
 func wireSentences(in []claims.Sentence) []crmcontracts.OrganizationBriefSentence {
 	out := make([]crmcontracts.OrganizationBriefSentence, 0, len(in))
 	for _, sentence := range in {

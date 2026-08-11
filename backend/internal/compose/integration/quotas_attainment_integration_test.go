@@ -16,13 +16,16 @@ package integration
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // attainmentClock pins the attainment store's injected clock mid-period
@@ -31,7 +34,8 @@ import (
 var attainmentClock = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC)
 
 func attainmentStore(e *Env) *quotas.Store {
-	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock })
+	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock },
+		identity.BaseCurrencyOf)
 }
 
 // attainmentDealSeed is one deal row inserted directly — attainment is a
@@ -410,5 +414,119 @@ func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
 	// deal-derived aggregate carries the extra gate.
 	if _, err := store.GetQuota(noDeals, ids.UUID(created.Id), storekit.LiveOnly); err != nil {
 		t.Fatalf("quota.read alone must still resolve the quota itself, got %v", err)
+	}
+}
+
+// The base currency comes from the SETTING, not from workspace.base_currency.
+//
+// This is the only assertion in the suite that can tell the two apart. Every
+// other test seeds both to EUR, so it passes just as well against a reader
+// that never left the column — which is exactly the trap ADR-0091 phase 4
+// sets while the two copies coexist: the migration looks done and nothing
+// fails. Here the column stays EUR and the setting says USD, so a reader on
+// the old source labels the answer EUR and this test fails.
+//
+// The workspace column is written directly rather than through the settings
+// surface: that surface writes BOTH copies in one transaction (identity's
+// transitional mirror), which is precisely the agreement being broken here.
+func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
+	// The fixture is only meaningful while the two copies disagree. Once
+	// phase 4 drops the column this guard stops finding it and the test
+	// becomes an ordinary assertion about the setting, which is the point.
+	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND base_currency = 'EUR'`, e.WS); n != 1 {
+		t.Fatalf("the fixture needs the two copies to DISAGREE; workspace.base_currency is not EUR")
+	}
+
+	// EUR→USD on file, so a target in EUR has a rate into the new base. The
+	// suite's seedRollupFxRate helper hardcodes to_currency = 'EUR', which is
+	// itself an assumption this test exists to break, so the row goes in here.
+	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
+		VALUES ($1, 'EUR', 'USD', '1.1000000000', $2)`, e.WS, attainmentClock.AddDate(0, 0, -1))
+
+	in := ownerQuotaInput(e.Rep1, 1000000) // 10,000.00 EUR
+	in.Currency = "EUR"
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	att, err := store.QuotaAttainment(ctx, ids.UUID(created.Id))
+	if err != nil {
+		t.Fatalf("attainment with the setting on USD: %v", err)
+	}
+	if att.Currency != "USD" {
+		t.Errorf("attainment currency = %q, want USD — the reader is still on workspace.base_currency", att.Currency)
+	}
+	if att.TargetMinor != 1100000 {
+		t.Errorf("target = %d, want 1100000 (10,000.00 EUR @ 1.1 into the USD base)", att.TargetMinor)
+	}
+}
+
+// An installation whose base currency was never stored must REFUSE, not
+// quietly answer with the registered default.
+//
+// The state is reachable: 0191's backfill only runs where exactly one live
+// workspace exists, so a database that migrated with two gets no row, and
+// bootstrap's seed does not run for an installation that already exists. The
+// default is the right answer for a setting nobody has changed; it is the
+// wrong answer for the unit money is measured in — a silent EUR here converts
+// a target against one currency and labels the result another.
+func TestAttainmentRefusesWhenTheBaseCurrencyWasNeverStored(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	in := ownerQuotaInput(e.Rep1, 1000000)
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.WsExec(t, `DELETE FROM setting WHERE key = 'installation.base_currency'`)
+
+	if _, err := store.QuotaAttainment(ctx, ids.UUID(created.Id)); err == nil {
+		t.Fatal("attainment answered with no base currency stored; " +
+			"an unset money basis must refuse, never fall through to the default")
+	} else if !strings.Contains(err.Error(), "no stored value") {
+		t.Errorf("refusal should say the value was never stored, got %v", err)
+	}
+}
+
+// The base currency is read through the installation_settings object gate, so
+// a principal without that grant cannot compute attainment. Every seeded role
+// holds it (0191 grants read to all five), so this is not a state a real
+// caller reaches — but the gate is the ONLY control on `setting`, which
+// carries no RLS, and a gate nothing exercises is a gate nobody notices
+// losing.
+func TestAttainmentNeedsTheInstallationSettingsReadGrant(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	ungranted := principal.Permissions{
+		RoleKeys: []string{"admin"},
+		// installation_settings is withheld ON PURPOSE — it is the whole
+		// subject of this test. Do not "fix" it by granting it; a sweep that
+		// adds the object to every fixture reading deals will silently turn
+		// this assertion into a tautology.
+		Objects: map[string]principal.ObjectGrant{
+			"quota": {Create: true, Read: true, Update: true, Delete: true},
+			"deal":  {Read: true},
+		},
+		RowScope: principal.RowScopeAll,
+	}
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	in := ownerQuotaInput(e.Rep1, 1000000)
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.QuotaAttainment(e.As(e.Rep1, nil, ungranted), ids.UUID(created.Id))
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("attainment without installation_settings:read = %v, want permission denied", err)
 	}
 }

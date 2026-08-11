@@ -1456,8 +1456,12 @@ export interface paths {
          * Advance a deal to a new stage (audit-logged with prior + next stage).
          * @description The `advance_deal` MCP verb. Writes one `deal_stage_history` row + one audit row
          *     (action `advance_stage`) recording prior + next stage; closed-won emits `deal.stage_changed` (to_status=won).
-         *     Advancing to a closed-won/closed-lost stage is 🟡 confirm-first (irreversible /
-         *     touches money) — for an agent caller this requires an approval token.
+         *     A move with a closed-won/closed-lost stage at EITHER end is 🟡 confirm-first
+         *     (irreversible / touches money) — for an agent caller this requires an approval
+         *     token. Closing a deal is the obvious half; REOPENING one is the other, and it is
+         *     the same money: moving a won deal back to an open stage clears its close date,
+         *     its lost reason and the FX rate frozen at close, and takes revenue out of a
+         *     quarter that has already been reported.
          */
         post: operations["advanceDeal"];
         delete?: never;
@@ -7946,6 +7950,20 @@ export interface components {
              *     restatement that data is missing.
              */
             next_step?: string | null;
+            /**
+             * @description The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+             *     same evidence the band is assessed from, each with a 0-100 score and the reason for
+             *     it, so a reader who disagrees with the verdict can see which input carried it.
+             *
+             *     ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+             *     zeroes and never a partial set, because a dimension scored 0 is a claim about the
+             *     company where an absent one is a fact about the reading (DOSS-AC-18).
+             *
+             *     This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+             *     composite that survives its own missing inputs; nothing here sums or averages these
+             *     four into one figure (DOSS-AC-19), and the band remains the verdict.
+             */
+            sub_scores?: components["schemas"]["GrowthFitSubScore"][];
             /** @description What argues for this company being a fit. */
             positive_factors?: components["schemas"]["OrganizationBriefSentence"][];
             /** @description What argues against it. */
@@ -8030,6 +8048,25 @@ export interface components {
              */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
+        /**
+         * @description One dimension of the growth-fit assessment, with the reason for its score.
+         *
+         *     The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+         *     this model was built to replace, and a reader must be able to see what it was read from.
+         */
+        GrowthFitSubScore: {
+            /**
+             * @description The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+             * @enum {string}
+             */
+            dimension: "industry_fit" | "company_size" | "transformation_need" | "access";
+            /** @description 0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19) — the band is the verdict, and these are what it was read from. */
+            score: number;
+            /** @description One sentence saying what this score was read from. */
+            reason: string;
+            /** @description The records behind the reason, on the same footing as every other claim. A sub-score citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20). */
+            evidence?: components["schemas"]["OrganizationBriefEvidence"][];
+        };
         OrganizationBriefSentence: {
             text: string;
             /**
@@ -8080,6 +8117,11 @@ export interface components {
             last_synced_at?: string | null;
             /** @description Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against. */
             net_invoiced?: components["schemas"]["Money"];
+            /**
+             * @description The same FIN-FORM-1 fold with no lower bound on the issue date: every invoice this connection has mirrored, issued minus credited. Named "net invoiced" for the same reason as the trailing figure, and never "revenue".
+             *     Scoped to the CURRENT connection — what the mirror holds, not what the customer has ever been billed — so re-connecting a source restates it. Absent under the same FIN-AC-6 refusal: one invoice without a conversion rate withholds the whole total rather than reporting a partial sum as if it were complete.
+             */
+            net_invoiced_lifetime?: components["schemas"]["Money"];
             /** @description What is still open across unpaid invoices (FIN-FORM-2). */
             open_balance?: components["schemas"]["Money"];
             /** @description The share of the open balance already past its due date. */
@@ -8157,6 +8199,21 @@ export interface components {
             last_viewed_at: string;
         };
         /**
+         * @description One named part of the relationship's health, with the reason for its rating.
+         *
+         *     The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+         *     this model replaced — a reader must be able to see what it was read from and disagree.
+         */
+        HealthDimension: {
+            /**
+             * @description Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+             * @enum {string}
+             */
+            rating: "strong" | "good" | "at_risk";
+            /** @description One sentence naming what this rating was read from. */
+            reason: string;
+        };
+        /**
          * @description How the relationship stands, in the parts a reader can act on (AC-company-3).
          *
          *     It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
@@ -8168,6 +8225,12 @@ export interface components {
          *     be a claim about the account rather than about what was readable.
          */
         Organization360Health: {
+            /** @description Whether we are in contact and both sides are talking. Read from the strength roll-up and the reply balance below (PO-AC-N-10). */
+            relationship?: components["schemas"]["HealthDimension"];
+            /** @description Whether work is moving — open pipeline and whether it is stalling. */
+            commercial?: components["schemas"]["HealthDimension"];
+            /** @description Whether they pay, and on time. Absent on an account with no finance connection or too few settled invoices to say — which is different from paying badly. */
+            payment?: components["schemas"]["HealthDimension"];
             /** @description Null when they have never written, which is different from writing long ago. */
             days_since_last_inbound?: number | null;
             /** @description Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured. */
@@ -8401,6 +8464,30 @@ export interface components {
              * @enum {string}
              */
             kind: "no_reply" | "stalled_deal" | "no_next_step" | "lifecycle_conflict";
+            /**
+             * @description What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+             *
+             *     Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+             *     the system has no basis for and no way to complete; a title here says only what the
+             *     rule that fired already knows.
+             *
+             *     It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+             *     suggestion every reader has ever dismissed the moment the wording changed.
+             */
+            title?: string | null;
+            /**
+             * Format: date-time
+             * @description The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+             *
+             *     Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+             *     a due date would turn it into an obligation nobody agreed to. Null where the rule
+             *     fired on something with no date of its own.
+             *
+             *     Excluded from the fingerprint for the same reason as the title, and more sharply: a
+             *     date moves on its own, so a dismissal keyed on one would expire without anything
+             *     about the account changing.
+             */
+            due_at?: string | null;
             /**
              * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
              *     kind, the subject and the records it fired on. Dismissing a suggestion stores

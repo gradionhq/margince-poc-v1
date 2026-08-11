@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "f4e0a4fd1a8cd5442859617ad195a5d99dc90e6e9e4cc75e66fd78aff94a105b"
+const JobContractHash = "1955c23b18d2e7317dc2735b2f72bcbbc01b021756d19149f58dc23134ca9c43"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -282,6 +282,27 @@ var specs = map[string]Spec{
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"Embedder"}, AbsentRegistersAnyway: true},
 		Args:         []ArgField{{Name: "Identity", Scalar: true, Reason: "the embed binding in force when the confirm claimed the run -- model, dimension and revision folded into one string. Carried so a mid-flight configuration change is detectable as drift (search.ErrIdentityDrift) instead of the fleet silently re- embedding under whatever it now reports; that comparison is against the value AT CLAIM TIME, which no row still holds by the time the job runs."}, {Name: "Run"}, {Name: "Workspace"}},
+	},
+	"finance_sync": {
+		Kind:        "finance_sync",
+		GoType:      "FinanceSyncArgs",
+		Role:        Workspace,
+		Queue:       "default",
+		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
+		MaxAttempts: 3,
+		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
+	},
+	"finance_sync_sweep": {
+		Kind:       "finance_sync_sweep",
+		GoType:     "FinanceSyncSweepArgs",
+		Role:       Dispatcher,
+		Queue:      "default",
+		Timeout:    TimeoutPolicy{Fixed: 2 * time.Minute},
+		FanOutUnit: FanOutWorkspace,
+		FanOutTo:   "finance_sync",
+		OptsOwner:  OptsCaller,
+		Cadence:    Cadence{Fixed: 6 * time.Hour},
 	},
 	"follow_up_reconcile": {
 		Kind:       "follow_up_reconcile",

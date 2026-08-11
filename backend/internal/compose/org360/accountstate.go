@@ -12,8 +12,11 @@ package org360
 // date that hid which side it belonged to.
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -223,6 +226,138 @@ func (a *assembly) readHealth() error {
 		health.OpenCommitments = &facts.OpenCommitments
 	}
 
+	lastMeeting, err := a.lastMeetingAt()
+	if err != nil {
+		return err
+	}
+	health.LastMeetingAt = lastMeeting
+
+	rateHealthDimensions(&health, a.out.StateStrip)
+
 	a.out.Health = &health
 	return nil
+}
+
+// rateHealthDimensions turns the parts above into the named dimensions the card
+// draws (PO-AC-N-10..12).
+//
+// TWO of the three, deliberately. Relationship and commercial are readable from
+// this assembly; PAYMENT is not — the finance mirror is another module's, and a
+// module never imports a sibling. The surface composes it from the finance read
+// it already makes, which is also why `overall` is computed there rather than
+// here: a verdict that ignored payment would be the exact "strong relationship
+// hides a payment problem" failure the worst-of rule exists to prevent.
+//
+// A dimension that cannot be read is ABSENT rather than rated. Absence is a
+// fact about the reading; a rating is a claim about the account.
+func rateHealthDimensions(
+	health *crmcontracts.Organization360Health,
+	strip *crmcontracts.Organization360StateStrip,
+) {
+	// Relationship: are both sides talking? An account nobody has ever reached
+	// is not "at risk" — it is unstarted, and rating it would put a verdict on
+	// a relationship that has not begun.
+	if health.ActiveContacts != nil && *health.ActiveContacts > 0 {
+		switch {
+		case health.DaysSinceLastInbound == nil:
+			health.Relationship = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingAtRisk,
+				Reason: "They have never written to us.",
+			}
+		case *health.DaysSinceLastInbound > healthQuietDays:
+			health.Relationship = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingAtRisk,
+				Reason: fmt.Sprintf("No reply from them for %d days.", *health.DaysSinceLastInbound),
+			}
+		case health.SingleThreaded != nil && *health.SingleThreaded:
+			health.Relationship = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingGood,
+				Reason: "In contact, but one person carries the whole account.",
+			}
+		default:
+			health.Relationship = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingStrong,
+				Reason: fmt.Sprintf("%d people here are in contact with us.", *health.ActiveContacts),
+			}
+		}
+	}
+
+	// Commercial: is work moving? Null commercial means the caller has no deal
+	// grant, which is a fact about the reader rather than about the account.
+	if strip != nil && strip.Commercial != nil {
+		open := strip.Commercial.OpenCount
+		stalled := strip.Commercial.StalledCount
+		switch {
+		case open == 0:
+			health.Commercial = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingAtRisk,
+				Reason: "Nothing open with them.",
+			}
+		case stalled >= open:
+			health.Commercial = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingAtRisk,
+				Reason: fmt.Sprintf("All %d open deals have stalled.", open),
+			}
+		case stalled > 0:
+			health.Commercial = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingGood,
+				Reason: fmt.Sprintf("%d of %d open deals have stalled.", stalled, open),
+			}
+		default:
+			health.Commercial = &crmcontracts.HealthDimension{
+				Rating: crmcontracts.HealthDimensionRatingStrong,
+				Reason: fmt.Sprintf("%d open deals, none stalled.", open),
+			}
+		}
+	}
+}
+
+// healthQuietDays is how long without a word from them before the relationship
+// reads as at risk. Named rather than inlined so the threshold is one number a
+// reader can find and argue with.
+const healthQuietDays = 30
+
+// lastMeetingAt is when this account was last actually IN a room with us —
+// the most recent meeting that has already happened.
+//
+// A different question from the next-meeting section, which looks forward and
+// excludes cancellations because a rep must not prepare for a meeting that will
+// not happen. Looking back, a canceled row is simply not a meeting that took
+// place, so it is excluded for the same reason from the other direction.
+//
+// Nil is "we have no meeting on record", which is a fact about the reading
+// rather than a claim that none happened — the caller may hold no scope over
+// the activity that would prove otherwise.
+func (a *assembly) lastMeetingAt() (*time.Time, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos := arg(a.orgID.UUID)
+	nowPos := arg(a.now)
+	activityScope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
+	if err != nil {
+		return nil, err
+	}
+	if activityScope == "" {
+		activityScope = scopeAll
+	}
+	var occurred *time.Time
+	err = a.tx.QueryRow(a.ctx, fmt.Sprintf(`
+		SELECT a.occurred_at
+		  FROM activity a
+		 WHERE a.kind = 'meeting' AND a.archived_at IS NULL
+		   AND (a.meeting_status IS NULL OR a.meeting_status = 'booked')
+		   AND a.occurred_at <= $%[3]d
+		   AND %[1]s AND %[2]s
+		 ORDER BY a.occurred_at DESC, a.id DESC
+		 LIMIT 1`,
+		activityScope, activities.OrgLinkedActivityExists(orgPos), nowPos),
+		args...,
+	).Scan(&occurred)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the last meeting: %w", err)
+	}
+	return occurred, nil
 }

@@ -15,6 +15,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -65,10 +66,16 @@ func seedConfigWorkspace(t *testing.T, pool *pgxpool.Pool, label string) ids.UUI
 }
 
 // TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity is the behavioural
-// proof, over the two settings the row carries today: an installation with
-// auto-enrich switched off and flipped into overlay mode comes back to exactly
-// what a fresh bootstrap leaves, while the name, currency and zone bootstrap
-// took from the deployment file are untouched.
+// proof, over the one setting the row still carries: an installation flipped
+// into overlay mode — whose two columns move together, because
+// x_overlay_iff_incumbent admits no other state — comes back to exactly what a
+// fresh bootstrap leaves, while the name, currency and zone bootstrap took from
+// the deployment file are untouched.
+//
+// Those two columns come from the overlay pack's custom migration, which is
+// the fork-owned namespace. Core contributes no configuration column to this
+// row today, so on a core-only tree there is nothing here to restore and the
+// vacuity check below is what reports it.
 func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
 	ctx := context.Background()
@@ -80,7 +87,7 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	var before time.Time
 	if err := owner.QueryRow(ctx, `
 		UPDATE workspace
-		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+		   SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
 		 WHERE id = $1 RETURNING updated_at`, ws).Scan(&before); err != nil {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
@@ -92,18 +99,14 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var autoEnrich bool
 	var mode, name, currency, timezone string
 	var incumbent *string
 	var after time.Time
 	if err := owner.QueryRow(ctx, `
-		SELECT capture_auto_enrich, x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
+		SELECT x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
 		  FROM workspace WHERE id = $1`, ws).
-		Scan(&autoEnrich, &mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
+		Scan(&mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
-	}
-	if !autoEnrich {
-		t.Error("capture_auto_enrich = false, want true — the setting outlived the reset that claimed to restore first-boot state")
 	}
 	if mode != "native" {
 		t.Errorf("x_sor_mode = %q, want native", mode)
@@ -140,7 +143,8 @@ func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
 	theirs := seedConfigWorkspace(t, pool, "theirs")
 
 	if _, err := owner.Exec(ctx,
-		`UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, theirs); err != nil {
+		`UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`,
+		theirs); err != nil {
 		t.Fatalf("configuring the co-tenant: %v", err)
 	}
 
@@ -151,13 +155,13 @@ func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var autoEnrich bool
+	var mode string
 	if err := owner.QueryRow(ctx,
-		`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, theirs).Scan(&autoEnrich); err != nil {
+		`SELECT x_sor_mode FROM workspace WHERE id = $1`, theirs).Scan(&mode); err != nil {
 		t.Fatalf("reading the co-tenant back: %v", err)
 	}
-	if autoEnrich {
-		t.Error("the co-tenant's capture_auto_enrich was restored too — one installation's reset reconfigured another's")
+	if mode != "overlay" {
+		t.Errorf("the co-tenant's x_sor_mode = %q, want overlay — one installation's reset reconfigured another's", mode)
 	}
 }
 
@@ -299,7 +303,7 @@ func TestAResetWorkspaceMatchesAFreshlyBootstrappedOne(t *testing.T) {
 	fresh := seedConfigWorkspace(t, pool, "fresh")
 	if _, err := owner.Exec(ctx, `
 		UPDATE workspace
-		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+		   SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
 		 WHERE id = $1`, ws); err != nil {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
@@ -334,4 +338,78 @@ func readWorkspaceRow(t *testing.T, owner *pgx.Conn, ws ids.UUID) map[string]any
 		t.Fatalf("reading the workspace row: %v", err)
 	}
 	return row
+}
+
+// The empty-column path, which core-only trees take.
+//
+// capture_auto_enrich was core's only configuration column on this row and it
+// moved into `setting`; x_sor_mode and x_incumbent come from the overlay
+// pack's custom migration, which is the fork-owned namespace upstream ships
+// empty. So a vanilla tree reaches the early return, and until now nothing
+// exercised it — the branch was documented as reachable and never reached.
+//
+// Proven by dropping the two fork columns INSIDE a transaction that is then
+// rolled back, so the real schema is untouched and the assertion runs against
+// the real function rather than a stand-in. That is the only way to see a
+// core-only workspace row on a database the overlay pack has already migrated.
+//
+// It runs on the OWNER connection rather than through WithWorkspaceTx: ALTER
+// TABLE needs table ownership, and the app role the helper uses deliberately
+// does not have it.
+func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
+	owner, pool := setupIdentityDB(t)
+	ctx := context.Background()
+	ws := seedConfigWorkspace(t, pool, "core-only")
+
+	var nameBefore string
+	if err := owner.QueryRow(ctx,
+		`SELECT name FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
+		t.Fatalf("reading the workspace: %v", err)
+	}
+
+	// On the OWNER connection, not the app pool WithWorkspaceTx uses: ALTER
+	// TABLE needs table ownership, and the app role deliberately does not have
+	// it. The GUC is set by hand for the same reason — ResetWorkspaceConfig
+	// scopes its UPDATE with current_setting('app.workspace_id'), which the
+	// helper would normally have bound.
+	tx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("opening the probe transaction: %v", err)
+	}
+	// Rolled back unconditionally: the columns come back whatever happens
+	// below, including a t.Fatal that leaves this function early.
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("rolling the probe back: %v — the fork columns may not have been restored", err)
+		}
+	}()
+
+	if _, err := tx.Exec(ctx,
+		`SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
+		t.Fatalf("binding the workspace for the probe: %v", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`ALTER TABLE workspace DROP COLUMN x_sor_mode, DROP COLUMN x_incumbent`); err != nil {
+		t.Fatalf("dropping the fork columns inside the probe: %v", err)
+	}
+
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	if err := ResetWorkspaceConfig(wsCtx, tx); err != nil {
+		t.Fatalf("ResetWorkspaceConfig on an identity-only row: %v — want it to do nothing and succeed", err)
+	}
+
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("restoring the fork columns: %v", err)
+	}
+
+	// The schema is intact and the row untouched: the probe left no trace.
+	var mode string
+	var nameAfter string
+	if err := owner.QueryRow(ctx,
+		`SELECT x_sor_mode, name FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
+		t.Fatalf("the rollback did not restore the fork columns: %v", err)
+	}
+	if nameAfter != nameBefore {
+		t.Errorf("name = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
+	}
 }

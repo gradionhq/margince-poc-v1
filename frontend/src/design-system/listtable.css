@@ -198,8 +198,20 @@
   background: var(--bgElevated);
   border: 1px solid var(--accentMed);
   border-radius: var(--r-full);
-  overflow: hidden;
+  /* NOT clipped: the row hosts the popups for its own condition, value and
+   * delete steps, and a pill that clips its contents clips those too — they
+   * open inside it and are simply never seen. The end segments carry the
+   * rounding instead, so the row still reads as one control. */
+  overflow: visible;
   font-size: 12.5px;
+}
+.lt-frow > :first-child {
+  border-top-left-radius: var(--r-full);
+  border-bottom-left-radius: var(--r-full);
+}
+.lt-frow-more {
+  border-top-right-radius: var(--r-full);
+  border-bottom-right-radius: var(--r-full);
 }
 
 .lt-frow-attr {

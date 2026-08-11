@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import type { ReactElement } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -37,6 +37,12 @@ import { ShareAction } from "./share";
 // The account header: the verbs a rep reaches for, the two values they change
 // in place, and the line of facts that says where the relationship stands.
 //
+// Lifecycle and owner sit in their OWN block at the top right rather than in
+// the pulse line (mockup State D). They are the two things a reader SETS about
+// an account; the pulse states what happened to it. Mixed into one line the
+// two controls read as more facts, and the reader has no cue that they can be
+// changed.
+//
 // Split out of organizations.tsx because that file had grown past 2,700 lines
 // carrying the list screen, the enrichment tools, the evidence cards and this
 // at once — and the V2 work adds to every one of them.
@@ -59,7 +65,17 @@ type UpdateOrganizationRequest =
 // activity to reply to.
 export function CompanyPrimaryActions({
   org,
-}: Readonly<{ org: Organization }>) {
+  composerOpen,
+  onComposerOpen,
+}: Readonly<{
+  org: Organization;
+  // The composer's open state belongs to the PAGE, not to this button: the
+  // drawer opens into the right rail's column, so the rail has to know it is
+  // open in order to stand down. Held here as a controlled pair rather than
+  // privately, which is what kept the rail rendering underneath it.
+  composerOpen: boolean;
+  onComposerOpen: (open: boolean) => void;
+}>) {
   // Archived records take no new activity: the write is refused server-side,
   // so offering the verb would only produce a modal that fails on save.
   if (org.archived_at) {
@@ -67,7 +83,7 @@ export function CompanyPrimaryActions({
   }
   return (
     <>
-      <WriteEmailAction org={org} />
+      <WriteEmailAction org={org} open={composerOpen} onOpen={onComposerOpen} />
       <LogActivityAction entityType="organization" entityId={org.id} />
       <LogActivityAction
         entityType="organization"
@@ -83,12 +99,19 @@ export function CompanyPrimaryActions({
 // the consent gate and the refusal vocabulary; this owns only whether the
 // surface is offered and the open/close state, so the account-started and
 // reply surfaces stay one component.
-function WriteEmailAction({ org }: Readonly<{ org: Organization }>) {
+function WriteEmailAction({
+  org,
+  open,
+  onOpen,
+}: Readonly<{
+  org: Organization;
+  open: boolean;
+  onOpen: (open: boolean) => void;
+}>) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="primary" onClick={() => setOpen(true)}>
+      <Button variant="primary" onClick={() => onOpen(true)}>
         {t("co.writeEmail")}
       </Button>
       {open && (
@@ -102,7 +125,7 @@ function WriteEmailAction({ org }: Readonly<{ org: Organization }>) {
           entityType="organization"
           entityId={org.id}
           open={open}
-          onClose={() => setOpen(false)}
+          onClose={() => onOpen(false)}
         />
       )}
     </>
@@ -182,8 +205,12 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
       }))}
       canEdit={canUpdate && !readOnlyReason}
       readOnlyReason={readOnlyReason}
+      // The account's standing is the one value in this block a reader looks
+      // for first, and both mockups draw it as the header's prominent
+      // control. An accent badge is that weight; the grey one beside Owner
+      // read as another piece of metadata.
       render={(value) => (
-        <Badge>{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
+        <Badge tone="accent">{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
       )}
       onSave={(next) =>
         patch({
@@ -569,6 +596,19 @@ function displayHost(url: string): string {
 // who carries it, when it was last touched, and who owns it. Each part is
 // omitted when the 360 could not answer it, so the line never implies a
 // number the reader was not allowed to see.
+// The account's standing: the two values a reader changes in place, stacked
+// at the top right of the header where the mockup puts them.
+export function CompanyStanding({
+  org,
+}: Readonly<{ org: Organization }>): ReactElement {
+  return (
+    <div className="co-standing">
+      <CompanyLifecycleControl org={org} />
+      <CompanyOwnerControl org={org} />
+    </div>
+  );
+}
+
 export function CompanyPulse({
   org,
   view,
@@ -584,6 +624,10 @@ export function CompanyPulse({
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  const provenance = provenanceOf(org.captured_by, viewerId);
+  // The reader's own hand-typed entry: the one provenance that reports nothing
+  // they do not already know.
+  const selfTyped = provenance.kind === "human" && provenance.self;
   const strength = view?.strength;
   // Withheld or absent, the line says nothing at all: "never contacted" read
   // off missing data is a business conclusion the page has no basis for, and
@@ -618,22 +662,20 @@ export function CompanyPulse({
           </span>
         </>
       )}
-      {/* Where the account stands, changeable here. It was reachable only
-          through the edit modal, next to legal names and size bands — so the
-          one field a rep moves DURING a call took a form that asks about six
-          things they were not thinking about. */}
-      <CompanyLifecycleControl org={org} />
-      {/* The owner, named as the owner and reassignable in place. Unlabelled it
-          read as one more person in a row of people, and the reader had no way
-          to tell the one accountable for this account from whoever last touched
-          it. */}
-      <CompanyOwnerControl org={org} />
       {/* Where the RECORD came from — a different question from who owns it,
-          and the reason both now carry a word saying which is which. */}
-      <ProvenanceTag
-        provenance={provenanceOf(org.captured_by, viewerId)}
-        renderUser={(userId) => <EntityRef kind="user" id={userId} />}
-      />
+          and the reason both carry a word saying which is which.
+
+          Not when the reader typed it THEMSELVES. "Typed by you" on your own
+          entry is the one case that tells nobody anything, and it rode the
+          pulse line of every hand-created account. An agent, a connector or an
+          unknown source all still say so: which of those wrote a record is the
+          governance reading this tag exists for. */}
+      {!selfTyped && (
+        <ProvenanceTag
+          provenance={provenance}
+          renderUser={(userId) => <EntityRef kind="user" id={userId} />}
+        />
+      )}
       {/* What is waiting on a human decision here, and the way to make it.
           The count was a badge that led nowhere: a reader told that 27
           decisions are owed and given no way to pay them learns only that the

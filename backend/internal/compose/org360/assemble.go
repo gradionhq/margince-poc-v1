@@ -15,6 +15,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -139,6 +140,14 @@ type assembly struct {
 	now   time.Time
 	out   *crmcontracts.Organization360
 
+	// baseCurrency is the installation's reporting currency, resolved at most
+	// ONCE per assembly. It is one installation-wide value, and every section
+	// that labels money wants the same answer — reading it per section costs a
+	// query each and lets two sections disagree if the value moved between
+	// them (the 360's query budget is what noticed).
+	baseCurrency     string
+	baseCurrencyRead bool
+
 	contacts      []people.ContactStrength
 	contactsRead  bool
 	advice        suggestionInputs
@@ -224,7 +233,11 @@ func (a *assembly) readDeals() error {
 	if err := auth.Require(a.ctx, "deal", principal.ActionRead); err != nil {
 		return err
 	}
-	section, err := dealsSection(a.ctx, a.tx, a.orgID, a.now)
+	base, err := a.installationBaseCurrency()
+	if err != nil {
+		return err
+	}
+	section, err := dealsSection(a.ctx, a.tx, a.orgID, a.now, base)
 	if err != nil {
 		return err
 	}
@@ -273,8 +286,12 @@ func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
 			if lc := a.out.Organization.Lifecycle; lc != nil {
 				lifecycle = string(*lc)
 			}
+			var base string
+			if base, a.adviceErr = a.installationBaseCurrency(); a.adviceErr != nil {
+				return a.advice, a.adviceErr
+			}
 			a.advice, a.adviceErr = gatherSuggestionInputs(
-				a.ctx, a.tx, a.orgID, a.now, facts, lifecycle)
+				a.ctx, a.tx, a.orgID, a.now, facts, lifecycle, base)
 		}
 		a.adviceRead = true
 	}
@@ -412,4 +429,19 @@ func accountStrengthToWire(account people.AccountStrength, now time.Time) *crmco
 		out.ContributorPersonId = &v
 	}
 	return &out
+}
+
+// installationBaseCurrency resolves the installation's reporting currency once
+// per assembly. The sections that label money each want the same answer, and
+// the 360's query budget counts every read.
+func (a *assembly) installationBaseCurrency() (string, error) {
+	if a.baseCurrencyRead {
+		return a.baseCurrency, nil
+	}
+	base, err := identity.BaseCurrencyOf(a.ctx, a.tx)
+	if err != nil {
+		return "", err
+	}
+	a.baseCurrency, a.baseCurrencyRead = base, true
+	return base, nil
 }

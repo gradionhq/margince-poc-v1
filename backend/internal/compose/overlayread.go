@@ -268,6 +268,11 @@ func (s Server) ListDeals(w http.ResponseWriter, r *http.Request, params crmcont
 			{"stalled", params.Stalled != nil},
 			{"partner_org_id", params.PartnerOrgId != nil},
 			{"partner_sourced", params.PartnerSourced != nil},
+			// Delivery work is OUR record: the mirror holds the incumbent's
+			// deals and carries no project to attribute one to. Narrowing by a
+			// project would answer the whole mirror while reading as that
+			// project's deals.
+			{"project_id", params.ProjectId != nil},
 		},
 		nil, params.Cursor, params.Limit, overlayWireDeal,
 		func(data []crmcontracts.Deal, page crmcontracts.PageInfo) any {
@@ -325,142 +330,4 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 		func(data []crmcontracts.Activity, page crmcontracts.PageInfo) any {
 			return crmcontracts.ActivityListResponse{Data: data, Page: page}
 		})
-}
-
-// overlaySearchTypes is the entity-type order the overlay search union
-// walks — fixed, so a capped page is deterministic.
-var overlaySearchTypes = []datasource.EntityType{
-	datasource.EntityPerson,
-	datasource.EntityOrganization,
-	datasource.EntityDeal,
-	datasource.EntityLead,
-	datasource.EntityActivity,
-}
-
-// overlayMirroredTypes is the set of record types the mirror holds — the same
-// five the read shadows serve, keyed by the string form that is both
-// datasource.EntityType and the generated agentPolicy.RecordType. Derived from
-// overlaySearchTypes rather than re-listed, so reads and writes cannot drift.
-var overlayMirroredTypes = func() map[string]bool {
-	set := make(map[string]bool, len(overlaySearchTypes))
-	for _, et := range overlaySearchTypes {
-		set[string(et)] = true
-	}
-	return set
-}()
-
-// overlaySearchDefaultLimit sizes an overlay search page when the request
-// names no limit — the shared Limit parameter's own default (crm.yaml's
-// components.parameters.Limit: default 50), which /search refs like every
-// other paged op. Overlay pages the same way native does or the two modes
-// answer different pages for one query.
-const overlaySearchDefaultLimit = 50
-
-// overlaySearchMaxLimit is that same shared parameter's ceiling (maximum
-// 200). A bound integer that slips past request validation (a negative or
-// oversized ?limit=) must never reach a slice capacity, so the value is
-// clamped here before it sizes any allocation.
-const overlaySearchMaxLimit = 200
-
-// clampOverlaySearchLimit maps a caller-supplied limit onto the shared
-// parameter's 1..200 range so it is safe to use as an allocation size.
-func clampOverlaySearchLimit(v int) int {
-	switch {
-	case v < 1:
-		return 1
-	case v > overlaySearchMaxLimit:
-		return overlaySearchMaxLimit
-	default:
-		return v
-	}
-}
-
-// Search shadows the global search: in overlay mode it is a best-effort
-// visibility-filtered union across entity types (design.md §4.5) — a
-// single capped page with no cross-type cursor, so a supplied cursor is
-// refused rather than silently restarting the walk.
-func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontracts.SearchParams) {
-	ov, ok := s.overlayReadMode(w, r)
-	if !ok {
-		return
-	}
-	if !ov {
-		s.searchHandlers.Search(w, r, params)
-		return
-	}
-	if params.Cursor != nil {
-		unsupportedOverlayParam(w, r, "cursor")
-		return
-	}
-	types := overlaySearchTypes
-	if params.Types != nil {
-		types = make([]datasource.EntityType, 0, len(*params.Types))
-		for _, t := range *params.Types {
-			types = append(types, datasource.EntityType(t))
-		}
-	}
-	limit := overlaySearchDefaultLimit
-	if params.Limit != nil {
-		limit = clampOverlaySearchLimit(*params.Limit)
-	}
-	hits := make([]crmcontracts.SearchResult, 0, limit)
-	// hasMore turns true when the page filled before every requested type
-	// was fully walked — there is no cross-type cursor to resume with, so
-	// the flag is the one honest signal that narrowing the query would
-	// surface more.
-	hasMore := false
-	for _, et := range types {
-		if len(hits) >= limit {
-			hasMore = true
-			break
-		}
-		typed, more, err := s.overlaySearchOneType(r.Context(), et, params.Q, limit-len(hits))
-		if err != nil {
-			httperr.Write(w, r, err)
-			return
-		}
-		hits = append(hits, typed...)
-		if more {
-			hasMore = true
-		}
-	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SearchResponse{Data: hits, Page: crmcontracts.PageInfo{HasMore: hasMore}})
-}
-
-// overlaySearchOneType pages one entity type's visibility-joined mirror
-// hits for the overlay search union, titled per type. A type the caller
-// may not read answers empty, not a query-wide 403 — search shows only
-// the object classes the seat can read, the native surface's own
-// posture; an unmapped caller likewise sees the empty world
-// (overlayList's rationale). Anything else is a real failure and
-// surfaces.
-func (s Server) overlaySearchOneType(ctx context.Context, et datasource.EntityType, text string, remaining int) (typed []crmcontracts.SearchResult, hasMore bool, err error) {
-	if err := auth.Require(ctx, string(et), principal.ActionRead); err != nil {
-		if errors.Is(err, apperrors.ErrPermissionDenied) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	res, err := s.sorDispatch.Search(ctx, datasource.SearchQuery{
-		Text:        text,
-		EntityTypes: []datasource.EntityType{et},
-		Limit:       remaining,
-	})
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	typed = ContractSearchResults(res)
-	for i, rec := range res.Records {
-		fields, fieldsErr := overlayRecordFields(rec)
-		if fieldsErr != nil {
-			return nil, false, fieldsErr
-		}
-		if title := overlayWireTitle(et, fields); title != "" {
-			typed[i].Title = &title
-		}
-	}
-	return typed, res.HasMore, nil
 }

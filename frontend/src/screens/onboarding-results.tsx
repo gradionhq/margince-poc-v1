@@ -1,5 +1,6 @@
-import { Check, CheckCircle2, GitBranch, Lock, Sparkles } from "lucide-react";
+import { Check, CheckCircle2, Lock, Sparkles } from "lucide-react";
 import type { components } from "../api/schema";
+import { Disclosure } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -53,7 +54,9 @@ export function ResultsStep({
   );
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s3.kick")}</div>
+      {/* No step counter here. The rail beside this panel already carries one,
+          and it counts the acts the conversational shell actually walks — a
+          second counter on the same screen disagreed with it out loud. */}
       <h1 className="ttl">
         {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
       </h1>
@@ -99,16 +102,12 @@ export function ResultsStep({
           </div>
         ))}
       </div>
-      <div
-        className="omit"
-        style={{ marginTop: "var(--space-4)", borderStyle: "solid" }}
-      >
-        <GitBranch aria-hidden />
-        <div>
-          <div className="l">{t("ob.s3.originLabel")}</div>
-          <p>{t("ob.s3.originBody")}</p>
-        </div>
-      </div>
+      {/* Where the pipeline came from is background: true, worth having, and
+          not something anyone has to read to finish setup. Folded away, it
+          stops competing with the four cards above it for the same attention. */}
+      <Disclosure summary={t("ob.s3.originLabel")}>
+        <p className="ob-sub">{t("ob.s3.originBody")}</p>
+      </Disclosure>
       <span className="trustpill" style={{ marginTop: "var(--space-4)" }}>
         <Lock aria-hidden /> {t("ob.s3.stillNothing")}
       </span>

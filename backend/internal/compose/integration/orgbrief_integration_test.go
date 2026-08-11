@@ -81,11 +81,12 @@ func nativeMode(context.Context) (bool, error) { return false, nil }
 var briefReaderPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Read: true},
-		"person":       {Create: true, Read: true},
-		"deal":         {Create: true, Read: true, Update: true},
-		"activity":     {Read: true},
-		"pipeline":     {Read: true},
+		"organization":          {Read: true},
+		"person":                {Create: true, Read: true},
+		"deal":                  {Create: true, Read: true, Update: true},
+		"activity":              {Read: true},
+		"pipeline":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

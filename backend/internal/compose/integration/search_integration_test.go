@@ -33,7 +33,7 @@ func TestSearchHonorsObjectRBAC(t *testing.T) {
 	orgOnly := principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + e.Rep1.String(), UserID: e.Rep1,
 		Permissions: principal.Permissions{
-			Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+			Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}, "installation_settings": {Read: true}},
 			RowScope: principal.RowScopeAll,
 		},
 	})

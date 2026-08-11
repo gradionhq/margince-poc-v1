@@ -476,7 +476,6 @@
 .auth-actions .btn {
   width: 100%;
   min-height: 48px;
-  justify-content: center;
   /* Overrides the atom's `white-space: nowrap`. A nowrap label in a full-width
      button cannot overflow the button — it widens it, and the card with it, until
      the surface is wider than the viewport. `min-height` rather than `height` is

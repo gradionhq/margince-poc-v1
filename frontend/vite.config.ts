@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { serveMcpApps } from "./scripts/vite-inline-views";
 
 // The composition alias — the runtime half of the two-lane type story whose
 // compile-time half is tsconfig.app.json / tsconfig.composed.json.
@@ -45,7 +46,13 @@ const backendPort = process.env.BACKEND_PORT ?? "18080";
 const proxyTarget = `http://localhost:${backendPort}`;
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // serveMcpApps is `apply: "serve"` — a dev-only middleware that adds nothing
+  // to the SPA build. It has to live HERE rather than in vite.mcp-apps.config.ts
+  // because `make dev` starts this config: without it, a request for a view
+  // falls through the SPA fallback below to a dev index.html carrying `src=`
+  // module scripts and /@vite/client, which the api's admission check refuses by
+  // name — so both views would be permanently unadvertised in every dev stack.
+  plugins: [react(), tailwindcss(), serveMcpApps()],
   resolve: {
     // An ARRAY rather than a record, because one entry must match a pattern:
     // the unit-package mapping below is a family of names, not one name.
@@ -128,7 +135,11 @@ export default defineConfig({
       // on the SAME origin a client typed, or the handshake cannot resolve.
       "/mcp": { target: proxyTarget, changeOrigin: false, secure: false },
       "/oauth": { target: proxyTarget, changeOrigin: false, secure: false },
-      "/.well-known": { target: proxyTarget, changeOrigin: false, secure: false },
+      "/.well-known": {
+        target: proxyTarget,
+        changeOrigin: false,
+        secure: false,
+      },
     },
   },
   test: {

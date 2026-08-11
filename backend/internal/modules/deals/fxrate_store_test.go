@@ -6,7 +6,11 @@ package deals
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -71,7 +75,7 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range admitted {
 		t.Run("admits "+name, func(t *testing.T) {
-			if _, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in); err != nil {
+			if _, err := NewStore(nil, Installation{BaseCurrency: unreachableBaseCurrency}).prepareFxRate(fxRateCtx(g), in); err != nil {
 				t.Fatalf("prepareFxRate = %v, want admitted", err)
 			}
 		})
@@ -86,9 +90,46 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 	}
 	for name, g := range refused {
 		t.Run("refuses "+name, func(t *testing.T) {
-			_, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in)
+			_, err := NewStore(nil, Installation{BaseCurrency: unreachableBaseCurrency}).prepareFxRate(fxRateCtx(g), in)
 			if !errors.Is(err, apperrors.ErrPermissionDenied) {
 				t.Fatalf("prepareFxRate = %v, want ErrPermissionDenied", err)
+			}
+		})
+	}
+}
+
+// unreachableBaseCurrency stands in for the installation-settings seam in the
+// tests above. prepareFxRate is the connection-free half of the fx write — it
+// admits or refuses before any value is resolved — so reaching this is a
+// signal that the split moved, not a fixture that needs a currency.
+func unreachableBaseCurrency(context.Context, pgx.Tx) (string, error) {
+	return "", errors.New("prepareFxRate resolved the base currency; it is meant to run before any connection")
+}
+
+// EVERY installation seam a store can be built without must fail closed, and
+// the obligation is derived from the struct rather than listed: a field added
+// later that orRefusing forgets would otherwise reintroduce exactly the nil
+// dereference — inside an open transaction, on a money path — that function
+// exists to prevent, and no test would notice.
+func TestEveryUninjectedInstallationSeamRefuses(t *testing.T) {
+	t.Parallel()
+	inst := reflect.ValueOf(Installation{}.orRefusing())
+	for i := range inst.NumField() {
+		field := inst.Type().Field(i).Name
+		t.Run(field, func(t *testing.T) {
+			seam, ok := inst.Field(i).Interface().(InstallationValue)
+			if !ok || seam == nil {
+				t.Fatalf("%s is nil after orRefusing; an un-injected seam must refuse, not panic", field)
+			}
+			_, err := seam(context.Background(), nil)
+			if err == nil {
+				t.Fatalf("%s resolved a value with nothing injected", field)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Errorf("the refusal should name which seam is missing, got %q", err)
+			}
+			if !strings.Contains(err.Error(), "installseam.Deals()") {
+				t.Errorf("the refusal should name the wiring that fixes it, got %q", err)
 			}
 		})
 	}

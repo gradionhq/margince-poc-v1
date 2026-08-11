@@ -76,7 +76,7 @@ func (s *Store) PrepareRender(ctx context.Context, id ids.OfferID) (RenderIngred
 		if err != nil {
 			return err
 		}
-		issuerName, err := resolveRenderIssuerName(ctx, tx, offer)
+		issuerName, err := s.resolveRenderIssuerName(ctx, tx, offer)
 		if err != nil {
 			return err
 		}
@@ -131,17 +131,21 @@ func resolveRenderBuyerBlock(ctx context.Context, tx pgx.Tx, offer crmcontracts.
 
 // resolveRenderIssuerName mirrors resolveRenderBuyerBlock's frozen/live
 // split for the seller side: the frozen issuer_snapshot's workspace_name
-// once sent, else the workspace's current live name.
-func resolveRenderIssuerName(ctx context.Context, tx pgx.Tx, offer crmcontracts.Offer) (string, error) {
+// once sent, else the installation's current live name.
+//
+// The live half reads the SAME source the frozen half was written from
+// (sendSnapshots). Reading it from the retiring column here would make a draft
+// and a sent offer disagree about who issued them the moment the two copies
+// drift — one fact, one source (issue #521).
+func (s *Store) resolveRenderIssuerName(ctx context.Context, tx pgx.Tx, offer crmcontracts.Offer) (string, error) {
 	if offer.IssuerSnapshot != nil {
 		if name, ok := (*offer.IssuerSnapshot)["workspace_name"].(string); ok && name != "" {
 			return name, nil
 		}
 	}
-	var name string
-	if err := tx.QueryRow(ctx,
-		`SELECT name FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).Scan(&name); err != nil {
-		return "", fmt.Errorf("render: read issuer workspace name: %w", err)
+	name, err := s.installation.Name(ctx, tx)
+	if err != nil {
+		return "", fmt.Errorf("render: read the installation's issuer name: %w", err)
 	}
 	return name, nil
 }

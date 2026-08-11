@@ -222,3 +222,29 @@ func (e FrozenValue) Error() string {
 func (e FrozenValue) FieldFault() (field, code, message string) {
 	return e.Setting, "setting_frozen", e.Reason
 }
+
+// UnsetValue refuses a read of a setting that has no stored value, for the
+// readers that may not fall back to the registered default (RequireTx).
+//
+// It is a MessageFault, not ErrNotFound, and the distinction is the whole
+// point: on a store path this repo spells 404 to mean "no such row, and we
+// are not saying whether it exists" — so returning ErrNotFound here would
+// answer a deal close, an offer send or an fx write with "that deal does not
+// exist", for a caller that just read it. This is server-side configuration
+// missing, which is the same class as MissingFxRateError: nothing the caller
+// sent is wrong, and no field of theirs can fix it.
+type UnsetValue struct {
+	Setting string
+}
+
+func (e UnsetValue) Error() string {
+	return fmt.Sprintf("setting %s has no stored value", e.Setting)
+}
+
+// MessageFault names the condition and no field: the caller supplied no input
+// that could be corrected, so pointing at one would send them after an
+// argument they never made.
+func (e UnsetValue) MessageFault() (code, message string) {
+	return "installation_setting_unset", e.Error() +
+		" — an admin must set it on the installation settings screen before this operation can succeed"
+}

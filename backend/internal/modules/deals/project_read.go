@@ -157,7 +157,7 @@ const projectColumns = `id, workspace_id, name, key, organization_id, owner_id, 
 func readProject(ctx context.Context, tx pgx.Tx, id ids.ProjectID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Project, error) {
 	q := `SELECT ` + projectColumns + storekit.SelectSuffix(active) + ` FROM project WHERE id = $1`
 	if archived == storekit.LiveOnly {
-		q += offerTemplateArchivedAtClause
+		q += liveRowsClause
 	}
 	p, err := scanProject(tx.QueryRow(ctx, q, id), active)
 	if errors.Is(err, pgx.ErrNoRows) {

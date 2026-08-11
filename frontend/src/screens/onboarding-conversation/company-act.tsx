@@ -88,13 +88,6 @@ function initialDraft(profile: CompanyProfile | null): CompanyDraft {
     : EMPTY_DRAFT;
 }
 
-// The fields one legal-entity pick settles as a block.
-const LEGAL_BLOCK: ReadonlySet<string> = new Set([
-  "legal_name",
-  "registered_address",
-  "register_vat",
-]);
-
 // Which server state a confirm 409 named — see the state declaration in the
 // driver for what each one means to the reader.
 type ConfirmNotice = "skew" | "notReady" | "checkFailed";
@@ -300,25 +293,17 @@ export function CompanyAct({
   });
   proposalRef.current = proposal.data;
 
+  // Answering is the whole gesture from here. Picking a legal entity also
+  // retires the sibling questions that pick settles, but that belongs to the
+  // authorization rather than to the click — see retireLegalSiblings in
+  // use-clarify-answers.ts, which is the only thing that can know the choice
+  // was actually confirmed.
   const handleAnswer = useCallback(
     (questionId: string, value: string) => {
       dispatch({ type: "QUESTION_ANSWERED", questionId, value });
       clarify.answerClarify(questionId, value);
-      // One answer per fact: picking a legal entity fills the whole legal
-      // block, so any sibling clarify about that block (the multi-address
-      // conflict) is already decided — it resolves as keep-current instead
-      // of asking the human the same thing in different words.
-      const questions = proposalRef.current?.open_questions ?? [];
-      const answered = questions.find((question) => question.id === questionId);
-      if (answered !== undefined && LEGAL_BLOCK.has(answered.field)) {
-        for (const question of questions) {
-          if (question.id !== questionId && LEGAL_BLOCK.has(question.field)) {
-            clarify.dismissClarify(question.id);
-          }
-        }
-      }
     },
-    [dispatch, clarify.answerClarify, clarify.dismissClarify],
+    [dispatch, clarify.answerClarify],
   );
 
   // Humans outrank the reader: dismissing a clarify resolves it locally —

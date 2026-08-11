@@ -156,7 +156,15 @@ func TestFxRateCrossWorkspaceIsolation(t *testing.T) {
 func fxRatePerms(g principal.ObjectGrant) principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"ops"},
-		Objects:  map[string]principal.ObjectGrant{"fx_rate": g},
+		Objects: map[string]principal.ObjectGrant{
+			"fx_rate": g,
+			// The matrix narrows fx_rate and ONLY fx_rate. Writing a rate
+			// resolves the base currency it converts into, which is read
+			// behind installation_settings — an object every seeded role holds
+			// (0191), so withholding it here would refuse for a reason the
+			// matrix is not about.
+			"installation_settings": {Read: true},
+		},
 		RowScope: principal.RowScopeAll,
 	}
 }

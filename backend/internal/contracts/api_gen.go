@@ -3510,6 +3510,51 @@ func (e GrowthFitBand) Valid() bool {
 	}
 }
 
+// Defines values for GrowthFitSubScoreDimension.
+const (
+	GrowthFitSubScoreDimensionAccess             GrowthFitSubScoreDimension = "access"
+	GrowthFitSubScoreDimensionCompanySize        GrowthFitSubScoreDimension = "company_size"
+	GrowthFitSubScoreDimensionIndustryFit        GrowthFitSubScoreDimension = "industry_fit"
+	GrowthFitSubScoreDimensionTransformationNeed GrowthFitSubScoreDimension = "transformation_need"
+)
+
+// Valid indicates whether the value is a known member of the GrowthFitSubScoreDimension enum.
+func (e GrowthFitSubScoreDimension) Valid() bool {
+	switch e {
+	case GrowthFitSubScoreDimensionAccess:
+		return true
+	case GrowthFitSubScoreDimensionCompanySize:
+		return true
+	case GrowthFitSubScoreDimensionIndustryFit:
+		return true
+	case GrowthFitSubScoreDimensionTransformationNeed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthDimensionRating.
+const (
+	HealthDimensionRatingAtRisk HealthDimensionRating = "at_risk"
+	HealthDimensionRatingGood   HealthDimensionRating = "good"
+	HealthDimensionRatingStrong HealthDimensionRating = "strong"
+)
+
+// Valid indicates whether the value is a known member of the HealthDimensionRating enum.
+func (e HealthDimensionRating) Valid() bool {
+	switch e {
+	case HealthDimensionRatingAtRisk:
+		return true
+	case HealthDimensionRatingGood:
+		return true
+	case HealthDimensionRatingStrong:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
 	IngestVoiceCorpusSourceRequestFormatText       IngestVoiceCorpusSourceRequestFormat = "text"
@@ -7382,16 +7427,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	Text       VoiceCorpusPreviewRequestFormat = "text"
-	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case Text:
+	case VoiceCorpusPreviewRequestFormatText:
 		return true
-	case Transcript:
+	case VoiceCorpusPreviewRequestFormatTranscript:
 		return true
 	default:
 		return false
@@ -7793,16 +7838,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	Active WebhookSubscriptionState = "active"
-	Paused WebhookSubscriptionState = "paused"
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case Active:
+	case WebhookSubscriptionStateActive:
 		return true
-	case Paused:
+	case WebhookSubscriptionStatePaused:
 		return true
 	default:
 		return false
@@ -11817,6 +11862,42 @@ type FxRateListResponse struct {
 // "we could not tell" — those are opposite conclusions.
 type GrowthFitBand string
 
+// GrowthFitSubScore One dimension of the growth-fit assessment, with the reason for its score.
+//
+// The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+// this model was built to replace, and a reader must be able to see what it was read from.
+type GrowthFitSubScore struct {
+	// Dimension The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+	Dimension GrowthFitSubScoreDimension `json:"dimension"`
+
+	// Evidence The records behind the reason, on the same footing as every other claim. A sub-score citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20).
+	Evidence *[]OrganizationBriefEvidence `json:"evidence,omitempty"`
+
+	// Reason One sentence saying what this score was read from.
+	Reason string `json:"reason"`
+
+	// Score 0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19) — the band is the verdict, and these are what it was read from.
+	Score int `json:"score"`
+}
+
+// GrowthFitSubScoreDimension The four the assessment decomposes into. A closed enum rather than free text, so a surface can label and order them and a model cannot invent a fifth.
+type GrowthFitSubScoreDimension string
+
+// HealthDimension One named part of the relationship's health, with the reason for its rating.
+//
+// The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+// this model replaced — a reader must be able to see what it was read from and disagree.
+type HealthDimension struct {
+	// Rating Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+	Rating HealthDimensionRating `json:"rating"`
+
+	// Reason One sentence naming what this rating was read from.
+	Reason string `json:"reason"`
+}
+
+// HealthDimensionRating Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
+type HealthDimensionRating string
+
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
 	Content *string `json:"content,omitempty"`
@@ -13002,12 +13083,21 @@ type Organization360Health struct {
 	// ActiveContacts How many people here have interacted at all — the account's real surface.
 	ActiveContacts *int `json:"active_contacts,omitempty"`
 
+	// Commercial Whether work is moving — open pipeline and whether it is stalling.
+	Commercial *HealthDimension `json:"commercial,omitempty"`
+
 	// DaysSinceLastInbound Null when they have never written, which is different from writing long ago.
 	DaysSinceLastInbound *int       `json:"days_since_last_inbound,omitempty"`
 	LastMeetingAt        *time.Time `json:"last_meeting_at,omitempty"`
 
 	// OpenCommitments Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals.
 	OpenCommitments *int `json:"open_commitments,omitempty"`
+
+	// Payment Whether they pay, and on time. Absent on an account with no finance connection or too few settled invoices to say — which is different from paying badly.
+	Payment *HealthDimension `json:"payment,omitempty"`
+
+	// Relationship Whether we are in contact and both sides are talking. Read from the strength roll-up and the reply balance below (PO-AC-N-10).
+	Relationship *HealthDimension `json:"relationship,omitempty"`
 
 	// ReplyBalance Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured.
 	ReplyBalance *float32 `json:"reply_balance,omitempty"`
@@ -13184,6 +13274,17 @@ type Organization360Suggestion struct {
 		Kind Organization360SuggestionActionKind `json:"kind"`
 	} `json:"action,omitempty"`
 
+	// DueAt The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+	//
+	// Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+	// a due date would turn it into an obligation nobody agreed to. Null where the rule
+	// fired on something with no date of its own.
+	//
+	// Excluded from the fingerprint for the same reason as the title, and more sharply: a
+	// date moves on its own, so a dismissal keyed on one would expire without anything
+	// about the account changing.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
 	// Evidence The records the rule fired on — always ones this reader can open.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
 
@@ -13209,6 +13310,16 @@ type Organization360Suggestion struct {
 	Reason      string                                `json:"reason"`
 	SubjectId   *openapi_types.UUID                   `json:"subject_id,omitempty"`
 	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
+
+	// Title What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+	//
+	// Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+	// the system has no basis for and no way to complete; a title here says only what the
+	// rule that fired already knows.
+	//
+	// It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+	// suggestion every reader has ever dismissed the moment the wording changed.
+	Title *string `json:"title,omitempty"`
 }
 
 // Organization360SuggestionActionKind `draft_reply` — open the composer on the message that went unanswered.
@@ -13469,6 +13580,10 @@ type OrganizationFinanceSummary struct {
 
 	// NetInvoiced Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against.
 	NetInvoiced *Money `json:"net_invoiced,omitempty"`
+
+	// NetInvoicedLifetime The same FIN-FORM-1 fold with no lower bound on the issue date: every invoice this connection has mirrored, issued minus credited. Named "net invoiced" for the same reason as the trailing figure, and never "revenue".
+	// Scoped to the CURRENT connection — what the mirror holds, not what the customer has ever been billed — so re-connecting a source restates it. Absent under the same FIN-AC-6 refusal: one invoice without a conversion rate withholds the whole total rather than reporting a partial sum as if it were complete.
+	NetInvoicedLifetime *Money `json:"net_invoiced_lifetime,omitempty"`
 
 	// OpenBalance What is still open across unpaid invoices (FIN-FORM-2).
 	OpenBalance    *Money             `json:"open_balance,omitempty"`
@@ -13768,6 +13883,19 @@ type OrganizationGrowthFit struct {
 
 	// RecommendedAngle The single suggested approach. A recommendation, and labelled as one.
 	RecommendedAngle *OrganizationBriefSentence `json:"recommended_angle,omitempty"`
+
+	// SubScores The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+	// same evidence the band is assessed from, each with a 0-100 score and the reason for
+	// it, so a reader who disagrees with the verdict can see which input carried it.
+	//
+	// ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+	// zeroes and never a partial set, because a dimension scored 0 is a claim about the
+	// company where an absent one is a fact about the reading (DOSS-AC-18).
+	//
+	// This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+	// composite that survives its own missing inputs; nothing here sums or averages these
+	// four into one figure (DOSS-AC-19), and the band remains the verdict.
+	SubScores *[]GrowthFitSubScore `json:"sub_scores,omitempty"`
 
 	// Whitespace What we sell that this company does not yet buy.
 	Whitespace *[]OrganizationBriefSentence `json:"whitespace,omitempty"`

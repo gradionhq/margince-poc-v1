@@ -52,7 +52,7 @@ func (b fixedBrain) Complete(context.Context, model.Request) (model.Response, er
 // that will "extract" the given pairs JSON.
 func fxRefreshWith(e *integration.Env, reply string, bootstrap []string) fxRefresh {
 	return fxRefresh{
-		store:               deals.NewStore(e.Pool),
+		store:               deals.NewStore(e.Pool, DealsInstallation()),
 		svc:                 approvals.NewService(e.Pool),
 		fetcher:             stubFetcher{},
 		brain:               fixedBrain{json: reply},
@@ -83,7 +83,7 @@ func TestFxRefreshStagesChangedRates(t *testing.T) {
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 
 	// The workspace tracks USD at 0.92 (base EUR).
-	if _, err := deals.NewStore(e.Pool).SetFxRate(adminCtx,
+	if _, err := deals.NewStore(e.Pool, DealsInstallation()).SetFxRate(adminCtx,
 		deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.92", EffectiveDate: time.Now().UTC()}); err != nil {
 		t.Fatalf("seed USD: %v", err)
 	}
@@ -125,7 +125,7 @@ func seedFx(ctx context.Context, t *testing.T, store *deals.Store, cur, rate str
 func TestFxRefreshDiffsAgainstEffectiveTodayNotSheetHead(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	store := deals.NewStore(e.Pool)
+	store := deals.NewStore(e.Pool, DealsInstallation())
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 
 	// USD: today matches the source; a future row differs (must NOT propose).
@@ -158,7 +158,7 @@ func TestFxRefreshDiffsAgainstEffectiveTodayNotSheetHead(t *testing.T) {
 func TestFxRefreshSupersedesStalePendingProposal(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	store := deals.NewStore(e.Pool)
+	store := deals.NewStore(e.Pool, DealsInstallation())
 	seedFx(adminCtx, t, store, "USD", "0.9", time.Time{})
 
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
@@ -246,7 +246,7 @@ func TestFxRefreshEmptySheetNoBootstrapSetIsNoOp(t *testing.T) {
 func TestFxRefreshDropsLowConfidenceAndCrossPairs(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	seedFx(adminCtx, t, deals.NewStore(e.Pool), "USD", "0.92", time.Now().UTC())
+	seedFx(adminCtx, t, deals.NewStore(e.Pool, DealsInstallation()), "USD", "0.92", time.Now().UTC())
 
 	// USD arrives only via a low-confidence pair and a cross-pair (USD/GBP,
 	// neither side is the base EUR). Both are dropped, so nothing is staged.

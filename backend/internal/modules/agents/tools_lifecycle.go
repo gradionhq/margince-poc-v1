@@ -237,9 +237,12 @@ func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (js
 	// approved call that named none — the version the human approved
 	// (pinForWrite). A version this tool read microseconds earlier would be
 	// compared against itself and could never detect skew: a pin in name only.
+	pin, err := pinForWrite(ctx, args.IfVersion)
+	if err != nil {
+		return nil, err
+	}
 	noteEvidence(ctx, datasource.EntityProject, args.ProjectID)
-	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason,
-		pinForWrite(ctx, args.IfVersion))
+	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason, pin)
 }
 
 // readArgs decodes and admits the phase in one place, so the staging path and

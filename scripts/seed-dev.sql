@@ -184,4 +184,56 @@ BEGIN
   RAISE NOTICE 'seed-dev.sql: rep@demo.test (rep, team DACH Sales) + rep2@demo.test (individual, own-scope) seeded for demo-workspace';
 END $$;
 
+-- The finance mirror's demo source (ADR-0083/A128).
+--
+-- One offline_demo connection and a link per demo customer, so the finance
+-- card has something to fill in: without a link the card sits in `unmapped`
+-- forever, which is honest but demonstrates nothing.
+--
+-- The invoices are NOT seeded here. They come from the sync pass, which is
+-- what makes this a demonstration of the real path rather than a table of
+-- rows nobody produced — and it is the only way the hash discipline, the
+-- credit-note placement and the derived statuses are exercised at all.
+DO $$
+DECLARE
+  ws   uuid;
+  conn uuid;
+  org  RECORD;
+BEGIN
+  SELECT id INTO ws FROM workspace WHERE slug = 'demo-workspace';
+  IF ws IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM set_config('app.workspace_id', ws::text, true);
+
+  SELECT id INTO conn
+    FROM finance_connection
+   WHERE workspace_id = ws AND provider = 'offline_demo' AND archived_at IS NULL;
+
+  IF conn IS NULL THEN
+    INSERT INTO finance_connection
+           (workspace_id, provider, status, credential_ref, source, captured_by)
+    VALUES (ws, 'offline_demo', 'active', 'offline://demo', 'system', 'system:seed')
+    RETURNING id INTO conn;
+  END IF;
+
+  -- Customers only. A target or a prospect has never been invoiced, and the
+  -- card is absent for them by design (FIN-AC-3) — linking one would put a
+  -- ledger behind a company we have never billed.
+  FOR org IN
+    SELECT id, display_name FROM organization
+     WHERE workspace_id = ws AND archived_at IS NULL
+       AND lifecycle = 'customer'
+  LOOP
+    INSERT INTO finance_customer_link
+           (workspace_id, connection_id, organization_id, external_customer_id,
+            sync_hash, source, captured_by)
+    VALUES (ws, conn, org.id, 'DEMO-' || left(replace(org.id::text, '-', ''), 8),
+            'seed', 'system', 'system:seed')
+    ON CONFLICT DO NOTHING;
+  END LOOP;
+
+  RAISE NOTICE 'seed-dev.sql: offline_demo finance connection + customer links seeded; the sweep fills the ledger';
+END $$;
+
 COMMIT;

@@ -27,8 +27,10 @@ type Provider struct {
 	store *Store
 }
 
-func NewProvider(pool *pgxpool.Pool) *Provider {
-	return &Provider{store: NewStore(pool)}
+// NewProvider wires the datasource verbs over the same store the transport
+// uses, installation seam included.
+func NewProvider(pool *pgxpool.Pool, inst Installation) *Provider {
+	return &Provider{store: NewStore(pool, inst)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

@@ -42,11 +42,12 @@ var roomFixedNow = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 var roomPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"person":       {Create: true, Read: true, Update: true},
-		"organization": {Read: true},
-		"relationship": {Read: true},
-		"activity":     {Create: true, Read: true, Update: true},
-		"deal":         {Read: true},
+		"person":                {Create: true, Read: true, Update: true},
+		"organization":          {Read: true},
+		"relationship":          {Read: true},
+		"activity":              {Create: true, Read: true, Update: true},
+		"deal":                  {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }

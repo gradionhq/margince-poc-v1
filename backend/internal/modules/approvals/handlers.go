@@ -46,7 +46,7 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 	for _, a := range rows {
 		data = append(data, h.wire(a))
 	}
-	writeJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
 		Page: pageInfo(page),
 	})
@@ -99,7 +99,7 @@ func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcont
 		writeErr(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, h.wire(a))
+	httperr.WriteJSON(w, http.StatusOK, h.wire(a))
 }
 
 func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ApproveApprovalParams) {
@@ -137,7 +137,7 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 		return
 	}
 	out.ApprovalToken = &token
-	writeJSON(w, http.StatusOK, out)
+	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
@@ -155,7 +155,7 @@ func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmc
 		writeErr(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, h.wire(a))
+	httperr.WriteJSON(w, http.StatusOK, h.wire(a))
 }
 
 // ApproveApprovalBundle decides every still-pending member of one bundle at
@@ -192,7 +192,7 @@ func (h Handlers) decideBundle(w http.ResponseWriter, r *http.Request, bundleID 
 			Outcome:  crmcontracts.ApprovalBundleMemberOutcome(member.Outcome),
 		})
 	}
-	writeJSON(w, http.StatusOK, crmcontracts.ApprovalBundleDecision{BundleId: bundleID, Data: data})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalBundleDecision{BundleId: bundleID, Data: data})
 }
 
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
@@ -227,15 +227,16 @@ func (h Handlers) wire(a row) crmcontracts.Approval { return wire(a, h.svc.now()
 // lazy expiry in so a stale pending row never reads as approvable.
 func wire(a row, now time.Time) crmcontracts.Approval {
 	out := crmcontracts.Approval{
-		Id:         openapi_types.UUID(a.ID.UUID),
-		Kind:       a.Kind,
-		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(now)),
-		ProposedBy: a.ProposedBy,
-		CreatedAt:  a.CreatedAt,
-		DiffHash:   &a.DiffHash,
-		Summary:    a.Summary,
-		ExpiresAt:  &a.ExpiresAt,
-		DecidedAt:  a.DecidedAt,
+		Id:          openapi_types.UUID(a.ID.UUID),
+		WorkspaceId: openapi_types.UUID(a.WorkspaceID),
+		Kind:        a.Kind,
+		Status:      crmcontracts.ApprovalStatus(a.effectiveStatus(now)),
+		ProposedBy:  a.ProposedBy,
+		CreatedAt:   a.CreatedAt,
+		DiffHash:    &a.DiffHash,
+		Summary:     a.Summary,
+		ExpiresAt:   &a.ExpiresAt,
+		DecidedAt:   a.DecidedAt,
 	}
 	if a.OnBehalfOf != nil {
 		v := openapi_types.UUID(a.OnBehalfOf.UUID)
@@ -263,11 +264,4 @@ func wire(a row, now time.Time) crmcontracts.Approval {
 		}
 	}
 	return out
-}
-
-func writeJSON[T any](w http.ResponseWriter, status int, body T) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	//craft:ignore swallowed-errors the status line is already written — a failed body encode has no channel left to report on
-	_ = json.NewEncoder(w).Encode(body)
 }

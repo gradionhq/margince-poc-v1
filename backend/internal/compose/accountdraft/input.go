@@ -12,10 +12,12 @@ package accountdraft
 // in general, and what we PROMISED outranks what we merely discussed.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // Input is the account, narrowed to the one recipient and one deal this draft
@@ -68,11 +70,40 @@ type RecipientIn struct {
 
 // DealIn is the opportunity the message is about.
 type DealIn struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Stage       string `json:"stage,omitempty"`
-	AmountMinor int64  `json:"amount_minor,omitempty"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Stage string `json:"stage,omitempty"`
+	// AmountMinor never reaches the model: MarshalJSON renders `amount` from
+	// it, in the currency's own scale. It carried minor units under a key that
+	// said `amount_minor` to this file and nothing at all to the model, so a
+	// 180,000 EUR deal read as eighteen million — the same defect the account
+	// brief had (#591), and the more consequential half of it, because this
+	// prompt writes an outbound message to the customer.
+	AmountMinor int64  `json:"-"`
 	Currency    string `json:"currency,omitempty"`
+}
+
+// MarshalJSON writes the amount as the figure a person would say — "180000.00"
+// for 18000000 EUR, "18000000" for the same integer in JPY — rather than the
+// minor-unit integer the column holds.
+//
+// Derived at the moment of writing rather than stored beside the integer, so
+// the two can never disagree, and scaled by the ISO-4217 table rather than by
+// /100, which understates every zero-decimal currency a hundredfold. An amount
+// with no currency is not shown at all: a figure without its code is a number
+// whose scale the reader has to guess, which is the defect rather than a lesser
+// form of it. A zero amount IS shown — a deal deliberately priced at nothing is
+// not the same as one nobody has priced.
+func (d DealIn) MarshalJSON() ([]byte, error) {
+	type wire DealIn // no methods, so no recursion back into this one
+	amount := ""
+	if d.Currency != "" {
+		amount = values.MajorUnits(d.AmountMinor, d.Currency)
+	}
+	return json.Marshal(struct {
+		wire
+		Amount string `json:"amount,omitempty"`
+	}{wire: wire(d), Amount: amount})
 }
 
 // TaskIn is one open commitment.

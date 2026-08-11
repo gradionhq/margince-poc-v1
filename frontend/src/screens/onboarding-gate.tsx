@@ -10,13 +10,14 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
+import { Disclosure } from "../design-system/atoms";
 import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { normalizeUrl } from "./onboarding";
+import { normalizeUrl, skipReasonText } from "./onboarding";
 import "./onboarding-gate.css";
 
 // The first screen of onboarding: one question, then the wait for the website
@@ -141,7 +142,11 @@ export function OnboardingGate({
           {t("ob.gate.field")}
         </label>
         {/* The border and the focus ring sit on the WRAPPER, so the field and
-            its inline submit share one outline instead of drawing two. */}
+            its inline submit share one outline instead of drawing two. The
+            stylesheet reads the input's own `aria-invalid` through `:has()` to
+            colour that outline, which is why rejection is not mirrored onto a
+            second attribute here: one source, and it is the one assistive
+            technology already reads. */}
         <div className="ob-gate-field">
           <input
             id="ob-gate-website"
@@ -194,6 +199,14 @@ export function OnboardingGate({
           </button>
         </p>
       )}
+
+      {/* The promise the product makes about the read, one press away rather
+          than in the sentence under the headline. Everyone is entitled to it;
+          almost nobody needs it before typing a domain, and carrying it in the
+          opening paragraph is what made that paragraph four lines long. */}
+      <Disclosure summary={t("ob.gate.trustToggle")}>
+        <p className="ob-gate-trust">{t("ob.gate.trustBody")}</p>
+      </Disclosure>
 
       {/* Named BEFORE the reader hands over their website, not after: which
           model is about to read it is part of the decision to let it. */}
@@ -315,13 +328,8 @@ function phaseKey(read: CompanySiteRead): MessageKey | null {
   return null;
 }
 
-// The honest fallback for a page whose skip/failure carries no reason.
 function reasonOf(t: Translate, page: CompanySiteReadPage): string {
-  return page.reason !== null &&
-    page.reason !== undefined &&
-    page.reason.trim() !== ""
-    ? page.reason
-    : t("ob.scan.pageNoReason");
+  return skipReasonText(t, page.reason);
 }
 
 // Colour is never the only carrier: the tile's own name says what happened to
@@ -424,64 +432,73 @@ function TheatreTail({
 
   return (
     <>
-      {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
-      <p className="ob-scan-phase" aria-live="polite">
-        <span className="ob-scan-phase-dot" aria-hidden />
-        {phase === null ? null : (
-          <span key={phase} className="ob-scan-phase-text">
-            {t(phase)}
-          </span>
-        )}
-      </p>
-
-      <ul className="ob-scan-strip" aria-label={t("ob.scan.pageStripLabel")}>
-        {read.pages.map((page) => {
-          const label = pageLabel(t, page);
-          return (
-            <li key={page.url}>
-              <span
-                className="ob-scan-tile"
-                data-page-status={page.status}
-                role="img"
-                title={label}
-                aria-label={label}
-              />
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* The page itself: which one the crawl just walked, not a growing
-          transcript of all of them. Fixed height, one occupant at a time —
-          the old page fades out as the new one fades in, and under reduced
-          motion the text simply swaps. If pages arrive faster than the fade
-          can play, this shows whichever is newest and drops the rest rather
-          than queuing a backlog: the count beside it is the honest tally,
-          not a promise that every page was seen crossing the ticker. */}
-      <div className="ob-scan-ticker">
-        <ul
-          className="ob-scan-ticker-row"
-          aria-live="polite"
-          aria-label={t("ob.scan.logLabel")}
-        >
-          {latestPage === null ? null : (
-            <ScanTickerEntry key={latestPage.url} page={latestPage} t={t} />
+      {/* One panel for the whole read: what it is doing, what it has walked,
+          where it is now, and what that has found. Four sibling blocks on bare
+          ground read as four unrelated readouts stacked in a column; inside one
+          card they read as one instrument, which is what they are. The spend
+          stays outside it — that is the page's disclosure, not the read's. */}
+      <div className="ob-scan-panel">
+        {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
+        <p className="ob-scan-phase" aria-live="polite">
+          <span className="ob-scan-phase-dot" aria-hidden />
+          {phase === null ? null : (
+            <span key={phase} className="ob-scan-phase-text">
+              {t(phase)}
+            </span>
           )}
+        </p>
+
+        <ul className="ob-scan-strip" aria-label={t("ob.scan.pageStripLabel")}>
+          {read.pages.map((page) => {
+            const label = pageLabel(t, page);
+            return (
+              <li key={page.url}>
+                <span
+                  className="ob-scan-tile"
+                  data-page-status={page.status}
+                  role="img"
+                  title={label}
+                  aria-label={label}
+                />
+              </li>
+            );
+          })}
         </ul>
-        <p className="ob-scan-ticker-total">
-          {t("ob.scan.pagesRead", { pages: counts.format(pagesRead) })}
+
+        {/* The page itself: which one the crawl just walked, not a growing
+            transcript of all of them. Fixed height, one occupant at a time —
+            the old page fades out as the new one fades in, and under reduced
+            motion the text simply swaps. If pages arrive faster than the fade
+            can play, this shows whichever is newest and drops the rest rather
+            than queuing a backlog: the count beside it is the honest tally,
+            not a promise that every page was seen crossing the ticker. */}
+        <div className="ob-scan-ticker">
+          <ul
+            className="ob-scan-ticker-row"
+            aria-live="polite"
+            aria-label={t("ob.scan.logLabel")}
+          >
+            {latestPage === null ? null : (
+              <ScanTickerEntry key={latestPage.url} page={latestPage} t={t} />
+            )}
+          </ul>
+          <p className="ob-scan-ticker-total">
+            {t("ob.scan.pagesRead", { pages: counts.format(pagesRead) })}
+          </p>
+        </div>
+
+        <p className="ob-scan-counts">
+          <span>
+            {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
+          </span>
+          <span className="ob-scan-found">
+            {t("ob.scan.factsSoFar", {
+              count: counts.format(read.facts.length),
+            })}
+          </span>
+          {settled ? null : <span>{t("ob.scan.stillReading")}</span>}
         </p>
       </div>
-
-      <p className="ob-scan-counts">
-        <span>
-          {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
-        </span>
-        <span className="ob-scan-found">
-          {t("ob.scan.factsSoFar", { count: counts.format(read.facts.length) })}
-        </span>
-        {settled ? null : <span>{t("ob.scan.stillReading")}</span>}
-      </p>
 
       {/* The AI indigo, not the brand accent: this is what the machine spent,
           not something the user is being asked to do. The spend and call

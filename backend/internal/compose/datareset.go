@@ -247,9 +247,9 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		// bootstrap leaves. The overlay flip above is not the general case, it
 		// is the reported one: the sweep is derived from the tables carrying a
 		// workspace_id column and workspace keys on id, so NO workspace-level
-		// setting is in its target set — capture_auto_enrich (CAP-PARAM-7)
-		// outlived every reset before this call, and so would the next setting
-		// added to the row.
+		// setting is in its target set. The auto-enrich posture outlived every
+		// reset before this call, which is what exposed it, and so would the
+		// next setting added to the row.
 		//
 		// identity owns that row and derives its own column list the same way,
 		// so nothing here has to be kept in step with the schema. It runs AFTER
@@ -283,7 +283,7 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 			Type: principal.PrincipalSystem, ID: "system",
 		})
 		seedCtx = principal.WithCorrelationID(seedCtx, ids.NewV7())
-		if err := configuredSeed(h.seeds, deals.NewHandlers(h.pool))(seedCtx, tx); err != nil {
+		if err := configuredSeed(h.seeds, deals.NewHandlers(h.pool, DealsInstallation()))(seedCtx, tx); err != nil {
 			return err
 		}
 

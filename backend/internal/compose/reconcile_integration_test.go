@@ -49,9 +49,10 @@ type reconcileEnv struct {
 var reconcilePerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"activity": {Create: true, Read: true},
-		"deal":     {Read: true, Update: true},
-		"pipeline": {Read: true},
+		"activity":              {Create: true, Read: true},
+		"deal":                  {Read: true, Update: true},
+		"pipeline":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
@@ -320,7 +321,7 @@ func TestADealEditDoesNotCancelAWaitingFollowUp(t *testing.T) {
 	// Through the real writer, so the row's version moves the way any edit in
 	// the product moves it.
 	renamed := "Renamed while it waited"
-	if _, err := deals.NewStore(e.Pool).UpdateDeal(human, ids.From[ids.DealKind](deal),
+	if _, err := deals.NewStore(e.Pool, DealsInstallation()).UpdateDeal(human, ids.From[ids.DealKind](deal),
 		deals.UpdateDealInput{Name: &renamed}); err != nil {
 		t.Fatalf("editing the deal: %v", err)
 	}

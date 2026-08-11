@@ -108,17 +108,24 @@ export function DossierPanel({
         <EmptyState>{t("co.dossier.empty")}</EmptyState>
       ) : (
         <>
-          {readable.sections.map((section) => (
-            <div className="co-dossier-section" key={section.kind}>
-              <h3 className="co-part-sublabel">
-                {t(SECTION_LABELS[section.kind])}
-              </h3>
-              <SentenceList
-                sentences={section.sentences}
-                onOpenRecord={onOpenRecord}
-              />
-            </div>
-          ))}
+          {/* One reading, not five labelled ones. The mockup draws the dossier
+              as continuous prose with its sources underneath; a heading per
+              section turned three sentences about one company into a form with
+              five fields, and the headings said less than the sentences under
+              them. The sections still ORDER the prose — the server decides
+              what comes first — they just no longer announce themselves. */}
+          {/* ONE list over every section. Per-section lists would each collect
+              their own sources, so a one-sentence section still drew a chip
+              directly under its line — the wall of "fact" relocated rather
+              than removed. The sections still ORDER the prose; the receipts
+              gather once, under all of it. */}
+          <SentenceList
+            sentences={readable.sections.flatMap(
+              (section) => section.sentences,
+            )}
+            onOpenRecord={onOpenRecord}
+            citations="collected"
+          />
           <p className="co-part-foot">
             <WrittenBy by={readable.generated_by} />{" "}
             {readable.needs_refresh && (

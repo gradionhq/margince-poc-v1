@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // decimalAmountPattern accepts only a plain or scientific DECIMAL amount —
@@ -165,16 +167,14 @@ func transformAmountMinorByCurrency(v any) (any, error) {
 // string against the SAME exponent table the read transform scales it in by —
 // one spelling of the ISO fact, never a second copy that could drift.
 func ISO4217MinorUnitExponent(code string) int {
-	switch code {
-	case "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF":
-		return 0
-	case "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND":
-		return 3
-	case "CLF", "UYW":
-		return 4
-	default:
-		return 2
-	}
+	// The table itself lives in shared/kernel/values, beside Money, because
+	// three callers now need it and they sit on different sides of the DAG:
+	// this module, the offer-draft price check in compose, and the account
+	// brief in compose/orgbrief, which compose imports. This function's own
+	// promise — one spelling of the ISO fact, never a second copy that could
+	// drift — is what forced the move: the second copy had already appeared,
+	// and the two tables had already disagreed about UYI, CLF and UYW.
+	return values.MinorUnitDigits(code)
 }
 
 // stringField reads a string-valued property from a gathered assembler map,

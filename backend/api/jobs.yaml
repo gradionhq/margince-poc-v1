@@ -225,6 +225,40 @@ kinds:
       500 trigger transactions, and a pass that stops early simply leaves the
       rest due for tomorrow.
 
+  finance_sync_sweep:
+    role: dispatcher
+    go_type: FinanceSyncSweepArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 6h
+    fans_out_to: finance_sync
+    fan_out_unit: workspace
+    reason: >-
+      Four times a day, and at boot like every pass here. An accounting source
+      is not a stream: invoices are issued and settled on a human timetable, so
+      polling faster buys nothing, and polling slower means a rep opening a
+      customer page sees yesterday's balance. Six hours is also what the card's
+      staleness threshold is set against — a mirror that has missed four passes
+      is what it calls stale.
+
+  finance_sync:
+    role: workspace
+    go_type: FinanceSyncArgs
+    queue: default
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: fan_out
+    args:
+      Workspace: id
+    reason: >-
+      One workspace's mirror pass: read the source's customers and the ledger of
+      each linked one, and write only what changed. The hash covers the source's
+      own values, so a pass over an unchanged ledger writes nothing and the
+      retries below are free. Five minutes bounds a first backfill of eighteen
+      months across every linked customer; a pass that runs out simply resumes
+      on the next sweep.
+
   capture_backfill:
     role: workspace
     go_type: CaptureBackfillArgs

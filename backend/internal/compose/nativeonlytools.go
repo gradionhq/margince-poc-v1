@@ -207,6 +207,42 @@ func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingListe
 	}
 }
 
+// nativeOnlyCommitments guards review_commitments. Open promises are task
+// ACTIVITIES, and an overlay workspace's timeline is mirrored rather than
+// native — the mirror holds no task projection to read, so an unguarded call
+// would answer "nothing is outstanding" out of a table that has none of its
+// rows. That is the silent break AC-OV-2 forbids, and it is the worst
+// possible wrong answer to this particular question.
+func nativeOnlyCommitments(mode overlayModeChecker, list agents.CommitmentLister) agents.CommitmentLister {
+	return func(ctx context.Context, in agents.CommitmentQuery) (agents.CommitmentSweep, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.CommitmentSweep{}, err
+		}
+		if overlay {
+			return agents.CommitmentSweep{}, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx, in)
+	}
+}
+
+// nativeOnlyHandoff guards prepare_handoff. A project is a native record with
+// no incumbent analogue at all, so an overlay workspace has no project to
+// prepare a handover for — the refusal is the declared answer rather than a
+// degradation.
+func nativeOnlyHandoff(mode overlayModeChecker, read agents.HandoffReader) agents.HandoffReader {
+	return func(ctx context.Context, projectID ids.UUID) (agents.HandoffFacts, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.HandoffFacts{}, err
+		}
+		if overlay {
+			return agents.HandoffFacts{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx, projectID)
+	}
+}
+
 // nativeOnlyDisqualifier guards disqualify_lead, and it is the tool half of a
 // refusal REST already makes.
 //

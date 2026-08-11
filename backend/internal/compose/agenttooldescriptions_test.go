@@ -216,6 +216,17 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 // bytes. Deferring those is a protocol change — a model needs the schema to CALL
 // a tool — so it wants its own decision rather than being reached for the next
 // time this bound is hit.
+//
+// Publishing the per-record_type write vocabulary as a document rather than
+// reciting it in two tool descriptions bought most of the room back: the listing
+// measures ~12,132 tokens against the 15,000 bound, ~2,868 of headroom where
+// there was ~1,355. That is a measurement and not a constant — descriptions move
+// with every change that touches one — so treat it as the order of the headroom.
+// What is asserted below is the bound.
+//
+// The room is deliberately NOT spent by lowering the fraction here. It is what
+// the next tools are for, and re-tightening the bound in the change that creates
+// the room would spend it before anyone can argue for how.
 const (
 	listingBudgetNumerator   = 5
 	listingBudgetDenominator = 8

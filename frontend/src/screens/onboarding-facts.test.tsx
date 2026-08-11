@@ -479,6 +479,51 @@ describe("CompanyConfirmCard as a triage surface", () => {
     );
   }
 
+  // "You skipped X" is a claim about the reader, so it may only name the
+  // questions the reader actually declined. Picking a legal entity retires the
+  // sibling questions about that entity's address and registration and then
+  // fills those fields — naming them would tell someone they skipped a
+  // question they were never shown, about a row that is visibly filled.
+  describe("the skipped-fields tail", () => {
+    function renderWithDismissal(autoResolved: boolean) {
+      render(
+        <CompanyConfirmCard
+          proposal={triageProposal()}
+          draft={triageDraft()}
+          answers={[
+            {
+              clarifyId: "clarify:registered_address:1",
+              field: "registered_address",
+              value: "",
+              dismissed: true,
+              autoResolved,
+            },
+          ]}
+          selectedFactKeys={[]}
+          setSelectedFactKeys={vi.fn()}
+          missingRequired={[]}
+          setField={vi.fn()}
+          onAcceptAll={vi.fn()}
+          pending={false}
+          authorizing={false}
+          error={null}
+        />,
+      );
+    }
+
+    it("names a question the reader declined", () => {
+      renderWithDismissal(false);
+      expect(screen.getByText(/You skipped:/)).toHaveTextContent(
+        "Registered address",
+      );
+    });
+
+    it("stays silent about a question another answer retired", () => {
+      renderWithDismissal(true);
+      expect(screen.queryByText(/You skipped:/)).toBeNull();
+    });
+  });
+
   // The pinned continue bar replaced the old tally strip: progress measures
   // real completion toward being able to continue (required fields only),
   // never a count of every row the board happens to carry.
@@ -1465,7 +1510,7 @@ describe("CompanyConfirmCard as a triage surface", () => {
   // The whole point: the densest thing the crawl produced must be visible
   // content, grouped by type, the moment the review renders — never behind
   // a disclosure the reader has to know to open.
-  it("shows facts as visible board content grouped by type, with no disclosure to open", () => {
+  it("shows a short type's facts as open board content, never behind a shut fold", () => {
     const proposal: Proposal = {
       ...triageProposal(),
       facts: [
@@ -1505,8 +1550,11 @@ describe("CompanyConfirmCard as a triage surface", () => {
       />,
     );
 
-    // No disclosure anywhere on the surface — nothing to open.
-    expect(document.querySelector("details")).toBeNull();
+    // A type this short is never worth a click, so every fold on the surface
+    // is already open — the reader has nothing to discover.
+    for (const fold of document.querySelectorAll("details")) {
+      expect(fold.open).toBe(true);
+    }
     // Both facts read straight off the page, each under its own type.
     expect(screen.getByText("Founded 2011")).toBeInTheDocument();
     expect(screen.getByText("Managed Kubernetes")).toBeInTheDocument();
@@ -1517,6 +1565,44 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(
       within(nav).getByRole("button", { name: /^Facts/ }),
     ).toBeInTheDocument();
+  });
+
+  // A real read of a real site returns a hundred facts and most of them are
+  // one type. Left open, that type is a wall the reader scrolls past rather
+  // than a list they check — and it buries the short types that actually carry
+  // a decision. Folded, the type's name and its count are still on screen, so
+  // nothing about what the read found is hidden; only the rows wait.
+  it("folds a long type shut while still naming it and counting it", () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({
+      category: "offering" as const,
+      field: "service" as const,
+      value: `Service ${index}`,
+      value_key: `offering:service:${index}`,
+      evidence_snippet: `We run service ${index}.`,
+      evidence_url: "https://gradion.com/services",
+      confidence: 0.8,
+    }));
+    render(
+      <CompanyConfirmCard
+        proposal={{ ...triageProposal(), facts: many }}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    const fold = screen.getByText("service").closest("details");
+    expect(fold?.open).toBe(false);
+    // The shape of what the read found survives the fold: the type is named
+    // and its count is stated without opening anything.
+    expect(within(fold as HTMLElement).getByText("12")).toBeInTheDocument();
   });
 
   // jsdom performs no layout, so it cannot assert a rendered pixel width —

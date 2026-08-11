@@ -11,6 +11,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -54,18 +55,98 @@ func OrgLinkedActivityExistsAny(orgsPos int) string {
 	return activityReachesOrg(sprintf("ANY($%d)", orgsPos))
 }
 
-// activityReachesOrg is the walk itself. operand is what each arm compares its
-// organization id against — a single bind, or ANY(array) — so the three links
-// are written once and neither caller can drift from the other.
-func activityReachesOrg(operand string) string {
-	return sprintf(`EXISTS (
-		    SELECT 1 FROM activity_link l
+// orgArms is the three links themselves — the account an activity is filed
+// against, the account its deal belongs to, and the employer of the contact it
+// is about.
+//
+// The arms live apart from the two shapes built on them because that is where
+// drift would happen — an arm gaining a condition in one spelling and not the
+// other — while the shapes differ for a reason that will not go away
+// (OrgReachSet says what it is).
+//
+// The deal arm deliberately does not exclude archived or lost deals: a set
+// stricter than the predicate would show a message on the timeline whose
+// account never gets a signal about it.
+const orgArms = `FROM activity_link l
 		    LEFT JOIN deal d ON d.id = l.deal_id
 		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		      AND r.ended_at IS NULL AND r.archived_at IS NULL
+		      AND r.ended_at IS NULL AND r.archived_at IS NULL`
+
+// activityReachesOrg is the walk as a PREDICATE, for a query that aliases
+// activity as a. operand is what each arm compares its organization id against
+// — a single bind, or ANY(array).
+//
+// It stays an EXISTS rather than a join against OrgReachSet: EXISTS stops at
+// the first arm that matches, and every one of this function's callers is a
+// hot read.
+func activityReachesOrg(operand string) string {
+	return sprintf(`EXISTS (
+		    SELECT 1 %s
 		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = %[1]s OR d.organization_id = %[1]s OR r.organization_id = %[1]s))`,
-		operand)
+		      AND (l.organization_id = %[2]s OR d.organization_id = %[2]s OR r.organization_id = %[2]s))`,
+		orgArms, operand)
+}
+
+// OrgReachSet is the same walk as a SET: the body of a derived table producing
+// one (activity_id, organization_id) row per account an activity reaches.
+//
+// The predicate above answers "does this activity reach account X" and takes
+// the account as a bind. A producer scanning the whole workspace has the
+// opposite question — it holds an activity and needs the accounts — so it
+// cannot use the predicate at all. Both are the same three arms.
+//
+// DISTINCT collapses an activity that reaches one account through several arms
+// (its own link and its deal's, say) to one row, so a caller counting messages
+// is not counting links. An activity that reaches TWO accounts is two rows on
+// purpose: whether that is an ambiguity to refuse or a fact to file twice is
+// the caller's ruling, not this fragment's.
+//
+// No entity_type filter: the activity_link_shape CHECK already guarantees
+// exactly one of the three id columns is set per row, and the predicate omits
+// it for the same reason.
+//
+// No workspace filter: activity_link, deal and relationship all carry FORCE
+// row-level security, and every caller runs inside WithWorkspaceTx.
+//
+// Known limit, and it matters more to a producer than to a reader: the
+// employment arm asks who a contact works for NOW, not who they worked for
+// when the message was sent. Mail exchanged with someone at a previous job
+// therefore reaches whoever employs them today. A timeline showing it is
+// arguably being helpful; a signal FILED against that account is a claim
+// nobody made. Bounding the arm by relationship.started_at is the fix, and it
+// is not available yet — people.plantEmploymentEdge writes no start date, so
+// the bound would resolve nothing (see the follow-up issue). Until then the
+// extractor's one-account rule carries most of the weight, since a contact
+// with two live employers makes their conversations ambiguous and skipped.
+func OrgReachSet() string {
+	return sprintf(`SELECT DISTINCT l.activity_id, o.org_id AS organization_id
+		    %s
+		    CROSS JOIN LATERAL (VALUES (l.organization_id), (d.organization_id),
+		                              (r.organization_id)) AS o(org_id)
+		    WHERE o.org_id IS NOT NULL`, orgArms)
+}
+
+// openTaskAssigneeClause narrows the timeline to the OPEN tasks one person
+// holds — the queue read the contract declares ("Open tasks for an
+// assignee"), spelled as the predicate the partial index behind it is built
+// on (idx_activity_tasks: workspace_id, assignee_id, due_at WHERE kind='task'
+// AND NOT is_done AND archived_at IS NULL).
+//
+// Done-ness belongs to the filter rather than to a dial of its own, and that
+// is the whole point: no parameter answers it, so binding assignee_id as a
+// plain column match would hand back every task the person ever closed under
+// a name the contract says means the open ones. A wider answer wearing the
+// declared answer's shape is the failure this filter exists to close, not a
+// convenience to preserve.
+//
+// `kind` is stated rather than implied. The `activity_task_fields` CHECK
+// already keeps assignee_id NULL on every other kind, so it narrows nothing —
+// it is what lets the planner match the partial index.
+func openTaskAssigneeClause(assignee *ids.UserID, arg func(any) int) string {
+	if assignee == nil {
+		return ""
+	}
+	return sprintf("a.assignee_id = $%d AND a.kind = 'task' AND NOT a.is_done", arg(*assignee))
 }
 
 // listActivitiesFilter builds the timeline query's join, WHERE terms and
@@ -89,6 +170,9 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 	}
 	if in.Kind != nil {
 		where = append(where, sprintf("a.kind = $%d", arg(*in.Kind)))
+	}
+	if clause := openTaskAssigneeClause(in.AssigneeID, arg); clause != "" {
+		where = append(where, clause)
 	}
 	if in.EntityType != nil && in.EntityID != nil {
 		// The SAME vocabulary the write uses. A second list here drifted from

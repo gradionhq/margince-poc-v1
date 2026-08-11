@@ -2234,14 +2234,20 @@ paths:
       description: |
         The `advance_deal` MCP verb. Writes one `deal_stage_history` row + one audit row
         (action `advance_stage`) recording prior + next stage; closed-won emits `deal.stage_changed` (to_status=won).
-        Advancing to a closed-won/closed-lost stage is 🟡 confirm-first (irreversible /
-        touches money) — for an agent caller this requires an approval token.
+        A move with a closed-won/closed-lost stage at EITHER end is 🟡 confirm-first
+        (irreversible / touches money) — for an agent caller this requires an approval
+        token. Closing a deal is the obvious half; REOPENING one is the other, and it is
+        the same money: moving a won deal back to an open stage clears its close date,
+        its lost reason and the FX rate frozen at close, and takes revenue out of a
+        quarter that has already been reported.
       # advance_deal is the one TierDynamic tool (A34/ADR-0026): the gate resolves the tier from the
-      # TARGET stage's semantic, NOT statically. open→open = 🟢 (no token); advancing INTO a
-      # won/lost terminal stage = 🟡 (approval token required). The resolver reads the target stage's
-      # `semantic` from pipeline config (and the overlay stage-mapping in overlay mode), not just the
-      # request args — see interfaces.md §2.1 (TierDynamic) and events.md §5.3.
-      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: target_stage_semantic, confirmation_required_when: 'target stage semantic in (won, lost)', scope: write }
+      # stage semantics at BOTH ENDS of the move, not statically. open→open = 🟢 (no token); a
+      # terminal won/lost stage at either end = 🟡 (approval token required), so closing a deal and
+      # reopening one are both gated. The resolver reads each stage's `semantic` from pipeline config
+      # (and the overlay stage-mapping in overlay mode), not just the request args — and it may only
+      # ever RAISE, so an unknown or malformed semantic at either end fails toward the approval gate.
+      # See interfaces.md §2.1 (TierDynamic) and events.md §5.3.
+      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: stage_semantic_at_either_endpoint, confirmation_required_when: 'source or target stage semantic in (won, lost)', scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -12101,6 +12107,21 @@ components:
             missing inputs to go and find. When the band was capped it names the other
             fix — confirming our own offering. Always a concrete action, never a
             restatement that data is missing.
+        sub_scores:
+          type: array
+          description: |
+            The band, taken apart (DOSS-AC-17..20, ADR-0095/A146). Four named dimensions over the
+            same evidence the band is assessed from, each with a 0-100 score and the reason for
+            it, so a reader who disagrees with the verdict can see which input carried it.
+
+            ABSENT below the abstention floor, exactly as the band is `unknown` there — never
+            zeroes and never a partial set, because a dimension scored 0 is a claim about the
+            company where an absent one is a fact about the reading (DOSS-AC-18).
+
+            This does NOT reintroduce the score DOSS-AC-12 refuses. That criterion forbids a
+            composite that survives its own missing inputs; nothing here sums or averages these
+            four into one figure (DOSS-AC-19), and the band remains the verdict.
+          items: { $ref: '#/components/schemas/GrowthFitSubScore' }
         positive_factors:
           type: array
           description: What argues for this company being a fit.
@@ -12202,6 +12223,38 @@ components:
             rather than a sentence written around the gap.
           items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
 
+    GrowthFitSubScore:
+      type: object
+      description: |
+        One dimension of the growth-fit assessment, with the reason for its score.
+
+        The reason is REQUIRED: a bar with a number and no sentence is the unexplainable score
+        this model was built to replace, and a reader must be able to see what it was read from.
+      required: [dimension, score, reason]
+      properties:
+        dimension:
+          type: string
+          enum: [industry_fit, company_size, transformation_need, access]
+          description: >-
+            The four the assessment decomposes into. A closed enum rather than free text, so a
+            surface can label and order them and a model cannot invent a fifth.
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            0-100 for THIS dimension only. Never summed or averaged with the others (DOSS-AC-19)
+            — the band is the verdict, and these are what it was read from.
+        reason:
+          type: string
+          description: One sentence saying what this score was read from.
+        evidence:
+          type: array
+          description: >-
+            The records behind the reason, on the same footing as every other claim. A sub-score
+            citing nothing the assembly knows is dropped by the grounding filter (DOSS-AC-20).
+          items: { $ref: '#/components/schemas/OrganizationBriefEvidence' }
+
     OrganizationBriefSentence:
       type: object
       required: [text, evidence]
@@ -12266,6 +12319,19 @@ components:
             invoiced" rather than "revenue": the source supports issued amounts, not
             a ledger revenue figure, and calling one the other is the kind of small
             wrong label a reader plans against.
+        net_invoiced_lifetime:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: >-
+            The same FIN-FORM-1 fold with no lower bound on the issue date: every
+            invoice this connection has mirrored, issued minus credited. Named
+            "net invoiced" for the same reason as the trailing figure, and never
+            "revenue".
+
+            Scoped to the CURRENT connection — what the mirror holds, not what the
+            customer has ever been billed — so re-connecting a source restates it.
+            Absent under the same FIN-AC-6 refusal: one invoice without a
+            conversion rate withholds the whole total rather than reporting a
+            partial sum as if it were complete.
         open_balance:
           allOf: [{ $ref: '#/components/schemas/Money' }]
           description: What is still open across unpaid invoices (FIN-FORM-2).
@@ -12358,6 +12424,26 @@ components:
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
+    HealthDimension:
+      type: object
+      description: |
+        One named part of the relationship's health, with the reason for its rating.
+
+        The reason is REQUIRED. A rating with no sentence behind it is the unexplainable score
+        this model replaced — a reader must be able to see what it was read from and disagree.
+      required: [rating, reason]
+      properties:
+        rating:
+          type: string
+          enum: [strong, good, at_risk]
+          description: >-
+            Three values, not a scale. A dimension that cannot be computed is ABSENT rather than
+            rated `unknown`: absence is a fact about the reading, where a rating is a claim about
+            the account.
+        reason:
+          type: string
+          description: One sentence naming what this rating was read from.
+
     Organization360Health:
       type: object
       description: |
@@ -12371,6 +12457,32 @@ components:
         Every part is nullable and absent when it cannot be computed — never zero, which would
         be a claim about the account rather than about what was readable.
       properties:
+        relationship:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether we are in contact and both sides are talking. Read from the strength roll-up
+            and the reply balance below (PO-AC-N-10).
+        commercial:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: Whether work is moving — open pipeline and whether it is stalling.
+        payment:
+          allOf: [{ $ref: '#/components/schemas/HealthDimension' }]
+          description: >-
+            Whether they pay, and on time. Absent on an account with no finance connection or
+            too few settled invoices to say — which is different from paying badly.
+        # There is deliberately no `overall` here, and no `adoption` dimension.
+        #
+        # The VERDICT is the worst of the three dimensions (PO-AC-N-11), and this
+        # payload can only carry two of them: payment comes from the finance
+        # mirror, which is another module and which a module never imports. A
+        # verdict computed here would be a worst-of that had never seen payment —
+        # exactly the "a strong relationship hides a payment problem" failure the
+        # rule exists to prevent — so it is composed on the surface that reads
+        # both, and this section does not pretend to it.
+        #
+        # `adoption` is absent for a different reason: nothing measures whether a
+        # customer uses what they bought, and a permanently unknown row teaches a
+        # reader that unknown is a normal reading (ADR-0095/A146).
         days_since_last_inbound:
           type: [integer, 'null']
           description: Null when they have never written, which is different from writing long ago.
@@ -12692,6 +12804,30 @@ components:
             filed under: a `contract_ended` signal stands while the record still reads as a live
             customer or an open opportunity. The page states the conflict rather than resolving
             it, because which of the two is wrong is a judgment only the reader can make.
+        title:
+          type: [string, 'null']
+          description: |
+            What to do, in the RULE's own words — "Follow up: no reply in 24 days" (PO-AC-N-13).
+
+            Never an invented task. The mockups draw rows like "Prep expansion workshop", which
+            the system has no basis for and no way to complete; a title here says only what the
+            rule that fired already knows.
+
+            It is NOT part of the fingerprint (PO-AC-N-14). Folding it in would resurrect every
+            suggestion every reader has ever dismissed the moment the wording changed.
+        due_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            The date the EVIDENCE carries — when the thread went quiet, when the deal last moved.
+
+            Never a deadline the system chose for a rep. A suggestion is a reading, and inventing
+            a due date would turn it into an obligation nobody agreed to. Null where the rule
+            fired on something with no date of its own.
+
+            Excluded from the fingerprint for the same reason as the title, and more sharply: a
+            date moves on its own, so a dismissal keyed on one would expire without anything
+            about the account changing.
         fingerprint:
           type: string
           description: |

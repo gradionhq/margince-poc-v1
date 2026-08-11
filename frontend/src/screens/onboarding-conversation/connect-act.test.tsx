@@ -5,6 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../i18n";
+import { en } from "../../i18n/en";
 import { installFetchStub, jsonResponse } from "../story-utils";
 import { ConnectAct } from "./connect-act";
 import type { ConversationState } from "./conversation-machine";
@@ -396,10 +397,8 @@ describe("the LinkedIn card", () => {
     expect(button).toBeDisabled();
     // The disclosure a member is owed before handing over their address
     // book: exactly what is read, and the promise it never becomes a contact.
-    expect(
-      screen.getByText(/name, position, company and the date you connected/i),
-    ).toBeTruthy();
-    expect(screen.getByText(/do NOT become contacts/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.scope1Rest"])).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.neverContacts"])).toBeTruthy();
 
     await userEvent.type(
       screen.getByLabelText("Your LinkedIn profile URL"),
@@ -428,30 +427,29 @@ describe("the LinkedIn card", () => {
   it("admits that nothing syncs yet once the dialog is open", async () => {
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
-    expect(screen.getByText(/awaiting approval/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.appPending"])).toBeTruthy();
   });
 
   // The three consent guarantees the dialog owes a reader before they click
-  // Authorize, each proven on the rendered dialog rather than a catalog key
-  // so a copy edit that quietly drops one fails here, not in review.
+  // Authorize, each proven on the RENDERED dialog: the sentences come from the
+  // catalog so a rewording is free, but a guarantee that stops being rendered
+  // at all still fails here rather than in review.
   it("states that connections never become contacts", async () => {
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
-    expect(screen.getByText(/do NOT become contacts/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.neverContacts"])).toBeTruthy();
   });
 
   it("states that nothing is sent to a connection", async () => {
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
-    expect(
-      screen.getByText(/sends no invitations and no messages/i),
-    ).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.scope4Rest"])).toBeTruthy();
   });
 
   it("states that no connections sync yet", async () => {
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
-    expect(screen.getByText(/no connections sync yet/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.conv.linkedin.appPending"])).toBeTruthy();
   });
 
   it("shows the resolved state and offers no further action once skipped", () => {
@@ -508,21 +506,29 @@ describe("the cn.done finish action", () => {
 
 // The four step-level consent guarantees used to be a two-column table
 // squeezed into the rail's ~250px column, wrapping into broken-looking text.
-// They now render on the artifact surface, where the reader actually passes
-// through them before authorizing anything.
+// They render on the artifact surface now, where the reader passes through them
+// before authorizing anything — behind a fold that names them, like every other
+// disclosure in the product, and reachable in one click from the scene rather
+// than from inside a provider's dialog.
 describe("the consent guarantees", () => {
-  it("render on the surface before any provider dialog opens, not in the rail", () => {
+  it("sit on the surface behind a named fold, not in the rail", async () => {
     installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct();
 
-    for (const text of [
-      /we read — we don't clutter/i,
-      /never send anything without your approval/i,
-      /data stays in your workspace/i,
-      /disconnect in one click/i,
-    ]) {
-      const found = screen.getByText(text);
-      expect(found.closest(".ob-connect-guarantees")).toBeTruthy();
+    const toggle = screen.getByText(en["ob.conv.connect.guaranteesToggle"]);
+    const fold = toggle.closest("details");
+    expect(fold?.open).toBe(false);
+    await userEvent.click(toggle);
+    expect(fold?.open).toBe(true);
+
+    for (const key of [
+      "ob.s4.scope1Lead",
+      "ob.s4.scope2Lead",
+      "ob.s4.scope3Lead",
+      "ob.s4.scope4Lead",
+    ] as const) {
+      const found = screen.getByText(en[key]);
+      expect(found.closest("details")).toBe(fold);
       expect(found.closest(".mw-thread")).toBeNull();
     }
   });

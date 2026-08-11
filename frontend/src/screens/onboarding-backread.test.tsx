@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { OnboardingBackread } from "./onboarding-backread";
 import { installFetchStub, jsonResponse } from "./story-utils";
 
@@ -547,7 +548,7 @@ describe("leaving", () => {
     const { container } = render({ state: "none" });
 
     await screen.findByText("About 1,234 messages in that window.");
-    const note = screen.getByText(/The backread is read-only/);
+    const note = screen.getByText(en["ob.backread.note"]);
     const start = screen.getByRole("button", { name: "Connect and read" });
     expect(
       note.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING,

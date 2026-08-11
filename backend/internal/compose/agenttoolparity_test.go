@@ -147,10 +147,19 @@ var composedIntents = map[string]bool{
 	"at_risk_relationships":    true,
 	"whats_slipping_this_week": true,
 	"draft_follow_ups_for":     true,
-	"list_pipelines":           true,
-	"qualify_lead":             true,
-	"progress_deal":            true,
-	"run_report":               true,
+	// review_commitments reads the timeline for a set `GET /activities` cannot
+	// select: open tasks ordered by when they came DUE, which that operation
+	// neither filters on nor sorts by. Read-only.
+	"review_commitments": true,
+	// prepare_handoff composes the project read with the deals rolled up to it,
+	// the people attached to it and the promises outstanding on it — four
+	// operations, so no single one declares it. Read-only, and it writes
+	// nothing: moving work into delivery is advance_project_phase's act.
+	"prepare_handoff": true,
+	"list_pipelines":  true,
+	"qualify_lead":    true,
+	"progress_deal":   true,
+	"run_report":      true,
 	// query_workspace composes over the same list operations search_records
 	// does, but no single one of them can declare it: a plan chooses its target
 	// at call time, and the records it selects are read back through the

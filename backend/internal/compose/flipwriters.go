@@ -92,7 +92,7 @@ func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent strin
 	return &flipWriters{
 		pool:       pool,
 		people:     people.NewStore(pool),
-		deals:      deals.NewStore(pool),
+		deals:      deals.NewStore(pool, DealsInstallation()),
 		activities: activities.NewStore(pool),
 		ms:         ms,
 		identities: migration.NewRunStore(pool),

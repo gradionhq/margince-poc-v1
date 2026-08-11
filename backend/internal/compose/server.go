@@ -26,6 +26,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -118,6 +119,9 @@ type Server struct {
 	// ONE group — transport, authorization server, both discovery documents —
 	// and routes.go, where the group is mounted, carries why.
 	mcpConnectorEnabled bool
+	// appViews holds the MCP App documents this api is serving. Nil for the
+	// worker and for an api that composed no views — see mcpappviews.go.
+	appViews *apps.Provider
 
 	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
 	// admits — derived by WithMCPResource from the configured
@@ -308,7 +312,7 @@ var _ crmcontracts.ServerInterface = Server{}
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
 	// note): active cf_* deal columns ride deal payloads on both surfaces.
-	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
+	dealsH := deals.NewHandlers(pool, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
 	// serves the already-bound singleton organization.
@@ -356,7 +360,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		financeHandlers:    finance.NewHandlers(pool),
+		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(pool),
 		automationHandlers: automation.NewHandlers(pool),
@@ -372,7 +376,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
-		quotasHandlers:       quotas.NewHandlers(pool),
+		quotasHandlers:       quotas.NewHandlers(pool, identity.BaseCurrencyOf),
 		// The accept-write's default engine rides the honest-empty NoOp
 		// extractor (nothing is ever grounded, so nothing is acceptable);
 		// WithExtractor rebuilds it together with the activities read so
@@ -384,7 +388,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the environment). Without it those paths answer an honest 503.
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
-		dealsStore:       deals.NewStore(pool),
+		dealsStore:       deals.NewStore(pool, DealsInstallation()),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh

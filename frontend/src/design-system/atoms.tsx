@@ -302,15 +302,23 @@ export function StatCard({
   value,
   detail,
   tone,
+  source,
 }: Readonly<{
   label: string;
   value: string;
   detail?: string;
   tone?: "warn" | "danger";
+  // Where the figure came from, named on the card that shows it. A money
+  // reading a reader cannot trace is one they have to go and verify
+  // elsewhere, which is the trip the badge saves them.
+  source?: ReactNode;
 }>) {
   return (
     <section className="stat-card">
-      <span className="stat-card-label t-caption">{label}</span>
+      <span className="stat-card-label t-caption">
+        {label}
+        {source && <span className="stat-card-source">{source}</span>}
+      </span>
       <span
         className={
           tone
@@ -659,6 +667,13 @@ export function DataTable<Row>({
  *
  * `open` forces it open for a state the reader must not miss (a tool that is
  * running, a result that just arrived); left undefined the reader decides.
+ *
+ * `summary` is a node rather than a string because a summary is a ROW, and
+ * some of them carry more than a label — a count beside the name, a status
+ * chip. Passing a string stays the ordinary case and reads identically; the
+ * alternative was a second `<details>` implementation living beside this one,
+ * which is how two disclosures on one screen end up disagreeing about their
+ * own caret. `className` is the same bargain for the row's chrome.
  */
 // OverflowMenu folds the verbs a record offers but a reader rarely wants —
 // merge, archive, share — behind one control, so the header carries identity
@@ -772,14 +787,19 @@ export function OverflowMenu({
 export function Disclosure({
   summary,
   open,
+  className,
   children,
 }: Readonly<{
-  summary: string;
+  summary: ReactNode;
   open?: boolean;
+  className?: string;
   children: ReactNode;
 }>) {
   return (
-    <details className="disclosure" open={open}>
+    <details
+      className={className ? `disclosure ${className}` : "disclosure"}
+      open={open}
+    >
       <summary className="disclosure-summary">
         <ChevronRight className="disclosure-chevron" aria-hidden="true" />
         <span className="t-label">{summary}</span>

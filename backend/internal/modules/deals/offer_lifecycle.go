@@ -67,11 +67,21 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 			return &OfferEmptyError{}
 		}
 
-		rate, rateDate, err := freezeFx(ctx, tx, current.Currency, time.Now().UTC())
+		// Resolved ONCE for the whole send: the frozen rate and the issuer
+		// snapshot must name the same basis, and two reads of the setting in
+		// one transaction are two READ COMMITTED snapshots — a concurrent
+		// change between them would price the offer in one currency and
+		// record it in another. Nothing has frozen a rate at the first send,
+		// so the settings freeze probe does not close that window either.
+		base, err := s.installation.BaseCurrency(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rate, rateDate, err := s.freezeFx(ctx, tx, base, current.Currency, time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("freeze fx at send: %w", err)
 		}
-		buyer, issuer, err := sendSnapshots(ctx, tx, current)
+		buyer, issuer, err := s.sendSnapshots(ctx, tx, base, current)
 		if err != nil {
 			return err
 		}
@@ -120,7 +130,9 @@ func offerSentPayload(current crmcontracts.Offer, rate string) crmcontracts.Publ
 // sendSnapshots captures the buyer and issuer legal blocks at send time:
 // the sent document stays truthful even when the org or workspace is
 // later renamed.
-func sendSnapshots(ctx context.Context, tx pgx.Tx, offer crmcontracts.Offer) (buyer, issuer map[string]any, err error) {
+func (s *Store) sendSnapshots(ctx context.Context, tx pgx.Tx, baseCurrency string,
+	offer crmcontracts.Offer,
+) (buyer, issuer map[string]any, err error) {
 	if offer.BuyerOrgId != nil {
 		var displayName string
 		var legalName *string
@@ -137,13 +149,13 @@ func sendSnapshots(ctx context.Context, tx pgx.Tx, offer crmcontracts.Offer) (bu
 			}
 		}
 	}
-	var wsName, baseCurrency string
-	if err := tx.QueryRow(ctx,
-		`SELECT name, base_currency FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).
-		Scan(&wsName, &baseCurrency); err != nil {
-		return nil, nil, fmt.Errorf("snapshot issuer workspace: %w", err)
+	// The currency is the caller's resolved base, not a second read: the
+	// snapshot must record the basis this offer was actually priced in.
+	name, err := s.installation.Name(ctx, tx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("snapshot issuer name: %w", err)
 	}
-	issuer = map[string]any{"workspace_name": wsName, "base_currency": baseCurrency}
+	issuer = map[string]any{"workspace_name": name, "base_currency": baseCurrency}
 	return buyer, issuer, nil
 }
 
@@ -178,7 +190,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		}
 
 		dealID := ids.From[ids.DealKind](ids.UUID(current.DealId))
-		dealChanged, err := syncDealAmountFromOffer(ctx, tx, dealID, current)
+		dealChanged, err := s.syncDealAmountFromOffer(ctx, tx, dealID, current)
 		if err != nil {
 			return err
 		}
@@ -221,7 +233,9 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 // It returns the deal columns the sync actually wrote, so the caller's paired
 // deal.updated reports the complete delta — on a closed deal that includes the
 // re-frozen fx_rate_to_base/fx_rate_date, not just amount_minor/currency.
-func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.DealID, offer crmcontracts.Offer) (map[string]any, error) {
+func (s *Store) syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx,
+	dealID ids.DealID, offer crmcontracts.Offer,
+) (map[string]any, error) {
 	// The row lock makes the status read and the amount write below one
 	// race-free unit. IncludeArchived preserves the read below, which
 	// follows the deal row regardless of archived state.
@@ -243,8 +257,12 @@ func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.DealID, 
 		}
 		return changed, nil
 	}
+	base, err := s.installation.BaseCurrency(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	// deal_closed_at guarantees closedAt on a non-open row.
-	rate, rateDate, err := freezeFx(ctx, tx, offer.Currency, *closedAt)
+	rate, rateDate, err := s.freezeFx(ctx, tx, base, offer.Currency, *closedAt)
 	if err != nil {
 		return nil, fmt.Errorf("re-freeze fx for closed deal on accept: %w", err)
 	}

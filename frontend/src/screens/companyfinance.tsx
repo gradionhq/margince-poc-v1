@@ -1,14 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
 import { Landmark } from "lucide-react";
-import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { Sparkline } from "../design-system/readings";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemCodeOf, throwProblem } from "./common";
-import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
+import { problemCodeOf, useFinanceSummary } from "./common";
+import {
+  medianDaysLabel,
+  RECORD_ZONE,
+  SectionCard,
+  type SectionState,
+} from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
 //
@@ -25,22 +28,6 @@ import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
 type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 type FinanceState = components["schemas"]["FinanceSummaryState"];
 type FinanceInvoice = components["schemas"]["FinanceInvoice"];
-
-function useFinanceSummary(orgId: string) {
-  return useQuery<FinanceSummary>({
-    queryKey: ["finance-summary", orgId],
-    queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/organizations/{id}/finance-summary",
-        { params: { path: { id: orgId } } },
-      );
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-  });
-}
 
 // Which §7 card state each finance state renders as. The mapping is explicit
 // rather than derived, because two of them are NOT what they look like:
@@ -60,31 +47,56 @@ const CARD_STATE: Record<FinanceState, SectionState> = {
   stale: "stale",
 };
 
+/**
+ * The lifecycles FIN-AC-3 authorises the card's absence for, and ONLY those.
+ *
+ * Named as the allowlist of absence rather than as an allowlist of presence,
+ * because the two fail in opposite directions. A lifecycle this list forgets
+ * gets a card that says "no accounting source connected" — a true statement
+ * and a prompt to connect one. A lifecycle wrongly ON it gets NO card, and a
+ * reader is never told the money is missing.
+ *
+ * `unknown` is the case that made this matter: every imported company carries
+ * it, so an allowlist of presence hid finance from the majority of the book.
+ * `disqualified` is the same shape — an account we stopped selling to may
+ * still owe us money.
+ */
+const NEVER_INVOICED: ReadonlySet<string> = new Set([
+  "target",
+  "prospect",
+  "opportunity",
+]);
+
 export function CompanyFinanceCard({
   orgId,
   lifecycle,
 }: Readonly<{
   orgId: string;
-  // The account's lifecycle. A target or a prospect has never been invoiced,
-  // so the card is ABSENT for them rather than empty (FIN-AC-3) — an empty
-  // finance card on a company we have never billed is a question nobody asked.
+  // The account's lifecycle. A target, a prospect or an opportunity has never
+  // been invoiced, so the card is ABSENT for them rather than empty (FIN-AC-3)
+  // — an empty finance card on a company we have never billed is a question
+  // nobody asked.
   lifecycle?: string;
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const billable = lifecycle === "customer" || lifecycle === "former_customer";
   const query = useFinanceSummary(orgId);
 
-  if (!billable) {
+  if (lifecycle && NEVER_INVOICED.has(lifecycle)) {
     return null;
   }
+  // Resolved ONCE, above the branches. A former customer's money is history in
+  // every state the card can be in, and the `error` state is where the mislabel
+  // would mislead most: it keeps showing the last good figures, so a title
+  // saying "Finance" there puts real money from a finished relationship under a
+  // heading that reads as current.
+  const title =
+    lifecycle === "former_customer"
+      ? t("finance.titleHistorical")
+      : t("finance.title");
   if (query.isPending) {
     return (
-      <SectionCard
-        title={t("finance.title")}
-        state="loading"
-        emptyLabel={t("finance.none")}
-      >
+      <SectionCard title={title} state="loading" emptyLabel={t("finance.none")}>
         {null}
       </SectionCard>
     );
@@ -96,7 +108,7 @@ export function CompanyFinanceCard({
     const withheld = problemCodeOf(query.error) === "permission_denied";
     return (
       <SectionCard
-        title={t("finance.title")}
+        title={title}
         state={withheld ? "withheld" : "failed"}
         emptyLabel={t("finance.none")}
         detail={withheld ? {} : { onRetry: () => void query.refetch() }}
@@ -108,7 +120,7 @@ export function CompanyFinanceCard({
   const summary = query.data;
   return (
     <SectionCard
-      title={t("finance.title")}
+      title={title}
       state={CARD_STATE[summary.state]}
       emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
       detail={{
@@ -208,16 +220,8 @@ function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
     <div className="fin-behaviour">
       <span className="t-caption">{t("finance.behaviour")}</span>
       <Sparkline points={series} label={t("finance.behaviour")} />
-      {/* Negative days mean they pay BEFORE the due date. "-4 days after
-          due" is a puzzle; "typically 4 days early" is the reading. */}
       <span className="t-caption">
-        {summary.median_days_after_due < 0
-          ? t("finance.medianEarly", {
-              days: Math.abs(summary.median_days_after_due),
-            })
-          : t("finance.medianAfterDue", {
-              days: summary.median_days_after_due,
-            })}
+        {medianDaysLabel(summary.median_days_after_due, t)}
       </span>
     </div>
   );
@@ -238,6 +242,7 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
             <th>{t("finance.col.invoice")}</th>
             <th>{t("finance.col.issued")}</th>
             <th>{t("finance.col.due")}</th>
+            <th>{t("finance.col.paid")}</th>
             <th>{t("finance.col.amount")}</th>
             <th>{t("finance.col.status")}</th>
           </tr>
@@ -270,11 +275,33 @@ function InvoiceRow({
       <td>
         {invoice.due_at ? formatDate(invoice.due_at, locale, RECORD_ZONE) : "—"}
       </td>
+      {/* When it was actually settled. A dash is "not yet", which is a
+          different reading from a date — and the one the status beside it
+          explains. */}
+      <td>
+        {invoice.paid_at
+          ? formatDate(invoice.paid_at, locale, RECORD_ZONE)
+          : "—"}
+      </td>
       <td>{formatMoney(invoice.gross_minor, invoice.currency, locale)}</td>
       <td>
         <Badge tone={STATUS_TONE[invoice.status]}>
           {t(STATUS_LABEL[invoice.status])}
-        </Badge>
+        </Badge>{" "}
+        {/* HOW late, beside whether it was. "Paid" and "paid 8 days late" are
+            different facts about a customer, and the second is the one a rep
+            reads a payment history for. Zero and negative say nothing worth a
+            line: on time is what the status already said. */}
+        {invoice.days_late != null && invoice.days_late > 0 && (
+          <span className="t-caption">
+            {t(
+              invoice.status === "paid"
+                ? "finance.paidDaysLate"
+                : "finance.overdueDays",
+              { days: invoice.days_late },
+            )}
+          </span>
+        )}
       </td>
     </tr>
   );

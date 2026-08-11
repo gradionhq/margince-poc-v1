@@ -90,10 +90,20 @@ type CloseDateCorrector struct {
 	// now is the corrector's clock so the fixed-clock invariant test
 	// ("no open deal survives the run with a past date") can pin a day.
 	now func() time.Time
+	// installation answers which zone this sweep computes its dates in. A
+	// close date is a DATE, so the zone decides which day a deal is late on.
+	installation Installation
 }
 
-func NewCloseDateCorrector(pool *pgxpool.Pool, stager CorrectionStager, log *slog.Logger) *CloseDateCorrector {
-	return &CloseDateCorrector{pool: pool, stager: stager, log: log, now: time.Now}
+// NewCloseDateCorrector assembles the sweep over the pool it reads through,
+// the stager it raises corrections into, and the seam that answers which zone
+// its dates are computed in.
+func NewCloseDateCorrector(pool *pgxpool.Pool, stager CorrectionStager, log *slog.Logger,
+	inst Installation,
+) *CloseDateCorrector {
+	return &CloseDateCorrector{
+		pool: pool, stager: stager, log: log, now: time.Now, installation: inst.orRefusing(),
+	}
 }
 
 // SweepWorkspace is one close-date hygiene pass over the workspace already
@@ -125,9 +135,9 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 	var candidates []closeDateCandidate
 	now := c.now().UTC()
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT timezone FROM workspace WHERE id = $1`,
-			storekit.MustWorkspace(ctx)).Scan(&tzName); err != nil {
-			return fmt.Errorf("read workspace timezone: %w", err)
+		var err error
+		if tzName, err = c.installation.Timezone(ctx, tx); err != nil {
+			return fmt.Errorf("read the installation's timezone: %w", err)
 		}
 		// The pre-filter is a deliberate superset of the §11 flags — a
 		// date inside the widest (stalled) window, missing, or still
@@ -167,7 +177,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
-		return fmt.Errorf("workspace timezone %q: %w", tzName, err)
+		return fmt.Errorf("the installation's timezone %q: %w", tzName, err)
 	}
 
 	velocities := map[ids.PipelineID]float64{}

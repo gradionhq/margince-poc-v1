@@ -3,9 +3,10 @@
 
 package compose
 
-// The resource surface, composed. Two things publish documents now — the query
-// vocabulary a module derives per caller, and the interactive views the tool
-// surface serves — and the transport takes ONE provider.
+// The resource surface, composed. Three things publish documents now — the
+// query vocabulary a module derives per caller, the write vocabulary the agents
+// module renders from the contract, and the interactive views the tool surface
+// serves — and the transport takes ONE provider.
 //
 // This is the same composite shape the record surface already uses for
 // datasource.SystemOfRecordProvider, and it is here for the same reason:
@@ -17,19 +18,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
-
-// appViews is the interactive-view provider, assembled once for the process.
-//
-// A package-level value rather than a Server field, because that is what it is:
-// the documents are embedded in this binary and identical for every process,
-// server and caller, so there is nothing per-Server to hold. Assembling it here
-// also means a build with a renamed asset fails on the first construction rather
-// than on the first host that tries to render.
-var appViews = apps.MustProvider()
 
 // mcpResourceProviders is the list of document providers a hosted request
 // reaches, in composition order.
@@ -42,8 +35,19 @@ var appViews = apps.MustProvider()
 //
 // The vocabulary comes FIRST, so a collision resolves to it — see composeResources
 // for why the order is stated rather than incidental.
-func mcpResourceProviders(vocabulary mcp.ResourceProvider) []mcp.ResourceProvider {
-	return []mcp.ResourceProvider{vocabulary, appViews}
+func mcpResourceProviders(vocabulary mcp.ResourceProvider, views *apps.Provider) []mcp.ResourceProvider {
+	// The write vocabulary is unconditional where the query vocabulary is not:
+	// it is composed from the contract alone, so it has no pool to be missing
+	// and no deployment that can lack it. A record type this build can write is
+	// a record type this document can describe.
+	providers := []mcp.ResourceProvider{vocabulary, agents.RecordFieldsResource{}}
+	// views is nil for a role that composes none — a worker, or an api whose
+	// connector gate is off. composeResources drops it, which is the same
+	// conditional wiring every other injected capability takes.
+	if views == nil {
+		return providers
+	}
+	return append(providers, views)
 }
 
 // resourceFanout serves the documents of several providers as one catalogue.

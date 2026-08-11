@@ -15,6 +15,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
+    "resolveJsonModule": true,
     "baseUrl": ".",
     // This project is what typechecks vite.config.ts AND the test tree (the
     // app project excludes *.test.*), so it needs the composition alias too —
@@ -28,7 +29,7 @@
       "@composition/copy": ["./src/composition/extlocales.gen"]
     }
   },
-  "include": ["vite.config.ts", "src"],
+  "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"],
   // src/screens/ext/ is the COMPOSED lane's program — its screens call routes
   // that are in `paths` only under the merged contract — so it cannot be typed
   // here any more than it can in the app project, and `@composition/screens`

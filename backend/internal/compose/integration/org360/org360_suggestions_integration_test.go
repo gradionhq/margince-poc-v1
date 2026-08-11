@@ -274,6 +274,7 @@ func TestSuggestionsSurviveWithoutTheActivityGrant(t *testing.T) {
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
 			"organization": {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})
@@ -308,7 +309,7 @@ func TestSuggestionsAreOmittedWhenNeitherInputReachesTheCaller(t *testing.T) {
 	// Organization read only: neither the timeline nor the pipeline.
 	reader := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
-		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}, "installation_settings": {Read: true}},
 		RowScope: principal.RowScopeTeam,
 	})
 	view, err := svc.Assemble(reader, org)

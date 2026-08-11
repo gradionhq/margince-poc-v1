@@ -339,6 +339,7 @@ export const vi = {
   "list.sortScore": "Điểm",
   "list.viewAll": "Tất cả",
   "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Điểm cao nhất",
   "list.viewHot": "Tiềm năng cao",
   "list.overlayReadOnly": "Sắp xếp và bộ lọc đọc qua HubSpot — hãy mở bên đó",
   "table.range": "{first}–{last} trong {count} {unit}",
@@ -580,10 +581,23 @@ export const vi = {
   "co.chip.linkedin": "LinkedIn",
   "co.chip.employees": "{band} nhân viên",
   "co.chip.rowLabel": "Thông tin công ty",
+  "co.strip.netInvoicedLifetime": "Đã xuất hóa đơn ròng · trọn đời",
   "co.strip.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
   "co.strip.openInvoices": "Hóa đơn chưa thanh toán",
+  "co.strip.overdue": "Quá hạn",
+  "co.strip.paidAfterDue": "Trung vị sau hạn",
   "co.strip.financeUnknown": "—",
-  "co.strip.connectFinance": "Kết nối nguồn tài chính",
+  "co.strip.fin.noConnection": "Kết nối phần mềm kế toán",
+  "co.strip.fin.unmapped": "Chưa khớp với khách hàng nào",
+  "co.strip.fin.syncing": "Đang đồng bộ…",
+  "co.strip.fin.withheld": "Bạn không có quyền xem tài chính của tài khoản này",
+  "co.strip.fin.staleFigure": "Đồng bộ lần cuối đã lâu — hãy kiểm tra ngày",
+  "co.strip.fin.errorFigure":
+    "Đồng bộ gần nhất thất bại — có thể không còn đúng",
+  "co.strip.fin.nothingBilled": "Chưa xuất hóa đơn nào",
+  "co.strip.fin.tooFewSettled": "Quá ít hóa đơn đã thanh toán để kết luận",
+  "co.strip.fin.error": "Không đọc được",
+  "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",
   "co.strip.pricedPartly": "{priced}/{total} thương vụ có giá trị",
   "co.strip.expectedClose": "Dự kiến chốt",
@@ -621,6 +635,7 @@ export const vi = {
   "timeline.group.mayContinue": "có thể còn tiếp phía trước",
   "tab.people": "Người",
   "tab.timeline": "Lịch sử",
+  "tab.documents": "Tài liệu",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "Họ là ai",
@@ -632,6 +647,17 @@ export const vi = {
   "co.brief.nature.assessment": "Nhận định",
   "co.brief.nature.recommendation": "Gợi ý",
   "co.health.title": "Tình hình ra sao",
+  "co.health.dim.relationship": "Quan hệ",
+  "co.health.dim.commercial": "Thương mại",
+  "co.health.dim.payment": "Thanh toán",
+  "co.health.overall": "Tổng thể",
+  "co.health.ratedOf": "từ {rated} trên 3",
+  "co.health.rating.atRisk": "Có rủi ro",
+  "co.health.rating.good": "Tốt",
+  "co.health.rating.strong": "Mạnh",
+  "co.health.payment.overdue": "Hiện có khoản quá hạn.",
+  "co.health.payment.late": "Thường thanh toán trễ {days} ngày.",
+  "co.health.payment.onTime": "Thanh toán đúng hạn.",
   "co.health.sinceInbound": "Họ viết lần cuối cách đây {days} ngày",
   "co.health.replyBalance": "{percent}% lượt trao đổi đến từ họ",
   "co.health.activeContacts": "{count} người ở đây đã từng tương tác",
@@ -676,6 +702,8 @@ export const vi = {
   "co.routeIn.band.unknown": "có ghi nhận liên hệ, chưa rõ nhịp",
   "record.profile": "Hồ sơ",
   "record.business": "Kinh doanh",
+  "record.context": "Bối cảnh",
+  "record.accountContext": "Bối cảnh tài khoản",
   "co.pulse.strongestLead": "Đường tiếp cận",
   "co.pulse.strengthTail.one": "— contact duy nhất ở đây",
   "co.pulse.strengthTail.other": "— trong {count} contact ở đây",
@@ -699,6 +727,7 @@ export const vi = {
   "evidence.fullHistory": "Lịch sử đầy đủ",
   "co.section.unavailable": "Không tải được — đây có thể chưa phải toàn cảnh",
   "finance.title": "Tài chính",
+  "finance.titleHistorical": "Tài chính · lịch sử",
   "finance.none": "Chưa ghi nhận gì.",
   "finance.noConnection":
     "Chưa kết nối nguồn tài chính — hãy kết nối để thấy khách hàng này đã được xuất hóa đơn bao nhiêu và có trả đúng hạn không",
@@ -713,6 +742,9 @@ export const vi = {
   "finance.col.invoice": "Hóa đơn",
   "finance.col.issued": "Ngày xuất",
   "finance.col.due": "Hạn",
+  "finance.col.paid": "Đã trả",
+  "finance.paidDaysLate": "trễ {days} ngày",
+  "finance.overdueDays": "quá hạn {days} ngày",
   "finance.col.amount": "Số tiền",
   "finance.col.status": "Trạng thái",
   "finance.unnumbered": "Không số",
@@ -784,6 +816,10 @@ export const vi = {
   "co.growthFit.reassess": "Đánh giá lại",
   "co.growthFit.reassessing": "Đang đánh giá…",
   "co.growthFit.band.strong": "Rất phù hợp",
+  "co.growthFit.dim.industryFit": "Phù hợp ngành",
+  "co.growthFit.dim.companySize": "Quy mô công ty",
+  "co.growthFit.dim.transformationNeed": "Nhu cầu chuyển đổi",
+  "co.growthFit.dim.access": "Khả năng tiếp cận",
   "co.growthFit.band.moderate": "Phù hợp vừa",
   "co.growthFit.band.weak": "Ít phù hợp",
   "co.growthFit.band.unknown": "Chưa đủ để kết luận",
@@ -1073,6 +1109,8 @@ export const vi = {
   "co.tags.pick": "Tên tag",
   "co.lists.add": "Thêm vào danh sách",
   "co.lists.pick": "Tên danh sách",
+  "co.recent.title": "Hoạt động gần đây",
+  "co.recent.empty": "Chưa ghi nhận trao đổi nào.",
   "co.tags.title": "Danh sách & tag",
   "co.tags.empty": "Không thuộc danh sách nào và chưa gắn tag nào.",
   "co.timeline.filterKind": "Lọc theo loại",
@@ -1437,6 +1475,7 @@ export const vi = {
   "today.meeting.prepare": "Chuẩn bị cuộc họp",
   "today.source.people": "các liên hệ",
   "today.source.signals": "các tín hiệu",
+  "today.source.activities": "những gì đã trao đổi",
   "today.commitment.overdueAtLeast": "{count}+ quá hạn",
   "today.commitment.openAtLeast": "{count}+ đang mở",
   "today.route.ofThoseShown": "trong số liên hệ đang hiển thị",
@@ -1446,6 +1485,7 @@ export const vi = {
   "today.tile.commitment": "Cam kết kế tiếp",
   "today.tile.meeting": "Cuộc họp kế tiếp",
   "today.tile.route": "Đường tiếp cận tốt nhất",
+  "today.tile.lastInteraction": "Trao đổi gần nhất",
   "today.tile.opportunity": "Cơ hội đang chạy",
   "today.tile.risk": "Rủi ro",
   "today.commitment.overdueCount": "{count} quá hạn",
@@ -1459,8 +1499,6 @@ export const vi = {
   "today.deal.count": "{count} deal đang mở",
   "today.deal.mixedCurrency": "Khác đơn vị tiền tệ — xem ở pipeline",
   "today.draft.to": "Soạn thư theo dõi gửi {name}",
-  "today.draft.notYet":
-    "Chưa soạn thư được từ trang tài khoản — hãy dùng Viết email",
   "evidence.confirm": "Xác nhận",
   "evidence.correct": "Sửa",
   "evidence.save": "Lưu",
@@ -1802,7 +1840,7 @@ export const vi = {
   "ob.readTrustBody": "Tôi không lưu gì cho đến khi bạn xác nhận.",
   "ob.coreIntroTitle": "Trước tiên, tôi cần biết pháp nhân của bạn.",
   "ob.coreIntroBody":
-    "Tôi cần danh tính pháp lý, địa chỉ và mã số thuế hoặc số đăng ký. Sau đó tôi sẽ tìm hiểu bạn bán gì, phục vụ ai và giành khách hàng bằng cách nào.",
+    "Tôi cần tên pháp lý, địa chỉ và mã số thuế. Sau đó tôi tìm hiểu bạn bán gì cho ai.",
   "ob.coreLegalKicker": "Tôi bắt đầu từ danh tính pháp lý",
   "ob.corePathLabel": "Những gì tôi sẽ tìm hiểu",
   "ob.corePathLegal": "Danh tính pháp lý",
@@ -1811,24 +1849,24 @@ export const vi = {
   "ob.coreReadingPage": "Tôi đang đọc",
   "ob.coreWebsiteTitle": "Tôi nên đọc website nào?",
   "ob.coreWebsiteBody":
-    "Tôi sẽ tìm phần thông tin pháp lý trước, rồi đọc sản phẩm, khách hàng lý tưởng, định vị và cách bán hàng của bạn.",
+    "Tôi đọc phần thông tin pháp lý trước, rồi đến sản phẩm, khách hàng và định vị.",
   "ob.corePreparing": "Tôi đang chuẩn bị đọc {host}",
   "ob.coreLegalReading": "Tôi đang đọc danh tính pháp lý trên {host}",
   "ob.coreLegalReadingBody":
-    "Tôi đang tìm phần thông tin pháp lý, pháp nhân đã đăng ký, địa chỉ và số đăng ký hoặc mã số thuế/UID. Điều gì không được nêu thì tôi để trống.",
+    "Tôi tìm thông tin pháp lý, địa chỉ và mã số thuế. Gì không nêu thì để trống.",
   "ob.coreBusinessReading": "Tôi đang tìm hiểu cách công ty vận hành",
   "ob.coreBusinessReadingBody":
     "Tôi đang nối sản phẩm, khách hàng và định vị với đúng đoạn văn bản công khai chứng minh cho chúng.",
   "ob.coreReady": "Tôi tìm được {count} chi tiết công ty có dẫn nguồn",
   "ob.corePartial": "Tôi tìm được {count} chi tiết hữu ích, còn vài chỗ trống",
   "ob.coreReadyBody":
-    "Tôi chưa lưu gì cả. Hãy rà soát danh tính pháp lý trước, rồi đến sản phẩm dịch vụ và khách hàng lý tưởng.",
+    "Tôi chưa lưu gì. Hãy rà soát danh tính pháp lý trước, rồi đến sản phẩm dịch vụ.",
   "ob.coreDeferredBody": "Tôi sẽ tự động đọc tiếp.",
   "ob.coreFailedBody":
-    "Tôi không truy cập hay dẫn nguồn được website này một cách chắc chắn, nên tôi dừng lại thay vì đoán. Bạn có thể tự cho tôi biết những thông tin đó.",
+    "Tôi không đọc chắc được website này nên dừng thay vì đoán. Bạn tự cho tôi biết nhé.",
   "ob.coreFindingsTitle": "Những gì tôi tìm được và chứng minh được",
   "ob.coreFindingsBody":
-    "Đằng sau mỗi giá trị, tôi đính kèm đoạn văn bản công khai tương ứng. Chi tiết pháp lý nào tôi không xác minh được thì tôi để trống.",
+    "Mỗi giá trị đều kèm đoạn văn bản công khai. Gì không xác minh được thì để trống.",
   "ob.ai.identity": "Chào bạn, tôi là Margince",
   "ob.ai.role": "AI tìm hiểu công ty của bạn",
   "ob.ai.speaker": "M",
@@ -1914,7 +1952,7 @@ export const vi = {
   "ob.coverageDetails": "Những gì tôi đã đọc và không đọc được",
   "ob.legalFoundTitle": "Pháp nhân tôi tìm được",
   "ob.legalFoundBody":
-    "Tôi giữ nguyên từng khối pháp lý: tên đã đăng ký, địa chỉ và số đăng ký hoặc mã số thuế/UID. Nếu website nêu nhiều pháp nhân, bạn sẽ chọn pháp nhân của mình ở phần rà soát.",
+    "Mỗi khối giữ tên đăng ký, địa chỉ và mã số thuế. Bạn chọn pháp nhân của mình khi rà soát.",
   "ob.legalEntity": "Pháp nhân",
   "ob.confirmWebsite":
     "Tôi dẫn nguồn phần này từ {count} trang công khai. Bạn sửa được mọi thứ; giá trị nào không đụng tới thì vẫn giữ bằng chứng.",
@@ -1929,7 +1967,7 @@ export const vi = {
     "Hãy bỏ chọn những gì không nên trở thành thông tin công ty — chọn được tối đa 100 dữ kiện.",
   "ob.nowUnderstands": "Giờ tôi đã hiểu",
   "ob.contextReady":
-    "Giờ tôi dùng được thông tin này cho bản nháp liên quan, tìm kiếm, Agent và Voice DNA — luôn kèm nguồn gốc.",
+    "Tôi dùng được ngữ cảnh này cho bản nháp, tìm kiếm, Agent và Voice DNA, luôn kèm nguồn.",
 
   "ob.s1.kick": "Bước 2 / 5 · xác nhận",
   "ob.s1.title": "Rà soát những gì tôi tìm hiểu được về công ty bạn",
@@ -2033,26 +2071,25 @@ export const vi = {
   "ob.field.industry": "Ngành",
   "ob.field.history": "Lịch sử công ty",
 
-  "ob.s3.kick": "Bước 3 / 4",
   "ob.s3.title": "Hãy xem bạn đã dựng được gì —",
   "ob.s3.titleEm": "mà chưa kết nối gì cả.",
   "ob.s3.sub":
-    "Tổ chức của bạn đã biết công việc kinh doanh và giọng văn của bạn. Bước tiếp theo là kết nối hộp thư; CRM sẽ tự đầy lên bằng người, công ty và deal thật của bạn.",
+    "Tổ chức của bạn đã biết công việc và giọng văn. Kết nối hộp thư, nó sẽ tự đầy lên.",
   "ob.s3.subNoVoice":
-    "Tổ chức của bạn đã biết công việc kinh doanh của bạn. Bước tiếp theo là kết nối hộp thư; CRM sẽ tự đầy lên bằng người, công ty và deal thật của bạn.",
+    "Tổ chức của bạn đã biết công việc kinh doanh. Kết nối hộp thư, nó sẽ tự đầy lên.",
   "ob.s3.cardProfile": "Hồ sơ kinh doanh",
   "ob.s3.cardProfileBody":
-    "Đã xác nhận và lưu vào trang công ty của bạn. Trường nào đọc từ website thì giữ nguyên nguồn; phần còn lại là lời của chính bạn.",
+    "Đã xác nhận và lưu vào trang công ty. Trường đọc từ website vẫn giữ nguồn.",
   "ob.s3.cardProfileSkippedBody":
-    "Đã đọc từ website nhưng chưa lưu — bạn đã bỏ qua bước xác nhận. Hãy quay lại xác nhận để đưa lên trang công ty.",
+    "Đã đọc từ website nhưng chưa lưu: bạn bỏ qua bước xác nhận. Quay lại xác nhận nhé.",
   "ob.s3.cardVoice": "Giọng văn của bạn",
   "ob.s3.cardVoiceBody":
     "Dựng từ kho văn bản bạn vừa đưa. Ngay từ đầu, bản nháp đã nghe ra giọng bạn.",
   "ob.s3.cardVoiceSkippedBody":
-    "Bạn đã bỏ qua bước giọng văn — bản nháp dùng giọng khởi đầu trung tính cho đến khi bạn dựng giọng của mình. Hai phút, lúc nào cũng được, trong Cài đặt.",
+    "Bạn đã bỏ qua bước này, nên bản nháp dùng giọng trung tính. Dựng giọng trong Cài đặt.",
   "ob.s3.cardPipeline": "Pipeline bán hàng",
   "ob.s3.cardPipelineBody":
-    "Mẫu B2B chuẩn 7 giai đoạn, chỉnh sẵn theo ngành của bạn. Trống cho đến khi bạn kết nối — rồi deal sẽ hiện lên từ email của bạn.",
+    "Mẫu B2B chuẩn 7 giai đoạn, chỉnh theo ngành của bạn. Trống cho đến khi bạn kết nối.",
   "ob.s3.cardDraft": "Một bản nháp mẫu, viết bằng giọng của bạn",
   "ob.s3.cardDraftExample": "Một bản nháp mẫu",
   "ob.s3.cardDraftBody": "Xem ngay bên dưới.",
@@ -2062,7 +2099,7 @@ export const vi = {
     "Tiêu đề: Một câu hỏi nhanh về dây chuyền lắp ráp của bạn\n\nChào {{name}} — tôi thấy {company} đang lắp ráp rời ở quy mô lớn. Bên tôi giúp những đội như bên bạn đưa một cell robot vào chạy trong 6 tuần mà không phải bỏ hệ PLC hiện có. Dành 15 phút xem thử nhé? Thân, Lars",
   "ob.s3.originLabel": "Pipeline này từ đâu ra",
   "ob.s3.originBody":
-    "Không có phép màu — đây là mẫu giai đoạn B2B chuẩn, chỉnh theo ngành của bạn từ lần đọc ở bước 1. Hiện pipeline này đang trống. Khi bạn kết nối hộp thư, phần thu thập sẽ đọc email đã gửi và các cuộc họp, rồi đề xuất deal vào những giai đoạn này — mỗi đề xuất đều có bằng chứng và đảo ngược được. Bạn duyệt xem cái nào thành deal.",
+    "Mẫu giai đoạn B2B chuẩn, chỉnh theo ngành từ lần đọc. Trống cho đến khi bạn kết nối. Bạn duyệt cái nào thành deal.",
   "ob.s3.stillNothing":
     "Vẫn chưa kết nối gì. Bạn quyết định khi nào điều đó thay đổi.",
 
@@ -2088,9 +2125,9 @@ export const vi = {
   "ob.s4.googleBtn": "Cho phép truy cập Gmail của tôi",
   "ob.s4.soon": "Sắp có",
   "ob.s4.googleHint":
-    "Chỉ đọc. Bạn sẽ duyệt ngay trên màn hình chấp thuận của Google, và ngắt kết nối lúc nào cũng được.",
+    "Đọc thư của bạn và chỉ gửi những gì bạn duyệt. Bạn cấp quyền trên màn hình của Google và ngắt kết nối lúc nào cũng được.",
   "ob.s4.googleUnverified":
-    "Nếu Google báo “ứng dụng chưa xác minh”, hãy chọn Nâng cao → Tiếp tục. Margince chỉ đọc email của bạn — không bao giờ gửi.",
+    "Nếu Google báo “ứng dụng chưa xác minh”, chọn Nâng cao → Tiếp tục. Không gì được gửi nếu bạn chưa duyệt.",
   "ob.s4.googleOkTitle": "Đã kết nối Gmail",
   "ob.s4.googleOkBody":
     "Việc thu thập đang chạy nền — email mới lên timeline trong khoảng một phút, và từ giờ tự giữ đồng bộ.",
@@ -2303,9 +2340,10 @@ export const vi = {
   "ob.s4.imapMailbox": "Hộp thư",
   "ob.s4.imapMax": "Lấy bao nhiêu email gần đây",
   "ob.s4.imapHint":
-    "Hãy dùng mật khẩu riêng cho ứng dụng (Gmail: Tài khoản → Bảo mật → Mật khẩu ứng dụng). Chúng tôi niêm phong mật khẩu vào kho khoá và tiếp tục đọc email mới cho đến khi bạn ngắt kết nối — ngắt kết nối là xoá luôn.",
+    "Hãy dùng mật khẩu ứng dụng. Chúng tôi lưu nó đã mã hoá, và ngắt kết nối là xoá luôn.",
   "ob.s4.imapConnect": "Kiểm tra và kết nối",
   "ob.s4.connecting": "Đang kết nối an toàn…",
+  "ob.s4.accessToggle": "Quyền truy cập này cho phép gì",
   "ob.s4.scope1Lead": "Chúng tôi chỉ đọc — không làm rối hộp thư.",
   "ob.s4.scope1Rest":
     "Email của bạn thành contact, công ty và hoạt động, được thu thập tự động.",
@@ -2318,14 +2356,14 @@ export const vi = {
   "ob.s4.scope4Rest": "CRM vẫn chạy bình thường, chỉ dừng thu thập.",
   "ob.s4.capturedTitle": "Đã kết nối hộp thư",
   "ob.s4.capturedBody":
-    "Bạn cứ thong thả — CRM đang tự dựng. Email mới sẽ liên tục hiện ở đây trong lượt quét đầu tiên, thường chỉ vài phút.",
+    "CRM đang tự dựng. Email mới hiện ở đây khi lượt quét đầu chạy, thường trong vài phút.",
   "ob.s4.enterCrm": "Vào CRM của bạn",
   "ob.s4.connectFailed": "Không kết nối được hộp thư đó",
   "ob.s4.notNow": "Để sau",
 
   "ob.conv.threadLabel": "Cuộc trò chuyện onboarding",
   "ob.conv.welcome":
-    "Chào bạn, tôi là Margince. Tôi thiết lập CRM cho bạn bằng cách đọc những gì vốn đã đúng về công việc kinh doanh của bạn, và mọi thứ tôi giữ lại đều kèm nguồn.",
+    "Chào bạn, tôi là Margince. Tôi dựng CRM từ những gì đã có, và luôn kèm nguồn.",
   "ob.conv.welcomeMember":
     "Chào bạn, tôi là Margince. Đội của bạn đã được thiết lập sẵn. Hai bước ngắn nữa là bạn vào được.",
   "ob.conv.read.started": "Đang đọc {host}. Tìm được gì tôi sẽ báo bạn.",
@@ -2364,7 +2402,7 @@ export const vi = {
   "ob.conv.voice.continueDeferredStatus":
     "Ở đây không cần làm gì — cứ đi tiếp, phần còn lại sẽ tự xong.",
   "ob.conv.voice.collectAsk":
-    "Hãy gửi tôi những gì bạn từng viết. Bản ghi cuộc gọi là tốt nhất: .vtt, .srt, .json, hoặc văn bản có nhãn người nói. Tài liệu thường cũng được.",
+    "Gửi tôi những gì bạn viết. Bản ghi cuộc gọi là tốt nhất, tài liệu thường cũng được.",
   "ob.conv.voice.composer": "Dán đoạn văn bản bạn viết vào đây",
   "ob.conv.voice.dropHint":
     "Bạn cũng có thể thả tệp vào bất cứ đâu trong cuộc trò chuyện này.",
@@ -2373,11 +2411,11 @@ export const vi = {
   "ob.conv.voice.fileEmpty":
     "Trong {name} không có chữ nào, nên không tính được gì.",
   "ob.conv.voice.reactionTranscript":
-    "Số từ giữ lại: {kept} / {total}. Chỉ những lượt nói của bạn mới tính, và chính văn phong nói làm giọng văn của bạn sắc nét hơn.",
+    "Giữ lại {kept}/{total} từ. Chỉ lượt nói của bạn được tính, và văn nói sắc nét nhất.",
   "ob.conv.voice.reactionDocument":
     "Số từ đã tính: {words}. Ở đây từ nào cũng là của bạn, nên tính hết.",
   "ob.conv.voice.refusalUnattributed":
-    "Cái này trông như một cuộc trò chuyện, nhưng tôi không phân biệt được lời nào là của bạn. Tôi không tính gì cả, vì tôi chỉ tính những từ chứng minh được là của bạn.",
+    "Trông như một cuộc trò chuyện, nhưng tôi không rõ lời nào của bạn, nên chưa tính gì.",
   "ob.conv.voice.refusalSpeaker":
     "Tôi không tìm thấy người nói đó trong bản ghi. Không có gì được tính.",
   "ob.conv.voice.refusalUnsupported":
@@ -2391,7 +2429,7 @@ export const vi = {
   "ob.conv.voice.buildFloor":
     "Số từ của chính bạn đến giờ: {words}. Tôi cần ít nhất {min} từ mới dựng được.",
   "ob.conv.voice.buildNudge":
-    "Tôi đã đủ để dựng. Thêm tư liệu vẫn tốt hơn: từ 4.000 từ trở lên sẽ làm giọng văn của bạn sắc nét hơn hẳn.",
+    "Tôi đã đủ để dựng. Từ 4.000 từ trở lên, giọng văn của bạn sẽ sắc nét hơn hẳn.",
   "ob.conv.voice.buildChip": "Dựng hồ sơ giọng văn của tôi",
   "ob.conv.voice.retryBuild": "Dựng lại lần nữa",
   "ob.conv.voice.buildPollFailed":
@@ -2496,12 +2534,12 @@ export const vi = {
   "ob.conv.scene.step": "Bước {n} / {m} · {label}",
   "ob.conv.scene.detour": "Rẽ ngang một chút",
   "ob.conv.scene.decisionSub":
-    "Website của bạn nêu nhiều hơn một pháp nhân, và tôi sẽ không đoán pháp nhân nào ký hợp đồng: lựa chọn đó quyết định những gì in trên mọi báo giá và hoá đơn.",
+    "Website của bạn nêu nhiều pháp nhân. Pháp nhân bạn chọn sẽ in trên mọi hoá đơn.",
   "ob.conv.scene.continue": "Tiếp tục",
   "ob.conv.scene.candidates": "{count} phương án",
   "ob.conv.connect.sceneTitle": "Kết nối các tài khoản của bạn.",
   "ob.conv.connect.sceneSub":
-    "Tôi dựng contact, công ty và lịch sử của bạn từ những gì vốn đã có trong hộp thư. Không phải nhập tay, không cần mẫu CSV.",
+    "Tôi dựng contact, công ty và lịch sử từ những gì đã có trong hộp thư.",
   "ob.conv.connect.mailboxTitle": "Hộp thư của bạn",
   "ob.conv.connect.mailboxHint":
     "Hãy chọn một. Contact, công ty và lịch sử của bạn đều đến từ đây.",
@@ -2522,7 +2560,7 @@ export const vi = {
   "ob.conv.connect.connectedCta": "đã kết nối",
   "ob.conv.connect.blockedCard":
     "Bạn đã chọn một hộp thư rồi. Hãy ngắt kết nối trong Cài đặt nếu muốn đổi.",
-  "ob.conv.connect.guaranteesHeading": "Kết nối thì thực sự làm gì",
+  "ob.conv.connect.guaranteesToggle": "Kết nối thì thực sự làm gì",
   "ob.conv.connect.railPromise":
     "Chúng tôi chỉ đọc, và không gửi gì nếu bạn chưa duyệt.",
   "ob.conv.connect.dialogHeadlineAccess": "Cần quyền truy cập {name}",
@@ -2538,10 +2576,10 @@ export const vi = {
     "Có trục trặc khi tải trạng thái kết nối của bạn. Hãy thử lại trước khi chọn nhà cung cấp.",
   "ob.conv.voice.sceneTitle": "Dạy tôi cách bạn viết.",
   "ob.conv.voice.sceneSub":
-    "Mọi email, thư trả lời và thư theo dõi mà CRM này soạn đều đi ra bằng chính lời của bạn, không phải văn mẫu, và không gì được gửi cho đến khi bạn duyệt.",
-  "ob.conv.voice.heroKicker": "Vì sao bước này quan trọng",
+    "CRM này soạn mọi email bằng lời của bạn, và không gửi gì cho đến khi bạn duyệt.",
   "ob.conv.voice.heroBody":
-    "Margince học giọng điệu, nhịp và cách dùng từ từ chính bài viết của bạn, và chỉ huấn luyện trên văn bản của bạn — không lấy của ai khác.",
+    "Margince học giọng, nhịp và cách dùng từ từ chính bài bạn viết, không của ai khác.",
+  "ob.conv.voice.whyToggle": "Vì sao điều này quan trọng",
   "ob.conv.voice.dropTitle": "Thả bài viết của bạn vào đây",
   "ob.conv.voice.dropSub":
     "Email đã gửi là hợp nhất, vì đó là lúc bạn viết khi đang muốn một điều gì đó.",
@@ -2561,7 +2599,7 @@ export const vi = {
   "ob.conv.voice.resultSub":
     "Hãy đọc mẫu trước. Thấy đúng thì xác nhận. Thấy lệch thì thêm nguồn và tôi dựng lại.",
   "ob.conv.voice.resultSubNoSample":
-    "Kho văn bản của bạn còn quá nhỏ để để riêng ra một bản nháp mẫu. Đây là những gì lần dựng học được về cách bạn viết — hãy thêm nguồn để có mẫu.",
+    "Kho văn bản còn nhỏ nên chưa có bản nháp mẫu. Đây là điều lần dựng học được. Hãy thêm nguồn.",
   "ob.conv.voice.resultContinue": "Đúng giọng của tôi",
   "ob.conv.voice.sampleEyebrow": "Chỉ là mẫu, chưa gửi",
   "ob.conv.voice.sampleAnother": "Tình huống khác",
@@ -2607,13 +2645,13 @@ export const vi = {
   "ob.conv.review.confirmFailed":
     "Tôi chưa lưu được: {detail} Hãy sửa rồi chấp nhận lại.",
   "ob.conv.review.confirmVersionSkew":
-    "Phần rà soát của bạn vừa được cập nhật thông tin mới hơn từ lượt đọc. Hãy xem qua, rồi bấm Tiếp tục lần nữa.",
+    "Phần rà soát vừa nhận thông tin mới hơn. Hãy xem qua rồi bấm Tiếp tục lần nữa.",
   "ob.conv.review.confirmVersionSkewStuck":
-    "Tôi đã kiểm tra lại, nhưng chưa có gì đổi. Bấm Tiếp tục lúc này cũng sẽ hỏng y như vậy, nên hãy xem lại một lượt hoặc kiểm tra lại sau giây lát.",
+    "Chưa có gì đổi, nên bấm Tiếp tục vẫn hỏng. Hãy xem lại hoặc thử lại sau giây lát.",
   "ob.conv.review.confirmNotReady":
-    "Lượt đọc này chưa sẵn sàng để xác nhận. Hãy chờ đọc xong, hoặc bắt đầu một lượt mới.",
+    "Lượt đọc này chưa có bản nháp để xác nhận. Hãy chờ đọc xong hoặc bắt đầu lượt mới.",
   "ob.conv.review.confirmCheckFailed":
-    "Lượt đọc này đã được xác nhận rồi, nhưng tôi không tải được công ty đã tạo từ đó. Hãy kiểm tra lại sau giây lát.",
+    "Lượt đọc đã được xác nhận, nhưng tôi không tải được công ty đó. Thử lại sau.",
   "ob.conv.artifact.empty":
     "Chưa đọc được gì. Hãy đưa tôi một website và khung này sẽ đầy lên bằng các phát hiện có dẫn nguồn.",
   "ob.conv.results.continue": "Tiếp tục",
@@ -2639,7 +2677,7 @@ export const vi = {
   "ob.conv.recap.corpus":
     "Kho văn bản của bạn đã có {words} từ do chính bạn viết.",
   "ob.conv.recap.readTerminal":
-    "Chào bạn quay lại. Tôi đã đọc xong {host}: {count} phát hiện kèm nguồn. Phần rà soát của bạn đã sẵn sàng bên dưới.",
+    "Chào bạn quay lại. Tôi đã đọc xong {host}: {count} phát hiện kèm nguồn, ở bên dưới.",
   "ob.conv.recap.readReading":
     "Chào bạn quay lại. Tôi vẫn đang đọc {host}. Số trang đến giờ: {pages}.",
   "ob.conv.recap.readFailed":
@@ -2651,6 +2689,7 @@ export const vi = {
   "ob.conv.connect.skip": "Tạm bỏ qua việc kết nối",
   "ob.conv.linkedin.cardBody":
     "Biến mạng lưới quan hệ của bạn thành tài khoản và contact, và báo khi một người quen đổi việc.",
+  "ob.conv.linkedin.limitsToggle": "Margince thấy được gì và không thấy gì",
   "ob.conv.linkedin.scope1Lead": "Danh sách kết nối của bạn —",
   "ob.conv.linkedin.scope1Rest": "tên, chức danh, công ty và ngày bạn kết nối.",
   "ob.conv.linkedin.scope2Lead": "Không gì khác.",
@@ -2663,14 +2702,14 @@ export const vi = {
   "ob.conv.linkedin.scope4Rest":
     "Việc kết nối không gửi lời mời hay tin nhắn nào, không bao giờ.",
   "ob.conv.linkedin.neverContacts":
-    "Các kết nối của bạn KHÔNG trở thành contact — chúng chỉ tồn tại để trả lời một câu hỏi: ở đây đã có ai quen người nào tại công ty này chưa?",
+    "Kết nối của bạn không thành contact. Chúng chỉ trả lời: ai ở đây đã quen họ?",
   "ob.conv.linkedin.profileLabel": "Đường dẫn hồ sơ LinkedIn của bạn",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "Để mạng lưới được ghi nhận đích danh bạn — CRM nói “Anna quen họ”, không bao giờ nói “công ty quen họ”.",
+    "Để mạng lưới ghi đích danh bạn: “Anna quen họ”, không phải “công ty quen họ”.",
   "ob.conv.linkedin.authorize": "Cấp quyền qua LinkedIn",
   "ob.conv.linkedin.appPending":
-    "Lưu ý: ứng dụng LinkedIn của chúng tôi vẫn đang chờ duyệt, nên chưa có kết nối nào được đồng bộ — bước này chỉ ghi nhận sự chấp thuận và hồ sơ của bạn. Hãy tải Connections.csv lên trong Cài đặt, cách đó dùng được ngay hôm nay.",
+    "Ứng dụng LinkedIn còn chờ duyệt nên chưa đồng bộ gì. Hãy tải Connections.csv lên trong Cài đặt.",
   "ob.conv.linkedin.skip": "Tạm bỏ qua LinkedIn",
   "ob.conv.linkedin.connected":
     "Đã cấp quyền LinkedIn. Các kết nối của bạn sẽ đồng bộ ngay khi ứng dụng được duyệt.",
@@ -2697,7 +2736,10 @@ export const vi = {
   "ob.gate.title": "Chào {name}, tôi là AI của Margince.",
   "ob.gate.titleAnonymous": "Tôi là AI của Margince.",
   "ob.gate.sub":
-    "Hãy đưa tôi website của bạn và tôi sẽ đọc: bạn bán gì, ai mua của bạn, những con người đứng sau. Bạn rà soát mọi thứ trước khi được lưu, và không gì đi ra ngoài nếu bạn chưa đồng ý. Khoảng hai phút.",
+    "Tôi đọc website của bạn và soạn hồ sơ công ty. Bạn duyệt trước khi lưu. Khoảng hai phút.",
+  "ob.gate.trustToggle": "Cách hoạt động",
+  "ob.gate.trustBody":
+    "Tôi chỉ đọc trang công khai. Không gì được lưu cho đến khi bạn xác nhận, và không gì được gửi đi nếu bạn chưa duyệt.",
   "ob.gate.field": "Địa chỉ website của bạn",
   "ob.gate.placeholder": "congtycuaban.com",
   "ob.gate.submit": "Đọc website của tôi",
@@ -2715,7 +2757,7 @@ export const vi = {
   // this says what is true and names both doors, without asking the reader to
   // fix anything.
   "ob.gate.readPaused":
-    "Lượt đọc đó đang tạm dừng. {detail} Lượt đọc sẽ tự chạy tiếp — hoặc bạn đưa tôi địa chỉ khác, hoặc tự nhập thông tin.",
+    "Lượt đọc đang tạm dừng. {detail} Nó sẽ tự chạy tiếp, hoặc bạn đưa tôi địa chỉ khác.",
 
   // --- the read theatre -------------------------------------------------
   // Volume made visible. The wire gives no page-count denominator, so every
@@ -2723,7 +2765,7 @@ export const vi = {
   // end, because inventing the total would be inventing data.
   "ob.scan.title": "Đang đọc {host}",
   "ob.scan.sub":
-    "Tôi đang đi qua từng trang. Mỗi dữ kiện đều giữ lại trang xuất xứ, nên bạn kiểm tra được mọi điều tôi nói.",
+    "Mỗi dữ kiện đều giữ trang xuất xứ, bạn kiểm tra được mọi điều tôi nói.",
   "ob.scan.doneTitle": "Đã đọc {host}",
   "ob.scan.doneSub":
     "{facts} dữ kiện và {fields} trường hồ sơ, mỗi mục kèm trang xuất xứ. Đang mở phần rà soát.",
@@ -2744,6 +2786,13 @@ export const vi = {
   "ob.scan.pageStatusFetched": "đã đọc",
   "ob.scan.pageStatusSkipped": "đã bỏ qua: {reason}",
   "ob.scan.pageStatusFailed": "không đọc được: {reason}",
+  "ob.scan.skipReason.robots": "trang này yêu cầu tôi không đọc nó",
+  "ob.scan.skipReason.offDomain": "nó nằm ở một tên miền khác",
+  "ob.scan.skipReason.pageCap":
+    "tôi đã đọc đủ số trang mà một lượt đọc cho phép",
+  "ob.scan.skipReason.byteCap":
+    "lượt đọc này đã nhận đủ lượng văn bản cho phép",
+  "ob.scan.skipReason.unreadable": "tôi không đọc được trang này",
   "ob.scan.transparency": "Minh bạch",
   "ob.scan.costLine": "{calls} lượt gọi · {tokens} token · {cost}",
   "ob.scan.costPending": "chưa tính phí lượt gọi mô hình nào",
@@ -2848,7 +2897,7 @@ export const vi = {
   "ob.payoff.body":
     "Mọi thứ trong đó bạn đều sửa được, và mỗi giá trị vẫn trỏ về trang xuất xứ.",
   "ob.payoff.defaults":
-    "Hai mặc định, cả hai đổi được trong Cài đặt → Bậc tự chủ: tôi chuẩn bị rồi chờ bạn xác nhận, và tôi không bao giờ ghi đè lên trường do chính bạn nhập.",
+    "Tôi chờ bạn xác nhận và không ghi đè trường bạn nhập. Đổi cả hai trong Cài đặt → Bậc tự chủ.",
   "ob.payoff.seats":
     "Việc còn lại là các đồng nghiệp của bạn. Mỗi suất người dùng đều tính phí, nên bạn tạo họ trong Cài đặt → Người dùng.",
   "ob.payoff.understood": "Đã rõ",
@@ -2871,7 +2920,7 @@ export const vi = {
   "ob.backread.estimateFailed":
     "Tôi không ước tính được khoảng thời gian đó: {detail} Bạn vẫn bắt đầu được, hoặc chọn khoảng khác.",
   "ob.backread.note":
-    "Lượt đọc lịch sử chỉ đọc, không ghi. Tôi nhập người, công ty và hoạt động, rồi cho bạn xem những gì tìm được trước khi có gì được ghi.",
+    "Lượt đọc lịch sử chỉ đọc. Bạn xem mọi người và công ty tôi tìm được trước khi ghi.",
   "ob.backread.start": "Kết nối và đọc",
   "ob.backread.startFailed":
     "Tôi không bắt đầu được lượt đọc lịch sử: {detail} Hãy thử lại, hoặc đi tiếp rồi bắt đầu sau trong Cài đặt.",

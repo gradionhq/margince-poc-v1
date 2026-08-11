@@ -185,9 +185,8 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 		return FxRateRow{}, fxInvalid("effective_date", "fx_rate_past", "effective_date cannot be in the past")
 	}
 	rate := in.Rate
-	var base string
-	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
+	base, err := s.installation.BaseCurrency(ctx, tx)
+	if err != nil {
 		return FxRateRow{}, fmt.Errorf("resolve base currency: %w", err)
 	}
 	if from == base {
@@ -273,10 +272,14 @@ func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 	}
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		base, err := s.installation.BaseCurrency(ctx, tx)
+		if err != nil {
+			return err
+		}
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
-			FROM fx_rate WHERE to_currency = (SELECT base_currency FROM workspace WHERE id = $1)
-			ORDER BY from_currency, rate_date DESC`, storekit.MustWorkspace(ctx))
+			FROM fx_rate WHERE to_currency = $1
+			ORDER BY from_currency, rate_date DESC`, base)
 		if err != nil {
 			return fmt.Errorf("list fx_rate: %w", err)
 		}
@@ -299,14 +302,18 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 	}
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		base, err := s.installation.BaseCurrency(ctx, tx)
+		if err != nil {
+			return err
+		}
 		// Sample "today" inside the transaction: a wait for a pooled
 		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
 			FROM fx_rate
 			 WHERE rate_date <= $1
-			   AND to_currency = (SELECT base_currency FROM workspace WHERE id = $2)
-			ORDER BY from_currency, rate_date DESC`, s.todayUTC(), storekit.MustWorkspace(ctx))
+			   AND to_currency = $2
+			ORDER BY from_currency, rate_date DESC`, s.todayUTC(), base)
 		if err != nil {
 			return fmt.Errorf("list effective fx_rate: %w", err)
 		}
@@ -348,19 +355,20 @@ func (s *Store) EffectiveFxRateInTx(ctx context.Context, tx pgx.Tx, fromCurrency
 	return rate, asOf, true, nil
 }
 
-// WorkspaceBaseCurrency returns the workspace base currency — the ToCurrency
+// BaseCurrency returns the installation's reporting currency — the ToCurrency
 // every fx_rate row converts into. The FX refresh producer needs it to price
 // an empty sheet (which has no row to read the base off), so it carries the
 // same admin/ops read gate as the sheet itself; the base IS part of the
 // fx_rate read surface (every row's ToCurrency).
-func (s *Store) WorkspaceBaseCurrency(ctx context.Context) (string, error) {
+func (s *Store) BaseCurrency(ctx context.Context) (string, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
 		return "", err
 	}
 	var base string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
-			storekit.MustWorkspace(ctx)).Scan(&base)
+		var err error
+		base, err = s.installation.BaseCurrency(ctx, tx)
+		return err
 	})
 	if err != nil {
 		return "", fmt.Errorf("resolve base currency: %w", err)

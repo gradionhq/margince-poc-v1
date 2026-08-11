@@ -18,7 +18,10 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
+- [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
+- [Company record page V2 — measured against the mockups, 2026-08-10](#company-record-page-v2--measured-against-the-mockups-2026-08-10)
 - [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
 - [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
@@ -26,7 +29,7 @@ needs the whole file to start a session.
 - [Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary](#pick-up-here--adr-0091-a136-retiring-the-workspace-tenant-boundary)
 - [Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)](#open--two-follow-ups-left-by-adr-0082a127-the-own-company-and-internal-mail)
 - [Open — an install with no mailer AND no public base URL still onboards nobody](#open--an-install-with-no-mailer-and-no-public-base-url-still-onboards-nobody)
-- [Open — the integration lane's cost, profiled](#open--the-integration-lanes-cost-profiled)
+- [Open — the integration lane, what is left](#open--the-integration-lane-what-is-left)
 - [Open — contract drift: the reset's response gained five fields](#open--contract-drift-the-resets-response-gained-five-fields)
 - [Open — the data reset has no end-to-end proof](#open--the-data-reset-has-no-end-to-end-proof)
 - [Open — the brief's omitted sections are prompt-enforced, not code-enforced](#open--the-briefs-omitted-sections-are-prompt-enforced-not-code-enforced)
@@ -40,12 +43,39 @@ needs the whole file to start a session.
 - [Open spec collision — the coverage matrix needs what the spec rules out](#open-spec-collision--the-coverage-matrix-needs-what-the-spec-rules-out)
 - [Open items left by the consent screen (PR #345)](#open-items-left-by-the-consent-screen-pr-345)
 - [Where this is](#where-this-is)
-- [Pick up here](#pick-up-here)
+- [Pick up here](#pick-up-here) — the MCP App views now live in `frontend/` (#742)
 - [Open follow-ups — the identity chokepoint (2026-08-03)](#open-follow-ups--the-identity-chokepoint-2026-08-03)
 - [Upstream spec raises owed from 2026-08-01](#upstream-spec-raises-owed-from-2026-08-01)
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
+
+**Found from an unrelated PR's red integration shard, and it has a date on it.**
+`TestAfterASyncTheCardHasFiguresToShow` fails intermittently today and will fail
+on **every** run from **2026-09-01**.
+
+The offline ledger generator anchors every invoice to a fixed `offlineEpoch`
+(`2026-08-01`), while `TimelinessOver` measures its 180-day window from `now`.
+The window slides and the ledger does not, so the settled-invoice count inside it
+shrinks month by month past FIN-FORM-3's floor of five:
+
+| date | settled invoices in window | vs floor |
+|---|---|---|
+| 2026-08-10 | 5 | exactly at it |
+| 2026-09-01 | 4 | below |
+| 2026-10-01 | 3 | below |
+
+Today the margin is exactly ZERO — `openTail: 1` leaves precisely five — so a
+single dispute (the archetypes carry 30–40 per thousand) drops the sample to four
+and the run fails. It is a coin flip per run rather than deterministic because the
+test seeds a fresh workspace uuid each time, and that uuid is hashed into the
+generator's PCG seed.
+
+The fix is to anchor the generator to `now`, or to give the test a clock pinned
+near the epoch — and either way to restore a margin, because at zero any dispute
+fails the run. Detail and the arithmetic are in [#798].
 
 ## Open — two follow-ups left by the activity anchor (#686, 2026-08-09)
 
@@ -80,8 +110,75 @@ the runner's own system frame (a record id comes from something the run has
 read, never from the occurrence reference it was started with), which touches
 every task and needs its own certification pass.
 
+[#798]: https://github.com/gradionhq/margince-poc-v1/issues/798
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
+## Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10
+
+The audit found roughly a third of what the mockups draw had **no field behind
+it**. The PO's call was that the contract changes rather than the drawings, so
+ADR-0095/A146 was accepted and extended (foundation #1270) and the build
+followed it.
+
+| PR | What a user gets |
+|---|---|
+| #829 | A gate that fails when the contract promises a field nobody writes — `last_meeting_at` was its first finding, and is now produced |
+| #833 | Customer health as three rated dimensions with a **worst-of** verdict, and how many it was read from |
+| #837 | Growth fit taken apart: four sub-scores with their reasons, no headline number |
+| #838 | Suggestions carry a title in the rule's own words and the evidence's own date |
+| #840 | The readings already on the wire: invoice paid date + days late, signal severity, dossier receipts, the strip's empty slot |
+| #841 | The dossier as prose and the ICP bars with labels — both caught by screenshot, not by tests |
+
+**Decisions, all PO's:** no Adoption dimension until something measures it;
+overall health is the worst dimension, never an average; sub-scores yes,
+headline 0-100 no; contracts deferred to their own chapter.
+
+**The constraint that made #838 safe:** a dismissal is keyed on the suggestion's
+fingerprint, so folding a title or a date into it would resurrect every
+suggestion every reader has ever dismissed. The test asserts that a title which
+CHANGES leaves the fingerprint identical.
+
+**Worth knowing:** `specs/contract/crm.yaml` and `backend/api/crm.yaml` have no
+sync tooling and have diverged in both directions. Editing the spec propagates
+nothing; the build repo's copy is operative, and a re-sync is a breaking change
+needing `CONTRACT_STABILITY=pre-live`.
+
+**Still not built, deliberately:** contracts/renewals (no record type — its own
+chapter), the mockup's "Upsell potential" slot (no field), contact photos (no
+field), and the dossier's named-source chips with fact counts (the data is on
+the evidence-drawer payload, not the dossier response).
+
+## Company record page V2 — measured against the mockups, 2026-08-10
+
+The page still did not look like the four checked-in PNGs, and every previous
+round had reported a match by reading the code. This arc built the instrument
+first: `make e2e-company` loads the real page against a live stack and asserts
+region ORDER and PRESENCE — never pixels, never the drawn German strings. It
+went **1/8 → 8/8**.
+
+| PR | What a user gets |
+|---|---|
+| #784 | The visual harness itself; it fails on today's page, which is the point |
+| #790 | KPI strip ABOVE the tabs; four tabs (Overview·People·History·Documents); the generated-prose block off the overview |
+| #797 | Six KPI slots + `net_invoiced_lifetime` (the same FIN-FORM-1 fold, wider window) |
+| #800 | Today's sixth tile — what was last said, filtered to real exchanges |
+| #803 | The right rail: advice, health, contacts, signals, recent activity |
+| #806 | **FIN-AC-3 was inverted** — the finance card hid itself from `unknown`, which every imported company carries |
+| #818 | The dossier reads as prose; the historical label holds in every card state |
+| #821 | **`--space-5` was never defined**, so every drawer rendered with no padding |
+
+Two of those are bugs the mockup work only happened to surface. The finance
+gate hid money from the majority of the book and failed silently (no card, so
+nobody was told). The missing spacing token resolved to nothing rather than to
+a smaller value, and six rules across the tree used it — now guarded by
+`make space-tokens`, a fitness check derived from the tree.
+
+**Open from this arc:** #789 (the header flashes the owner's raw UUID until the
+roster read lands), #791 (the page lost its one-line "some sections were
+withheld" summary), #792 (four components have no production caller), #815 (the
+finance summary has no coverage period, so FIN-AC-3's historical label is half
+implemented).
 
 ## Company record page V2 — the mockups, shipped 2026-08-10
 
@@ -188,12 +285,26 @@ the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
 three `installation.*` values — behind a Settings → Installation surface, with
 the base currency freezing once a deal has converted against it (ADR-0085 §7).
 
-What is NOT finished is the read side. Roll-ups, FX conversion, quota
-attainment and the report builder still read `workspace.base_currency` and
-`workspace.timezone` directly — eight files — so `UpdateInstallation` writes the
-setting AND mirrors it onto the column in one transaction. The mirror exists
-only because those readers have not moved; without it the surface would report
-a base currency nothing computes in.
+The read side is most of the way across. Three slices have landed — quotas and
+finance (#794), the deals module's money reads (#802), and the installation's
+name and timezone plus the roll-up and org-360 reads (#817). Each module takes
+the seam as a required constructor value, `identity.{Name,BaseCurrency,Timezone}Of`
+are the only readers, and an unset value REFUSES rather than falling back to a
+default, because a silent default on a money path converts against one currency
+and labels the result another.
+
+Two readers are left, and both are SQL-expression rewrites rather than source
+swaps: the forecast's slipped-category dimension (`compose/report.go`) and the
+brief ranker's revenue factor (`compose/briefs/briefrank.go`) each spell the
+value inside a larger query against a `workspace w` join, so they need bind
+positions threaded through their builders and the join re-examined. Three reads
+stay on the column deliberately: bootstrap's own backfill, the session read
+that names the installation before any principal exists to gate a settings
+read, and the base-currency freeze probe, which must tolerate the FIRST write
+where no row exists yet.
+
+`UpdateInstallation` still writes the setting AND mirrors it onto the column in
+one transaction. The mirror retires with those last two readers.
 
 **This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
 phase drops the `workspace` row, so the readers have to move regardless. Doing
@@ -307,36 +418,48 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
-## Open — the integration lane's cost, profiled
+## Open — the integration lane, what is left
 
-The lane is 1828 tests over 25 packages, ~493s summed (~300s wall, parallel).
-Profiled per test on 2026-08-06 because the suite *looked* inflated. It is not
-inflated by count: the slowest decile is 55% of the time and the fastest 1328
-tests together are 29%, so converting the small majority to unit tests would
-delete three-quarters of the suite to recover under a third of the runtime —
-and most of them assert database behaviour (RLS, CHECK→4xx, keyset pagination)
-that has no meaning without Postgres.
+The lane is ~2060 tests over 30 packages, ~192s wall. It was ~300s when this was
+first profiled on 2026-08-06. #524, #539 and #482 are closed; the narrative for
+each is in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md), and the entry for #539 is
+worth reading before optimizing further because it is mostly a record of things
+that did not work.
 
-Where the cost actually is, and what is worth doing about it:
+**Do not expect much more from splitting packages.** It was the obvious lever and
+it is spent: the lane's wall clock is no longer bound by its longest package, so
+the last split bought ~9% and the next would buy less. What is left sits in the
+~35s between the longest package and the lane's wall time, and in the suites
+below.
 
-- **#524** — closed; the per-package budget is 600s, both lanes resolve it
-  through one `resolve_it_timeout`, and the cost report prints each package's
-  share of it. Narrative in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
-- **#539** — that package's setup forks about five Postgres backends per test.
-  Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
-  the harness drops `cf_*` columns between tests, so a pooled connection
-  outliving that DDL serves a stale plan and fails with SQLSTATE 0A000 in a
-  suite unrelated to custom fields. The issue records the design that would
-  unblock it and the four cheaper approaches that were measured and do not pay.
+- **#779** — the periodic-dispatch suites wait ~28s in 12 tests on River's real
+  clock, the largest single concentration of real waiting. River can stub the
+  clock; the issue says why that is not a one-liner and which suite must stay on
+  the real clock as a control.
+- **#548** — the people contention probes spin ~7,500 queries/second at the
+  writer they are polling for, and still time out on a loaded runner. Time
+  bounding was added and was not enough; the shape needs to change.
 - **#535** — table-driven tests calling their harness inside `t.Run`, re-seeding
   Postgres per case (~44s), which also hides that the property under test is pure.
 - **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
   forbids the mirror case (a unit test opening real infra) but cannot see this one.
+- **#639** — two packages hand-roll the process pool `testdb.Pool` now owns.
+- **#770** — the telegram-ingress suite leaves a connection checked out past its
+  own cleanup under lane load.
 
-Two measurement notes for whoever picks this up. Run-to-run variance on the same
-commit is ~15%, so compare within one sitting on an idle machine. And both
-failures found while attempting #539 were order-dependent — they appeared only
-in a full-package or full-lane run, never in isolation.
+Three measurement notes, each of which cost a wrong number before it was written
+down. **Restart Postgres between runs** — a fresh container is worth ~25% on its
+own, so two runs taken across a restart boundary are not comparable to each
+other. Run-to-run variance on the same commit is ~15%, so compare within one
+sitting on an idle machine. And **measure both sides today**: the lane's own
+baseline moves as the tree grows and as its fixtures change, so a number from
+last week is not a control.
+
+One thing the lane can no longer catch, which matters more than its runtime:
+**#772**. Production runs pgx's default `cache_statement` while `customfields`
+alters record tables at runtime, so a live request can draw SQLSTATE 0A000 — and
+the shared test pool now runs `describe_exec`, which is immune. The fixture that
+would have reproduced it is the one that was made safe.
 
 ## Open — contract drift: the reset's response gained five fields
 
@@ -671,6 +794,34 @@ The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
 ## Pick up here
+
+### The MCP App views live in `frontend/` now — 2026-08-10 (#742, PR #793)
+
+Both `ui://` views build from `frontend/src/mcp-apps/` into one self-contained
+document each; the api fetches, admits and holds them, and `resources/list`,
+`resources/read` and every tool's `_meta.ui` read one immutable per-URI snapshot.
+The narrative — including the availability blocker, the three "two readings of
+one value" defects, and why the design's dark-theme arm had to move into the
+bridge — is in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
+
+**What a branch touching this area should know.** The advertised set FREEZES
+after the startup fetch, because the transport declares
+`resources.listChanged: false` and opens no stream to announce a recovery on. A
+view that is not held has its own tool's `_meta.ui` suppressed and nothing else —
+the tool keeps answering in text, which is D3's exit criterion and is gated.
+`make dev` starts the FE **before** the api on purpose: the api reads its view
+documents from that origin at boot, and the reverse order left both views
+permanently unadvertised in every dev stack.
+
+**The admission vocabulary is authored in `frontend/src/mcp-apps/forbidden.json`
+and copied into the Go package** by `make -C backend mcp-apps-vocab`. Edit the
+frontend copy, never the Go one; a byte-equality test and the drift gate both
+fail otherwise, and `ci.yml`'s backend filter names that path so the lane
+carrying the test actually runs.
+
+**Four follow-ups filed**, none blocking: the `tokens.css` media arm, the
+unpinned view-payload shape across the Go/TS seam, `resources/listChanged`, and
+a CDN origin.
 
 ### Admin "reset data" (non-production) — 2026-08-03
 

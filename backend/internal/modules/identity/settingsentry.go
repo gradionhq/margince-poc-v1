@@ -13,10 +13,13 @@ package identity
 // through the product, which is the gap ADR-0085 §7 names.
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 )
@@ -104,4 +107,42 @@ var BaseCurrency = settings.Define[string](
 // Definitions is identity's contribution to the settings registry.
 func Definitions() []settings.Definition {
 	return []settings.Definition{Name, Timezone, BaseCurrency}
+}
+
+// BaseCurrencyOf resolves the installation's reporting currency inside a
+// transaction the caller already holds.
+//
+// It lives here because identity OWNS the setting: the modules that convert
+// money may not import this package, so compose injects this function into
+// them (ADR-0054) — but the one spelling of "how the base currency is read"
+// belongs with the entry that declares it, not copied into each wiring site.
+//
+// RequireTx rather than Get: an absent row refuses instead of reading as the
+// registered default, because every caller of this is converting or freezing
+// money against the answer.
+func BaseCurrencyOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, BaseCurrency)
+}
+
+// TimezoneOf resolves the installation's IANA zone inside a transaction the
+// caller already holds — the zone a "today" is computed in.
+//
+// RequireTx, like BaseCurrencyOf: a close-date sweep or a forecast cutoff that
+// silently fell back to UTC would move real dates for an installation that
+// runs in Europe/Berlin, and would move them by a day only sometimes, which is
+// the hardest kind of wrong to notice.
+func TimezoneOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, Timezone)
+}
+
+// NameOf resolves the installation's display name inside a transaction the
+// caller already holds.
+//
+// RequireTx here too, though the name is display rather than arithmetic: an
+// offer snapshot names its issuer, and an offer that went out identifying the
+// installation as "" is not better than one that refused to go out. The three
+// installation-identity settings are seeded together at bootstrap, so a tree
+// where one is unset has the other two unset as well.
+func NameOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, Name)
 }

@@ -67,19 +67,38 @@ func DealMoveTierInput(
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	source, err := dealStageSemantic(ctx, p, stages, dealID)
+	source, observed, err := dealStageSemantic(ctx, p, stages, dealID)
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	return mcp.TierResolverInput{
+	in := mcp.TierResolverInput{
 		Args:                args,
 		SourceStageSemantic: source,
 		TargetStageSemantic: target,
 		PipelineID:          pipelineID.String(),
-	}, nil
+	}
+	// The version of the deal the SOURCE semantic was read from, which is the
+	// whole of what this gate proved about the record. It travels so the write
+	// the gate admits can be conditioned on it: the read commits first, and an
+	// agent can close the deal in between with its own call. One read, one
+	// moment — the rule dealMoveSummary states for the approval sentence,
+	// applied to the auto-executed move.
+	//
+	// A record with NO version is left unreported rather than pinned at zero. A
+	// mirror row answers zero because the mirror keeps no version of its own,
+	// and zero is not a version any write can be conditioned on — the REST door
+	// would send `If-Match: 0`, which the contract's own parser rejects as a
+	// malformed header the caller never sent. Unreported means the gate raises
+	// to confirm-first, which is the honest answer: this server could not
+	// establish the record's state, so a human decides.
+	if observed > 0 {
+		in.ObservedVersion = &observed
+	}
+	return in, nil
 }
 
-// dealStageSemantic reads the semantic of the stage a deal is currently in.
+// dealStageSemantic reads the semantic of the stage a deal is currently in, and
+// the version of the deal it read it from.
 //
 // It goes through the same StageResolver the target does, so a renamed "Won"
 // column is judged by its semantic at both ends rather than by its label at one.
@@ -87,16 +106,22 @@ func DealMoveTierInput(
 // the resolver would treat empty as not-open and raise, which is safe, but the
 // caller deserves the real reason instead of an approval request for a deal this
 // server could not read.
-func dealStageSemantic(ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver, dealID ids.UUID) (string, error) {
+//
+// The version comes back from the SAME record as the semantic. Reading it again
+// would be a second moment, and a tier decided at one moment and pinned at
+// another binds the write to a state nothing judged.
+func dealStageSemantic(
+	ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver, dealID ids.UUID,
+) (semantic string, version int64, err error) {
 	rec, err := p.Read(ctx, datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	var fields struct {
 		StageID ids.UUID `json:"stage_id"`
 	}
 	if err := json.Unmarshal(rec.Fields, &fields); err != nil {
-		return "", fmt.Errorf("crmagents: deal %s read back without a readable stage: %w", dealID, err)
+		return "", 0, fmt.Errorf("crmagents: deal %s read back without a readable stage: %w", dealID, err)
 	}
 	// An ABSENT stage_id decodes without error and leaves the zero id, which a
 	// resolver would answer with an empty semantic — a raise, so safe, but a
@@ -104,13 +129,13 @@ func dealStageSemantic(ctx context.Context, p datasource.SystemOfRecordProvider,
 	// whose current stage this server never established, and the human would
 	// have no way to know that is the question.
 	if fields.StageID.IsZero() {
-		return "", fmt.Errorf("crmagents: deal %s read back with no stage to resolve", dealID)
+		return "", 0, fmt.Errorf("crmagents: deal %s read back with no stage to resolve", dealID)
 	}
-	semantic, _, err := stages.StageSemantic(ctx, fields.StageID)
+	semantic, _, err = stages.StageSemantic(ctx, fields.StageID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return semantic, nil
+	return semantic, rec.Version, nil
 }
 
 // dealMoveSummary is the sentence a human is asked to approve. It names the move

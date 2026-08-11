@@ -42,6 +42,66 @@ func mintCursorToken(c Cursor) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
+// SweepCursor is a position in a walk across SEVERAL streams: which stream the
+// page stopped in, and where inside that stream it stopped.
+//
+// A walk with no ordering to interleave its streams by — a search across
+// record types, whose rows carry no common rank — can still be resumed if the
+// token says both. The stream alone would restart it; the inner position alone
+// would not say what it indexes into.
+//
+// Both providers that sweep mint this ONE token, rather than a shape each:
+// what a caller pages with must not depend on which system of record answered
+// them, and two codecs for one wire value drift the first time either changes.
+// The inner half stays opaque here — a keyset token on one side, an incumbent
+// mirror's own cursor on the other — because this type carries a position, not
+// a meaning.
+type SweepCursor struct {
+	Stream string `json:"s"`
+	Inner  string `json:"c"`
+}
+
+// EncodeSweepCursor renders a resume position opaquely: a caller never builds
+// or edits one.
+//
+// It answers an error rather than an empty token because the caller pairs the
+// result with "there is more" — a silent empty cursor there would report a
+// remainder with no way to reach it, which is the defect a resumable sweep
+// exists to remove.
+func EncodeSweepCursor(position SweepCursor) (string, error) {
+	raw, err := json.Marshal(position)
+	if err != nil {
+		return "", fmt.Errorf("store: encoding the sweep position in %s: %w", position.Stream, err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// DecodeSweepCursor reads a resume position back. An empty token is the start
+// of the walk, not a fault.
+//
+// It answers MalformedCursorError for anything this package could not have
+// minted. Whether the CALLER still walks the stream named is a different
+// question with a different answer — a narrowed request, or a grant lost
+// between pages, is not the caller mistyping a token — so it is left to the
+// provider, which knows its own vocabulary.
+func DecodeSweepCursor(token string) (SweepCursor, error) {
+	if token == "" {
+		return SweepCursor{}, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return SweepCursor{}, &MalformedCursorError{}
+	}
+	var position SweepCursor
+	if err := json.Unmarshal(raw, &position); err != nil {
+		return SweepCursor{}, &MalformedCursorError{}
+	}
+	if position.Stream == "" {
+		return SweepCursor{}, &MalformedCursorError{}
+	}
+	return position, nil
+}
+
 // MalformedCursorError is a client fault: the opaque keyset token is
 // client-supplied input, so failing to decode it — or a decoded sort key
 // that does not parse as the sort column's kind — maps to a 4xx at the

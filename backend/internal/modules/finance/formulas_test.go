@@ -121,6 +121,67 @@ func TestNetInvoicedIgnoresInvoicesOutsideTheWindow(t *testing.T) {
 	}
 }
 
+// The lifetime figure's whole point: the row the trailing window drops is the
+// row it must keep. Same invoices as the case above, so the two readings can
+// be compared directly.
+func TestNetInvoicedLifetimeKeepsWhatTheTrailingWindowDrops(t *testing.T) {
+	asOf := on(t, "2026-08-09")
+	invoices := []Invoice{
+		{Status: "open", IssuedOn: on(t, "2026-06-01"), NetMinorBase: 100000},
+		{Status: "open", IssuedOn: on(t, "2024-01-01"), NetMinorBase: 999900},
+	}
+
+	out := NetInvoicedLifetime(invoices, asOf)
+	if out.AmountMinorBase != 1099900 || out.Records != 2 {
+		t.Fatalf("lifetime = %d over %d records, want 1099900 over 2",
+			out.AmountMinorBase, out.Records)
+	}
+	// 0 means "no lower bound", which is what lets a surface label this
+	// figure lifetime rather than as some number of days.
+	if out.WindowDays != 0 {
+		t.Fatalf("window = %d, want 0 — lifetime is not a trailing window", out.WindowDays)
+	}
+}
+
+// Lifetime is a wider window over the SAME fold, so the three behaviours that
+// make the trailing figure honest have to survive the widening: a credit note
+// is subtracted once and never counted as a record, a draft and a void are
+// excluded entirely, and one unconvertible row refuses the whole total.
+func TestNetInvoicedLifetimeKeepsTheFoldsHonestyRules(t *testing.T) {
+	asOf := on(t, "2026-08-09")
+	old := on(t, "2019-03-04")
+
+	credited := NetInvoicedLifetime([]Invoice{
+		{Status: "paid", IssuedOn: old, NetMinorBase: 500000, CreditedMinorBase: 100000},
+		{Status: "credited", IssuedOn: old, NetMinorBase: 100000, CreditsInvoice: true},
+	}, asOf)
+	if credited.AmountMinorBase != 400000 || credited.Records != 1 {
+		t.Fatalf("credited lifetime = %d over %d records, want 400000 over 1",
+			credited.AmountMinorBase, credited.Records)
+	}
+
+	skipped := NetInvoicedLifetime([]Invoice{
+		{Status: "open", IssuedOn: old, NetMinorBase: 100000},
+		{Status: "draft", IssuedOn: old, NetMinorBase: 700000},
+		{Status: "void", IssuedOn: old, NetMinorBase: 700000},
+	}, asOf)
+	if skipped.AmountMinorBase != 100000 || skipped.Records != 1 {
+		t.Fatalf("lifetime = %d over %d records, want 100000 over 1 — a draft was never issued and a void is excluded, not netted to zero",
+			skipped.AmountMinorBase, skipped.Records)
+	}
+
+	refused := NetInvoicedLifetime([]Invoice{
+		{Status: "open", IssuedOn: old, NetMinorBase: 100000},
+		{Status: "open", IssuedOn: old, RateMissing: true},
+	}, asOf)
+	if !refused.RateUnavailable {
+		t.Fatal("lifetime was served despite an invoice with no rate; a partial sum must refuse (FIN-AC-6)")
+	}
+	if refused.AmountMinorBase != 0 {
+		t.Fatalf("amount = %d, want 0 — a refused figure carries no number", refused.AmountMinorBase)
+	}
+}
+
 // FIN-FORM-2's worked example: open invoices of 19.750, 12.430 and 2.000, the
 // second due 19 days ago and the others not yet due.
 func TestOpenBalanceSeparatesWhatIsOverdueFromWhatIsMerelyOwed(t *testing.T) {

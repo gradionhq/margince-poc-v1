@@ -50,7 +50,7 @@ GOWORK_ROOT := GOWORK=$(abspath ../go.work)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -320,7 +320,7 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # build/composition/ beside the merged contracts (frontend/extensions.gen.ts
 # today, the composed client types and docs as their slices land) — the same
 # split Task 11's tsconfig alias makes for TypeScript.
-gen: ## Regenerate everything derived from the contract
+gen: mcp-apps-vocab ## Regenerate everything derived from the contract
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
@@ -335,12 +335,22 @@ drift: gen ## Fail when any generated file drifted from the contract
 	# gen regenerates the committed per-unit manifests too (via composition);
 	# without them here a stale or hand-edited extensions/<name>/manifest.generated.json
 	# would be silently healed by the mutating gen step instead of failing.
-	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json '../extensions/*/manifest.generated.json'
+	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json '../extensions/*/manifest.generated.json' internal/modules/agents/apps/forbidden.json
 	# git diff ignores UNTRACKED files, so a new (or gen-recreated after a
 	# committed deletion) manifest that was never `git add`ed would slip past
 	# the diff above — fail explicitly when a generated manifest is uncommitted.
 	@u="$$(git ls-files --others --exclude-standard -- '../extensions/*/manifest.generated.json')"; \
 		[ -z "$$u" ] || { echo "drift: uncommitted generated manifest(s):" >&2; echo "$$u" >&2; exit 1; }
+
+# The MCP App admission vocabulary is AUTHORED in frontend/src/mcp-apps, where
+# the build-time validator imports it, and copied here because go:embed cannot
+# reach outside its own package directory. Two validators in two languages are a
+# defect unless they cannot disagree: a document that passes the build check and
+# is refused in production is an outage no CI lane can see. The copy is
+# committed; TestTheAdmissionVocabularyMatchesTheFrontend is what stops it
+# drifting, and `drift` fails a stale one.
+mcp-apps-vocab: ## Copy the MCP App admission vocabulary in from the frontend
+	cp ../frontend/src/mcp-apps/forbidden.json internal/modules/agents/apps/forbidden.json
 
 # Scaffolding, not generation: gen-workflow writes a write-once handler +
 # test stub for a developer to fill in (AC-W1) and is never part of

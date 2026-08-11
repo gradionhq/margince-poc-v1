@@ -46,9 +46,8 @@ var (
 	migrateErr  error
 
 	// schemaReady reports that EnsureSchema has migrated this process's database.
-	// Pool gates on it: a connection opened before the migration's DROP SCHEMA
-	// holds descriptions of relations that no longer exist, and a shared pool
-	// would carry that for the whole package rather than one test.
+	// Pool gates on it, and returns ErrSchemaNotReady while it is unset — see
+	// there for what a pool handed out too early does to the rest of the package.
 	schemaReady atomic.Bool
 
 	// emptySizes is the physical size of every table on the freshly migrated,

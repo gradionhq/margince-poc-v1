@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -291,7 +292,7 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 	f := setupCFV(t)
 	// The deal list shares f's Env (Setup rebuilds the schema, so one
 	// per test) — its store rides the same pool and field catalog.
-	dealStore := deals.NewStore(f.e.Pool).WithFieldCatalog(f.svc)
+	dealStore := deals.NewStore(f.e.Pool, installseam.Deals()).WithFieldCatalog(f.svc)
 	dealCtx := f.e.As(f.e.Rep1, nil, dealCFVPerms)
 
 	resources := coreVocabResources(dealCtx, f, dealStore)

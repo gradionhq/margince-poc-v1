@@ -396,6 +396,21 @@ const (
 	maxListLimit     = 200
 )
 
+// clampListLimit maps a caller's page size onto the bounds above: absent or
+// nonsensical takes the default, oversized takes the ceiling. Every paged read
+// in this package resolves it here, so a page's size cannot mean one thing on
+// the mirror walk and another on the user map.
+func clampListLimit(limit int) int {
+	switch {
+	case limit <= 0:
+		return defaultListLimit
+	case limit > maxListLimit:
+		return maxListLimit
+	default:
+		return limit
+	}
+}
+
 const selectVisibleMirrorPageSQL = `
 SELECT m.object_class, m.external_id, m.fields, m.updated_at_baseline,
        coalesce(m.owner_external_id, ''), m.sync_state, m.last_synced_at
@@ -416,12 +431,7 @@ func (s *MirrorStore) List(ctx context.Context, objectClass, cursor string, limi
 	if err != nil {
 		return nil, "", err
 	}
-	switch {
-	case limit <= 0:
-		limit = defaultListLimit
-	case limit > maxListLimit:
-		limit = maxListLimit
-	}
+	limit = clampListLimit(limit)
 
 	var rows []Row
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

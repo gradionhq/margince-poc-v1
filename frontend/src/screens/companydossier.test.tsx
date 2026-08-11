@@ -75,30 +75,41 @@ function show() {
 }
 
 describe("what this company is", () => {
-  it("names each section it renders, in the reader's words", async () => {
+  it("reads as prose, without a heading over every few sentences", async () => {
     serving(DESCRIBED);
     show();
 
-    expect(await screen.findByText("In short")).toBeTruthy();
-    expect(screen.getByText("Where and to whom")).toBeTruthy();
     expect(
-      screen.getByText(/What they offer: load-shifting software/),
+      await screen.findByText(/What they offer: load-shifting software/),
     ).toBeTruthy();
+    // The card has ONE heading — its own. The sections still order the prose;
+    // they no longer announce themselves, because a label over three sentences
+    // about one company turned a reading into a form.
+    expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+    expect(screen.queryByText("In short")).toBeNull();
   });
 
-  it("renders a heading for each section it was given, and no others", async () => {
+  it("renders every sentence it was given, and invents none", async () => {
     // The server omits a section whose sentences all fell out of the grounding
     // filter, so the panel is handed only populated ones. This pins that the
-    // panel renders exactly those — a heading it invented for a kind with
-    // nothing under it would read as a finding of nothing.
+    // panel renders exactly those — prose it composed for a kind with nothing
+    // under it would read as a finding of nothing.
     serving(DESCRIBED);
     show();
 
-    await screen.findByText("In short");
-    const headings = screen
-      .getAllByRole("heading", { level: 3 })
-      .map((heading) => heading.textContent);
-    expect(headings).toEqual(["In short", "Where and to whom"]);
+    await screen.findByText(/What they offer: load-shifting software/);
+    // The sentences, not every row: the card renders one collected sources row
+    // underneath them, which is a receipt rather than a claim.
+    const sentences = screen
+      .getAllByRole("listitem")
+      .filter((item) => !item.classList.contains("co-brief-sources"))
+      .map((item) => item.textContent?.trim());
+    expect(sentences).toEqual([
+      expect.stringContaining("What they offer: load-shifting software."),
+      expect.stringContaining(
+        "Ideal customer: energy-intensive manufacturers.",
+      ),
+    ]);
   });
 
   it("says a dossier is stale beside the content, never instead of it", async () => {

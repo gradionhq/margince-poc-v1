@@ -3,7 +3,7 @@ import { Check, Circle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../../api/client";
-import { Button } from "../../design-system/atoms";
+import { Button, Disclosure } from "../../design-system/atoms";
 import { ProviderMark } from "../../design-system/provider-mark";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
@@ -356,11 +356,12 @@ function ConnectGuarantees() {
     { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
     { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
   ];
+  // Shut, like every other disclosure in the product. The four promises are
+  // what the summary line names, so nothing is hidden that the reader is not
+  // told about — and a scene that arrives with a block of reassurance already
+  // unfolded buries the providers it exists to offer.
   return (
-    <div className="ob-connect-guarantees">
-      <p className="ob-connect-guarantees-head">
-        {t("ob.conv.connect.guaranteesHeading")}
-      </p>
+    <Disclosure summary={t("ob.conv.connect.guaranteesToggle")}>
       <ul className="ob-connect-guarantees-grid">
         {items.map((item) => (
           <li key={item.lead}>
@@ -371,7 +372,7 @@ function ConnectGuarantees() {
           </li>
         ))}
       </ul>
-    </div>
+    </Disclosure>
   );
 }
 
@@ -587,20 +588,27 @@ function LinkedinPanel({
 
   return (
     <div className="ob-connect-linkedin-panel">
-      <div className="ob-conv-scopes">
-        {linkedinScopes.map((scope) => (
-          <p key={scope.lead}>
-            <Check aria-hidden />
-            {/* Lead and rest share ONE flex item so the row wraps as a
-                single line of prose — two items each shrinking to their own
-                width is what broke the bold lead across lines. */}
-            <span>
-              <b>{t(scope.lead)}</b> {t(scope.rest)}
-            </span>
-          </p>
-        ))}
-      </div>
-      <p className="co-muted">{t("ob.conv.linkedin.neverContacts")}</p>
+      {/* Shut, like every other disclosure in the product: what this dialog
+          asks for is already in its headline and its intro, and a fold that
+          arrives open is a fold in name only — it teaches the reader that the
+          summary line is decoration rather than a control. The scopes stay one
+          click away, named by the summary, for the reader who wants them. */}
+      <Disclosure summary={t("ob.conv.linkedin.limitsToggle")}>
+        <div className="ob-conv-scopes">
+          {linkedinScopes.map((scope) => (
+            <p key={scope.lead}>
+              <Check aria-hidden />
+              {/* Lead and rest share ONE flex item so the row wraps as a
+                  single line of prose — two items each shrinking to their own
+                  width is what broke the bold lead across lines. */}
+              <span>
+                <b>{t(scope.lead)}</b> {t(scope.rest)}
+              </span>
+            </p>
+          ))}
+          <p className="co-muted">{t("ob.conv.linkedin.neverContacts")}</p>
+        </div>
+      </Disclosure>
       <label className="ob-conv-field" htmlFor="linkedin-profile">
         {t("ob.conv.linkedin.profileLabel")}
         <input

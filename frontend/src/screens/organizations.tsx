@@ -34,8 +34,6 @@ import {
 import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { taskWriteKeys } from "./activitykeys";
-import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   LoadMoreButton,
@@ -49,17 +47,12 @@ import {
   useViewerId,
 } from "./common";
 import {
-  AccountBrief,
   DealsCard,
-  HealthCard,
-  NextSteps,
   type Org360Result,
   OverlayFallback,
   PeopleCard,
   RECORD_ZONE,
-  SignalsCard,
   StateStrip,
-  type SuggestionAction,
   TagsCard,
   useAcknowledgeOrganizationView,
   useOrganization360,
@@ -78,7 +71,9 @@ import {
   CompanyDescription,
   CompanyPrimaryActions,
   CompanyPulse,
+  CompanyStanding,
 } from "./companyheader";
+import { CompanyRail } from "./companyrail";
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
 import {
@@ -104,15 +99,9 @@ import {
   ListTable,
   useListQuery,
 } from "./listquery";
-import { LogActivityAction } from "./logactivity";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
-import {
-  TaskDetailModal,
-  TaskQuickActions,
-  useTaskUpdate,
-} from "./taskactions";
 import { groupChronology } from "./timelinegroups";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -1411,17 +1400,23 @@ function FactsCard({
   );
 }
 
-// Two tabs, not three. The company view is ONE scrolling page: the
-// relationship edges and the hierarchy roll-up moved into its rails, where a
-// rep reads them alongside everything else instead of hunting for them.
+// Overview · People · History · Documents, as both mockups draw the strip.
+// `timeline` IS the mockup's History — it presents as "Verlauf"/"History" and
+// carries the account's chronology; the id stays as it is because it is in
+// every saved URL. The audit spine is still not a tab: it is an inspection of
+// the record rather than part of its story, and it opens from the header's
+// overflow menu.
 //
-// History is no longer one of them. Field changes belong in the account's own
-// chronology (the timeline's Changes filter), and the audit spine is an
-// inspection of the record rather than part of its story — it opens from the
-// header's overflow menu. A tab of equal weight beside the account's story
-// said the two were the same kind of question. Partner stays a tab: it is a
-// form, not a reading of this account.
-const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
+// Documents is a tab rather than only a card because the mockup gives files
+// their own place in the strip, and the card cannot hold the table it draws.
+// Partner stays a tab: it is a form, not a reading of this account.
+const COMPANY_TABS = [
+  "overview",
+  "people",
+  "timeline",
+  "documents",
+  "partner",
+] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // Partner is not a permanent tab. It renders the partner programme —
@@ -1445,7 +1440,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview", "people", "timeline"] as const);
+    : (["overview", "people", "timeline", "documents"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1537,6 +1532,7 @@ function CompanyRecord({
             overview: t("tab.overview"),
             people: t("tab.people"),
             timeline: t("tab.timeline"),
+            documents: t("tab.documents"),
             partner: t("tab.partner"),
           }}
         />
@@ -1884,6 +1880,38 @@ function useCitedReceipt() {
   };
 }
 
+// What the composer is anchored on. A reply answers the message it names; an
+// account-started message names the person it is TO, because it has no thread
+// to inherit a recipient from.
+type ComposeAnchor =
+  | { kind: "reply"; id: string }
+  | { kind: "account"; id: string };
+
+// The composer, opened on whichever anchor the page holds. Extracted so the
+// page does not carry a branch per anchor kind in its own JSX.
+function AccountComposer({
+  anchor,
+  orgId,
+  onClose,
+}: Readonly<{
+  anchor: ComposeAnchor;
+  orgId: string;
+  onClose: () => void;
+}>) {
+  const reply = anchor.kind === "reply";
+  return (
+    <ComposeModal
+      activityId={reply ? anchor.id : undefined}
+      personId={reply ? undefined : anchor.id}
+      entityType="organization"
+      entityId={orgId}
+      kind="email"
+      open
+      onClose={onClose}
+    />
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -1910,20 +1938,39 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  // The two surfaces a suggestion's action opens. Held here because both are
-  // page-level: the composer anchors on a timeline message, and the task form
-  // is the account's own log-activity surface.
-  const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
-    null,
-  );
-  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const { locale } = useLocale();
+  // ONE composer, opened two ways. Anchored on a timeline message it answers
+  // that message; anchored on a person it starts a new one and grounds on the
+  // account instead of a thread (ADR-0087 §1). Two pieces of state would let
+  // both open at once, which is two composers over each other.
+  const [composing, setComposing] = useState<ComposeAnchor | null>(null);
+  // The header's own Write-email drawer. Separate state from `composing`,
+  // which anchors on a message or a person — but the same consequence for the
+  // layout, because both open into the rail's column.
+  const [writingEmail, setWritingEmail] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const receipt = useCitedReceipt();
-  // A task written or completed from this page changes the account's timeline,
-  // its next steps (both read from the 360) and the standing work queue.
-  const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
+  // The rail, or nothing while a composer holds its column. Both drawers open
+  // into this space, so a rail beside them would be two things in one place —
+  // and absent rather than narrowed, because a rail squeezed to a third of its
+  // width is a column of broken cards.
+  const rail = (
+    <CompanyRail
+      orgId={org.id}
+      view={view}
+      locale={locale}
+      writable={!org.archived_at}
+      onOpenRecord={receipt.open}
+      // The People tab IS the roster in full, so the rail's summary of it
+      // stands down rather than repeating it beside itself.
+      withPeople={tab !== "people"}
+      // Either composer holds this column, and the rail does not care which.
+      // Passed rather than branched on here so the page keeps one decision
+      // about the rail instead of two.
+      composerOpen={Boolean(composing) || writingEmail}
+    />
+  );
   const { slots, showChanges: filterToChanges } = useChronologySlots({
     org,
     view,
@@ -1932,10 +1979,6 @@ function CompanyPage({
     failed,
     active: tab === "timeline",
   });
-  // An evidence mark asks where a value came from, and the answer is the
-  // record's change history — which now lives on its own tab.
-  const openTask = (step: { activity_id: string }) =>
-    setOpenTaskId(step.activity_id);
   const showChanges = () => {
     onTab("timeline");
     filterToChanges();
@@ -1975,35 +2018,44 @@ function CompanyPage({
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
-      actions={<CompanyPrimaryActions org={org} />}
-      // NO rail and NO aside: the page is a header, a full-width work column
-      // and a grid of cards inside it (mockup State D). A context column beside
-      // the grid would be a third place to look for facts the grid already
-      // carries, and it is the space the composer drawer opens into — the
-      // mockups never show both.
+      actions={
+        <CompanyPrimaryActions
+          org={org}
+          composerOpen={writingEmail}
+          onComposerOpen={setWritingEmail}
+        />
+      }
+      // Lifecycle and owner, at the top right beside the verbs. Passing this
+      // also moves the action row up into the header, which is the company
+      // page's shape and no other record's.
+      controls={<CompanyStanding org={org} />}
+      // The account's context, beside the work rather than under it (mockup
+      // State A). It carries the cards that describe the RELATIONSHIP —
+      // health, who is on it, what is worth knowing, what happened lately —
+      // and the grid below keeps the cards about the BUSINESS.
       //
-      // Everything the right rail used to hold moved into that grid or onto a
-      // tab. Nothing was dropped; see CompanyOverviewStack.
+      // It yields to the composer. The drawer opens into this column, so a
+      // rail standing beside it would be two things in one space, which no
+      // mockup draws. Absent rather than narrowed: a rail squeezed to a third
+      // of its width is a column of broken cards.
+      asideLabel={t("record.accountContext")}
+      aside={rail}
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
     >
-      {tabs}
-      {/* Overlay refuses the whole company page, not one tab of it: the
-          partner extension and the field history are native records the
-          mirror does not hold, so switching tabs must not walk around the
-          refusal into reads that can only fail. */}
-      {overlay && <OverlayFallback />}
-      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
-      {tab === "overview" && failed && (
-        <EmptyState>{t("co.partial")}</EmptyState>
-      )}
-      {/* The strip leads, before any prose: where the account stands, whose
-          move it is, and what work is open. Three readings a rep can act on
-          without reading a sentence — and the one that replaced a number
-          nobody could scale. */}
-      {tab === "overview" && view && (
+      {/* The strip leads, ABOVE the tab strip: where the account stands, what
+          it is worth and whether it pays — the readings a rep opens the page
+          for, before being asked which part of it to read.
+          It belongs to the RECORD rather than to the overview for the same
+          reason the business grid does: it describes the account, not one
+          view of it, and a strip that vanished on the People tab would move
+          the tabs and re-flow the page under the reader.
+          Guarded on overlay like every other body below, so the page's one
+          refusal stays the whole page's. */}
+      {!overlay && view && (
         <StateStrip
+          orgId={org.id}
           view={view}
           lifecycleLabel={(value) =>
             t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
@@ -2021,6 +2073,16 @@ function CompanyPage({
           }
         />
       )}
+      {tabs}
+      {/* Overlay refuses the whole company page, not one tab of it: the
+          partner extension and the field history are native records the
+          mirror does not hold, so switching tabs must not walk around the
+          refusal into reads that can only fail. */}
+      {overlay && <OverlayFallback />}
+      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {tab === "overview" && failed && (
+        <EmptyState>{t("co.partial")}</EmptyState>
+      )}
       {/* What needs a person, before anything that merely reports state. It is
           assembled from sections the page already read — open tasks, the
           calendar, what changed since the last visit, the suggestions — put in
@@ -2033,10 +2095,8 @@ function CompanyPage({
           overlay={overlay}
           loading={loading}
           failed={failed}
-          taskUpdate={taskUpdate}
-          onOpenTask={openTask}
-          onCompose={setReplyToActivityId}
-          onLogTask={() => setTaskFormOpen(true)}
+          onCompose={(id) => setComposing({ kind: "reply", id })}
+          onDraftTo={(id) => setComposing({ kind: "account", id })}
           onOpenRecord={receipt.open}
         />
       )}
@@ -2056,41 +2116,25 @@ function CompanyPage({
       {/* The composer, anchored on the message a draft_reply suggestion named.
           It is the same modal the timeline's own Reply opens — the advice
           shortcuts to it rather than inventing a second way to answer. */}
-      {replyToActivityId && (
-        <ComposeModal
-          activityId={replyToActivityId}
-          entityType="organization"
-          entityId={org.id}
-          kind="email"
-          open
-          onClose={() => setReplyToActivityId(null)}
+      {composing && (
+        <AccountComposer
+          anchor={composing}
+          orgId={org.id}
+          onClose={() => setComposing(null)}
         />
       )}
-      {taskFormOpen && (
-        <LogActivityAction
-          entityType="organization"
-          entityId={org.id}
-          initialKind="task"
-          openOnMount
-          onClose={() => setTaskFormOpen(false)}
-        />
-      )}
-      {/* The People tab gives the account team the whole middle column. The
-          rail's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
-      {/* Asking sits UNDER the account's own story: it is the tool for when the
-          page did not already answer the question. It belongs to the account
-          rather than to its history, so it stays on the overview instead of
-          following the chronology onto its own tab. */}
+      {/* The People tab gives the account team the whole middle column, with
+          room for the title and the last exchange beside each name. The rail's
+          copy stands down while it is open — the same roster twice, side by
+          side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
-      {openTaskId && (
-        <TaskDetailModal
-          activityId={openTaskId}
-          onClose={() => setOpenTaskId(null)}
-          update={taskUpdate}
-        />
+      {/* Files get the whole column on their own tab, which is what the mockup
+          gives them. The grid keeps its compact card for the reader who only
+          wants to know whether there IS paperwork. */}
+      {!overlay && tab === "documents" && (
+        <CompanyDocumentsCard orgId={org.id} />
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
           Partner put a panel from one tab on top of another, and a reader who
@@ -2144,20 +2188,18 @@ function CompanyPage({
   );
 }
 
-// The overview's own stack: what needs a person, then what the account looks
-// like, then the open commitments in full. Extracted from CompanyPage because
-// each section was its own `tab === "overview" && view &&` branch there, and the
-// page had become a list of conditions rather than a layout.
+// The overview's own stack: what needs a person today, then what the account
+// looks like. Extracted from CompanyPage because each section was its own
+// `tab === "overview" && view &&` branch there, and the page had become a list
+// of conditions rather than a layout.
 function CompanyOverviewStack({
   org,
   view,
   overlay,
   loading,
   failed,
-  taskUpdate,
-  onOpenTask,
   onCompose,
-  onLogTask,
+  onDraftTo,
   onOpenRecord,
 }: Readonly<{
   org: Organization;
@@ -2165,10 +2207,8 @@ function CompanyOverviewStack({
   overlay: boolean;
   loading: boolean;
   failed: boolean;
-  taskUpdate: ReturnType<typeof useTaskUpdate>;
-  onOpenTask: (step: { activity_id: string }) => void;
   onCompose: (activityId: string) => void;
-  onLogTask: () => void;
+  onDraftTo: (personId: string) => void;
   // Where a cited chip leads. Owned by the page, because the grid below this
   // stack cites the same records and two owners would mean two receipts open
   // over each other.
@@ -2183,25 +2223,12 @@ function CompanyOverviewStack({
         loading={loading}
         failed={failed}
         onPrepareMeeting={onCompose}
+        onDraftTo={onDraftTo}
       />
-      {/* Then what the account looks like right now, in its own words and
-          ours. These three read the same evidence and cite it the same way, so
-          they lead the overview together — the grid of business cards below
-          them belongs to the record and renders on every tab. */}
-      {view && (
-        <AccountBrief
-          orgId={org.id}
-          view={view}
-          enabled={!overlay}
-          onOpenRecord={onOpenRecord}
-          onPerform={(action) =>
-            performSuggestion(action, {
-              compose: onCompose,
-              logTask: onLogTask,
-            })
-          }
-        />
-      )}
+      {/* Then what the account looks like, in its own words and ours. The two
+          read the same evidence and cite it the same way, so they lead the
+          overview together — the grid of business cards below them belongs to
+          the record and renders on every tab. */}
       <DossierPanel
         orgId={org.id}
         enabled={!overlay}
@@ -2212,23 +2239,6 @@ function CompanyOverviewStack({
         enabled={!overlay}
         onOpenRecord={onOpenRecord}
       />
-      {/* The open commitments in full, then the tool for when the page did not
-          answer the question. Neither is a card about the account — one is a
-          work list and one is a prompt — so neither belongs in the grid. */}
-      {view && (
-        <NextSteps
-          view={view}
-          onOpenTask={onOpenTask}
-          renderAction={(step) => (
-            <TaskQuickActions
-              activityId={step.activity_id}
-              dueAt={step.due_at}
-              update={taskUpdate}
-            />
-          )}
-        />
-      )}
-      <AssistantPanel orgId={org.id} enabled onOpenRecord={onOpenRecord} />
     </>
   );
 }
@@ -2299,14 +2309,14 @@ function CompanyBusinessGrid({
           Beside the deals card because the two answer the same question at
           different depths. */}
       <CompanyCommercialCard view={view} />
-      <HealthCard health={view?.health} />
       {/* The money, next to the pipeline it belongs beside. Absent entirely on
           an account we have never billed — an empty finance card on a target
           is a question nobody asked. */}
       <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
-      <SignalsCard orgId={org.id} />
-      {/* Who carries the account, and the paperwork behind it. */}
-      <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
+      {/* The paperwork behind the account. Health, the roster and the signals
+          are the RAIL's — they describe the relationship rather than the
+          business, and a card in both columns is a fact a reader has to
+          reconcile. */}
       <CompanyDocumentsCard orgId={org.id} />
       {/* How the account is FILED. It stays folded — this is our own
           bookkeeping rather than anything about the company — but it stays in
@@ -2322,33 +2332,6 @@ function CompanyBusinessGrid({
       </Disclosure>
     </aside>
   );
-}
-
-// performSuggestion carries out the advice the server named.
-//
-// It routes rather than acts: each kind opens the governed surface a rep would
-// have reached for anyway, prefilled from the evidence the rule fired on.
-// Nothing here writes, and nothing is staged — the card advises, the surface
-// it opens is where the human decides.
-//
-// draft_reply and add_task both land on the account's own timeline surfaces,
-// which is why the page owns this handler rather than the card: the composer
-// and the log-activity form live here.
-function performSuggestion(
-  action: SuggestionAction,
-  open: { compose: (activityId: string) => void; logTask: () => void },
-) {
-  if (action.kind === "open_deal" && action.deal_id) {
-    openCitation("deal", action.deal_id);
-    return;
-  }
-  if (action.kind === "draft_reply" && action.activity_id) {
-    open.compose(action.activity_id);
-    return;
-  }
-  if (action.kind === "add_task") {
-    open.logTask();
-  }
 }
 
 // openCitation routes a cited record to its own screen. The brief, the

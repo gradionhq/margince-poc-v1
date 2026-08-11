@@ -33,7 +33,7 @@ const slippingScanLimit = 50
 // slippingLister serves the formulas-§8 candidate set: stalled open
 // deals plus open deals whose expected close date is already past.
 func slippingLister(pool *pgxpool.Pool) agents.SlippingLister {
-	store := deals.NewStore(pool)
+	store := deals.NewStore(pool, DealsInstallation())
 	return func(ctx context.Context) ([]agents.SlippingDeal, error) {
 		limit := slippingScanLimit
 		stalledOnly := true

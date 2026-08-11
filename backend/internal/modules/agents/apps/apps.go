@@ -6,12 +6,10 @@
 // (SEP-1865).
 //
 // WHY IT IS A SUBPACKAGE. modules/agents grows one only when a named trigger
-// fires, and two fire here. These are static ASSETS in three other languages —
-// HTML, CSS, JavaScript — embedded rather than written in Go, and a
-// `go:embed` directive binds a package to a directory layout, so they need a
-// directory of their own. And the sweep that holds them to their own security
-// claims reads the asset bytes, which is a different kind of test from
-// everything else in the parent package.
+// fires, and two fire here. This package owns an outbound HTTP client, an
+// admission check and an availability state machine — a concern of its own, with
+// its own failure modes — and it embeds the shared admission vocabulary, which a
+// `go:embed` directive binds to a directory layout.
 //
 // WHAT A VIEW IS, in this tree's terms: a second RENDERER for an answer a tool
 // already gives in text. It owns no data path, holds no credential, and calls
@@ -20,33 +18,26 @@
 // principal — it composes documents, and the documents are the same for every
 // caller.
 //
-// WHY THE DOCUMENTS ARE SELF-CONTAINED. Each is assembled with its stylesheet
-// and its scripts INLINE, and declares an empty origin allowlist. A host builds
-// its content-security policy from that declaration and admits nothing the
+// WHY THE DOCUMENTS ARE SELF-CONTAINED. Each is built with its stylesheet and
+// its scripts INLINE, and declares an empty origin allowlist. A host builds its
+// content-security policy from that declaration and admits nothing the
 // declaration does not name, so "this view reaches no network" is a promise kept
-// by having no origin to name rather than by an allowlist someone maintains. The
-// day one is needed, it arrives in a diff beside the reason for it — and
-// appsfitness_test.go fails the build if an asset reaches off-origin without one.
+// by having no origin to name rather than by an allowlist someone maintains.
+//
+// WHERE THE DOCUMENTS COME FROM. They are authored in frontend/src/mcp-apps and
+// served by the web tier as one fully-inlined file each; this package FETCHES
+// them over HTTP (fetch.go), admits them (validate.go) and holds them (hold.go).
+// Nothing here is embedded, which is why availability is a runtime state this
+// package has to model rather than a property of the binary.
 package apps
 
 import (
 	"context"
-	"embed"
-	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
-
-// assets holds the view sources. They are embedded rather than read from disk so
-// a deployed binary carries its own views: a document fetched from a path at
-// runtime is a document that can differ from the one this build was reviewed
-// with.
-//
-//go:embed bridge.js app.css accountbrief.js relationshipmap.js
-var assets embed.FS
 
 // The URIs the tools name. They are exported because a tool's declaration and
 // the document that answers it are two halves of one promise, and the only way
@@ -58,21 +49,33 @@ const (
 	AccountBriefURI = "ui://margince/account-brief.html"
 	// RelationshipMapURI renders who_knows's colleagues.
 	RelationshipMapURI = "ui://margince/relationship-map.html"
+	// CommitmentsURI renders review_commitments's open promises.
+	CommitmentsURI = "ui://margince/commitments.html"
+	// HandoffURI renders prepare_handoff's briefing and its gaps.
+	HandoffURI = "ui://margince/handoff.html"
+	// PipelineReviewURI renders whats_slipping_this_week's ranked deals.
+	//
+	// It registers NO tool of its own. A `render_*` name on this surface is a
+	// document hung off a tool that already answers, not a second verb — the
+	// two that shipped before it are the same, and a tool here would cost a
+	// listing slot and an admission surface to display an answer the caller
+	// already has.
+	PipelineReviewURI = "ui://margince/pipeline-review.html"
 )
 
-// view is one published document before it is assembled: its identity, and the
-// script that renders it.
+// view is one published document's identity. The document itself is not here:
+// it is fetched, admitted and held at run time, so this is the half that is a
+// constant of the build.
 type view struct {
 	uri         string
 	name        string
 	title       string
 	description string
-	// script is the per-view renderer, loaded after the shared bridge.
-	script string
 }
 
-// catalog is every view this surface serves. Adding one is an entry here plus
-// its script; nothing else in this package is per-view.
+// catalog bounds what this provider may ever publish. An entry is advertised
+// only once its document has been fetched and admitted, and the document's URL
+// is derived from the URI rather than listed beside it.
 var catalog = []view{
 	{
 		uri:  AccountBriefURI,
@@ -81,71 +84,48 @@ var catalog = []view{
 		// panel shows rather than naming the tool behind it.
 		title:       "Morning brief",
 		description: "The ranked brief queue, with the factor decomposition each item ranked on.",
-		script:      "accountbrief.js",
 	},
 	{
 		uri:         RelationshipMapURI,
 		name:        "relationship_map_view",
 		title:       "Who knows this contact",
 		description: "The colleagues who know a contact, warmest first, with the interactions behind each warmth band.",
-		script:      "relationshipmap.js",
+	},
+	{
+		uri:         CommitmentsURI,
+		name:        "commitments_view",
+		title:       "Open commitments",
+		description: "The promises still outstanding, oldest first, with who owes each one and how far past due it is.",
+	},
+	{
+		uri:         HandoffURI,
+		name:        "handoff_view",
+		title:       "Delivery handoff",
+		description: "What the delivery side is being given for one project, with each gap beside the fact it is about.",
+	},
+	{
+		uri:         PipelineReviewURI,
+		name:        "pipeline_review_view",
+		title:       "Pipeline review",
+		description: "The deals at risk this week, worst first, with the evidence each risk claim rests on.",
 	},
 }
 
-// Provider publishes the views over the resource seam. It holds the assembled
-// documents, built once at construction: a document is the same for every
-// caller, so assembling per read would be the same string work on every request
-// for no difference in the answer.
-type Provider struct {
-	published []mcp.Resource
-	documents map[string]string
-}
-
-// NewProvider assembles every view and returns the provider that serves them.
+// DeclaredViews is every view this build declares, as URI → the title its
+// document carries.
 //
-// It returns an error rather than panicking, and the error is worth having:
-// assembly reads embedded files, and a rename that misses one is a build that
-// compiles and serves a broken document. The caller is composition code, which
-// turns this into a refusal to start.
-func NewProvider() (*Provider, error) {
-	bridge, err := assets.ReadFile("bridge.js")
-	if err != nil {
-		return nil, fmt.Errorf("crmapps: reading the view bridge: %w", err)
-	}
-	style, err := assets.ReadFile("app.css")
-	if err != nil {
-		return nil, fmt.Errorf("crmapps: reading the view stylesheet: %w", err)
-	}
-	p := &Provider{
-		published: make([]mcp.Resource, 0, len(catalog)),
-		documents: make(map[string]string, len(catalog)),
-	}
+// It exists so a caller that has to stand in for the web tier — the
+// composition layer's sweeps do — can serve exactly what this build declares
+// rather than a list somebody keeps in step by hand. A hand-listed pair was
+// the shape here before, and a third view added to the catalog would have
+// left it quietly serving two: the sweep would still pass, over a deployment
+// missing the view it was added to check.
+func DeclaredViews() map[string]string {
+	out := make(map[string]string, len(catalog))
 	for _, v := range catalog {
-		script, err := assets.ReadFile(v.script)
-		if err != nil {
-			return nil, fmt.Errorf("crmapps: reading %s for %s: %w", v.script, v.uri, err)
-		}
-		p.published = append(p.published, describe(v))
-		p.documents[v.uri] = document(v.title, string(style), string(bridge), string(script))
+		out[v.uri] = v.title
 	}
-	return p, nil
-}
-
-// MustProvider is NewProvider for a composition root, which has nowhere to put
-// an error: the views are a constant of this binary — the same documents for
-// every process, every server and every caller — so a failure here is a build
-// that shipped with a renamed asset, not a condition an installation can be in.
-//
-// It exists BESIDE NewProvider rather than replacing it so the assembly stays
-// testable: a test asserts the error is nil and reads the documents, where a
-// panicking-only constructor could only be exercised by surviving it.
-func MustProvider() *Provider {
-	p, err := NewProvider()
-	if err != nil {
-		//craft:ignore panic-in-domain composition-time assembly of this binary's own embedded assets — a failure is a bad build, not a runtime state
-		panic("crmapps: " + err.Error())
-	}
-	return p
+	return out
 }
 
 // sandbox is the policy every view here declares, and the ONE place it is
@@ -181,51 +161,41 @@ func describe(v view) mcp.Resource {
 	}
 }
 
-// document assembles one view: the shared stylesheet and bridge, then the view's
-// own renderer, all inline.
+// Resources publishes the views this server is CURRENTLY HOLDING. It is the same
+// for every caller: a view is a document with no data in it, so there is nothing
+// here to narrow. The per-caller filter the resource surface applies on top still
+// runs, which is what keeps a passport without a read grant from being shown them.
 //
-// The title is the only interpolated value and it comes from the catalog above —
-// a constant in this package, never a record, never a caller. That is why this
-// composes with a format string rather than reaching for html/template: there is
-// no untrusted value here to escape. The untrusted values are the ones the HOST
-// pushes in at runtime, and they are handled where they arrive, by a bridge that
-// puts text on the page through textContent and never through markup.
-func document(title, style, bridge, script string) string {
-	var b strings.Builder
-	b.WriteString(`<!doctype html>` + "\n")
-	b.WriteString(`<html lang="en">` + "\n")
-	b.WriteString(`<meta charset="utf-8">` + "\n")
-	b.WriteString(`<meta name="viewport" content="width=device-width,initial-scale=1">` + "\n")
-	b.WriteString(`<title>` + title + `</title>` + "\n")
-	b.WriteString("<style>\n" + style + "\n</style>\n")
-	b.WriteString(`<body><main id="root"></main>` + "\n")
-	b.WriteString("<script>\n" + bridge + "\n</script>\n")
-	b.WriteString("<script>\n" + script + "\n</script>\n")
-	return b.String()
-}
-
-// Resources publishes the view catalog. It is the same for every caller: a view
-// is a document with no data in it, so there is nothing here to narrow. The
-// per-caller filter the resource surface applies on top still runs, which is
-// what keeps a passport without a read grant from being shown them.
+// A view that was never admitted is absent rather than advertised-and-broken: a
+// host is entitled to prefetch what it is told about, so naming a document this
+// deployment cannot serve is worse than naming none.
 func (p *Provider) Resources(context.Context) []mcp.Resource {
-	// A COPY, and the policy copied with it. The provider is a process-lifetime
-	// value shared by every caller, so handing out its own slice would let one
-	// caller's mutation change what every later host is told — including the
-	// sandbox policy, which is the one thing here that is a security decision.
-	out := make([]mcp.Resource, 0, len(p.published))
-	for _, r := range p.published {
-		r.UI = sandbox()
-		out = append(out, r)
+	// Built per call, and the policy built with it. The provider is a
+	// process-lifetime value shared by every caller, so handing out a retained
+	// slice would let one caller's mutation change what every later host is told
+	// — including the sandbox policy, which is the one security decision here.
+	// ONE load, and the whole answer derived from it. Asking per catalog entry
+	// would read the pointer once per view, so a refresh landing between two
+	// iterations could compose a listing out of two snapshots — advertising a
+	// pair no single immutable set ever contained, which is the exact property
+	// the snapshot exists to provide.
+	held := *p.held.Load()
+	out := make([]mcp.Resource, 0, len(held))
+	for _, v := range catalog {
+		if _, serving := held[v.uri]; serving {
+			out = append(out, describe(v))
+		}
 	}
 	return out
 }
 
-// ReadResource answers one assembled document, or the declared not-found for a
-// URI this provider does not serve — the same sentinel every other provider
-// answers, so the dispatcher's existence-hiding applies unchanged.
+// ReadResource answers one held document, or the declared not-found for a URI
+// this provider is not serving — the same sentinel every other provider answers,
+// so the dispatcher's existence-hiding applies unchanged. A view that failed to
+// arrive and a URI that was never published are answered identically, which is
+// the correct amount for a caller to learn.
 func (p *Provider) ReadResource(_ context.Context, uri string) (mcp.ResourceContents, error) {
-	text, served := p.documents[uri]
+	text, served := p.served(uri)
 	if !served {
 		return mcp.ResourceContents{}, apperrors.ErrNotFound
 	}

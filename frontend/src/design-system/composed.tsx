@@ -354,8 +354,10 @@ export function RecordView({
   badges,
   pulse,
   actions,
+  controls,
   rail,
   aside,
+  asideLabel,
   timeline,
   timelineGroups,
   onOpenThread,
@@ -381,12 +383,22 @@ export function RecordView({
   // The record's verbs, kept beside the identity rather than scattered
   // through the body.
   actions?: ReactNode;
+  // The record's standing — the values a reader changes in place rather than
+  // acts on: lifecycle, owner. Passing it moves the action row up beside them,
+  // which is the company page's layout; a record that passes none keeps the
+  // action row under the header.
+  controls?: ReactNode;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
+  // What the aside column IS, for a reader navigating by landmark. Defaults to
+  // the record's context; a page whose aside holds something else names it,
+  // because two regions with one name is a dead end for anyone moving between
+  // them.
+  asideLabel?: string;
   // The entries, or undefined when this view has NO timeline at all. The
   // distinction is the same one every card on a record page keeps: absent is
   // not empty. `[]` renders the section with its honest "nothing logged yet";
@@ -417,7 +429,9 @@ export function RecordView({
   const zones = zoneClass(Boolean(rail), Boolean(aside));
   return (
     <div>
-      <header className="record-head">
+      <header
+        className={controls ? "record-head record-head-wide" : "record-head"}
+      >
         <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
           <h1>{name}</h1>
@@ -429,8 +443,18 @@ export function RecordView({
           {pulse && <div className="record-pulse">{pulse}</div>}
         </div>
         {badges && <div className="record-badges">{badges}</div>}
+        {/* The record's standing and its verbs, stacked at the top right. Only
+            a caller that passes `controls` gets this column: every other
+            record keeps the action row under the header, which is where its
+            own layout puts it. */}
+        {controls && (
+          <div className="record-controls">
+            {controls}
+            {actions && <div className="record-actions">{actions}</div>}
+          </div>
+        )}
       </header>
-      {actions && <div className="record-actions">{actions}</div>}
+      {actions && !controls && <div className="record-actions">{actions}</div>}
       <div className={zones}>
         {rail && (
           <aside className="record-rail" aria-label={t("record.profile")}>
@@ -458,7 +482,10 @@ export function RecordView({
           )}
         </div>
         {aside && (
-          <aside className="record-aside" aria-label={t("record.business")}>
+          <aside
+            className="record-aside"
+            aria-label={asideLabel ?? t("record.context")}
+          >
             {aside}
           </aside>
         )}

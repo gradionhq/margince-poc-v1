@@ -17,9 +17,11 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
@@ -166,12 +168,41 @@ func TestAFailingProviderStopsTheWalkRatherThanBecomingANotFound(t *testing.T) {
 	}
 }
 
-// The composed view provider is what a hosted request actually reaches. Its
-// assembly panics on a bad build, so reaching this assertion at all is half of
-// it; the other half is that it publishes something, because an empty provider
-// panics nowhere and offers no host a view.
-func TestTheViewProviderAssemblesForThisBuild(t *testing.T) {
-	if len(appViews.Resources(context.Background())) == 0 {
-		t.Error("the composed view provider publishes nothing, so no host is ever offered a view")
+// A role that composed no view provider serves the surface exactly as it did
+// before any view existed — the same conditional wiring every other injected
+// capability takes, and the shape a worker and a connector-disabled api are both
+// in. Asserted because the alternative is a nil dereference on the first
+// resources/list rather than an absent capability.
+func TestARoleWithNoViewProviderComposesTheRestAndServesIt(t *testing.T) {
+	vocabulary := stubProvider{documents: map[string]string{"margince://schema/query": "{}"}}
+	composed := composeResources(mcpResourceProviders(vocabulary, nil)...)
+	if composed == nil {
+		t.Fatal("a role with no views composed no resource surface at all")
+	}
+	published := map[string]bool{}
+	for _, r := range composed.Resources(context.Background()) {
+		published[r.URI] = true
+	}
+	// The write vocabulary is the one document that is NOT conditional: it is
+	// composed from the contract alone, so no deployment can lack it and a role
+	// that dropped it would leave both write tools pointing at nothing.
+	want := []string{"margince://schema/query", agents.RecordFieldsURI}
+	if len(published) != len(want) {
+		t.Fatalf("the composed surface published %v, want exactly the two vocabularies %v", published, want)
+	}
+	for _, uri := range want {
+		if !published[uri] {
+			t.Fatalf("the composed surface published %v, which is missing %s", published, uri)
+		}
+	}
+	// Advertised is not served. The write vocabulary is real production code
+	// here — nothing about it needs a pool — so this role's surface is read
+	// through rather than taken on the strength of its catalogue.
+	contents, err := composed.ReadResource(context.Background(), agents.RecordFieldsURI)
+	if err != nil {
+		t.Fatalf("the write vocabulary is advertised but cannot be read: %v", err)
+	}
+	if !json.Valid([]byte(contents.Text)) {
+		t.Errorf("the write vocabulary served %q, which no client can parse", contents.Text)
 	}
 }

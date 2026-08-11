@@ -274,7 +274,7 @@ func (f fxRefresh) plan(ctx context.Context, current []deals.FxRateRow) (base st
 	if len(f.bootstrapCurrencies) == 0 {
 		return "", nil, nil
 	}
-	base, err = f.store.WorkspaceBaseCurrency(ctx)
+	base, err = f.store.BaseCurrency(ctx)
 	if err != nil {
 		return "", nil, fmt.Errorf("fx refresh: %w", err)
 	}
@@ -302,7 +302,7 @@ func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefresh
 
 func newFxRefreshWorker(pool *pgxpool.Pool, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {
 	return &fxRefreshWorker{refresh: fxRefresh{
-		store:               deals.NewStore(pool),
+		store:               deals.NewStore(pool, DealsInstallation()),
 		svc:                 approvals.NewService(pool),
 		fetcher:             webread.New(),
 		brain:               brain,

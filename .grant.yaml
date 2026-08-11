@@ -8,12 +8,14 @@ verbose: false # Enable verbose output (default: false)
 # tree (MIT-0, BlueOak-1.0.0, MPL-2.0, PostgreSQL) plus CC-BY-4.0 / Python-2.0 /
 # Unlicense (maintainer decision). BUSL-1.1 is Margince's own source license.
 #
-# PostgreSQL is the license of github.com/jackc/pgerrcode, which the pgx family
-# brings in. It is OSI-approved and permissive — the same "do what you like,
-# keep the notice, no warranty" shape as BSD-2-Clause and ISC above, which is
-# why it belongs in this list rather than in ignore-packages: this dependency IS
-# linked into the shipped product, and the ignore list is for things that only
-# ever run in CI.
+# PostgreSQL is here for github.com/jackc/pgerrcode, which the pgx family brings
+# in and which IS linked into the shipped product. It is an OSI-approved
+# permissive license of the same shape as the BSD-2-Clause and MIT entries above
+# — attribution and a warranty disclaimer, no reciprocal obligation — so it
+# reaches BUSL-1.1 source on the same terms they do. That is why it belongs in
+# `allow` rather than in ignore-packages, which is for things that only ever run
+# in CI. Admitting it is a maintainer decision, taken deliberately rather than to
+# clear a red build.
 allow:
   - Apache-2.0
   - MIT

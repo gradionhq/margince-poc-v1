@@ -23,8 +23,8 @@ type Handlers struct {
 }
 
 // NewHandlers binds the transport to the pool the mirror is read through.
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+func NewHandlers(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) Handlers {
+	return Handlers{store: NewStore(pool, baseCurrency)}
 }
 
 // GetOrganizationFinanceSummary implements

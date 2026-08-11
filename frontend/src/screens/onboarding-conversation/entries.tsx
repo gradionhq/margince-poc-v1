@@ -1,15 +1,11 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  ChevronDown,
-  CircleAlert,
-  CircleCheck,
-  CircleUserRound,
-  Clock,
-} from "lucide-react";
+import { ChevronDown, CircleAlert, CircleCheck, Clock } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Button } from "../../design-system/atoms";
+import { Avatar, Button } from "../../design-system/atoms";
+import { Logomark } from "../../design-system/logomark";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
+import { useMe } from "../common";
 import type {
   ConversationQuestion,
   OutcomeTone,
@@ -259,12 +255,15 @@ export function NarrationBubble({
       className="ob-conv-narration"
       data-finding-ids={entry.findingIds?.join(" ")}
     >
+      {/* The product's own mark, not a letter standing in for it. `role="img"`
+          with the name on the wrapper is what carries "Margince" to a screen
+          reader, since the mark itself is decorative geometry. */}
       <span
         className="ob-conv-speaker"
         role="img"
         aria-label={t("ob.ai.speakerName")}
       >
-        <span aria-hidden>{t("ob.ai.speaker")}</span>
+        <Logomark size={16} />
       </span>
       <p>
         {reveal ? <RevealText text={text} /> : text}
@@ -286,10 +285,17 @@ export function NarrationBubble({
 
 export function UserTurn({ entry }: Readonly<{ entry: UserEntry }>) {
   const t = useT();
+  // The same ["me"] cache entry the shell's own footer reads, so the reader's
+  // monogram in the transcript and their monogram at the rail's foot are the
+  // same chip rather than two ideas of who is signed in. An unresolved
+  // identity keeps the turn — the message is theirs whether or not the probe
+  // has landed — and the chip simply has no letter to show yet.
+  const me = useMe();
+  const name = me.data?.user.display_name ?? "";
   return (
     <div className="ob-conv-user">
       <p>{entry.i18nKey ? t(entry.i18nKey, entry.params) : entry.text}</p>
-      <CircleUserRound aria-hidden />
+      <Avatar name={name} tinted />
     </div>
   );
 }

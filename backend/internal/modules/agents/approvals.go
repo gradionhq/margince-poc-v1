@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -122,28 +123,61 @@ func ApprovalRedeemed(ctx context.Context) bool {
 	return ok && redeemed
 }
 
-// pinForWrite answers the version a released write must be conditioned on.
+// pinForWrite answers the version a write must be conditioned on, from the
+// three places a version is established — in the order of who established it.
 //
-// Redemption commits its OWN transaction and the handler then opens a fresh one,
-// so the skew check inside the redemption proves the row was at the approved
-// version when the approval was consumed — not that it still is when the effect
-// lands, and the agent controls both sides of that window (its own 🟢
-// update_record can commit in between). Carrying the pin into the write is what
-// moves the version compare inside the transaction that actually mutates. The
-// REST gate does the same thing by forwarding the pin as If-Match
-// (compose/agentgate.go); this is that fix on the MCP transport.
+// It answers for the tools that CALL it — the two deal moves and the project
+// phase advance — and not for every write on the surface: update_record passes
+// the caller's if_version straight through, so a redeemed retry there is not
+// carried by the released pin the way the REST door's If-Match forward carries
+// it. That asymmetry predates this function and is filed, not implied away.
 //
 // The CALLER's pin wins when it supplied one: it is bound into the diff_hash the
-// redemption verified, so it cannot disagree with what the human approved.
-func pinForWrite(ctx context.Context, callerPin *int64) *int64 {
+// redemption verified, so it cannot disagree with what the human approved. It
+// may not disagree with what the GATE read either, and that is CHECKED rather
+// than assumed. The caller controls this argument, so a version the gate never
+// saw is a version nothing proved — and a caller naming the version the racing
+// close will PRODUCE walks straight through the guard, because the store's
+// compare then passes on precisely the record the tier decision does not
+// describe. A disagreement answers skew rather than being silently overridden,
+// so a caller holding a stale version still learns that it is stale.
+//
+// The RELEASED pin comes next. Redemption commits its OWN transaction and the
+// handler then opens a fresh one, so the skew check inside the redemption proves
+// the row was at the approved version when the approval was consumed — not that
+// it still is when the effect lands, and the agent controls both sides of that
+// window (its own 🟢 update_record can commit in between). Carrying the pin into
+// the write moves the version compare inside the transaction that actually
+// mutates.
+//
+// The ADMITTED pin closes the same window on the auto-execute path, where there
+// is no approval to carry one. A dynamic tier is resolved by READING the record
+// — a deal move runs unattended only when the gate can prove BOTH endpoints of
+// the move open — and that read commits before the write just as a redemption
+// does. Without it a close landing in the window reopens a won deal at the 🟢
+// tier: the same race, one tier down.
+//
+// The REST gate does the same thing by forwarding the pin as If-Match
+// (compose/agentgate.go); this is that fix on the MCP transport.
+//
+//nolint:nilnil // no pin IS an answer here: a write with nothing to condition it on is the ordinary case for a static tier and an unapproved call, and a sentinel for it would make every call site branch on a condition none of them act on
+func pinForWrite(ctx context.Context, callerPin *int64) (*int64, error) {
+	admitted, gateRead := auth.AutoExecutePin(ctx)
 	if callerPin != nil {
-		return callerPin
+		if gateRead && *callerPin != admitted {
+			return nil, fmt.Errorf(
+				"if_version %d is not the version this record was read at (%d) — re-read it and retry: %w",
+				*callerPin, admitted, apperrors.ErrVersionSkew)
+		}
+		return callerPin, nil
 	}
-	released, pinned := ctx.Value(releasedPinKey{}).(int64)
-	if !pinned {
-		return nil
+	if released, pinned := ctx.Value(releasedPinKey{}).(int64); pinned {
+		return &released, nil
 	}
-	return &released
+	if gateRead {
+		return &admitted, nil
+	}
+	return nil, nil
 }
 
 // refuseStagingElsewhere refuses to stage a change whose target's authority

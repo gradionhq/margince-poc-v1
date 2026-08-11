@@ -60,8 +60,14 @@ func dispatcherServingAView(t *testing.T) *Dispatcher {
 	t.Helper()
 	registry := NewRegistry(nil, nil)
 	registry.Register(viewingTool{name: "read_something"})
-	return NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").
-		WithLogger(discardLog()).
+	d := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").
+		WithLogger(discardLog())
+	// The other half of the same promise, wired the way compose wires it: the
+	// document is not merely declared, it is one this server is HOLDING. Without
+	// it every assertion below would be about a tool naming a document nothing
+	// serves — which is the state the extension forbids.
+	d.viewHeld = func(uri string) bool { return uri == viewURI }
+	return d.
 		WithResources(stubResources{
 			published: []mcp.Resource{theView()},
 			contents: map[string]mcp.ResourceContents{
@@ -166,13 +172,18 @@ func TestTheAppExtensionIsAdvertisedOnlyToTheEraThatCanNegotiateIt(t *testing.T)
 	}
 }
 
-// The sandbox policy reaches the host on the LISTING, unconditionally. The
-// extension's premise is that a host may fetch and review a view before any
-// tool call, so a policy withheld until negotiation would leave a prefetching
-// host holding a document it has no rules for.
+// The sandbox policy reaches the host on the LISTING, on every view listed.
+// The extension's premise is that a host may fetch and review a view before
+// any tool call, so a policy withheld until the first call would leave a
+// prefetching host holding a document it has no rules for.
+//
+// Asked as an APP-DECLARING request, which is the only client this promise is
+// about: a client that declared it cannot render a view is not shown one at
+// all, so a policy on the document would be rules for something it will never
+// draw.
 func TestTheListingCarriesEveryViewsSandboxPolicy(t *testing.T) {
 	d := dispatcherServingAView(t)
-	body, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	body, err := json.Marshal(rpcRendering(t, d, "resources/list", "").Result)
 	if err != nil {
 		t.Fatalf("encoding resources/list: %v", err)
 	}
@@ -206,7 +217,7 @@ func TestTheListingCarriesEveryViewsSandboxPolicy(t *testing.T) {
 // surface is a policy that depends on the order it happened to ask in.
 func TestTheReadCarriesTheSamePolicyAsTheListing(t *testing.T) {
 	d := dispatcherServingAView(t)
-	read, err := json.Marshal(rpc(t, d, "resources/read", `{"uri":"`+viewURI+`"}`).Result)
+	read, err := json.Marshal(rpcRendering(t, d, "resources/read", `{"uri":"`+viewURI+`"}`).Result)
 	if err != nil {
 		t.Fatalf("encoding resources/read: %v", err)
 	}
@@ -273,5 +284,207 @@ func TestAViewTheCallerMayNotReadStaysInvisible(t *testing.T) {
 	answer := rpcAs(ctx, t, d, "resources/read", `{"uri":"`+viewURI+`"}`)
 	if answer.Error == nil || answer.Error.Code != resourceNotFound {
 		t.Errorf("reading a view outside the caller's scopes answered %+v, want the same not-found an unknown URI gets", answer.Error)
+	}
+}
+
+// secondViewURI is the document the second tool below names, so partial
+// availability can be driven: one view held, the other not.
+const secondViewURI = "ui://margince/other-view.html"
+
+type secondViewingTool struct{}
+
+func (secondViewingTool) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "read_something_else", Title: "Another tool with a view", Version: "v1",
+		Description:   "Answers something else, and can be rendered.",
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		UI:          &mcp.ToolUI{ResourceURI: secondViewURI},
+	}
+}
+
+func (secondViewingTool) Handle(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
+// listedNamed answers the listed entry for one tool, and whether it was listed
+// at all — the second half matters because the point of these two tests is that
+// a tool is NOT withdrawn when its view is missing.
+func listedNamed(listed []map[string]any, name string) (map[string]any, bool) {
+	for _, tool := range listed {
+		if tool[fieldName] == name {
+			return tool, true
+		}
+	}
+	return nil, false
+}
+
+// THE INVARIANT TWO REVIEW ROUNDS FOUND BROKEN. A tool's UI.ResourceURI is a
+// constant baked at registration, so a listing derived from the registry alone
+// names a view whose document may never have arrived — and a host is entitled to
+// prefetch what it is told about, which makes that a 404 and a panel that
+// silently never appears.
+//
+// Partial availability is the case that matters, and it is the one a single-view
+// test cannot see: one view missing must suppress exactly ONE tool's `_meta.ui`.
+func TestAToolWhoseViewIsNotHeldLosesItsUIMetaButKeepsAnswering(t *testing.T) {
+	registry := NewRegistry(nil, nil)
+	registry.Register(viewingTool{name: "read_something"})
+	registry.Register(secondViewingTool{})
+	d := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").WithLogger(discardLog())
+	// The first view arrived; the second did not.
+	d.viewHeld = func(uri string) bool { return uri == viewURI }
+
+	listed := d.toolList(agentHolding(principal.ScopeRead), framing{modern: true, apps: true})
+
+	held, listedAtAll := listedNamed(listed, "read_something")
+	if !listedAtAll {
+		t.Fatal("the tool whose view IS held was not listed at all")
+	}
+	if _, carried := held[fieldMeta]; !carried {
+		t.Error("the tool whose view is held carries no _meta.ui, so no host is told what renders it")
+	}
+
+	// The tool itself STAYS. A view is a second renderer for an answer this tool
+	// already gives in text, never its only door — withdrawing the tool would
+	// make the capability exist only where a document happened to load.
+	unheld, stillListed := listedNamed(listed, "read_something_else")
+	if !stillListed {
+		t.Fatal("a tool whose view is missing was withdrawn from the catalog; the answer it gives in text is " +
+			"the whole reason a view is allowed to be optional")
+	}
+	if _, carried := unheld[fieldMeta]; carried {
+		t.Errorf("a tool names a view this server is not serving: %v", unheld[fieldMeta])
+	}
+}
+
+// The same invariant stated over the whole surface rather than one pair, so a
+// tool added later cannot quietly reintroduce it.
+func TestNoToolNamesAViewTheServerDoesNotServe(t *testing.T) {
+	registry := NewRegistry(nil, nil)
+	registry.Register(viewingTool{name: "read_something"})
+	registry.Register(secondViewingTool{})
+	for _, tc := range []struct {
+		name string
+		held func(string) bool
+	}{
+		{"no view provider wired at all", nil},
+		{"a provider holding nothing", func(string) bool { return false }},
+		{"a provider holding one of two", func(uri string) bool { return uri == viewURI }},
+		{"a provider holding both", func(string) bool { return true }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").WithLogger(discardLog())
+			d.viewHeld = tc.held
+			listed := d.toolList(agentHolding(principal.ScopeRead), framing{modern: true, apps: true})
+			if len(listed) != 2 {
+				t.Fatalf("tools/list returned %d entries; a missing view must never withdraw a tool", len(listed))
+			}
+			for _, tool := range listed {
+				meta, carried := tool[fieldMeta]
+				if !carried {
+					continue
+				}
+				members, shaped := meta.(map[string]any)
+				if !shaped {
+					t.Fatalf("%v carries a _meta that is not an object: %#v", tool[fieldName], meta)
+				}
+				ui, declared := members[metaUIKey].(*toolUIWire)
+				if !declared {
+					t.Fatalf("%v carries a _meta.ui that is not a view declaration: %#v", tool[fieldName], members[metaUIKey])
+				}
+				named := ui.ResourceURI
+				if tc.held == nil || !tc.held(named) {
+					t.Errorf("%v names the view %q, which this server is not serving", tool[fieldName], named)
+				}
+			}
+		})
+	}
+}
+
+// The extension is advertised on the strength of a document that ARRIVED, not on
+// a declaration. A host that saw it advertised is entitled to expect a view to
+// prefetch, so a deployment whose views all failed must look exactly like one
+// that has none.
+func TestTheExtensionIsNotAdvertisedWhenNoViewIsHeld(t *testing.T) {
+	registry := NewRegistry(nil, nil)
+	registry.Register(viewingTool{name: "read_something"})
+	d := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").WithLogger(discardLog())
+	d.viewHeld = func(string) bool { return false }
+	if d.appsServed() {
+		t.Error("a server holding no view still advertises the App extension, so a host will prefetch a 404")
+	}
+}
+
+// rpcRendering is one request from a client that declared it can render a
+// view. The App members — the documents themselves and their policies — exist
+// for this client and no other.
+func rpcRendering(t *testing.T, d *Dispatcher, method, params string) rpcResponse {
+	t.Helper()
+	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method}
+	if params != "" {
+		req.Params = json.RawMessage(params)
+	}
+	return d.handle(agentHolding(principal.ScopeRead), req, framing{modern: true, apps: true})
+}
+
+// A client that did not declare the App extension is served the resource
+// surface exactly as it was before any view existed — which is the promise
+// apps.go's header makes, and which the tool listing kept while the document
+// catalogue did not.
+//
+// The two halves are asserted TOGETHER because the failure that matters is the
+// one where they disagree: a catalogue that hid a view while the read still
+// served it would let a client learn a document exists by asking for a URI it
+// was never shown.
+func TestAClientThatCannotRenderAViewIsNeitherShownOneNorServedOne(t *testing.T) {
+	d := dispatcherServingAView(t)
+
+	listed, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	if err != nil {
+		t.Fatalf("encoding resources/list: %v", err)
+	}
+	if strings.Contains(string(listed), viewURI) {
+		t.Errorf("the legacy era is advertised a view it has no way to declare for:\n%s", listed)
+	}
+
+	read := rpc(t, d, "resources/read", `{"uri":"`+viewURI+`"}`)
+	if read.Error == nil {
+		t.Fatalf("the legacy era read a view document: %v", read.Result)
+	}
+	if read.Error.Code != resourceNotFound {
+		t.Errorf("reading a withheld view answered %d, want %d — the same answer an "+
+			"unknown URI gets, or the refusal itself reports the document exists",
+			read.Error.Code, resourceNotFound)
+	}
+}
+
+// And an ORDINARY document is unaffected by the same filter. The gate is about
+// what a client can render, not about narrowing the catalogue in general — a
+// build that filtered everything would pass the assertions above for the wrong
+// reason.
+func TestAnOrdinaryDocumentIsStillServedToAClientWithNoViewSupport(t *testing.T) {
+	d := dispatcherServingAView(t).WithResources(stubResources{
+		published: []mcp.Resource{{
+			URI: "margince://schema/query", Name: "query_vocabulary", Title: "Vocabulary",
+			Description: "what you may ask", MIMEType: "application/json",
+			RequiredScope: principal.ScopeRead,
+		}},
+		contents: map[string]mcp.ResourceContents{
+			"margince://schema/query": {
+				URI: "margince://schema/query", MIMEType: "application/json", Text: `{}`,
+			},
+		},
+	})
+
+	listed, err := json.Marshal(rpc(t, d, "resources/list", "").Result)
+	if err != nil {
+		t.Fatalf("encoding resources/list: %v", err)
+	}
+	if !strings.Contains(string(listed), "margince://schema/query") {
+		t.Errorf("an ordinary document was withheld from a client with no view support:\n%s", listed)
+	}
+	if read := rpc(t, d, "resources/read", `{"uri":"margince://schema/query"}`); read.Error != nil {
+		t.Errorf("an ordinary document could not be read without declaring the App extension: %v", read.Error)
 	}
 }

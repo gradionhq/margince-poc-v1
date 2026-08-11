@@ -342,6 +342,7 @@ export const en = {
   "list.sortScore": "Score",
   "list.viewAll": "All",
   "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Highest score",
   "list.viewHot": "Hot",
   "list.overlayReadOnly":
     "Sorting and filters read through HubSpot — open it there",
@@ -586,10 +587,22 @@ export const en = {
   "co.chip.linkedin": "LinkedIn",
   "co.chip.employees": "{band} employees",
   "co.chip.rowLabel": "Company details",
+  "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 months",
   "co.strip.openInvoices": "Open invoices",
+  "co.strip.overdue": "Overdue",
+  "co.strip.paidAfterDue": "Median paid after due",
   "co.strip.financeUnknown": "—",
-  "co.strip.connectFinance": "Connect finance",
+  "co.strip.fin.noConnection": "Connect your accounting",
+  "co.strip.fin.unmapped": "Not matched to a customer yet",
+  "co.strip.fin.syncing": "Syncing…",
+  "co.strip.fin.withheld": "You may not see this account's finance",
+  "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
+  "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
+  "co.strip.fin.nothingBilled": "Nothing invoiced yet",
+  "co.strip.fin.tooFewSettled": "Too few settled invoices to say",
+  "co.strip.fin.error": "Could not be read",
+  "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",
   "co.strip.pricedPartly": "{priced} of {total} deals priced",
   "co.strip.expectedClose": "Expected close",
@@ -627,6 +640,7 @@ export const en = {
   "timeline.group.mayContinue": "may continue earlier",
   "tab.people": "People",
   "tab.timeline": "History",
+  "tab.documents": "Documents",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
@@ -638,6 +652,17 @@ export const en = {
   "co.brief.nature.assessment": "Our read",
   "co.brief.nature.recommendation": "Suggested",
   "co.health.title": "How it stands",
+  "co.health.dim.relationship": "Relationship",
+  "co.health.dim.commercial": "Commercial",
+  "co.health.dim.payment": "Payment",
+  "co.health.overall": "Overall",
+  "co.health.ratedOf": "from {rated} of 3",
+  "co.health.rating.atRisk": "At risk",
+  "co.health.rating.good": "Good",
+  "co.health.rating.strong": "Strong",
+  "co.health.payment.overdue": "Money is overdue right now.",
+  "co.health.payment.late": "Typically pays {days} days after due.",
+  "co.health.payment.onTime": "Pays on time.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
   "co.health.activeContacts": "{count} people here have ever interacted",
@@ -682,6 +707,8 @@ export const en = {
   "co.routeIn.band.unknown": "contact on file, no pattern yet",
   "record.profile": "Profile",
   "record.business": "Business",
+  "record.context": "Context",
+  "record.accountContext": "Account context",
   "co.pulse.strongestLead": "Way in",
   "co.pulse.strengthTail.one": "\u2014 the only contact here",
   "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
@@ -705,6 +732,7 @@ export const en = {
   "co.section.unavailable":
     "Could not be loaded — this may not be the whole picture",
   "finance.title": "Finance",
+  "finance.titleHistorical": "Finance · historical",
   "finance.none": "Nothing recorded.",
   "finance.noConnection":
     "No financial source connected — connect one to see what this customer has been invoiced and whether they pay on time",
@@ -719,6 +747,9 @@ export const en = {
   "finance.col.invoice": "Invoice",
   "finance.col.issued": "Issued",
   "finance.col.due": "Due",
+  "finance.col.paid": "Paid",
+  "finance.paidDaysLate": "{days} days late",
+  "finance.overdueDays": "{days} days overdue",
   "finance.col.amount": "Amount",
   "finance.col.status": "Status",
   "finance.unnumbered": "No number",
@@ -791,6 +822,10 @@ export const en = {
   "co.growthFit.reassess": "Assess it again",
   "co.growthFit.reassessing": "Assessing…",
   "co.growthFit.band.strong": "Strong fit",
+  "co.growthFit.dim.industryFit": "Industry fit",
+  "co.growthFit.dim.companySize": "Company size",
+  "co.growthFit.dim.transformationNeed": "Transformation need",
+  "co.growthFit.dim.access": "Access",
   "co.growthFit.band.moderate": "Moderate fit",
   "co.growthFit.band.weak": "Weak fit",
   "co.growthFit.band.unknown": "Not enough to judge",
@@ -1074,6 +1109,8 @@ export const en = {
   "co.tags.pick": "Tag name",
   "co.lists.add": "Add to list",
   "co.lists.pick": "List name",
+  "co.recent.title": "Recent activity",
+  "co.recent.empty": "Nothing logged with them yet.",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
   "co.timeline.filterKind": "Filter by type",
@@ -1436,6 +1473,7 @@ export const en = {
   "today.meeting.prepare": "Prepare meeting",
   "today.source.people": "the contacts",
   "today.source.signals": "the signals",
+  "today.source.activities": "what was said",
   "today.commitment.overdueAtLeast": "{count}+ overdue",
   "today.commitment.openAtLeast": "{count}+ open",
   "today.route.ofThoseShown": "of the contacts shown",
@@ -1445,6 +1483,7 @@ export const en = {
   "today.tile.commitment": "Next commitment",
   "today.tile.meeting": "Next meeting",
   "today.tile.route": "Best route",
+  "today.tile.lastInteraction": "Last meaningful interaction",
   "today.tile.opportunity": "Active opportunity",
   "today.tile.risk": "Risk",
   "today.commitment.overdueCount": "{count} overdue",
@@ -1458,8 +1497,6 @@ export const en = {
   "today.deal.count": "{count} open deals",
   "today.deal.mixedCurrency": "In different currencies — see the pipeline",
   "today.draft.to": "Draft follow-up to {name}",
-  "today.draft.notYet":
-    "Drafting from the account is not built yet — use Write email",
   "evidence.confirm": "Confirm",
   "evidence.correct": "Correct",
   "evidence.save": "Save",
@@ -1798,7 +1835,7 @@ export const en = {
   "ob.readTrustBody": "I save nothing until you confirm it.",
   "ob.coreIntroTitle": "First, I need to know your legal company.",
   "ob.coreIntroBody":
-    "I need its legal identity, address and VAT or registration details. Then I'll learn what you sell, who you serve, and how you win business.",
+    "I need its legal name, address and VAT or register number. Then I learn what you sell and to whom.",
   "ob.coreLegalKicker": "I start with legal identity",
   "ob.corePathLabel": "What I'll learn",
   "ob.corePathLegal": "Legal identity",
@@ -1807,24 +1844,24 @@ export const en = {
   "ob.coreReadingPage": "I'm reading",
   "ob.coreWebsiteTitle": "Which website should I read?",
   "ob.coreWebsiteBody":
-    "I'll find the legal notice first, then I’ll read your products, ideal customers, positioning and sales approach.",
+    "I read the legal notice first, then your products, customers and positioning.",
   "ob.corePreparing": "I'm preparing to read {host}",
   "ob.coreLegalReading": "I'm reading the legal identity on {host}",
   "ob.coreLegalReadingBody":
-    "I'm looking for the legal notice, registered organization, address and register or VAT/UID details. I leave anything unstated empty.",
+    "I look for the legal notice, address and register or VAT number. Unstated details stay empty.",
   "ob.coreBusinessReading": "I'm learning how the business works",
   "ob.coreBusinessReadingBody":
     "I'm connecting products, customers and positioning to the exact public text that supports them.",
   "ob.coreReady": "I found {count} cited company details",
   "ob.corePartial": "I found {count} useful details, with some gaps",
   "ob.coreReadyBody":
-    "I haven't saved anything yet. Please review the legal identity first, then the offer and ideal customer.",
+    "Nothing is saved yet. Review the legal identity first, then the offer and customer.",
   "ob.coreDeferredBody": "I'll resume this read automatically.",
   "ob.coreFailedBody":
-    "I couldn't reliably access or ground this website, so I stopped instead of guessing. You can tell me the same information yourself.",
+    "I could not read this site well enough, so I stopped instead of guessing. You can tell me yourself.",
   "ob.coreFindingsTitle": "What I found and can support",
   "ob.coreFindingsBody":
-    "I attach the public wording behind every value. If I couldn't verify a legal detail, I leave it empty.",
+    "Every value carries the public wording behind it. What I cannot verify, I leave empty.",
   "ob.ai.identity": "Hi, I'm Margince",
   "ob.ai.role": "Your company research AI",
   "ob.ai.speaker": "M",
@@ -1909,7 +1946,7 @@ export const en = {
   "ob.coverageDetails": "What I covered and couldn't read",
   "ob.legalFoundTitle": "Legal entities I found",
   "ob.legalFoundBody":
-    "I keep each legal block together: registered name, address and register or VAT/UID number. If the site names several entities, you'll choose yours in the review.",
+    "Each block keeps the registered name, address and register or VAT number. Pick yours in the review.",
   "ob.legalEntity": "Legal entity",
   "ob.confirmWebsite":
     "I grounded this in {count} public pages. Edit anything; untouched values keep their evidence.",
@@ -1924,7 +1961,7 @@ export const en = {
     "Untick anything that should not become company context — up to 100 facts can be selected.",
   "ob.nowUnderstands": "I now understand",
   "ob.contextReady":
-    "I can now use this context for relevant drafts, search, agents and Voice DNA — with provenance attached.",
+    "I can use this context for drafts, search, agents and Voice DNA, with sources attached.",
 
   "ob.s1.kick": "Step 2 of 5 · confirm",
   "ob.s1.title": "Review what I learned about your company",
@@ -2026,26 +2063,25 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
-    "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
+    "Your workspace knows your business and your voice. Connect your inbox and it fills itself.",
   "ob.s3.subNoVoice":
-    "Your workspace already knows your business. Connect your inbox next and it fills itself with your real people, companies, and deals.",
+    "Your workspace knows your business. Connect your inbox and it fills itself.",
   "ob.s3.cardProfile": "Business profile",
   "ob.s3.cardProfileBody":
-    "Confirmed and saved to your company page. Fields read from your site keep their source; the rest are in your own words.",
+    "Confirmed and saved to your company page. Fields read from your site keep their source.",
   "ob.s3.cardProfileSkippedBody":
-    "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
+    "Read from your site but not saved — you skipped the confirm step. Go back to confirm it.",
   "ob.s3.cardVoice": "Your writing voice",
   "ob.s3.cardVoiceBody":
     "Built from the corpus you just gave us. Drafts will sound like you from day one.",
   "ob.s3.cardVoiceSkippedBody":
-    "You skipped the voice step — drafts start in a neutral starter voice until you build yours. Two minutes, anytime, in Settings.",
+    "You skipped this step, so drafts use a neutral starter voice. Build yours anytime in Settings.",
   "ob.s3.cardPipeline": "Sales pipeline",
   "ob.s3.cardPipelineBody":
-    "The standard 7-stage B2B template, pre-tuned to your industry. Empty until you connect — then deals fill in from your mail.",
+    "The standard 7-stage B2B template, tuned to your industry. Empty until you connect your inbox.",
   "ob.s3.cardDraft": "A sample draft, in your voice",
   "ob.s3.cardDraftExample": "A sample draft",
   "ob.s3.cardDraftBody": "See it below.",
@@ -2055,7 +2091,7 @@ export const en = {
     "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
   "ob.s3.originLabel": "Where this pipeline comes from",
   "ob.s3.originBody":
-    "No magic — it's the standard B2B stage template, tuned to your industry from the Step-1 read. It's empty right now. When you connect your inbox, capture reads your sent mail and meetings, then proposes deals into these stages — each one evidenced and reversible. You approve what becomes a deal.",
+    "The standard B2B stage template, tuned to your industry from the read. Empty until you connect. You approve what becomes a deal.",
   "ob.s3.stillNothing":
     "Still nothing connected. You're in control of when that changes.",
 
@@ -2082,9 +2118,9 @@ export const en = {
   "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
-    "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
+    "Reads your mail, and sends only what you approve. You grant it on Google's own screen, and can disconnect any time.",
   "ob.s4.googleUnverified":
-    "If Google shows an “unverified app” notice, choose Advanced → Continue. Margince only ever reads your mail — it never sends.",
+    "If Google warns about an “unverified app”, choose Advanced → Continue. Nothing sends without your approval.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
@@ -2297,9 +2333,10 @@ export const en = {
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
-    "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
+    "Use an app password. We store it encrypted, and disconnecting deletes it.",
   "ob.s4.imapConnect": "Test and connect",
   "ob.s4.connecting": "Connecting securely…",
+  "ob.s4.accessToggle": "What access this gives",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
     "Your mail becomes contacts, companies and activities, captured automatically.",
@@ -2311,14 +2348,14 @@ export const en = {
   "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
   "ob.s4.capturedTitle": "Mailbox connected",
   "ob.s4.capturedBody":
-    "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
+    "Your CRM is building itself. New mail lands here as the first sweep runs, usually in minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.notNow": "Not now",
 
   "ob.conv.threadLabel": "Onboarding conversation",
   "ob.conv.welcome":
-    "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
+    "Hi, I am Margince. I set up your CRM from what already exists, and I show a source for everything.",
   "ob.conv.welcomeMember":
     "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
   "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
@@ -2358,7 +2395,7 @@ export const en = {
   "ob.conv.voice.continueDeferredStatus":
     "No action needed here — continue, and it finishes on its own.",
   "ob.conv.voice.collectAsk":
-    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too.",
+    "Send me things you wrote. Call transcripts work best; plain documents work too.",
   "ob.conv.voice.composer": "Paste the text you wrote here",
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
@@ -2367,11 +2404,11 @@ export const en = {
   "ob.conv.voice.fileEmpty":
     "There are no words in {name}, so nothing was counted.",
   "ob.conv.voice.reactionTranscript":
-    "Words kept: {kept} of {total}. Only your turns count, and spoken register is exactly what sharpens your voice.",
+    "Words kept: {kept} of {total}. Only your turns count; speech sharpens your voice most.",
   "ob.conv.voice.reactionDocument":
     "Words counted: {words}. Every word here is yours, so all of them count.",
   "ob.conv.voice.refusalUnattributed":
-    "That looks like a conversation, but I cannot tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+    "That looks like a conversation, but I cannot tell which words are yours, so I counted none.",
   "ob.conv.voice.refusalSpeaker":
     "I could not find that speaker in the transcript. Nothing was counted.",
   "ob.conv.voice.refusalUnsupported":
@@ -2385,7 +2422,7 @@ export const en = {
   "ob.conv.voice.buildFloor":
     "Own words so far: {words}. I need at least {min} before I can build.",
   "ob.conv.voice.buildNudge":
-    "I have enough to build. More material still helps: 4,000 or more words make your voice noticeably sharper.",
+    "I have enough to build. More helps: 4,000 words or more sharpen your voice noticeably.",
   "ob.conv.voice.buildChip": "Build my voice profile",
   "ob.conv.voice.retryBuild": "Try the build again",
   "ob.conv.voice.buildPollFailed":
@@ -2500,12 +2537,12 @@ export const en = {
   "ob.conv.scene.step": "Step {n} of {m} · {label}",
   "ob.conv.scene.detour": "A quick detour",
   "ob.conv.scene.decisionSub":
-    "Your site names more than one legal entity, and I will not guess which one signs your contracts: it decides what appears on every quote and invoice.",
+    "Your site names several legal entities. The one you pick goes on every quote and invoice.",
   "ob.conv.scene.continue": "Continue",
   "ob.conv.scene.candidates": "{count} candidates",
   "ob.conv.connect.sceneTitle": "Connect your accounts.",
   "ob.conv.connect.sceneSub":
-    "I build your contacts, companies and history out of what already exists in your inbox. No manual data entry, no CSV template.",
+    "I build your contacts, companies and history from what is already in your inbox.",
   "ob.conv.connect.mailboxTitle": "Your mailbox",
   "ob.conv.connect.mailboxHint":
     "Pick one. This is where your contacts, companies and history come from.",
@@ -2526,7 +2563,7 @@ export const en = {
   "ob.conv.connect.connectedCta": "connected",
   "ob.conv.connect.blockedCard":
     "You already picked a mailbox. Disconnect it in Settings to switch.",
-  "ob.conv.connect.guaranteesHeading": "What connecting actually does",
+  "ob.conv.connect.guaranteesToggle": "What connecting actually does",
   "ob.conv.connect.railPromise":
     "We only read, and nothing sends without your approval.",
   "ob.conv.connect.dialogHeadlineAccess": "{name} access needed",
@@ -2542,10 +2579,10 @@ export const en = {
     "Something went wrong loading your connection status. Try again before picking a provider.",
   "ob.conv.voice.sceneTitle": "Teach me how you write.",
   "ob.conv.voice.sceneSub":
-    "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",
-  "ob.conv.voice.heroKicker": "Why this step matters",
+    "This CRM drafts every email in your own words, and nothing sends until you approve it.",
   "ob.conv.voice.heroBody":
-    "It learns your tone, rhythm, and phrasing from your own writing, and trains on yours alone — never anyone else's.",
+    "It learns your tone, rhythm and phrasing from your own writing, and from nobody else's.",
+  "ob.conv.voice.whyToggle": "Why this matters",
   "ob.conv.voice.dropTitle": "Drop your writing here",
   "ob.conv.voice.dropSub":
     "Sent mail works best, because it shows how you write when you want something.",
@@ -2565,7 +2602,7 @@ export const en = {
   "ob.conv.voice.resultSub":
     "Read the sample first. If it lands, confirm. If it is off, add more sources and I rebuild.",
   "ob.conv.voice.resultSubNoSample":
-    "Your corpus is too small yet to hold out a sample draft. Here is what the build learned about how you write — add more sources for a sample.",
+    "Your corpus is too small for a sample draft. Here is what the build learned. Add more sources.",
   "ob.conv.voice.resultContinue": "That is my voice",
   "ob.conv.voice.sampleEyebrow": "Sample, not sent",
   "ob.conv.voice.sampleAnother": "Another scenario",
@@ -2611,13 +2648,13 @@ export const en = {
   "ob.conv.review.confirmFailed":
     "I could not save that yet: {detail} Fix it and accept again.",
   "ob.conv.review.confirmVersionSkew":
-    "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+    "Your review just picked up newer information. Have a look, then press Continue again.",
   "ob.conv.review.confirmVersionSkewStuck":
-    "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
+    "Nothing has changed yet, so Continue would fail again. Have another look, or try in a moment.",
   "ob.conv.review.confirmNotReady":
-    "This read has no draft to confirm yet, so Continue is on hold. Check again once it has finished, or start a fresh read.",
+    "This read has no draft to confirm yet. Check again when it finishes, or start a fresh read.",
   "ob.conv.review.confirmCheckFailed":
-    "This read was already confirmed, but I could not load the company it created. Check again in a moment.",
+    "This read is confirmed, but I could not load the company it created. Try again shortly.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
@@ -2643,7 +2680,7 @@ export const en = {
   "ob.conv.recap.corpus":
     "Your corpus already holds {words} of your own words.",
   "ob.conv.recap.readTerminal":
-    "Welcome back. I already finished reading {host}: {count} findings with sources. Your review is ready below.",
+    "Welcome back. I finished reading {host}: {count} findings with sources, ready below.",
   "ob.conv.recap.readReading":
     "Welcome back. I am still reading {host}. Pages so far: {pages}.",
   "ob.conv.recap.readFailed":
@@ -2655,6 +2692,7 @@ export const en = {
   "ob.conv.connect.skip": "Skip connecting for now",
   "ob.conv.linkedin.cardBody":
     "Turns your network into accounts and contacts, and flags it when a connection changes jobs.",
+  "ob.conv.linkedin.limitsToggle": "What Margince can and cannot see",
   "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
   "ob.conv.linkedin.scope1Rest":
     "name, position, company and the date you connected.",
@@ -2668,14 +2706,14 @@ export const en = {
   "ob.conv.linkedin.scope4Rest":
     "Connecting sends no invitations and no messages, ever.",
   "ob.conv.linkedin.neverContacts":
-    "Your connections do NOT become contacts — they exist only to answer one question: does anyone here already know someone at this company?",
+    "Your connections never become contacts. They answer one question: who here already knows them?",
   "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "So the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+    "So the network is attributed to you: “Anna knows them”, never “the company knows them”.",
   "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
   "ob.conv.linkedin.appPending":
-    "Heads up: our LinkedIn app is still awaiting approval, so no connections sync yet — this only records your consent and profile. Upload Connections.csv under Settings, which works today.",
+    "Our LinkedIn app is still awaiting approval, so nothing syncs yet. Upload Connections.csv in Settings.",
   "ob.conv.linkedin.skip": "Skip LinkedIn for now",
   "ob.conv.linkedin.connected":
     "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
@@ -2702,7 +2740,10 @@ export const en = {
   "ob.gate.title": "Hi {name}, I am the Margince AI.",
   "ob.gate.titleAnonymous": "I am the Margince AI.",
   "ob.gate.sub":
-    "Give me your website and I will read it: what you sell, who buys from you, the people behind it. You review everything before it is saved, and nothing goes out without your yes. About two minutes.",
+    "I read your site and draft your company profile. You approve before anything is saved. About two minutes.",
+  "ob.gate.trustToggle": "How this works",
+  "ob.gate.trustBody":
+    "I read only public pages. Nothing is saved until you confirm it, and nothing is ever sent without your approval.",
   "ob.gate.field": "Your website address",
   "ob.gate.placeholder": "yourcompany.com",
   "ob.gate.submit": "Read my site",
@@ -2720,7 +2761,7 @@ export const en = {
   // this says what is true and names both doors, without asking the reader to
   // fix anything.
   "ob.gate.readPaused":
-    "That read is paused for now. {detail} It resumes on its own — or give me another address, or enter the details yourself.",
+    "That read is paused. {detail} It resumes on its own — or give me another address, or type it in.",
 
   // --- the read theatre -------------------------------------------------
   // Volume made visible. The wire gives no page-count denominator, so every
@@ -2728,7 +2769,7 @@ export const en = {
   // end, because inventing the total would be inventing data.
   "ob.scan.title": "Reading {host}",
   "ob.scan.sub":
-    "I am going through the site now. Every fact keeps the page it came from, so you can check anything I claim.",
+    "Every fact keeps the page it came from, so you can check anything I claim.",
   "ob.scan.doneTitle": "Read {host}",
   "ob.scan.doneSub":
     "{facts} facts and {fields} profile fields, each with the page it came from. Opening your review.",
@@ -2749,6 +2790,13 @@ export const en = {
   "ob.scan.pageStatusFetched": "read",
   "ob.scan.pageStatusSkipped": "skipped: {reason}",
   "ob.scan.pageStatusFailed": "could not be read: {reason}",
+  "ob.scan.skipReason.robots": "the site asked me not to read it",
+  "ob.scan.skipReason.offDomain": "it lives on another domain",
+  "ob.scan.skipReason.pageCap":
+    "I had already read as many pages as one read allows",
+  "ob.scan.skipReason.byteCap":
+    "this read had already taken in as much text as it allows",
+  "ob.scan.skipReason.unreadable": "I could not read the page",
   "ob.scan.transparency": "Transparency",
   "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
   "ob.scan.costPending": "no model calls billed yet",
@@ -2855,7 +2903,7 @@ export const en = {
   "ob.payoff.body":
     "Everything in there is yours to correct, and every value still points at the page it came from.",
   "ob.payoff.defaults":
-    "Two defaults, both changeable in Settings → Autonomy: I prepare and wait for your confirmation, and I never overwrite a field you typed yourself.",
+    "I wait for your yes, and never overwrite what you typed. Both change in Settings → Autonomy.",
   "ob.payoff.seats":
     "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
   "ob.payoff.understood": "Understood",
@@ -2879,7 +2927,7 @@ export const en = {
   "ob.backread.estimateFailed":
     "I could not estimate that window: {detail} You can still start, or pick another.",
   "ob.backread.note":
-    "The backread is read-only. I import people, companies and activity, and I show you what I found before anything is written.",
+    "The backread only reads. You see every person and company I found before anything is written.",
   "ob.backread.start": "Connect and read",
   "ob.backread.startFailed":
     "I could not start the backread: {detail} Try again, or continue and start it later in Settings.",

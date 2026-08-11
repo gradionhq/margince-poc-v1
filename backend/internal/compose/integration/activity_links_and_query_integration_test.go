@@ -111,10 +111,11 @@ func TestListActivitiesDropsLinksToRecordsOutOfRowScope(t *testing.T) {
 var activityLinkRepPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"person":       {Read: true},
-		"organization": {Read: true},
-		"deal":         {Read: true},
-		"activity":     {Read: true},
+		"person":                {Read: true},
+		"organization":          {Read: true},
+		"deal":                  {Read: true},
+		"activity":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }

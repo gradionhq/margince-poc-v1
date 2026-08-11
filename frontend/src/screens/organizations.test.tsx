@@ -14,6 +14,8 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
+import { AssistantPanel } from "./assistant";
+import { AccountBrief } from "./company360";
 import {
   CompaniesScreen,
   CompanyScreen,
@@ -1618,12 +1620,27 @@ const stalledSuggestion = {
   evidence: [{ entity_type: "deal", entity_id: "d-1" }],
 };
 
+// The suggestion rows and the ask card are components of their own, mounted
+// here directly rather than through the company page, which renders neither.
+// This matters for the "the card is absent" cases below: asserted against a
+// page that never mounts one, they would hold no matter what the card did.
+function renderBriefFor(three60: unknown) {
+  render(
+    <AccountBrief
+      orgId="o-1"
+      view={three60 as never}
+      enabled
+      onOpenRecord={() => {}}
+      onPerform={() => {}}
+    />,
+  );
+}
+
 describe("CompanyScreen — next-step suggestions", () => {
   it("leads each suggestion with the reason the rule fired, and cites the record", async () => {
-    stubFetch(companyBackstop, {
-      org360: { ...org360, suggestions: [stalledSuggestion] },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = { ...org360, suggestions: [stalledSuggestion] };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1634,14 +1651,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   });
 
   it("names how many suggestions the card left out", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 3,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 3,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     // A truncated list with no count reads as "that is everything".
     await waitFor(() =>
@@ -1652,14 +1668,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when there is nothing left out", async () => {
     // Zero is the ordinary case, so the "N more" line must not render on it —
     // otherwise every card carries "0 more not shown here."
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: 0,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: 0,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1670,14 +1685,13 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("stays silent about what it left out when the count is absent", async () => {
     // Absent means the section was never computed. A "0 more" line would state a
     // fact about an account this read did not look at.
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: [stalledSuggestion],
-        suggestions_dropped: undefined,
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: [stalledSuggestion],
+      suggestions_dropped: undefined,
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1687,35 +1701,33 @@ describe("CompanyScreen — next-step suggestions", () => {
 
   it("says nothing at all when the account needs nothing", async () => {
     stubFetch(companyBackstop);
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor(org360);
 
-    await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
-    );
     // "No advice" is not something a rep acts on, so the card is absent
-    // rather than empty.
-    expect(screen.queryByText("Worth doing next")).toBeNull();
+    // rather than empty. Asserted against a MOUNTED brief: on a page that
+    // never renders one, this would hold no matter what the component did.
+    await waitFor(() =>
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
+    );
   });
 
   it("stays silent rather than claiming no advice when the section is withheld", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        suggestions: undefined,
-        sections_omitted: ["suggestions"],
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
+    const three60 = {
+      ...org360,
+      suggestions: undefined,
+      sections_omitted: ["suggestions"],
+    };
+    stubFetch(companyBackstop, { org360: three60 });
+    renderBriefFor(three60);
 
     await waitFor(() =>
-      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+      expect(screen.queryByText("Worth doing next")).toBeNull(),
     );
-    expect(screen.queryByText("Worth doing next")).toBeNull();
   });
 
-  it("dismisses by fingerprint, and re-reads the 360 rather than hiding the row itself", async () => {
+  it("dismisses by fingerprint and leaves the row for the server to remove", async () => {
     let dismissed: unknown;
-    const { urls } = stubFetch(
+    stubFetch(
       async (url, method, request) => {
         if (method === "POST" && url.includes("/suggestions/dismiss")) {
           dismissed = await request.json();
@@ -1725,7 +1737,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1733,11 +1745,11 @@ describe("CompanyScreen — next-step suggestions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Not now" }));
 
     await waitFor(() => expect(dismissed).toBeTruthy());
+    // The server decides what survives: the card sends the fingerprint and
+    // does NOT hide the row itself. Whether the surrounding page then re-reads
+    // the 360 is the page's business, and this suite mounts the card alone.
     expect(dismissed).toEqual({ fingerprint: "fp-stalled-1" });
-    // The server decides what survives: the row goes when the re-read says so.
-    await waitFor(() =>
-      expect(urls.filter((u) => u.endsWith("/360")).length).toBeGreaterThan(1),
-    );
+    expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy();
   });
 
   it("says a dismissal failed instead of leaving the click looking like a miss", async () => {
@@ -1750,7 +1762,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    render(<CompanyScreen id="o-1" />);
+    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1788,7 +1800,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1819,7 +1831,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1842,7 +1854,7 @@ describe("CompanyScreen — Ask Margince", () => {
       }
       return companyBackstop(url);
     });
-    render(<CompanyScreen id="o-1" />);
+    render(<AssistantPanel orgId="o-1" enabled onOpenRecord={() => {}} />);
 
     await waitFor(() =>
       expect(
@@ -1865,7 +1877,7 @@ describe("CompanyScreen — Ask Margince", () => {
 // both. Its cards moved into the grid, which is the obligation these cases
 // keep: a layout change must not become an availability change.
 describe("CompanyScreen — State D's one column and its card grid", () => {
-  it("gives the account's story the full width, with no rail and no aside", async () => {
+  it("puts the account's context beside the work, and no rail on the left", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
@@ -1873,30 +1885,87 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     await waitFor(() =>
       expect(container.querySelector(".co-grid")).toBeTruthy(),
     );
-    // No zone template at all: RecordView names one only when a rail or an
-    // aside is present, so the page cannot re-column under the reader when
-    // the composite read lands — there is no second column to arrive.
-    expect(container.querySelector(".record-zones")).toBeNull();
+    // Two columns, not three: the work and the context beside it. A LEFT rail
+    // would be a third place to look, and the mockups draw none.
+    expect(container.querySelector(".record-aside")).toBeTruthy();
+    expect(container.querySelector(".co-rail")).toBeTruthy();
     expect(container.querySelector(".record-rail")).toBeNull();
-    expect(container.querySelector(".record-aside")).toBeNull();
   });
 
-  // Every card the context column held is in the grid. Named individually
-  // rather than counted: a count passes on a grid that lost one card and
-  // grew another.
-  it("carries the business cards the context column used to hold", async () => {
+  // Every card is still ON the page, wherever it sits. Named individually
+  // rather than counted: a count passes on a layout that lost one card and
+  // grew another, and moving a card between columns must never be the way one
+  // disappears.
+  it("carries every business card across its two columns", async () => {
     stubFetch(companyBackstop, { org360 });
-    render(<CompanyScreen id="o-1" />);
+    const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
     const grid = await screen.findByRole("complementary", { name: "Business" });
-    for (const card of ["People", "Deals", "Signals", "Documents"]) {
+    // The business of the account: what is running, and the paperwork.
+    for (const card of ["Deals", "Documents"]) {
       expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
     }
     // Filing metadata stays folded, and stays in the grid: tags and lists are
     // governed 360 sections like the cards above them, so a withheld half has
     // to say so where the reader is looking for it.
     expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+
+    // The relationship around it moved to the rail rather than off the page.
+    const rail = container.querySelector(".co-rail");
+    expect(rail).toBeTruthy();
+    for (const card of ["People", "Signals"]) {
+      expect(rail?.textContent).toContain(card);
+    }
+  });
+
+  // The drawer opens INTO the rail's column. Both composers do — the header's
+  // Write-email and the one anchored on a message — so the rail stands down
+  // for either, and comes back when the drawer closes.
+  it("stands the rail down while a composer holds its column", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Write email" }));
+    await waitFor(() => expect(container.querySelector(".co-rail")).toBeNull());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(container.querySelector(".co-rail")).toBeTruthy(),
+    );
+  });
+
+  // A call or a note often carries no subject. Counting only the subjected
+  // rows would draw "nothing logged with them yet" on an account that has been
+  // called five times — a false statement about the account, made from a fact
+  // about a row.
+  it("counts every logged activity, not only the ones with a subject", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "call",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const rail = container.querySelector(".co-rail");
+    await waitFor(() => expect(rail?.textContent).toContain("Recent activity"));
+    expect(rail?.textContent).not.toContain("Nothing logged with them yet");
   });
 
   // None of the reference cards comes from the 360 — each runs its own read —
@@ -1958,7 +2027,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(
       screen.getByText(
         "This account has more activities than fit here. Only the most recent ones are listed.",
@@ -1987,7 +2058,9 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     render(<CompanyScreen id="o-1" />);
     await openHistory();
 
-    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getAllByText("Re: Lead Gen").length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText(/more activities than fit here/)).toBeNull();
   });
 });

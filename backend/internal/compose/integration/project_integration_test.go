@@ -443,9 +443,10 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true, Update: true, Delete: true},
-			"project":      {Read: true},
-			"person":       {Read: true, Update: true},
+			"organization":          {Read: true, Update: true, Delete: true},
+			"project":               {Read: true},
+			"person":                {Read: true, Update: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	})
@@ -489,9 +490,10 @@ func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true, Update: true, Delete: true},
-			"project":      {Read: true},
-			"person":       {Read: true, Update: true},
+			"organization":          {Read: true, Update: true, Delete: true},
+			"project":               {Read: true},
+			"person":                {Read: true, Update: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	})
@@ -544,9 +546,10 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 	attacker := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"activity": {Read: true, Update: true},
-			"deal":     {Read: true},
-			"person":   {Read: true},
+			"activity":              {Read: true, Update: true},
+			"deal":                  {Read: true},
+			"person":                {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	})

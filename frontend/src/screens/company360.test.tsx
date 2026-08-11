@@ -12,8 +12,15 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
-import { PeopleCard } from "./company360";
+import { taskWriteKeys } from "./activitykeys";
+import {
+  AccountBrief,
+  NextSteps,
+  PeopleCard,
+  type SuggestionAction,
+} from "./company360";
 import { CompanyScreen } from "./organizations";
+import { TaskQuickActions, useTaskUpdate } from "./taskactions";
 
 // The company view's honesty rules, which are the whole point of the
 // composite read:
@@ -103,7 +110,13 @@ let briefBody: unknown = EMPTY_BRIEF;
 // with no programme is the thing the tab gate removed.
 const partnerOrg = { ...org, relationship_types: ["partner"] };
 
-function stub(three60: unknown, status = 200, account: unknown = org) {
+function stub(
+  three60: unknown,
+  status = 200,
+  account: unknown = org,
+  finance: unknown = { organization_id: "o-1", state: "no_connection" },
+  financeStatus = 200,
+) {
   // The paths actually requested. A test proves the page did NOT refetch by
   // counting these rather than by trusting that it did not.
   const fetched: string[] = [];
@@ -114,6 +127,9 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
       fetched.push(pathname);
       if (pathname.endsWith("/360")) {
         return jsonResponse(three60, status);
+      }
+      if (pathname.endsWith("/finance-summary")) {
+        return jsonResponse(finance, financeStatus);
       }
       if (pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
@@ -211,6 +227,54 @@ function render(ui: ReactNode) {
 
 function renderCompany() {
   render(<CompanyScreen id="o-1" />);
+}
+
+// The brief and the open-task list are components of their own, mounted here
+// directly rather than through the company page: the page does not render
+// either, so reaching for them through it would assert nothing.
+function renderNextSteps(
+  three60: ReturnType<typeof view>,
+  onOpenTask?: (step: { activity_id: string }) => void,
+) {
+  render(<NextSteps view={three60 as never} onOpenTask={onOpenTask} />);
+}
+
+// NextSteps plus the per-row verbs, which the list takes as a render slot
+// rather than owning. Mounting the two together is what pins the pairing the
+// suite is about: a row offers Done always and Snooze only when there is a
+// date to move.
+function NextStepsWithVerbs({
+  three60,
+}: Readonly<{ three60: ReturnType<typeof view> }>) {
+  const update = useTaskUpdate(taskWriteKeys("organization", "o-1"));
+  return (
+    <NextSteps
+      view={three60 as never}
+      onOpenTask={() => {}}
+      renderAction={(step) => (
+        <TaskQuickActions
+          activityId={step.activity_id}
+          dueAt={step.due_at}
+          update={update}
+        />
+      )}
+    />
+  );
+}
+
+function renderBrief(
+  three60: ReturnType<typeof view>,
+  onPerform: (action: SuggestionAction) => void = () => {},
+) {
+  render(
+    <AccountBrief
+      orgId="o-1"
+      view={three60 as never}
+      enabled
+      onOpenRecord={() => {}}
+      onPerform={onPerform}
+    />,
+  );
 }
 
 describe("company view — withheld sections", () => {
@@ -491,19 +555,18 @@ describe("company view — overlay mode", () => {
 
 describe("company view — what changed since the last visit", () => {
   it("counts only the dimensions it was allowed to count", async () => {
-    stub(
-      view({
-        since_last_visit: {
-          baseline_at: "2026-05-30T09:00:00Z",
-          new_activities: 3,
-          // Null, not zero: the caller has no deal grant, so this dimension
-          // was not counted at all and must not read as "nothing moved".
-          deal_stage_moves: null,
-          pending_proposals: 2,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      since_last_visit: {
+        baseline_at: "2026-05-30T09:00:00Z",
+        new_activities: 3,
+        // Null, not zero: the caller has no deal grant, so this dimension
+        // was not counted at all and must not read as "nothing moved".
+        deal_stage_moves: null,
+        pending_proposals: 2,
+      },
+    });
+    stub(three60);
+    renderBrief(three60);
 
     await waitFor(() =>
       expect(
@@ -519,17 +582,16 @@ describe("company view — what changed since the last visit", () => {
   });
 
   it("greets a first visit as a first visit, not as nothing having happened", async () => {
-    stub(
-      view({
-        since_last_visit: {
-          baseline_at: null,
-          new_activities: 0,
-          deal_stage_moves: 0,
-          pending_proposals: 0,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      since_last_visit: {
+        baseline_at: null,
+        new_activities: 0,
+        deal_stage_moves: 0,
+        pending_proposals: 0,
+      },
+    });
+    stub(three60);
+    renderBrief(three60);
 
     await waitFor(() =>
       expect(
@@ -542,25 +604,24 @@ describe("company view — what changed since the last visit", () => {
 
 describe("company view — next steps", () => {
   it("marks an overdue task and names what it is linked to", async () => {
-    stub(
-      view({
-        next_steps: {
-          data: [
-            {
-              activity_id: "a-1",
-              subject: "Send the renewal paperwork",
-              due_at: "2026-05-01T09:00:00Z",
-              overdue: true,
-              linked_deal_id: null,
-              linked_person_id: null,
-              assignee_id: null,
-            },
-          ],
-          page: emptyPage,
-        },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      next_steps: {
+        data: [
+          {
+            activity_id: "a-1",
+            subject: "Send the renewal paperwork",
+            due_at: "2026-05-01T09:00:00Z",
+            overdue: true,
+            linked_deal_id: null,
+            linked_person_id: null,
+            assignee_id: null,
+          },
+        ],
+        page: emptyPage,
+      },
+    });
+    stub(three60);
+    renderNextSteps(three60);
 
     await waitFor(() =>
       expect(screen.getByText("Send the renewal paperwork")).toBeTruthy(),
@@ -699,35 +760,33 @@ describe("company view — the citations under a finding", () => {
   });
 
   it("collapses several sources of one unopenable kind into one counted chip", async () => {
-    stub(
-      view({
-        suggestions: [
-          suggestion([
-            { entity_type: "activity", entity_id: "a-1" },
-            { entity_type: "activity", entity_id: "a-2" },
-            { entity_type: "activity", entity_id: "a-3" },
-          ]),
-        ],
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        suggestion([
+          { entity_type: "activity", entity_id: "a-1" },
+          { entity_type: "activity", entity_id: "a-2" },
+          { entity_type: "activity", entity_id: "a-3" },
+        ]),
+      ],
+    });
+    stub(three60);
+    renderBrief(three60);
     // Not "activityactivityactivity": one chip that says how many.
     await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
     expect(screen.queryAllByText("activity")).toHaveLength(0);
   });
 
   it("counts one record cited twice as one source", async () => {
-    stub(
-      view({
-        suggestions: [
-          suggestion([
-            { entity_type: "activity", entity_id: "a-1" },
-            { entity_type: "activity", entity_id: "a-1" },
-          ]),
-        ],
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        suggestion([
+          { entity_type: "activity", entity_id: "a-1" },
+          { entity_type: "activity", entity_id: "a-1" },
+        ]),
+      ],
+    });
+    stub(three60);
+    renderBrief(three60);
     await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
     expect(screen.queryByText("2 activities")).toBeNull();
   });
@@ -796,8 +855,9 @@ describe("company view — an open task can be acted on", () => {
   };
 
   it("renders the subject as a way to open the task, with the two verbs beside it", async () => {
-    stub(view({ next_steps: { data: [step], page: emptyPage } }));
-    renderCompany();
+    const three60 = view({ next_steps: { data: [step], page: emptyPage } });
+    stub(three60);
+    render(<NextStepsWithVerbs three60={three60} />);
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Send the retrofit proposal" }),
@@ -808,12 +868,11 @@ describe("company view — an open task can be acted on", () => {
   });
 
   it("offers no snooze for a task with no date to move", async () => {
-    stub(
-      view({
-        next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
+    });
+    stub(three60);
+    render(<NextStepsWithVerbs three60={three60} />);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Done" })).toBeTruthy(),
     );
@@ -1251,7 +1310,7 @@ describe("company view — the KPI row never invents a figure", () => {
   });
 
   // Two cards saying "in conversation" in different words is one card's worth
-  // of information taking two of the four slots. On a live account the health
+  // of information taking two slots of six. On a live account the health
   // card reports the BALANCE of the exchange, which the engagement card does
   // not answer: they write and we do not reply, and we write into silence,
   // are both recent and are opposite problems.
@@ -1471,11 +1530,15 @@ describe("company view — the state strip", () => {
     expect(strip.textContent).toContain("1 stalled");
   });
 
+  // On a prospect: the customer row spends its six slots on money, and an
+  // open signal about a CUSTOMER is the rail's "Signals & risks" card. The
+  // invariant under test is the wording either way — the strip states what
+  // the conversation said rather than a rephrasing of it.
   it("states the worst thing standing open, in the words its producer wrote", async () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
           signal: {
@@ -1502,7 +1565,7 @@ describe("company view — the state strip", () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
           signal: null,
@@ -1520,11 +1583,13 @@ describe("company view — the state strip", () => {
     expect(within(strip).queryByText("Worth knowing")).toBeNull();
   });
 
+  // On a prospect, where the engagement slot lives: a customer's six slots are
+  // money and health.
   it("draws no engagement reading when the caller may not read the mail", async () => {
     stub(
       view({
         state_strip: {
-          account: { lifecycle: "customer", relationship_types: [] },
+          account: { lifecycle: "prospect", relationship_types: [] },
           engagement: null,
           commercial: null,
         },
@@ -1544,34 +1609,35 @@ describe("company view — the state strip", () => {
     expect(within(strip).queryByText("Whose move")).toBeNull();
     expect(within(strip).queryByText("Never contacted")).toBeNull();
     expect(within(strip).queryByText("Open work")).toBeNull();
-    expect(within(strip).getByText("Customer")).toBeTruthy();
+    // The standing slot still draws, so the absences above are the strip
+    // withholding a reading rather than the strip failing to render.
+    expect(within(strip).getByText("Prospect")).toBeTruthy();
   });
 });
 
 describe("company view — advice you can act on", () => {
   it("offers the action the server named, and none where it named none", async () => {
-    stub(
-      view({
-        suggestions: [
-          {
-            kind: "no_reply",
-            fingerprint: "f1",
-            reason: "You reached out 15 days ago and nobody has come back.",
-            evidence: [],
-            action: { kind: "draft_reply", activity_id: "a-1" },
-          },
-          {
-            kind: "no_next_step",
-            fingerprint: "f2",
-            reason: "2 open deal(s) here and no task saying what happens next.",
-            evidence: [],
-            action: null,
-          },
-        ],
-        suggestions_dropped: 0,
-      }),
-    );
-    renderCompany();
+    const three60 = view({
+      suggestions: [
+        {
+          kind: "no_reply",
+          fingerprint: "f1",
+          reason: "You reached out 15 days ago and nobody has come back.",
+          evidence: [],
+          action: { kind: "draft_reply", activity_id: "a-1" },
+        },
+        {
+          kind: "no_next_step",
+          fingerprint: "f2",
+          reason: "2 open deal(s) here and no task saying what happens next.",
+          evidence: [],
+          action: null,
+        },
+      ],
+      suggestions_dropped: 0,
+    });
+    stub(three60);
+    renderBrief(three60);
     await screen.findByText(/nobody has come back/);
 
     expect(screen.getByRole("button", { name: "Draft a reply" })).toBeTruthy();
@@ -1580,6 +1646,22 @@ describe("company view — advice you can act on", () => {
     expect(
       screen.queryByRole("button", { name: "Add the next step" }),
     ).toBeNull();
+  });
+});
+
+describe("company view — where the record came from", () => {
+  // Which of a human, an agent, a connector or nobody wrote a record is the
+  // governance reading the provenance tag exists for. Suppressing the reader's
+  // OWN hand-typed entry — the one case that reports nothing they do not
+  // already know — must not suppress the rest.
+  it("names an agent that wrote the record", async () => {
+    stub(view(), 200, { ...org, captured_by: "agent:enricher" });
+    renderCompany();
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/enricher/).length).toBeGreaterThan(0),
+    );
   });
 });
 
@@ -1606,23 +1688,36 @@ describe("company view — the account's own tabs", () => {
     await screen.findByRole("complementary", { name: "Business" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
-    // The rail's card is a summary; the tab is the roster. Both read the same
-    // section of the one composite read, so they cannot disagree.
-    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
-      1,
-    );
+    // ONCE. The tab is the roster in full, and the rail's summary of it stands
+    // down while the tab is open — the same names twice, side by side, is a
+    // list a reader has to reconcile with itself.
+    expect(screen.getAllByText("Christian Hagemeyer")).toHaveLength(1);
   });
 
-  it("keeps Ask on the overview rather than following the history", async () => {
+  it("offers the four tabs the record page has, in order", async () => {
     stub(view());
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // Asking is a tool for when the page did not answer the question. It
-    // belongs to the account, not to its chronology.
-    expect(screen.getByText("Ask Margince")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.queryByText("Ask Margince")).toBeNull();
+    // An account with no partner programme still gets all four: Partner is
+    // the only conditional tab.
+    for (const name of ["Overview", "People", "History", "Documents"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
+  });
+
+  it("gives Documents its own tab body", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Documents" }));
+    // The grid keeps a compact card for "is there paperwork at all"; the tab
+    // is the files themselves, so the heading appears twice once it is open.
+    await waitFor(() =>
+      expect(screen.getAllByText("Documents").length).toBeGreaterThan(1),
+    );
   });
 });
 
@@ -1706,5 +1801,289 @@ describe("company view — the account's primary actions", () => {
     // only open a form that fails on save.
     expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
+  });
+});
+
+// The three readings the six-slot row added: a lifetime total beside the
+// trailing one, what is overdue, and how late they usually pay.
+describe("a customer's KPI row reports what the account is worth", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const connected = (extra: Record<string, unknown>) => ({
+    organization_id: "o-1",
+    state: "connected",
+    provider: "offline_demo",
+    ...extra,
+  });
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  // The two windows are different figures and must not be collapsed into one.
+  // A lifetime total equal to the trailing one on an account with older
+  // invoices would mean the wider window silently used the narrow bound.
+  it("draws the lifetime total beside the trailing year", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    // Abbreviated: six slots share the strip's width, and a full euro amount
+    // wraps mid-number there. The finance card renders the exact figure.
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
+  });
+
+  it("gives what is overdue its own slot", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        open_balance: { amount_minor: 3418000, currency: "EUR" },
+        overdue: { amount_minor: 1243000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/34(\.2)?K/i)).toBeTruthy();
+  });
+
+  // "-4 days after due" is a puzzle. Paying four days EARLY is the reading,
+  // and it is the opposite fact.
+  it("reads a negative median as paying early, never as a minus sign", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({ median_days_after_due: -4 }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Typically 4 days early")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/-4/);
+  });
+
+  it("reads a positive median as paying late", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({ median_days_after_due: 12 }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(
+      within(region).getByText("Typically 12 days after due"),
+    ).toBeTruthy();
+  });
+
+  // The sample floor is not "nothing invoiced". Saying so beside a lifetime
+  // total puts two slots of one row in contradiction, and the wrong one states
+  // a fact about the account.
+  it("says too few settled invoices rather than nothing invoiced", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      connected({
+        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      }),
+    );
+    renderCompany();
+    const region = await strip();
+    // The finance summary is its own query: the slots render "Loading…" on the
+    // first pass, so the assertions below wait for the settled figure.
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    // Scoped to the median's own slot: the money slots beside it carry no
+    // figure either, and "Nothing invoiced yet" is the RIGHT reason for those.
+    // The defect this pins is the median borrowing their wording.
+    const slot = within(region)
+      .getByText("Median paid after due")
+      .closest("section");
+    expect(slot).not.toBeNull();
+    expect(slot?.textContent).toMatch(/Too few settled invoices to say/);
+    expect(slot?.textContent).not.toMatch(/Nothing invoiced yet/);
+  });
+});
+
+// The KPI row's money slot has six reasons it can hold no figure, and they do
+// not share a fix. Telling a reader to connect an accounting system they have
+// already connected sends them to a settings page to change nothing.
+describe("the money slot says WHY it has no figure", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  it("names the setup step only when there is no source", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "no_connection",
+    });
+    renderCompany();
+    await strip();
+    expect(
+      (await screen.findAllByText("Connect your accounting")).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("says the source is not matched rather than not connected", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(
+      (await screen.findAllByText("Not matched to a customer yet")).length,
+    ).toBeGreaterThan(0);
+    // The wrong advice, specifically: this reader HAS connected a source.
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("says a first sync is running rather than that nothing is connected", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "syncing",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect((await screen.findAllByText("Syncing…")).length).toBeGreaterThan(0);
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  // A denial and a setup gap are opposite problems. Sending a reader whose
+  // role cannot see finance to a settings page asks them to fix the one thing
+  // they have no way to fix from there.
+  it("says the reading is withheld rather than telling them to set it up", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      {
+        type: "about:blank",
+        title: "Forbidden",
+        status: 403,
+        code: "permission_denied",
+      },
+      403,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(
+      (await screen.findAllByText("You may not see this account's finance"))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("says the read failed rather than that nothing is connected", async () => {
+    stub(
+      view({ state_strip: customer }),
+      200,
+      org,
+      { type: "about:blank", title: "Server error", status: 500 },
+      500,
+    );
+    renderCompany();
+    const region = await strip();
+    expect(
+      (await screen.findAllByText("Could not be read")).length,
+    ).toBeGreaterThan(0);
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  // `stale` and `error` are opposite claims about whether anything is broken.
+  // The contract: stale is a sync that SUCCEEDED long enough ago that the date
+  // matters; error is the last good answer after an attempt that FAILED.
+  it("calls a stale figure old, not failed", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "stale",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/Last synced a while ago/)).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/sync failed/)).toBeNull();
+  });
+
+  // Without this the last good figure renders bare, reading as current.
+  it("marks a figure from a failed sync as possibly not current", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "error",
+      provider: "offline_demo",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/Last sync failed/)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  // A live, mapped source that produced no figure is not a missing setup.
+  it("says nothing was invoiced rather than telling them to connect", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    expect(
+      (await screen.findAllByText("Nothing invoiced yet")).length,
+    ).toBeGreaterThan(0);
+    expect(region.textContent).not.toMatch(/Connect your accounting/);
+  });
+
+  it("names the source beside a real figure", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "datev",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+    });
+    renderCompany();
+    await strip();
+    expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("datev")).length).toBeGreaterThan(0);
   });
 });
