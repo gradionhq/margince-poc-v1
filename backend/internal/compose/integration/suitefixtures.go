@@ -44,11 +44,16 @@ func ExtractStagedApprovalID(t *testing.T, detail string) string {
 	if i < 0 {
 		t.Fatalf("no staged approval reference in %q", detail)
 	}
-	rest := detail[i+len(marker):]
-	if j := strings.IndexByte(rest, ' '); j > 0 {
-		rest = rest[:j]
+	// Fields rather than a scan to the next space, so a marker with nothing after
+	// it fails HERE. Returning the empty remainder would send the caller to
+	// /v1/approvals/ with no id, and the 404 that came back would be reported as
+	// the approval not existing — which is the one thing the suite is trying to
+	// find out.
+	rest := strings.Fields(detail[i+len(marker):])
+	if len(rest) == 0 {
+		t.Fatalf("the staged-approval reference in %q names no id", detail)
 	}
-	return rest
+	return rest[0]
 }
 
 // GoBDFloorPack is the six-calendar-year correspondence floor the retention
