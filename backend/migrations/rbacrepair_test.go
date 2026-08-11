@@ -64,7 +64,8 @@ var guardedBackfillPattern = regexp.MustCompile(
 		`permissions,\s*'\{objects,(\w+)\}',\s*` +
 		`'([^']*)'::jsonb\)\s*` +
 		`WHERE \(is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
-		`AND NOT permissions->'objects' \? '(\w+)'\)`)
+		`AND NOT permissions->'objects' \? '(\w+)'\)` +
+		predicateEnd)
 
 // The same write one level deeper: a single VERB added to an object document the
 // role already carries, and therefore guarded on the object's PRESENCE rather
@@ -81,7 +82,21 @@ var guardedVerbGrantPattern = regexp.MustCompile(
 		`permissions,\s*'\{objects,(\w+),(\w+)\}',\s*` +
 		`'([^']*)'::jsonb\)\s*` +
 		`WHERE \(?is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
-		`AND permissions->'objects' \? '(\w+)'`)
+		`AND permissions->'objects' \? '(\w+)'` +
+		predicateEnd)
+
+// predicateEnd closes both patterns at the statement's own terminator, and it is
+// the difference between reading a predicate and reading a PREFIX of one. Left
+// open, `… ? 'capture_settings' OR is_system;` matches just as well as the
+// scoped statement above it: the pattern would report the roles named in the IN
+// list, the write would grant to every system role, and the reconciliation
+// would see one write and one read and call it covered.
+//
+// What it anchors on is the workspace predicate every one of these carries —
+// required of any migration writing tenant rows, since RLS discards an unbound
+// write — so a role grant that skips it is not read as guarded either, and the
+// unread-write check refuses it. One anchor, two obligations.
+const predicateEnd = `\s*AND role\.workspace_id = \w+;`
 
 // Every write to role.permissions, however it is spelled. This has to be
 // STRICTLY BROADER than guardedBackfillPattern, not a prefix of it: a canary
@@ -316,4 +331,74 @@ func sortedGrants(grants map[rbacGrant]string) []rbacGrant {
 		return ordered[i].role < ordered[j].role
 	})
 	return ordered
+}
+
+// A pattern that reads a PREFIX of a predicate is worse than no pattern: it
+// reports a grant narrower than the statement performs, the reconciliation sees
+// one write and one read, and the coverage check calls it covered. So each
+// shape is held against a statement that widens the predicate after the part
+// the pattern recognises — none of these may be read as a guarded grant, and
+// the unread-write check is then what refuses them.
+func TestNoGuardedPatternReadsAWiderPredicateAsItsOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "whole-object grant widened by a trailing OR",
+			sql: `UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,automation}', '{"read":true}'::jsonb)
+    WHERE (is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'automation')
+      AND role.workspace_id = ws OR is_system;`,
+		},
+		{
+			name: "verb-level grant widened by a trailing OR",
+			sql: `UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,capture_settings,create}', 'true'::jsonb)
+    WHERE is_system AND key IN ('rep')
+      AND permissions->'objects' ? 'capture_settings'
+      AND role.workspace_id = ws OR is_system;`,
+		},
+		{
+			name: "verb-level grant with no workspace predicate at all",
+			sql: `UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,capture_settings,create}', 'true'::jsonb)
+    WHERE is_system AND key IN ('rep')
+      AND permissions->'objects' ? 'capture_settings';`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if guardedBackfillPattern.MatchString(tc.sql) {
+				t.Errorf("the whole-object pattern read this as a guarded grant, so the roles it reports are "+
+					"not the roles the statement writes:\n%s", tc.sql)
+			}
+			if guardedVerbGrantPattern.MatchString(tc.sql) {
+				t.Errorf("the verb-level pattern read this as a guarded grant, so the roles it reports are "+
+					"not the roles the statement writes:\n%s", tc.sql)
+			}
+		})
+	}
+}
+
+// And the other direction, because a pattern that matches nothing would pass
+// the test above for the wrong reason: the two shapes the tree actually uses
+// must still be read.
+func TestBothGuardedShapesAreStillRead(t *testing.T) {
+	wholeObject := `UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,automation}', '{"read":true}'::jsonb)
+    WHERE (is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'automation')
+      AND role.workspace_id = ws;`
+	verbLevel := `UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,capture_settings,create}', 'true'::jsonb)
+    WHERE is_system AND key IN ('admin','rep')
+      AND permissions->'objects' ? 'capture_settings'
+      AND role.workspace_id = ws;`
+	if !guardedBackfillPattern.MatchString(wholeObject) {
+		t.Error("the whole-object shape this tree's backfills use is no longer read as a guarded grant")
+	}
+	if !guardedVerbGrantPattern.MatchString(verbLevel) {
+		t.Error("the verb-level shape 0210 uses is no longer read as a guarded grant")
+	}
 }
