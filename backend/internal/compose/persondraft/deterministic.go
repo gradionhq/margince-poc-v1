@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 )
 
 // Draft is the written message plus what it was written from, before the wire
@@ -51,51 +52,57 @@ func Deterministic(in Input) Draft {
 	}
 }
 
+// The subject, from the best topic the input has, in the correspondence's own
+// language. Only a real thread subject earns a reply prefix: a deal name or an
+// employer is a topic this side chose, and "Re:" on one claims a thread that
+// does not exist.
 func deterministicSubject(in Input) string {
+	lang, band := in.Envelope.Lang(), in.Envelope.Band()
 	if in.Deal != nil {
-		return in.Deal.Name
+		return draftfloor.Subject(lang, band, in.Deal.Name, false)
 	}
 	if len(in.Recent) > 0 && in.Recent[0].Subject != "" {
-		return "Re: " + in.Recent[0].Subject
+		return draftfloor.Subject(lang, band, in.Recent[0].Subject, true)
 	}
-	if in.Recipient.Employer != "" {
-		return "Following up · " + in.Recipient.Employer
-	}
-	return "Following up"
+	return draftfloor.Subject(lang, band, in.Recipient.Employer, false)
 }
 
-// The body: a greeting, the one thing there is to say, a question. Each part is
-// skipped rather than padded when the input has nothing for it.
+// The body: a greeting, where the conversation stands, the one thing there is
+// to say, a question. Each part is skipped rather than padded when the input
+// has nothing for it.
 //
 // No sign-off: the composer knows who is signed in and adds their name, and a
 // server that guessed would sometimes sign with the wrong one.
 func deterministicBody(in Input) string {
+	phrases := draftfloor.For(in.Envelope.Lang(), in.Envelope.Band())
+
 	lines := []string{greeting(in), ""}
+	if phrases.Opener != "" {
+		lines = append(lines, phrases.Opener, "")
+	}
 	if opener := deterministicOpener(in); opener != "" {
 		lines = append(lines, opener, "")
 	}
-	return strings.Join(append(lines, "Would a short call this week suit you?"), "\n")
+	return strings.Join(append(lines, phrases.Ask), "\n")
 }
 
 func greeting(in Input) string {
-	if in.Recipient.FirstName == "" {
-		return "Hello,"
-	}
-	return "Hi " + in.Recipient.FirstName + ","
+	return draftfloor.Greeting(in.Envelope.Lang(), in.Envelope.Band(), in.Recipient.FirstName)
 }
 
 // The one sentence of substance, from the highest-ranked input that has
 // something to say: what this person SAID outranks the deal it was said about,
 // which outranks the last message anyone happened to send.
 func deterministicOpener(in Input) string {
+	lines := draftfloor.SubstanceFor(in.Envelope.Lang())
 	if claim, ok := leadClaim(in); ok {
-		return claimOpener(claim)
+		return claimOpener(claim, lines)
 	}
 	if in.Deal != nil {
-		return "I wanted to pick up where we left off on " + dealLine(in.Deal) + "."
+		return draftfloor.Fill(lines.Deal, dealLine(in.Deal))
 	}
 	if len(in.Recent) > 0 && in.Recent[0].Subject != "" {
-		return "I wanted to follow up on " + in.Recent[0].Subject + "."
+		return draftfloor.Fill(lines.Thread, in.Recent[0].Subject)
 	}
 	return ""
 }
@@ -124,14 +131,14 @@ func leadClaim(in Input) (ClaimIn, bool) {
 // An objection is something we owe them an answer on; a question is something
 // they asked; a priority is something they said matters. Rendering all three
 // the same way would put "you objected to" in a message about a preference.
-func claimOpener(claim ClaimIn) string {
+func claimOpener(claim ClaimIn, lines draftfloor.Substance) string {
 	switch claim.Kind {
 	case "open_question":
-		return "I wanted to come back to you on " + claim.Body + "."
+		return draftfloor.Fill(lines.OpenQuestion, claim.Body)
 	case "objection":
-		return "I still owe you an answer on " + claim.Body + "."
+		return draftfloor.Fill(lines.Objection, claim.Body)
 	default:
-		return "I know " + claim.Body + " matters to you, and I wanted to come back to it."
+		return draftfloor.Fill(lines.Priority, claim.Body)
 	}
 }
 

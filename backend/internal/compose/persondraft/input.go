@@ -22,6 +22,8 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -42,6 +44,11 @@ type Input struct {
 	// Intent is the caller's own steering ("shorter", "ask for Tuesday"). The
 	// one field they typed, and the one field not fenced.
 	Intent string `json:"intent,omitempty"`
+
+	// Envelope is the correspondence this draft is written into: its language,
+	// how long it has been silent, the current time and who is signing it.
+	// Server-derived, never read out of the counterparty's own text.
+	Envelope draftfloor.Envelope `json:"envelope"`
 
 	Recipient RecipientIn `json:"recipient"`
 	// Deal is the open opportunity this person sits on, when the caller can see
@@ -141,6 +148,7 @@ type ActIn struct {
 func FromView(view crmcontracts.Person360, req Request) Input {
 	in := Input{
 		Intent:          strings.TrimSpace(req.Intent),
+		Envelope:        req.Envelope,
 		Recipient:       recipientOf(view),
 		SectionsOmitted: omittedNames(view.SectionsOmitted),
 	}
@@ -148,6 +156,50 @@ func FromView(view crmcontracts.Person360, req Request) Input {
 	foldClaims(&in, view)
 	foldRecent(&in, view)
 	return in
+}
+
+// ConversationState reads where this correspondence stands off the view's own
+// last-message stamps.
+//
+// It lives here rather than in the service because the two stamps it reads are
+// already folded onto the recipient, so the classification and the fields it is
+// derived from cannot drift apart. An unparseable stamp counts as absent, which
+// at worst reads a correspondence as a first touch — the conservative end, and
+// the one that assumes no history rather than inventing some.
+func ConversationState(view crmcontracts.Person360, now time.Time) convstate.State {
+	return convstate.Classify(now, instant(view.LastInboundAt), instant(view.LastOutboundAt))
+}
+
+// instant parses one optional stamp, treating anything unreadable as absent.
+func instant(at *time.Time) time.Time {
+	if at == nil {
+		return time.Time{}
+	}
+	return *at
+}
+
+// CorrespondenceText is the counterparty's own writing this draft answers,
+// newest first, for detecting what language the correspondence is in.
+//
+// Subjects and bodies both, because a subject line rarely carries enough words
+// to clear the detector's floor on its own.
+func CorrespondenceText(view crmcontracts.Person360) string {
+	if view.Activities == nil {
+		return ""
+	}
+	var text strings.Builder
+	for i, activity := range view.Activities.Data {
+		if i == draftInputActivities {
+			break
+		}
+		if activity.Subject != nil {
+			text.WriteString(*activity.Subject + "\n")
+		}
+		if activity.Body != nil {
+			text.WriteString(*activity.Body + "\n\n")
+		}
+	}
+	return text.String()
 }
 
 func recipientOf(view crmcontracts.Person360) RecipientIn {

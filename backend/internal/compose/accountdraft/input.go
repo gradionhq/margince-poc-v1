@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -27,6 +28,12 @@ type Input struct {
 	// Intent is the caller's own steering ("shorter", "ask for Tuesday"). The
 	// one field they typed, and the one field not fenced.
 	Intent string `json:"intent,omitempty"`
+
+	// Envelope is the correspondence this draft opens: its language, the
+	// current time and who is signing it. The conversation state is always the
+	// first-touch band here - that is what an account-started draft IS - so
+	// nothing in the body may imply an earlier exchange (DRAFT-AC-E-3).
+	Envelope draftfloor.Envelope `json:"envelope"`
 
 	Company  string `json:"company"`
 	Industry string `json:"industry,omitempty"`
@@ -142,6 +149,7 @@ func FromView(
 	}
 	in := Input{
 		Intent:     strings.TrimSpace(req.Intent),
+		Envelope:   req.Envelope,
 		Company:    view.Organization.DisplayName,
 		Recipient:  recipientOf(contact),
 		Recent:     foldRecent(view),
@@ -208,6 +216,33 @@ func foldCommitment(view crmcontracts.Organization360) *TaskIn {
 		out.Due = step.DueAt.UTC().Format(rfc3339)
 	}
 	return &out
+}
+
+// CorrespondenceText is what this account has been written to and from,
+// newest first, for detecting the language its correspondence runs in.
+//
+// Subjects and bodies both, because a subject line rarely carries enough words
+// to clear the detector's floor on its own. This drafter opens a new
+// conversation, so the text is evidence about the ACCOUNT's language rather
+// than about a thread being answered — a German account gets a German first
+// touch even though nothing is being replied to.
+func CorrespondenceText(view crmcontracts.Organization360) string {
+	if view.Activities == nil {
+		return ""
+	}
+	var text strings.Builder
+	for i, act := range view.Activities.Data {
+		if i == draftInputActivities {
+			break
+		}
+		if act.Subject != nil {
+			text.WriteString(*act.Subject + "\n")
+		}
+		if act.Body != nil {
+			text.WriteString(*act.Body + "\n\n")
+		}
+	}
+	return text.String()
 }
 
 func foldRecent(view crmcontracts.Organization360) []ActIn {

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -106,7 +107,15 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		return activities.DraftResult{}, err
 	}
 	topic := stringValue(activity.Subject)
-	fallbackSubject, fallbackBody := activities.DeterministicEmailDraft(topic, intent)
+	// A reply drafter is answering an activity that exists, so the floor it
+	// degrades to is answering one too: band fresh, and the body it read is
+	// what tells the floor which language to write in.
+	fallbackSubject, fallbackBody := activities.DeterministicEmailDraft(activities.DraftContext{
+		Topic:    topic,
+		Body:     stringValue(activity.Body),
+		Band:     convstate.BandFresh,
+		Threaded: true,
+	}, intent)
 	data := replyActivityData{
 		Subject: boundedRunes(topic, replyActivityMaxRunes),
 		Body:    boundedRunes(stringValue(activity.Body), replyActivityMaxRunes),

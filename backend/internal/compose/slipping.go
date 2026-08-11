@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -90,7 +91,14 @@ func slippingCandidate(d crmcontracts.Deal, today time.Time) agents.SlippingDeal
 // the deterministic draft voice with draft_email.
 func followUpDrafter(provider datasource.SystemOfRecordProvider) agents.FollowUpDrafter {
 	return func(ctx context.Context, deal agents.SlippingDeal) (ids.UUID, string, error) {
-		subject, body := activities.DeterministicEmailDraft(deal.Name, "")
+		// A slipping deal is by definition one nobody has touched lately, so
+		// the floor writes at the weeks band: it acknowledges the gap instead
+		// of opening as if the conversation were still live. The deal name is
+		// the topic, not a thread subject, so it earns no reply prefix.
+		subject, body := activities.DeterministicEmailDraft(activities.DraftContext{
+			Topic: deal.Name,
+			Band:  convstate.BandWeeks,
+		}, "")
 		fields, err := json.Marshal(map[string]any{
 			"kind":    "note",
 			"subject": "Draft follow-up: " + subject,

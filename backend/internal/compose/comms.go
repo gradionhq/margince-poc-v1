@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -57,11 +58,14 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	if err != nil {
 		return "", "", err
 	}
-	topic := ""
+	answering := activities.DraftContext{Band: convstate.BandFresh, Threaded: true}
 	if activity.Subject != nil {
-		topic = *activity.Subject
+		answering.Topic = *activity.Subject
 	}
-	subject, body := activities.DeterministicEmailDraft(topic, intent)
+	if activity.Body != nil {
+		answering.Body = *activity.Body
+	}
+	subject, body := activities.DeterministicEmailDraft(answering, intent)
 	return subject, body, nil
 }
 

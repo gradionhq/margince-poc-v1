@@ -17,6 +17,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -30,24 +31,43 @@ type Assembler interface {
 // Request is the transport's body, narrowed to what the writer needs.
 type Request struct {
 	Intent string
+	// Envelope is the correspondence this draft is written into: the language
+	// it must be in, where the conversation stands, the current time, and who
+	// is writing it. Resolved by the caller, never by the model.
+	//
+	// The sender identity in it is what the model needs to know who "I" is —
+	// it is NOT a sign-off. The draft still carries none, because the composer
+	// knows who is signed in and a server that guessed would sometimes sign
+	// with the wrong person's name.
+	//
 	// The recipient is not here: the person in the path IS the recipient, which
-	// is what separates this from the account drafter. Sender is deliberately
-	// absent too, and not resolved server-side — the draft carries no sign-off,
-	// because the composer knows who is signed in and a server that guessed
-	// would sometimes sign with the wrong person's name.
+	// is what separates this from the account drafter.
+	Envelope draftfloor.Envelope
 }
 
 // Service writes one draft per call.
 type Service struct {
-	view Assembler
-	lane Completer
+	view     Assembler
+	lane     Completer
+	envelope *draftfloor.Resolver
 }
 
 // NewService binds the draft to the composite read it is grounded in and the
 // model lane that writes it. lane may be nil: that is a deployment running no
 // model, and the deterministic floor is the answer.
 func NewService(view Assembler, lane Completer) *Service {
-	return &Service{view: view, lane: lane}
+	return &Service{view: view, lane: lane, envelope: draftfloor.NewResolver()}
+}
+
+// WithEnvelope replaces the resolver that answers what language to write in,
+// what time it is and who is signing. Compose binds one carrying the real
+// identity lookup; the default resolves a language and a time but no sender,
+// so drafts are unsigned rather than failing (DRAFT-AC-E-6).
+func (s *Service) WithEnvelope(resolver *draftfloor.Resolver) *Service {
+	if resolver != nil {
+		s.envelope = resolver
+	}
+	return s
 }
 
 // Draft writes one email. It performs no write of any kind.
@@ -66,6 +86,8 @@ func (s *Service) Draft(
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
+	req.Envelope = s.envelope.Resolve(ctx, CorrespondenceText(view),
+		ConversationState(view, s.envelope.Now()))
 	draft, by, err := Write(ctx, s.lane, FromView(view, req))
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err

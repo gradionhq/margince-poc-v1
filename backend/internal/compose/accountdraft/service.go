@@ -18,6 +18,8 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -33,24 +35,54 @@ type Request struct {
 	PersonID string
 	DealID   string
 	Intent   string
-	// Sender is deliberately NOT here and not resolved server-side. The draft
-	// carries no sign-off: the composer knows who is signed in and puts their
-	// name on it, and a server that guessed would sometimes sign a message
-	// with the wrong person's name — the one error a rep notices last and
-	// cares about most.
+	// Envelope is the correspondence this draft opens: the language it must be
+	// written in, the current time, and who is writing it. Resolved by the
+	// service, never by the model.
+	//
+	// The sender identity is what tells the model who "I" is. It is NOT a
+	// sign-off: the draft still carries none, because the composer knows who is
+	// signed in and a server that guessed would sometimes sign a message with
+	// the wrong person's name.
+	Envelope draftfloor.Envelope
 }
 
 // Service writes one draft per call.
 type Service struct {
-	view Assembler
-	lane Completer
+	view     Assembler
+	lane     Completer
+	envelope *draftfloor.Resolver
+}
+
+// WithEnvelope replaces the resolver that answers what language to write in,
+// what time it is and who is signing. Compose binds one carrying the real
+// identity lookup; the default resolves a language and a time but no sender,
+// so drafts are unsigned rather than failing (DRAFT-AC-E-6).
+func (s *Service) WithEnvelope(resolver *draftfloor.Resolver) *Service {
+	if resolver != nil {
+		s.envelope = resolver
+	}
+	return s
+}
+
+// envelopeFor resolves the correspondence this draft opens.
+//
+// The band is always BandNone, and that is the definition of this surface
+// rather than a default: an account-started draft opens a NEW conversation, so
+// there is no prior exchange for it to refer to however much history the
+// account itself has (DRAFT-AC-E-3). The language still comes from whatever the
+// account has been written in, so a German account gets a German first touch.
+func (s *Service) envelopeFor(ctx context.Context, view crmcontracts.Organization360) draftfloor.Envelope {
+	return s.envelope.Resolve(ctx, CorrespondenceText(view), convstate.State{
+		Band:          convstate.BandNone,
+		LastDirection: convstate.DirectionNone,
+	})
 }
 
 // NewService binds the draft to the composite read it is grounded in and the
 // model lane that writes it. lane may be nil: that is a deployment running no
 // model, and the deterministic floor is the answer.
 func NewService(view Assembler, lane Completer) *Service {
-	return &Service{view: view, lane: lane}
+	return &Service{view: view, lane: lane, envelope: draftfloor.NewResolver()}
 }
 
 // Draft writes one email. It performs no write of any kind.
@@ -69,6 +101,7 @@ func (s *Service) Draft(
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
+	req.Envelope = s.envelopeFor(ctx, view)
 	in, err := FromView(view, req)
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
