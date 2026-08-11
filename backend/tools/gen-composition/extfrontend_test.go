@@ -85,6 +85,55 @@ func TestCollectUnitFrontendRefusals(t *testing.T) {
 	}
 }
 
+// An entry point that RESOLVES, but resolves outside the unit's own layer.
+//
+// Existence was the only thing asked of `main`, and existence is not the
+// property that matters: check-ext-imports.sh globs extensions/*/frontend, so a
+// `main` reaching past that directory moves the unit's real code out of the one
+// gate holding the unit/core boundary — wholesale, rather than one smuggled
+// import at a time. The frontend layer is the gated surface, so the entry point
+// has to be inside it.
+func TestCollectUnitFrontendRefusesAnEntryPointOutsideTheLayer(t *testing.T) {
+	for name, tc := range map[string]struct{ main, sibling, want string }{
+		"a main that climbs out of the layer": {
+			main:    "../screen.tsx",
+			sibling: "screen.tsx",
+			want:    "leaves",
+		},
+		"a main that climbs out and back into core": {
+			main:    "../../frontend/src/main.tsx",
+			sibling: filepath.Join("..", "frontend", "src", "main.tsx"),
+			want:    "leaves",
+		},
+		// Refused today only by accident, and with the wrong cause named:
+		// filepath.Join swallows the leading slash, so the generator stats
+		// <layer>/etc/hosts and reports "does not exist" while Node and Vite
+		// would resolve /etc/hosts itself.
+		"an absolute main": {
+			main: "/etc/hosts",
+			want: "absolute",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFrontendLayer(t, dir, `{"name":"@margince-ext/demo","private":true,"main":"`+tc.main+`","peerDependencies":{"react":"^19.0.0"}}`)
+			if tc.sibling != "" {
+				target := filepath.Join(dir, "frontend", tc.sibling)
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(target, []byte("export default function S() { return null }\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := collectUnitFrontend("demo", dir)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want one mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCollectUnitFrontendAcceptsAWellFormedLayer(t *testing.T) {
 	dir := t.TempDir()
 	writeFrontendLayer(t, dir, `{"name":"@margince-ext/demo","private":true,"main":"screen.tsx","peerDependencies":{"react":"^19.0.0","react-dom":"^19.0.0"}}`)

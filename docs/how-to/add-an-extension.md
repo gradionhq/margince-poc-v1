@@ -320,7 +320,10 @@ Four rules, each refused at generation because each fails somewhere worse otherw
 - **`@margince-ext/<name>`, matching the directory.** One workspace holds every enabled unit, so a
   shared name is two members claiming one identity and pnpm resolves whichever it saw last.
 - **`private: true`.** A workspace member that is not private is one `pnpm publish -r` from a registry.
-- **`main` names a module that exists**, and its **default export** is the screen.
+- **`main` names a module that exists *inside* your `frontend/`**, and its **default export** is the
+  screen. Relative is required and containment is checked, not just existence: the import gate scans
+  `extensions/*/frontend`, so a `main` of `../elsewhere/screen.tsx` would put your shipped code outside
+  the one thing holding the unit/core boundary.
 - **React, react-dom and `@tanstack/react-query` are PEERS, never dependencies.** Each keeps state the
   host owns — React's hook dispatcher, react-query's QueryClient context — and a second copy is a
   second, empty one. This is the rule that fails at *run time* if you get it wrong: hooks throw with a

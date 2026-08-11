@@ -101,10 +101,33 @@ func collectUnitFrontend(name, dir string) (*unitFrontend, error) {
 				name, frontendLayer, dep)
 		}
 	}
+	// An absolute main is refused by name rather than left to the check below.
+	// filepath.Join swallows the leading separator, so an absolute path would
+	// be stat'd as <layer>/etc/... and reported as merely missing — while Node
+	// and Vite resolve an absolute specifier as itself. Naming the real cause
+	// costs one branch; a misattributed error costs an author an afternoon.
+	if strings.HasPrefix(pkg.Main, "/") || filepath.IsAbs(filepath.FromSlash(pkg.Main)) {
+		return nil, fmt.Errorf("extensions/%s: %s/package.json declares an absolute main %q — it must be a path relative to the unit's own %s/, or the composed registry means one thing here and another in the bundler",
+			name, frontendLayer, pkg.Main, frontendLayer)
+	}
+	// The entry point has to be INSIDE the layer, and existence is not that
+	// property. frontend/scripts/check-ext-imports.sh globs
+	// extensions/*/frontend, so a main reaching past the layer does not smuggle
+	// one import — it relocates the unit's shipped code out of the only gate
+	// holding the unit/core boundary, wholesale. Refused here because this is
+	// where the layer is already the subject; the gate cannot see a package
+	// manifest, and the bundler will not object.
+	layerDir := filepath.Join(dir, frontendLayer)
+	entry := filepath.Join(layerDir, filepath.FromSlash(pkg.Main))
+	rel, err := filepath.Rel(layerDir, entry)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("extensions/%s: %s/package.json declares main %q, which leaves the unit's own %s/ — the entry module is the one file the whole layer is reached through, and outside the layer it is code no gate scans",
+			name, frontendLayer, pkg.Main, frontendLayer)
+	}
 	// Checked here rather than left to the bundler: an entry point that does
 	// not exist fails inside the GENERATED registry, where the error names a
 	// file nobody wrote and the cause is two steps away.
-	if _, err := os.Stat(filepath.Join(dir, frontendLayer, filepath.FromSlash(pkg.Main))); err != nil {
+	if _, err := os.Stat(entry); err != nil {
 		return nil, fmt.Errorf("extensions/%s: %s/%s does not exist, and it is the module the composed registry imports",
 			name, frontendLayer, pkg.Main)
 	}
