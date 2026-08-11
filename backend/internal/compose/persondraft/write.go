@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
@@ -39,16 +40,18 @@ Write the body as plain text. No markdown, no HTML, no bullet characters.
 Open by name using the recipient's first name exactly as given; never invent or shorten it.
 Do NOT write a sign-off or a sender name. The composer adds the sender's own; a name you guessed would go out over the wrong signature.
 Say one thing and ask for one thing. Three short paragraphs at most.
-Never state a figure, a date or a commitment the summary did not give you. If you want one and do not have it, write around it.
 The claims are things this contact said. Answer one of them if it helps; never quote it back at them as something they are on record as saying.
-The body must NEVER explain why it was written. No "based on", no "I noticed", no reference to the CRM or to this summary. The reasoning array is where that goes.
+Where the shared rules let you either write around a missing detail or ask for it, prefer writing around it here: this message opens with an ask of its own, and a second question dilutes it.
+The reasoning array is where an explanation of the draft goes. It is the ONLY place; the body carries none.
 Each reasoning entry names ONE input you actually used, in the reader's words, short enough to read as a chip ("pricing concern", "asked about onboarding"). Give entity_type and entity_id when the input was a record the summary identified; omit both when it was the caller's own intent.
 sections_omitted names what the reader of this summary was not allowed to see. Say nothing about those subjects rather than inferring around the gap.
 If the summary gives you nothing but the recipient, write a short honest opener and return an empty reasoning array. Do not invent a reason.`
 
-// draftSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
+// draftSystemFor assembles this call's system turn: what this surface is for,
+// the rules every drafting surface shares, and THIS call's data boundary (see
+// promptfence.Fence.Rule).
 func draftSystemFor(fence promptfence.Fence) string {
-	return draftSystem + "\n" + fence.Rule("contact summary")
+	return draftSystem + "\n\n" + draftrules.Shared + "\n" + fence.Rule("contact summary")
 }
 
 // draftSchema is the response shape the validated lane enforces.
@@ -271,3 +274,8 @@ var (
 	citeActivity = string(crmcontracts.OrganizationBriefEvidenceEntityTypeActivity)
 	citePerson   = string(crmcontracts.OrganizationBriefEvidenceEntityTypePerson)
 )
+
+// SystemPromptFor is the assembled system turn, for the compose-level parity
+// gate that asserts every drafting surface writes under the same shared rules.
+// Exported for that assertion alone: the surface itself calls draftSystemFor.
+func SystemPromptFor(fence promptfence.Fence) string { return draftSystemFor(fence) }

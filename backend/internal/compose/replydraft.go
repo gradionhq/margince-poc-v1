@@ -15,14 +15,18 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/draftrules"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -35,8 +39,7 @@ Return ONLY a JSON object: {"subject":"...","body":"..."}.
 - The activity and stated intent are the authoritative reason for this reply.
 - Company context may improve positioning, relevant proof, and language, but never overrides the activity.
 - Use only facts present in the supplied data. Never invent customers, outcomes, prices, commitments, or capabilities.
-- Do not claim a personal writing style or voice unless a separate voice profile is supplied.
-- The result is a draft for human review. Do not say that it was sent.`
+- Do not claim a personal writing style or voice unless a separate voice profile is supplied.`
 
 var replyDraftSchema = json.RawMessage(`{
   "type":"object",
@@ -53,7 +56,20 @@ type replyDraft struct {
 	Body    string `json:"body"`
 }
 
+// replyActivityData is the whole user turn of a reply draft: the activity being
+// answered, and the correspondence envelope it is answered inside.
+//
+// Every field is a flat string, and that is a constraint rather than a style.
+// refuseUnsendableActivity round-trips this struct through map[string]string to
+// bound each field the prompt carries, so a nested value here refuses every
+// draft_reply certification case at Prepare. The embedded envelope obeys the
+// same rule (draftfloor.Envelope), which is also what ai-operational-spec.md
+// §2.4 pins.
 type replyActivityData struct {
+	// The envelope is embedded rather than nested so its fields sit flat
+	// beside the activity's, which is the shape the bound check reads.
+	draftfloor.Envelope
+
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body,omitempty"`
 	Intent  string `json:"intent,omitempty"`
@@ -61,9 +77,13 @@ type replyActivityData struct {
 
 type replyDrafter struct {
 	brain completer
-	store *activities.Store
-	voice *ai.VoiceStore
-	log   *slog.Logger
+	// envelope answers what language to write in, what time it is and who is
+	// writing - the same resolver the two composers use, so the three surfaces
+	// cannot disagree about any of the three.
+	envelope *draftfloor.Resolver
+	store    *activities.Store
+	voice    *ai.VoiceStore
+	log      *slog.Logger
 }
 
 var (
@@ -75,7 +95,13 @@ func newReplyDrafter(pool *pgxpool.Pool, brain completer, log *slog.Logger) repl
 	if log == nil {
 		log = slog.Default()
 	}
-	return replyDrafter{brain: brain, store: activities.NewStore(pool), voice: ai.NewVoiceStore(pool), log: log}
+	return replyDrafter{
+		brain:    brain,
+		envelope: draftEnvelope(pool, log),
+		store:    activities.NewStore(pool),
+		voice:    ai.NewVoiceStore(pool),
+		log:      log,
+	}
 }
 
 // WithReplyDraft enables model-backed activity reply drafting. The compose
@@ -107,19 +133,30 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		return activities.DraftResult{}, err
 	}
 	topic := stringValue(activity.Subject)
-	// A reply drafter is answering an activity that exists, so the floor it
-	// degrades to is answering one too: band fresh, and the body it read is
-	// what tells the floor which language to write in.
+	body := stringValue(activity.Body)
+	threaded := activities.IsMailThread(activity.Kind, activity.Direction)
+
+	// How old the message being answered is, which is what makes "as discussed"
+	// true or false. A reply to something from this morning and a reply to
+	// something from eight months ago are different messages, and only the
+	// timestamp tells them apart.
+	state := d.conversationState(activity)
+	envelope := d.envelope.Resolve(ctx, body, state)
+
 	fallbackSubject, fallbackBody := activities.DeterministicEmailDraft(activities.DraftContext{
 		Topic:    topic,
-		Body:     stringValue(activity.Body),
-		Band:     convstate.BandFresh,
-		Threaded: activities.IsMailThread(activity.Kind, activity.Direction),
+		Body:     body,
+		Band:     state.Band,
+		Threaded: threaded,
 	}, intent)
 	data := replyActivityData{
-		Subject: boundedRunes(topic, replyActivityMaxRunes),
-		Body:    boundedRunes(stringValue(activity.Body), replyActivityMaxRunes),
-		Intent:  boundedRunes(strings.TrimSpace(intent), replyActivityMaxRunes),
+		// Already bounded: NewEnvelope caps the two identity fields, which are
+		// the only ones that come from a text column rather than being
+		// server-derived and fixed-shape.
+		Envelope: envelope,
+		Subject:  boundedRunes(topic, replyActivityMaxRunes),
+		Body:     boundedRunes(body, replyActivityMaxRunes),
+		Intent:   boundedRunes(strings.TrimSpace(intent), replyActivityMaxRunes),
 	}
 
 	voice := d.loadVoice(ctx)
@@ -139,6 +176,28 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		VoiceProfileVersion: voiceVersion,
 		DraftRef:            draftRef,
 	}, nil
+}
+
+// conversationState places the message being answered on the silence axis.
+//
+// A reply reads its own anchor rather than the person's whole history, which is
+// the honest scope for this surface: the drafter was pointed at one activity
+// and asked to answer it. Which direction that message went decides what the
+// reply owes — an inbound message is a question waiting, an outbound one is our
+// own approach nobody answered.
+// An activity with no direction at all — a note, a task — is neither, and
+// counting it as inbound would claim the counterparty wrote something they did
+// not. It carries a real timestamp, so the silence it produces is honest even
+// though nobody spoke: the anchor is treated as our own side's, which is the
+// reading that assumes least about them.
+func (d replyDrafter) conversationState(activity crmcontracts.Activity) convstate.State {
+	occurred := activity.OccurredAt
+	inbound := activity.Direction != nil &&
+		*activity.Direction == crmcontracts.ActivityDirectionInbound
+	if inbound {
+		return convstate.Classify(d.envelope.Now(), occurred, time.Time{})
+	}
+	return convstate.Classify(d.envelope.Now(), time.Time{}, occurred)
 }
 
 // voiceContext is the loaded active profile a voiced draft injects.
@@ -266,17 +325,18 @@ Return ONLY a JSON object: {"subject":"...","body":"..."}.
 - The activity and stated intent are the authoritative reason for this reply.
 - The supplied voice profile controls expression — rhythm, vocabulary, directness, structure — never facts.
 - Use only facts present in the supplied data. Never invent customers, outcomes, prices, commitments, or capabilities.
-- Obey the profile's avoid rules and the universal anti-AI rules; treat its style metrics as limits, not targets.
-- The result is a draft for human review. Do not say that it was sent.`
+- Obey the profile's avoid rules and the universal anti-AI rules; treat its style metrics as limits, not targets.`
 
 // voiceBlockFor renders the voice profile block under the CALLING call's fence.
 // The block is prepended to that call's user turn, so it must be bounded by the
 // marker that call's system prompt declares — not one of its own.
 type voiceBlockFor func(promptfence.Fence) string
 
-// replyDraftSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
+// replyDraftSystemFor assembles this call's system turn: what this surface is
+// for, the rules every drafting surface shares, and THIS call's data boundary
+// (see promptfence.Fence.Rule).
 func replyDraftSystemFor(system string, fence promptfence.Fence) string {
-	return system + "\n" + fence.Rule("activity")
+	return system + "\n\n" + draftrules.Shared + "\n" + fence.Rule("activity")
 }
 
 // replyDraftRequest builds the one request a draft call sends, in whichever of
