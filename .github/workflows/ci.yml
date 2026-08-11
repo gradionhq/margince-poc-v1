@@ -136,10 +136,13 @@ jobs:
               - '.dockerignore'
             # Everything that can change WHICH packages are in the tree, and
             # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
-            # is globbed on purpose: the only lockfile is frontend/pnpm-lock.yaml,
-            # so a bare `pnpm-lock.yaml` matches nothing — and a Renovate
-            # lockfile-only PR, which is precisely where new transitive packages
-            # (and their licenses) enter, would slip past unscanned.
+            # is globbed on purpose: a Renovate lockfile-only PR is precisely
+            # where new transitive packages (and their licenses) enter, and it
+            # must not slip past unscanned. The pattern predates the pnpm
+            # workspace root moving to the repository root — the lockfile is
+            # /pnpm-lock.yaml now, which `**/` still matches because it matches
+            # zero segments, so this keeps firing and needs no edit next time the
+            # workspace moves.
             deps:
               - 'go.work'
               - 'go.work.sum'
@@ -919,7 +922,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          # Root, not frontend/: this branch moved the lockfile to a root pnpm
+          # workspace so a unit's frontend/ can join it.
+          cache-dependency-path: pnpm-lock.yaml
       # This lane compiles the composition generator and then `go run`s cmd/api.
       - name: Restore the Go build cache
         uses: ./.github/actions/go-build-cache
@@ -999,7 +1004,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       # Go, in the FRONTEND job (ADR-0069). `make check-fe` now covers both SPA
       # lanes, and the composed one needs build/composition/frontend/ — which
       # only gen-composition can produce. There is no Node-only shortcut: the
@@ -1068,7 +1073,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - name: Install deps and the Playwright Chromium browser
         working-directory: frontend
         # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at

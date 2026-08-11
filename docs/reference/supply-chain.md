@@ -246,11 +246,16 @@ Path filter: `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`,
 `**/pnpm-lock.yaml`, `**/package.json`, `Makefile`, `.syft.yaml`, `.grant.yaml`,
 `sbom-schemas/**`, `.github/workflows/sbom.yml`, `.github/actions/**`.
 
-`**/pnpm-lock.yaml` is globbed deliberately. The only lockfile in the tree is
-`frontend/pnpm-lock.yaml`, so the unglobbed `pnpm-lock.yaml` matched nothing —
-and a lockfile-only dependency change, the shape Renovate raises most often and
-precisely where new transitive packages and their licenses arrive, never
-triggered this workflow at all.
+`**/pnpm-lock.yaml` is globbed deliberately. It was written that way when the
+only lockfile in the tree was `frontend/pnpm-lock.yaml`, which the unglobbed
+`pnpm-lock.yaml` did not match — and a lockfile-only dependency change, the shape
+Renovate raises most often and precisely where new transitive packages and their
+licenses arrive, never triggered this workflow at all. The pnpm workspace root
+has since moved to the repository root, so the lockfile is `/pnpm-lock.yaml` and
+the unglobbed pattern would now match it. The glob stays regardless: `**/`
+matches zero segments, so it covers the root lockfile as well as any future one,
+and a pattern that does not have to move when the workspace does is one fewer
+thing to get wrong.
 
 **There is no `pull_request` trigger.** The PR-side license gate is the
 `license gate` job in `ci.yml`, gated at the job level on the `deps` scope. A

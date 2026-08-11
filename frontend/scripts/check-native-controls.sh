@@ -59,6 +59,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/src"
+# The unit trees are swept too: a unit's screen is shipped UI in the same
+# bundle, and a gate stopping at frontend/src would hold the core to a standard
+# the extension tier escapes. Overridable so the gate's tests can point it at a
+# fixture.
+EXT_DIR="${MARGINCE_EXT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)/extensions}"
 
 # The ONE exemption, and it is a full PATH rather than a name or a glob: widening
 # it to a directory is how a second hand-rolled dropdown gets in beside the real
@@ -71,14 +76,21 @@ while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
     -not -path "$SRC_DIR/design-system/select.tsx" \
     -print0 2>/dev/null
 )
+while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
+  find "$EXT_DIR" -type f \
+    \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) \
+    -path "*/frontend/*" \
+    -not -path "*/node_modules/*" \
+    -print0 2>/dev/null
+)
 
 # An empty scan means the gate is pointed at the wrong tree — fail closed.
 if [[ "${#FILES[@]}" -eq 0 ]]; then
-  echo "FAIL: native-control check found no files under $SRC_DIR — the gate is miswired" >&2
+  echo "FAIL: native-control check found no files under $SRC_DIR or $EXT_DIR — the gate is miswired" >&2
   exit 1
 fi
 
-echo "==> Native-control check (${#FILES[@]} files under frontend/src)"
+echo "==> Native-control check (${#FILES[@]} files under frontend/src + extensions/*/frontend)"
 
 # Blank out every comment while KEEPING the line count, so a hit still reports the
 # author's own line number. Handles `//` to end of line, `/* … */` on one line, and
@@ -146,7 +158,7 @@ for f in "${FILES[@]}"; do
 done
 
 if [[ "$EXIT" == "0" ]]; then
-  echo "PASS — no native dropdown under frontend/src"
+  echo "PASS — no native dropdown under frontend/src or extensions/*/frontend"
   exit 0
 fi
 

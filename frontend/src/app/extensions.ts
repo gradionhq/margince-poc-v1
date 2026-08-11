@@ -3,6 +3,7 @@ import {
   type ExtensionVerbDescriptor,
   extensions,
 } from "@composition/extensions";
+import type { ComponentType } from "react";
 import type { ExtensionRbacObject } from "./capability";
 
 // What the SPA knows about the units an installation composed.
@@ -21,6 +22,27 @@ import type { ExtensionRbacObject } from "./capability";
 // binding directly could only ever be exercised on its miss path.
 
 export type { ExtensionDescriptor, ExtensionVerbDescriptor };
+
+/**
+ * The screens an installation composes, keyed by unit name.
+ *
+ * The type lives HERE, beside the descriptor registry, and not next to either
+ * implementation of it: both lanes' modules import it, and one of those modules
+ * (`src/screens/ext/`) is outside the vanilla TypeScript program entirely — a
+ * type imported from there would pull the whole excluded directory back into
+ * it.
+ *
+ * A component, not a rendered node: React needs a stable type to mount, and a
+ * registry of pre-rendered elements would build every unit's screen on every
+ * route change including the ones nobody navigated to.
+ *
+ * Unkeyed by a union of unit names on purpose — the composed set is an
+ * installation's, not this program's, so the lookup is a miss like any other
+ * and App.tsx already renders the honest fallback for one.
+ */
+export type ExtensionScreenRegistry = Readonly<
+  Record<string, ComponentType | undefined>
+>;
 
 /**
  * The route segment every unit surface lives under: `#/ext/<name>`.

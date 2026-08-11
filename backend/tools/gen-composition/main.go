@@ -365,7 +365,17 @@ var vanillaStubs = []struct {
 	{
 		rel:   frontendVanillaStub,
 		emit:  func() []byte { return frontendGen(nil, nil) },
-		align: "align the committed stub with tools/gen-composition (emitfrontend.go's frontendGenHeader)",
+		align: "align the committed stub with tools/gen-composition (emit.go's frontendGenHeader)",
+	},
+	{
+		rel:   frontendScreensVanillaStub,
+		emit:  func() []byte { return extScreensGen(nil) },
+		align: "align the committed stub with tools/gen-composition (emit.go's extScreensGenHeader)",
+	},
+	{
+		rel:   frontendLocalesVanillaStub,
+		emit:  func() []byte { return extLocalesGen(nil) },
+		align: "align the committed stub with tools/gen-composition (emit.go's extLocalesGenHeader)",
 	},
 }
 
@@ -375,6 +385,16 @@ var vanillaStubs = []struct {
 // step having run — a core developer's `pnpm dev` on a fresh clone is the
 // case, and it has never needed build/composition/ to exist.
 const frontendVanillaStub = "frontend/src/composition/extensions.gen.ts"
+
+// frontendScreensVanillaStub is the empty-tree SCREEN registry, beside the
+// descriptor one and for the same reason: the vanilla lane must resolve a real
+// module with no alias pointing outside the Vite root and no build step having
+// run.
+const frontendScreensVanillaStub = "frontend/src/composition/extscreens.gen.ts"
+
+// frontendLocalesVanillaStub is the empty-tree copy overlay, beside the other
+// two and for the same reason.
+const frontendLocalesVanillaStub = "frontend/src/composition/extlocales.gen.ts"
 
 // stubMatchesVanilla holds the lanes together: each committed stub (what a
 // bare build wires) must be byte-identical to this generator's vanilla output

@@ -1,6 +1,11 @@
 {
   "name": "@margince/frontend",
   "private": true,
+  "exports": {
+    "./design-system": "./src/surface/design-system.ts",
+    "./api": "./src/surface/api.ts",
+    "./app": "./src/surface/index.ts"
+  },
   "version": "0.1.0",
   "type": "module",
   "scripts": {
@@ -10,6 +15,7 @@
     "build:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 pnpm build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:ext": "vitest run -c vitest.ext.config.ts",
     "test:coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov",
     "lint": "biome check src index.html",
     "check": "pnpm lint && pnpm test && pnpm build",

@@ -132,6 +132,11 @@ export const en = {
     "No extension named “{name}” is enabled on this installation.",
   "ext.operations": "Published operations",
 
+  // The reference extension's own screen (#/ext/notes) carries no keys here:
+  // a unit that ships a screen ships its copy with it, under
+  // extensions/<unit>/frontend/i18n/, namespaced `ext<Unit>.` and merged into
+  // the catalogue by gen-composition (see i18n/index.tsx).
+
   "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",

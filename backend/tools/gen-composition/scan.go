@@ -37,11 +37,17 @@ type extensionUnit struct {
 	// Fragments are the unit's contract overlays, keyed by the core contract
 	// each targets (composedContractBases). Nil for a Go-only unit.
 	Fragments map[string]contractFragment
+	// Frontend is the unit's screen package, or nil when it ships none — the
+	// common case, and not an error. The composed screen registry imports it
+	// by package name.
+	Frontend *unitFrontend
 }
 
 // scanExtensions reads the enabled set. A capability layer this composer
-// cannot compose yet (frontend/) is a hard error, not a silent drop — an
-// extension shipping one must not build until its composition slice exists.
+// cannot compose yet is a hard error, not a silent drop — an extension
+// shipping one must not build until its composition slice exists. There are
+// none left today (unbuiltCapabilityLayers is empty); the rule outlives the
+// list.
 func scanExtensions(root string) ([]extensionUnit, error) {
 	entries, err := os.ReadDir(filepath.Join(root, "extensions"))
 	if err != nil {
@@ -93,6 +99,12 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 // hold that this composer does not compose yet. scanUnit refuses their mere
 // presence outright (below).
 //
+// It is EMPTY, and that is the tier's current state rather than a mistake: all
+// three layers now have a composition. It stays as the seam a fourth capability
+// would arrive through — refused on sight until its own rule exists — because
+// the alternative to an empty list is deleting the mechanism and rebuilding it
+// under pressure the day someone proposes one.
+//
 // refuseNonRootGoPackages exempts the same names from its walk, and that is
 // not a second, independent policy that happens to agree: the exemption
 // exists ONLY so an already-refused layer reports its own refusal instead of
@@ -107,9 +119,10 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 // one anywhere else in the unit — an init() there would run just as
 // unchecked. api/ is the second, on identical terms: collectUnitFragments
 // (contracts.go) says what it may hold, and it stays subject to the walk.
-// Lifting the next layer means the same two edits: drop the string here, add
-// the layer's own rule.
-var unbuiltCapabilityLayers = []string{"frontend"}
+// frontend/ was the third and last: collectUnitFrontend (extfrontend.go) says
+// what its package must be. Lifting a future layer means the same two edits:
+// drop the string here, add the layer's own rule.
+var unbuiltCapabilityLayers = []string{}
 
 func scanUnit(name, dir string) (extensionUnit, error) {
 	for _, sub := range unbuiltCapabilityLayers {
@@ -129,6 +142,14 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	case os.IsNotExist(err):
 		if hasGo {
 			return extensionUnit{}, fmt.Errorf("extensions/%s: *.go present but no go.mod — a Go-bearing extension is its own module", name)
+		}
+		// The removal case, named rather than left to the reader. `git rm -r`
+		// takes a unit's tracked files and leaves its INSTALLED ones, because
+		// node_modules is ignored — so the directory survives holding nothing
+		// but a dependency tree, and "no Go module" sends whoever removed the
+		// unit looking for a go.mod they deliberately deleted.
+		if empty, err := holdsOnlyInstalledOutput(dir); err == nil && empty {
+			return extensionUnit{}, fmt.Errorf("extensions/%s holds nothing but installed dependencies — its source is gone but the directory is not, and presence under extensions/ IS enablement; remove the directory (`rm -rf extensions/%s`) and re-run `pnpm install` to prune the workspace member", name, name)
 		}
 		return extensionUnit{}, fmt.Errorf("extensions/%s: nothing to compose (no Go module)", name)
 	case err != nil:
@@ -152,6 +173,10 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if err != nil {
 		return extensionUnit{}, err
 	}
+	frontend, err := collectUnitFrontend(name, dir)
+	if err != nil {
+		return extensionUnit{}, err
+	}
 	return extensionUnit{
 		Name:          name,
 		Dir:           dir,
@@ -159,7 +184,35 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		Tables:        tables,
 		HasMigrations: hasMigrations,
 		Fragments:     fragments,
+		Frontend:      frontend,
 	}, nil
+}
+
+// holdsOnlyInstalledOutput reports whether a unit directory contains nothing a
+// human wrote AND does contain an installed dependency tree. It is how the scan
+// tells a half-removed unit from a directory that was always empty — two
+// situations that look identical by content and want opposite advice.
+//
+// The node_modules requirement is what makes it the half-removed case rather
+// than merely an empty one: `git rm -r` takes the tracked files and leaves the
+// ignored install behind, so that tree IS the evidence a unit used to be here.
+func holdsOnlyInstalledOutput(dir string) (bool, error) {
+	installed, wrote := false, false
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == nodeModulesDir {
+				installed = true
+				return fs.SkipDir
+			}
+			return nil
+		}
+		wrote = true
+		return filepath.SkipAll
+	})
+	return installed && !wrote, err
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other
