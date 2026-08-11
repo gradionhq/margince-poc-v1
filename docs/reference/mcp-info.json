@@ -16,10 +16,10 @@
     "largest_tool_bytes": 4151,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 28224,
-      "input_schema_bytes": 23668,
-      "output_schema_bytes": 45049,
-      "description_plus_input_schema_bytes": 51892
+      "description_bytes": 29156,
+      "input_schema_bytes": 24804,
+      "output_schema_bytes": 45953,
+      "description_plus_input_schema_bytes": 53960
     }
   },
   "tools": {
