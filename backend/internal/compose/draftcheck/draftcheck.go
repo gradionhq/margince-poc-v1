@@ -26,6 +26,7 @@ package draftcheck
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
@@ -117,8 +118,11 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 	lowered := strings.ToLower(body)
 	var findings []Finding
 
+	// The wellbeing rule reads the OPENING only. "I hope that works for you" in
+	// a closing paragraph is an ordinary sentence; the same words as the first
+	// thing a message says are the filler that announces a template.
 	for _, phrase := range wellbeing[lang] {
-		if strings.Contains(lowered, phrase) {
+		if contains(opening(lowered), phrase) {
 			findings = append(findings, Finding{
 				Rule:   "wellbeing-opener",
 				Phrase: phrase,
@@ -129,7 +133,7 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 
 	if band == convstate.BandNone {
 		for _, phrase := range invention[lang] {
-			if strings.Contains(lowered, phrase) {
+			if contains(lowered, phrase) {
 				findings = append(findings, Finding{
 					Rule:   "invented-first-touch",
 					Phrase: phrase,
@@ -142,7 +146,7 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 
 	if band == convstate.BandWeeks || band == convstate.BandMonths {
 		for _, phrase := range assumedMemory[lang] {
-			if strings.Contains(lowered, phrase) {
+			if contains(lowered, phrase) {
 				findings = append(findings, Finding{
 					Rule:   "assumed-memory",
 					Phrase: phrase,
@@ -153,6 +157,52 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 		}
 	}
 	return findings
+}
+
+// openingRunes is how much of a body counts as its opening, for the rules that
+// are only about how a message STARTS. Two or three sentences.
+const openingRunes = 240
+
+// opening is the first part of the body, cut on a rune boundary.
+func opening(body string) string {
+	runes := []rune(body)
+	if len(runes) <= openingRunes {
+		return body
+	}
+	return string(runes[:openingRunes])
+}
+
+// contains reports whether text holds phrase as whole words.
+//
+// Plain substring matching false-positives on possessives that overlap: the
+// banned "our solution" is inside "your solution", so an honest question about
+// the recipient's own system reads as an invented pitch. A phrase must start at
+// a word boundary and end at one.
+func contains(text, phrase string) bool {
+	for offset := 0; ; {
+		i := strings.Index(text[offset:], phrase)
+		if i < 0 {
+			return false
+		}
+		start := offset + i
+		end := start + len(phrase)
+		if boundary(text, start-1) && boundary(text, end) {
+			return true
+		}
+		offset = start + 1
+		if offset >= len(text) {
+			return false
+		}
+	}
+}
+
+// boundary reports whether the byte at i ends a word (or is off either end).
+func boundary(text string, i int) bool {
+	if i < 0 || i >= len(text) {
+		return true
+	}
+	r := rune(text[i])
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\''
 }
 
 // Feedback turns findings into the correction a regeneration prompt carries.

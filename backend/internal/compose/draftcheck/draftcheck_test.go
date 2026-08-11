@@ -102,3 +102,31 @@ func TestFeedbackNamesThePhraseAndTheReason(t *testing.T) {
 		t.Error("no findings should produce no feedback")
 	}
 }
+
+// A phrase must match as whole words. "our solution" sits inside "your
+// solution", so a plain substring test flags an honest question about the
+// recipient's OWN system as an invented pitch.
+func TestAPhraseInsideAnotherWordIsNotAMatch(t *testing.T) {
+	honest := "Hallo Marek, wie ist your solution bei Ihnen aufgebaut?"
+	if findings := draftcheck.Body(honest, textlang.English, convstate.BandNone); len(findings) != 0 {
+		t.Errorf("%q should not match \"our solution\", got %+v", honest, findings)
+	}
+
+	invented := "Hi Marek, our solution helps companies like yours."
+	if findings := draftcheck.Body(invented, textlang.English, convstate.BandNone); len(findings) == 0 {
+		t.Error("the real phrase should still be caught")
+	}
+}
+
+// The wellbeing rule reads the opening only: "I hope that works for you" as a
+// closing line is an ordinary sentence.
+func TestAPleasantryIsOnlyFillerAtTheOpening(t *testing.T) {
+	closing := "Hi Priya,\n\nThe integration scope is attached and the timeline is in " +
+		"section three. It sets out the two phases and what each one needs from your " +
+		"side, including the test window we talked through.\n\n" +
+		"Let me know if the dates work. I hope you are doing well with the rollout."
+
+	if findings := draftcheck.Body(closing, textlang.English, convstate.BandFresh); len(findings) != 0 {
+		t.Errorf("a pleasantry far into the body is not an opener, got %+v", findings)
+	}
+}

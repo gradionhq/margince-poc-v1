@@ -140,8 +140,9 @@ func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent
 		return DraftResult{}, err
 	}
 	answering := DraftContext{
-		Band:     convstate.BandFresh,
-		Threaded: IsMailThread(activity.Kind, activity.Direction),
+		Band:      convstate.BandFresh,
+		Threaded:  IsMailThread(activity.Kind, activity.Direction),
+		Recipient: h.store.GreetingName(ctx, ids.From[ids.ActivityKind](anchor)),
 	}
 	if activity.Subject != nil {
 		answering.Topic = *activity.Subject

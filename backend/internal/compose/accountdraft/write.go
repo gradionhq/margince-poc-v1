@@ -137,7 +137,13 @@ func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) 
 	if retryErr != nil {
 		return draft, nil
 	}
-	return retried, nil
+	// Keep whichever attempt carries LESS of the rejected phrasing. A second
+	// attempt is not automatically better, and the count is the only evidence
+	// available without asking a model to judge its own output.
+	if len(draftcheck.Body(retried.Body, in.Envelope.Lang(), in.Envelope.Band())) < len(findings) {
+		return retried, nil
+	}
+	return draft, nil
 }
 
 func writeWithModel(ctx context.Context, lane Completer, in Input, correction string) (Draft, error) {
