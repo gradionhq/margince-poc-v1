@@ -202,7 +202,7 @@ func TestOfferRenderPrepareRender_Sent_UsesFrozenBuyerAndIssuerSnapshot(t *testi
 	// legal issuer of record for a sent offer, the same rule as the buyer
 	// side above.
 	renamedWorkspace := "Renamed Workspace After Send"
-	e.WsExec(t, `UPDATE workspace SET name = $1 WHERE id = $2`, renamedWorkspace, e.WS)
+	e.WsExec(t, `UPDATE setting SET value = to_jsonb($1::text) WHERE key = 'installation.name'`, renamedWorkspace)
 
 	ing, err := e.Deals.PrepareRender(ctx, offerID)
 	if err != nil {

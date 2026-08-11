@@ -681,3 +681,27 @@ func assertSignal(t *testing.T, conn *pgx.Conn, id, wantVisibility string, wantO
 		t.Errorf("%s archived = %v, want %v", what, archived, wantArchived)
 	}
 }
+
+// archiveAllButOne leaves exactly one live workspace, which is what an
+// installation IS (ADR-0061 §3).
+//
+// The replay suites plant several workspaces to model several historical
+// installations in one database. That shape stops upgrading cleanly at 0209:
+// the installation's identity moved into `setting`, 0191 only backfills it
+// where a single live workspace can speak for the install, and 0209 refuses to
+// drop the columns while a live workspace holds identity nothing stored. The
+// fixtures cannot pre-seed those rows either — `setting` does not exist yet at
+// the legacy version they start from.
+//
+// So they do what the migration tells a real operator to do. The roles under
+// test are per-workspace rows and survive archival, and the RBAC backfills
+// loop over every workspace regardless of it, so nothing the replay asserts
+// moves.
+func archiveAllButOne(t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(context.Background(), `
+		UPDATE workspace SET archived_at = now()
+		 WHERE id <> (SELECT id FROM workspace ORDER BY created_at, id LIMIT 1)`); err != nil {
+		t.Fatalf("reducing the fixture to one live workspace: %v", err)
+	}
+}

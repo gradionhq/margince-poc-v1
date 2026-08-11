@@ -34,7 +34,7 @@ func baseCurrency(e *apptest.AppEnv, t *testing.T) string {
 	t.Helper()
 	var base string
 	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'`, e.Slug).Scan(&base); err != nil {
+		`SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'`).Scan(&base); err != nil {
 		t.Fatalf("base currency lookup: %v", err)
 	}
 	return base
