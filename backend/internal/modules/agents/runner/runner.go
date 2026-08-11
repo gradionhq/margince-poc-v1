@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -55,128 +54,6 @@ type Meta struct {
 // identity so the trace records what answered without re-calling it.
 type Brain interface {
 	Complete(ctx context.Context, req model.Request) (model.Response, Meta, error)
-}
-
-// Budget bounds one run (architecture/07 §4). Both are HARD per-run
-// ceilings, deliberately independent of workspace-level budgets: one
-// unattended run can never claim the whole workspace budget (RT-AI-H5).
-type Budget struct {
-	MaxSteps        int
-	MaxOutputTokens int
-}
-
-// The §4 RATIFY defaults: 40 reason-act cycles sized to one deal-bundle
-// pass, 50k output tokens per run.
-const (
-	DefaultMaxSteps        = 40
-	DefaultMaxOutputTokens = 50_000
-)
-
-func (b Budget) withDefaults() Budget {
-	if b.MaxSteps <= 0 {
-		b.MaxSteps = DefaultMaxSteps
-	}
-	if b.MaxOutputTokens <= 0 {
-		b.MaxOutputTokens = DefaultMaxOutputTokens
-	}
-	return b
-}
-
-// Job is one runner invocation: a goal over seed grounding under a
-// budget. Authority is NOT here — it rides the context principal, the
-// same way every other surface carries it.
-type Job struct {
-	Goal       string
-	TriggerRef string
-	Grounding  []Grounding
-	Budget     Budget
-	// Tools is the catalog entry's allowlist, carried from AgentSpec.Tools.
-	//
-	// EMPTY MEANS NO NARROWING, and that default is deliberate rather than
-	// lazy: the certification lane builds a Job with no spec behind it, and
-	// a caller that is not a catalog agent has no allowlist to apply. It is
-	// safe HERE because it can only widen back to what the passport already
-	// admits — but it is the same "empty means everything" reading
-	// AgentSpec.Tools refuses, so the two seams are held to different rules
-	// on purpose. What stops a scheduled agent falling through this door is
-	// TestARunFromASpecCarriesTheSpecsTools, which reads the Job the service
-	// actually builds rather than trusting the call site.
-	Tools []string
-}
-
-// errOutsideAgentSpec refuses a tool this run's catalog entry does not name.
-//
-// A runner-local sentinel and not an apperrors one: that registry is fixed and
-// extends only with the spec's interfaces.md §0, and this refusal never reaches
-// an HTTP client — it becomes an observation the model re-plans against.
-var errOutsideAgentSpec = errors.New("this agent's catalog entry does not include that tool")
-
-// permits reports whether this run may call the named tool.
-//
-// The refusal is PERMANENT for the run — the allowlist is code and cannot move
-// mid-run — so observeRefusal marks it terminal and the model does not spend
-// its budget re-planning into the same no.
-func (j Job) permits(tool string) error {
-	if len(j.Tools) == 0 || slices.Contains(j.Tools, tool) {
-		return nil
-	}
-	return fmt.Errorf("%w: %s", errOutsideAgentSpec, tool)
-}
-
-// offeredToJob is what this run's window lists: what the passport admits,
-// narrowed to what the catalog entry names.
-//
-// Applied to the OFFERED set and never to the `known` vocabulary the window
-// attributes observations with — a narrowed offer is exactly the kind of
-// narrowing that must not relabel a run's own history (window.go §sourceVocabulary).
-func offeredToJob(job Job, offered []mcp.ToolSpec) []mcp.ToolSpec {
-	if len(job.Tools) == 0 {
-		return offered
-	}
-	kept := make([]mcp.ToolSpec, 0, len(job.Tools))
-	for _, spec := range offered {
-		if slices.Contains(job.Tools, spec.Name) {
-			kept = append(kept, spec)
-		}
-	}
-	return kept
-}
-
-// unfundedTools names what the catalog entry asked for and the passport does
-// not admit.
-//
-// ANY shortfall fails the run, and the PARTIAL case is why. An empty
-// intersection is obvious; losing one scope is the realistic
-// misconfiguration and the dangerous one — a sweep holding five of its six
-// tools finds every at-risk deal, silently logs none of them, and reports a
-// quiet night. That is a partial sum wearing the label of a total. The spec is
-// this goal's own statement of what it needs, so a run that cannot have it is
-// misconfigured rather than merely constrained, and the operator is owed the
-// name of the missing grant instead of a thin answer.
-func unfundedTools(job Job, offered []mcp.ToolSpec) []string {
-	if len(job.Tools) == 0 {
-		return nil
-	}
-	admitted := make(map[string]bool, len(offered))
-	for _, spec := range offered {
-		admitted[spec.Name] = true
-	}
-	var missing []string
-	for _, name := range job.Tools {
-		if !admitted[name] {
-			missing = append(missing, name)
-		}
-	}
-	return missing
-}
-
-// Grounding is one provenance-stamped seed context item (§3): T2
-// content is spotlighted as data-not-instructions before it enters the
-// prompt.
-type Grounding struct {
-	SourceID  string
-	TrustTier string // "T0" | "T1" | "T2"
-	Content   string
 }
 
 type Outcome string
@@ -267,21 +144,6 @@ func (r *Runner) Run(ctx context.Context, job Job) (Result, error) {
 	}
 	win := newWindow(job, offeredToJob(job, admitted), r.tools.Specs())
 	return r.loop(ctx, job, win, Result{})
-}
-
-// invokePermitted is the ONE door to a tool call, and it exists so the
-// allowlist cannot be enforced at one entry point and forgotten at the other.
-//
-// The scope filter alone does not enforce this: Registry.Offered "narrows what
-// is advertised and enforces nothing" in its own words, and Registry.Invoke
-// admits against the passport, which knows nothing about a catalog entry. So a
-// verb left out of the window is still callable — by a model that names it
-// anyway, and by an approved redemption — unless something checks here.
-func (r *Runner) invokePermitted(ctx context.Context, job Job, tool string, args json.RawMessage) (json.RawMessage, error) {
-	if err := job.permits(tool); err != nil {
-		return nil, err
-	}
-	return r.tools.Invoke(ctx, tool, args)
 }
 
 // Decision is a human approval outcome fed back into a suspended run.
