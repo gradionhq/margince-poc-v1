@@ -185,6 +185,15 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: strings.Replace(yogiOperation, "                  quote: {type: string}", "                  quote: {$ref: '#/components/schemas/Thing'}", 1),
 			wantErr:  "$ref at .properties.quote.$ref",
 		},
+		// dependentSchemas is a named container, but the level BELOW a name is a
+		// schema again — so descending it must still find a real reference, or
+		// treating the container as named would have opened a hole rather than
+		// closed a false refusal.
+		"a $ref inside a dependentSchemas subschema": {
+			pathItem: strings.Replace(yogiOperation, "                  quote: {type: string}",
+				"                  quote: {type: string}\n                dependentSchemas:\n                  quote: {$ref: '#/components/schemas/Thing'}", 1),
+			wantErr: "$ref at .dependentSchemas.quote.$ref",
+		},
 
 		"a tool verb outside the grammar": {
 			pathItem: strings.Replace(yogiOperation, "verb: u_quote", "verb: U-Quote", 1),
@@ -230,6 +239,13 @@ func TestASchemaThatMerelySpellsRefIsNotAReference(t *testing.T) {
 		"a $ref inside an example": strings.Replace(yogiOperation,
 			"                  quote: {type: string}",
 			"                  quote: {type: string}\n                example: {$ref: yes}", 1),
+		// The third shape, and the one the named-container set was missing:
+		// dependentSchemas keys on PROPERTY NAMES exactly as properties does, so
+		// a schema conditioned on a property called `$ref` was being refused as
+		// an unresolved reference it never made.
+		"a dependentSchemas key named $ref": strings.Replace(yogiOperation,
+			"                  quote: {type: string}",
+			"                  quote: {type: string}\n                dependentSchemas:\n                  $ref: {type: object}", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := verbsInContract("crm.yaml", oneUnit(), contractWith(pathItem)); err != nil {

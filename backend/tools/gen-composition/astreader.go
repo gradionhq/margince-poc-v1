@@ -181,10 +181,15 @@ func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
 // obvious prefix test, and both directions are the compiler's rule rather than
 // a preference:
 //
-//   - Go requires whitespace after `//go:embed`. `//go:embedmigrations` is an
-//     ordinary comment, so the FS beneath it stays EMPTY and the unit's
-//     migrations are silently never applied — which is precisely the defect
-//     this gate exists to catch, and accepting the typo waved it through.
+//   - The separator is a single ASCII SPACE, not "whitespace". The compiler
+//     recognizes the directive by `text == "go:embed"` or the exact prefix
+//     `"go:embed "` (cmd/compile/internal/noder), so BOTH
+//     `//go:embedmigrations` and a tab-separated `//go:embed\tmigrations` are
+//     ordinary comments: the FS beneath either stays EMPTY and the unit's
+//     migrations are silently never applied. That is precisely the defect this
+//     gate exists to catch, and accepting a separator the compiler does not
+//     would let an empty embed.FS satisfy Migrations — the unit boots against a
+//     database where its tables were never created.
 //   - A pattern may be a quoted Go string literal, so `//go:embed "migrations"`
 //     is valid and embeds the same directory. Comparing the raw token refused
 //     it for a spelling difference.
@@ -193,8 +198,11 @@ func embedsMigrations(doc *ast.CommentGroup) bool {
 		return false
 	}
 	for _, c := range doc.List {
-		rest, ok := strings.CutPrefix(c.Text, "//go:embed")
-		if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+		// The trailing space is part of the prefix ON PURPOSE — it is the
+		// compiler's own separator, and matching anything looser accepts a
+		// comment the compiler ignores.
+		rest, ok := strings.CutPrefix(c.Text, "//go:embed ")
+		if !ok {
 			continue
 		}
 		for _, pattern := range strings.Fields(rest) {

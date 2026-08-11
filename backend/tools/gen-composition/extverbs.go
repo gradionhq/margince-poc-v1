@@ -394,8 +394,15 @@ var schemaDataKeywords = map[string]bool{
 // namedSubschemaKeywords hold subschemas keyed by an AUTHOR-CHOSEN name. The
 // level below them is a set of names, so `properties.$ref` is a property called
 // `$ref` and not a reference; the level below THAT is a schema again.
+//
+// `dependentSchemas` belongs here for exactly the reason `properties` does: in
+// 2020-12 (the dialect an openapi 3.1 contract carries) it maps PROPERTY NAMES
+// to schemas, so a schema conditioned on a property literally named `$ref` was
+// being refused as an unresolved reference — a correct fragment rejected for
+// the name one of its properties happens to have.
 var namedSubschemaKeywords = map[string]bool{
 	"properties": true, "patternProperties": true, "$defs": true, "definitions": true,
+	"dependentSchemas": true,
 }
 
 // findRef walks a SCHEMA node for a `$ref` at any depth, returning the path to

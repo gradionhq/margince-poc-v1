@@ -390,17 +390,24 @@ func TestMigrationsMustEmbedTheLayerThatShipped(t *testing.T) {
 		}
 	})
 
-	// And the typo that looks like the real thing: Go requires whitespace after
-	// the directive, so this is an ordinary comment and the FS below it stays
-	// EMPTY — the unit's migrations are then applied by nothing, which is the
-	// whole defect this gate is for.
-	t.Run("a directive with no separator", func(t *testing.T) {
-		err := derive(t, unitSource("\t\"embed\"\n",
-			"//go:embedmigrations\nvar sql embed.FS", "\t\tMigrations: sql,\n"))
-		if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
-			t.Fatalf("err = %v, want the wrong-embed refusal", err)
-		}
-	})
+	// And the typos that look like the real thing. The compiler's separator is a
+	// single ASCII space — it matches `go:embed` alone or the prefix `go:embed `
+	// and nothing else — so each of these is an ordinary comment and the FS
+	// below it stays EMPTY: the unit's migrations are then applied by nothing,
+	// which is the whole defect this gate is for. A tab reads as the real
+	// directive to a human and to a looser parser, which is exactly why it has
+	// its own row.
+	for name, decl := range map[string]string{
+		"a directive with no separator":  "//go:embedmigrations\nvar sql embed.FS",
+		"a directive separated by a tab": "//go:embed\tmigrations\nvar sql embed.FS",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := derive(t, unitSource("\t\"embed\"\n", decl, "\t\tMigrations: sql,\n"))
+			if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
+				t.Fatalf("err = %v, want the wrong-embed refusal", err)
+			}
+		})
+	}
 }
 
 // toolUnitSource is a unit declaring one governed tool with the given

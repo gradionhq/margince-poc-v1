@@ -107,7 +107,15 @@ func TestLocalGetOnReadsThroughTheCallersTransaction(t *testing.T) {
 		_ = tx.Rollback(context.Background())
 	}()
 
-	got, err := vault.GetOn(ctx, tx, ws, ref)
+	// On its OWN deadline, not t.Context()'s (which carries none). The exact
+	// regression this test guards against — a GetOn that fell back to v.pool —
+	// does not fail here, it BLOCKS on the pool's one held connection. Without a
+	// deadline that turns an immediate, readable failure into a hang until the
+	// whole `go test` binary times out, with the panic pointing at the harness
+	// rather than at this line.
+	held, cancelHeld := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelHeld()
+	got, err := vault.GetOn(held, tx, ws, ref)
 	if err != nil {
 		t.Fatalf("GetOn through the caller's transaction: %v — it must not need a connection of its own", err)
 	}

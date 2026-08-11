@@ -26,10 +26,13 @@ type extensionUnit struct {
 	// already stripped of its ext_<namespace>_ prefix — the suffixes whose
 	// join with the namespace checkDerivedIdentifiers validates.
 	Tables []string
-	// HasMigrations reports whether the unit ships a migrations/ layer with at
-	// least one .up.sql in it. It is not `len(Tables) > 0`: a migration that
-	// alters an existing table declares no new one, and a unit whose schema
-	// exists but is never applied is the defect this flag exists to catch.
+	// HasMigrations reports that the unit ships a migrations/ DIRECTORY —
+	// nothing more. It is not proof of an .up.sql, and not `len(Tables) > 0`: a
+	// migration that alters an existing table declares no new one, and a layer
+	// holding only a .down.sql is an incomplete pair that must still be seen
+	// (see collectUnitTables on why presence is keyed on the directory). What
+	// the flag exists to catch is the unit whose schema is on disk and applied
+	// by nothing, so it must stay true for every broken shape of the layer.
 	HasMigrations bool
 	// Fragments are the unit's contract overlays, keyed by the core contract
 	// each targets (composedContractBases). Nil for a Go-only unit.
