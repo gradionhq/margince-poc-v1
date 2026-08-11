@@ -337,6 +337,12 @@ so `frontend/scripts/check-ext-imports.sh` is the boundary. It refuses a relativ
 unit, an unpublished subpath, and any bare specifier your own `package.json` does not declare —
 `devDependencies` count for test files only, so a screen cannot pull a test runner into the bundle.
 
+**Name your page in a level-1 header, exactly once.** The app shell mints the page's `h1` for a core
+screen, but it *yields* to a composed unit — your surface is yours to name, and the shell has no title
+key for a route the NAV rail deliberately does not carry. So your screen's top
+`<SectionHeader …  level={1} />` IS the page's heading, and every header under it stays at the default
+`2`. Leave the top one at the default and your page ships with no heading for a reader to jump to.
+
 The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
 unit exactly as they sweep core.
 
