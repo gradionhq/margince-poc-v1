@@ -220,6 +220,7 @@ type pipeline struct {
 // on a different moment than the as_of it is reported under.
 func openPipeline(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	baseCcy string,
 ) (pipeline, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -242,8 +243,7 @@ func openPipeline(
 		       -- a read against real rows finds that, which is why it is spelled
 		       -- here rather than left to the driver.
 		       d.expected_close_date::timestamptz,
-		       d.currency, d.fx_rate_date::timestamptz,
-		       (SELECT base_currency FROM workspace WHERE id = d.workspace_id)
+		       d.currency, d.fx_rate_date::timestamptz
 		FROM deal d
 		%s
 		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
@@ -258,9 +258,10 @@ func openPipeline(
 		var lastActivityAt, waitUntil *time.Time
 		if err := row.Scan(&r.id, &r.name, &status, &createdAt, &lastActivityAt, &waitUntil,
 			&r.stageMoves, &r.amountMinor, &r.valueBase, &r.closeOn, &r.currency,
-			&r.rateDate, &r.baseCcy); err != nil {
+			&r.rateDate); err != nil {
 			return r, err
 		}
+		r.baseCcy = baseCcy
 		r.stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
 		// The same base IsStalled measures from, so the fingerprint moves exactly
 		// when the stall the rep judged is replaced by a new one.
@@ -373,7 +374,7 @@ func granted(ctx context.Context, object string) (bool, error) {
 // stores nothing. Required, a caller that omits one does not compile.
 func gatherSuggestionInputs(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
-	facts signalFacts, lifecycle string,
+	facts signalFacts, lifecycle string, baseCurrency string,
 ) (suggestionInputs, error) {
 	timeline, err := granted(ctx, "activity")
 	if err != nil {
@@ -397,7 +398,7 @@ func gatherSuggestionInputs(
 		in.scheduled = scheduled
 	}
 	if in.pipeline {
-		open, err := openPipeline(ctx, tx, orgID, now)
+		open, err := openPipeline(ctx, tx, orgID, now, baseCurrency)
 		if err != nil {
 			return suggestionInputs{}, err
 		}

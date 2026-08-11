@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -132,3 +133,8 @@ func yamlPaths(t reflect.Type, prefix string) map[string]bool {
 	}
 	return out
 }
+
+// DealsInstallation is the installation seam the deals module reads through.
+// The wiring itself lives in installseam, which the integration harness can
+// also reach; this stays as the name compose's own call sites use.
+func DealsInstallation() deals.Installation { return installseam.Deals() }

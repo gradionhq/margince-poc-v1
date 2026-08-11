@@ -123,3 +123,26 @@ func Definitions() []settings.Definition {
 func BaseCurrencyOf(ctx context.Context, tx pgx.Tx) (string, error) {
 	return settings.RequireTx(ctx, tx, BaseCurrency)
 }
+
+// TimezoneOf resolves the installation's IANA zone inside a transaction the
+// caller already holds — the zone a "today" is computed in.
+//
+// RequireTx, like BaseCurrencyOf: a close-date sweep or a forecast cutoff that
+// silently fell back to UTC would move real dates for an installation that
+// runs in Europe/Berlin, and would move them by a day only sometimes, which is
+// the hardest kind of wrong to notice.
+func TimezoneOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, Timezone)
+}
+
+// NameOf resolves the installation's display name inside a transaction the
+// caller already holds.
+//
+// RequireTx here too, though the name is display rather than arithmetic: an
+// offer snapshot names its issuer, and an offer that went out identifying the
+// installation as "" is not better than one that refused to go out. The three
+// installation-identity settings are seeded together at bootstrap, so a tree
+// where one is unset has the other two unset as well.
+func NameOf(ctx context.Context, tx pgx.Tx) (string, error) {
+	return settings.RequireTx(ctx, tx, Name)
+}

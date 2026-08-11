@@ -285,12 +285,26 @@ the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
 three `installation.*` values — behind a Settings → Installation surface, with
 the base currency freezing once a deal has converted against it (ADR-0085 §7).
 
-What is NOT finished is the read side. Roll-ups, FX conversion, quota
-attainment and the report builder still read `workspace.base_currency` and
-`workspace.timezone` directly — eight files — so `UpdateInstallation` writes the
-setting AND mirrors it onto the column in one transaction. The mirror exists
-only because those readers have not moved; without it the surface would report
-a base currency nothing computes in.
+The read side is most of the way across. Three slices have landed — quotas and
+finance (#794), the deals module's money reads (#802), and the installation's
+name and timezone plus the roll-up and org-360 reads (#817). Each module takes
+the seam as a required constructor value, `identity.{Name,BaseCurrency,Timezone}Of`
+are the only readers, and an unset value REFUSES rather than falling back to a
+default, because a silent default on a money path converts against one currency
+and labels the result another.
+
+Two readers are left, and both are SQL-expression rewrites rather than source
+swaps: the forecast's slipped-category dimension (`compose/report.go`) and the
+brief ranker's revenue factor (`compose/briefs/briefrank.go`) each spell the
+value inside a larger query against a `workspace w` join, so they need bind
+positions threaded through their builders and the join re-examined. Three reads
+stay on the column deliberately: bootstrap's own backfill, the session read
+that names the installation before any principal exists to gate a settings
+read, and the base-currency freeze probe, which must tolerate the FIRST write
+where no row exists yet.
+
+`UpdateInstallation` still writes the setting AND mirrors it onto the column in
+one transaction. The mirror retires with those last two readers.
 
 **This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
 phase drops the `workspace` row, so the readers have to move regardless. Doing

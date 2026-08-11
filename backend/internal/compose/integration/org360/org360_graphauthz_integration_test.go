@@ -52,8 +52,9 @@ func TestRouteInEdgesRefusesWithoutThePersonGrant(t *testing.T) {
 	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			"signal":       {Read: true},
+			"organization":          {Read: true},
+			"signal":                {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})
@@ -110,9 +111,10 @@ func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
 	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			"deal":         {Read: true},
-			"signal":       {Read: true},
+			"organization":          {Read: true},
+			"deal":                  {Read: true},
+			"signal":                {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	})

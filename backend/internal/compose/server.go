@@ -312,7 +312,7 @@ var _ crmcontracts.ServerInterface = Server{}
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
 	// note): active cf_* deal columns ride deal payloads on both surfaces.
-	dealsH := deals.NewHandlers(pool, identity.BaseCurrencyOf).WithFieldCatalog(customfields.NewService(pool, nil))
+	dealsH := deals.NewHandlers(pool, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
 	// serves the already-bound singleton organization.
@@ -388,7 +388,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the environment). Without it those paths answer an honest 503.
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
-		dealsStore:       deals.NewStore(pool, identity.BaseCurrencyOf),
+		dealsStore:       deals.NewStore(pool, DealsInstallation()),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh

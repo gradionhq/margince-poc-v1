@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
@@ -61,7 +62,7 @@ func (s closeDateStager) StageCorrection(ctx context.Context, dealID ids.UUID, t
 // NewCloseDateCorrector assembles the nightly close-date corrector for
 // the worker process role.
 func NewCloseDateCorrector(pool *pgxpool.Pool, log *slog.Logger) *deals.CloseDateCorrector {
-	return deals.NewCloseDateCorrector(pool, closeDateStager{svc: approvals.NewService(pool)}, log)
+	return deals.NewCloseDateCorrector(pool, closeDateStager{svc: approvals.NewService(pool)}, log, installseam.Deals())
 }
 
 // closeDateConfirmEffect executes an approved close-date confirmation:

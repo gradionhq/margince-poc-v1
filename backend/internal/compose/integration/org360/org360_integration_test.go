@@ -67,9 +67,10 @@ var org360SignalPerms = withSignalRead(integration.AccountRepPerms)
 var org360NoDealPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Read: true},
-		"person":       {Read: true},
-		"activity":     {Read: true},
+		"organization":          {Read: true},
+		"person":                {Read: true},
+		"activity":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
@@ -383,7 +384,7 @@ func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
 	// other half of the distinction.
 	withheld := e.As(e.Rep2, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
-		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}, "installation_settings": {Read: true}},
 		RowScope: principal.RowScopeAll,
 	})
 	view, err = svc.Assemble(withheld, ids.From[ids.OrganizationKind](org))
@@ -613,9 +614,10 @@ func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
 var org360NoActivityPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization": {Read: true},
-		"person":       {Read: true},
-		"deal":         {Read: true},
+		"organization":          {Read: true},
+		"person":                {Read: true},
+		"deal":                  {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }

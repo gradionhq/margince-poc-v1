@@ -21,7 +21,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -34,7 +33,7 @@ const slippingScanLimit = 50
 // slippingLister serves the formulas-§8 candidate set: stalled open
 // deals plus open deals whose expected close date is already past.
 func slippingLister(pool *pgxpool.Pool) agents.SlippingLister {
-	store := deals.NewStore(pool, identity.BaseCurrencyOf)
+	store := deals.NewStore(pool, DealsInstallation())
 	return func(ctx context.Context) ([]agents.SlippingDeal, error) {
 		limit := slippingScanLimit
 		stalledOnly := true

@@ -507,6 +507,10 @@ func TestAttainmentNeedsTheInstallationSettingsReadGrant(t *testing.T) {
 	store := attainmentStore(e)
 	ungranted := principal.Permissions{
 		RoleKeys: []string{"admin"},
+		// installation_settings is withheld ON PURPOSE — it is the whole
+		// subject of this test. Do not "fix" it by granting it; a sweep that
+		// adds the object to every fixture reading deals will silently turn
+		// this assertion into a tautology.
 		Objects: map[string]principal.ObjectGrant{
 			"quota": {Create: true, Read: true, Update: true, Delete: true},
 			"deal":  {Read: true},

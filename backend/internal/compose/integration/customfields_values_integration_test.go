@@ -36,10 +36,11 @@ import (
 var cfvPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
-		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
-		"person":       {Create: true, Read: true, Update: true, Delete: true},
-		"organization": {Create: true, Read: true, Update: true, Delete: true},
-		"lead":         {Create: true, Read: true, Update: true, Delete: true},
+		"custom_field":          {Create: true, Read: true, Update: true, Delete: true},
+		"person":                {Create: true, Read: true, Update: true, Delete: true},
+		"organization":          {Create: true, Read: true, Update: true, Delete: true},
+		"lead":                  {Create: true, Read: true, Update: true, Delete: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

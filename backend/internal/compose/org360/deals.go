@@ -18,7 +18,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -39,7 +38,9 @@ func openDealsWhere(orgPos int, dealScope string) string {
 // figures the header shows. won_lifetime sums amount_minor_base — each
 // deal's amount at its FROZEN close-time rate — so the figure never moves
 // when today's FX does.
-func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) (crmcontracts.Organization360Deals, error) {
+func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	baseCurrency string,
+) (crmcontracts.Organization360Deals, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -102,7 +103,7 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 	}
 	open, page := truncate(open)
 
-	lifetime, lost, err := closedTotals(ctx, tx, orgID)
+	lifetime, lost, err := closedTotals(ctx, tx, orgID, baseCurrency)
 	if err != nil {
 		return crmcontracts.Organization360Deals{}, err
 	}
@@ -117,7 +118,9 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 // closedTotals sums won money and counts lost deals over the same row
 // scope the open list uses — a total that included deals the caller cannot
 // open would disclose their existence through arithmetic.
-func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crmcontracts.Money, int, error) {
+func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	baseCurrency string,
+) (crmcontracts.Money, int, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -127,19 +130,17 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	}
 	var wonMinor int64
 	var lost int
-	var baseCurrency string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT coalesce(sum(d.amount_minor_base) FILTER (WHERE d.status = 'won'), 0)::bigint,
-		       count(*) FILTER (WHERE d.status = 'lost'),
-		       (SELECT base_currency FROM workspace WHERE id = d.workspace_id)
+		       count(*) FILTER (WHERE d.status = 'lost')
 		FROM deal d
 		WHERE d.organization_id = $%d AND d.archived_at IS NULL
 		  AND d.status IN ('won','lost') AND (%s)
-		GROUP BY d.workspace_id`, orgPos, dealScope), args...).Scan(&wonMinor, &lost, &baseCurrency)
+		GROUP BY d.workspace_id`, orgPos, dealScope), args...).Scan(&wonMinor, &lost)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No closed deal on this account yet: an honest zero in the
-		// workspace's own currency, not a missing figure.
-		return workspaceZero(ctx, tx)
+		// installation's own currency, not a missing figure.
+		return installationZero(baseCurrency)
 	}
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
@@ -147,12 +148,7 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crm
 	return crmcontracts.Money{AmountMinor: &wonMinor, Currency: &baseCurrency}, lost, nil
 }
 
-func workspaceZero(ctx context.Context, tx pgx.Tx) (crmcontracts.Money, int, error) {
-	var baseCurrency string
-	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&baseCurrency); err != nil {
-		return crmcontracts.Money{}, 0, fmt.Errorf("read workspace base currency: %w", err)
-	}
+func installationZero(baseCurrency string) (crmcontracts.Money, int, error) {
 	zero := int64(0)
 	return crmcontracts.Money{AmountMinor: &zero, Currency: &baseCurrency}, 0, nil
 }

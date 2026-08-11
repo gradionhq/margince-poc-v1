@@ -27,7 +27,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -322,7 +321,7 @@ func TestADealEditDoesNotCancelAWaitingFollowUp(t *testing.T) {
 	// Through the real writer, so the row's version moves the way any edit in
 	// the product moves it.
 	renamed := "Renamed while it waited"
-	if _, err := deals.NewStore(e.Pool, identity.BaseCurrencyOf).UpdateDeal(human, ids.From[ids.DealKind](deal),
+	if _, err := deals.NewStore(e.Pool, DealsInstallation()).UpdateDeal(human, ids.From[ids.DealKind](deal),
 		deals.UpdateDealInput{Name: &renamed}); err != nil {
 		t.Fatalf("editing the deal: %v", err)
 	}

@@ -135,6 +135,10 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 		return fmt.Errorf("settings: serializing writes to %s: %w", key, err)
 	}
 	{
+		stored, err := hasRow(ctx, tx, key)
+		if err != nil {
+			return err
+		}
 		before, err := currentJSON(ctx, tx, def)
 		if err != nil {
 			return err
@@ -143,18 +147,36 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 		if err != nil {
 			return err
 		}
-		if string(canonical) == string(next) {
+		// Three cases, and the middle one is why `stored` is consulted at all.
+		//
+		// A value that differs is a real change: probe the freeze, then write.
+		// A value that matches AND has a row behind it is a no-op: an
+		// idempotent PATCH must not litter the ledger.
+		// A value that matches with NO row behind it still writes. An absent
+		// row READS as the registered default (currentJSON falls back to it),
+		// so without this an operator re-saving the default on an
+		// installation missing its rows would write nothing and be told it
+		// succeeded, while every reader that refuses an absent row
+		// (RequireTx) kept refusing — with no way to repair it through the
+		// product. Reachable wherever 0191's conditional backfill wrote
+		// nothing (issue #521).
+		unchanged := string(canonical) == string(next)
+		if stored && unchanged {
 			return nil
 		}
-		// Probed only for a REAL change: re-asserting the value a frozen
-		// setting already holds is a no-op, and refusing it would make an
-		// idempotent PATCH fail for a caller changing something else.
-		frozen, why, err := def.Frozen(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("settings: probing %s: %w", key, err)
-		}
-		if frozen {
-			return FrozenValue{Setting: key, Reason: why}
+		if !unchanged {
+			// Probed only for a REAL change: re-asserting the value a frozen
+			// setting already holds is a no-op, and refusing it would make an
+			// idempotent PATCH fail for a caller changing something else —
+			// which is equally true when the no-op is what materializes the
+			// row, so the probe stays inside this branch.
+			frozen, why, err := def.Frozen(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("settings: probing %s: %w", key, err)
+			}
+			if frozen {
+				return FrozenValue{Setting: key, Reason: why}
+			}
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO setting (key, value) VALUES ($1, $2)
@@ -220,6 +242,18 @@ func Seed(ctx context.Context, tx pgx.Tx, def Definition, raw json.RawMessage) e
 		return fmt.Errorf("settings: seeding %s: %w", def.Key(), err)
 	}
 	return nil
+}
+
+// hasRow reports whether the setting has a stored row at all, which is a
+// different question from what its value reads as: an absent row reads as the
+// registered default everywhere except the readers that refuse it.
+func hasRow(ctx context.Context, tx pgx.Tx, key string) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM setting WHERE key = $1)`, key).Scan(&exists); err != nil {
+		return false, fmt.Errorf("settings: checking whether %s is stored: %w", key, err)
+	}
+	return exists, nil
 }
 
 // currentJSON reads the value inside an open transaction, falling back to the

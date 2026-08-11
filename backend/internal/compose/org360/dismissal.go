@@ -34,6 +34,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -119,7 +120,12 @@ func (s *Service) raisesSuggestion(
 	if err != nil {
 		return false, err
 	}
-	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts, lifecycle)
+	// This path assembles no 360, so it resolves the basis for itself.
+	base, err := identity.BaseCurrencyOf(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts, lifecycle, base)
 	if err != nil {
 		return false, err
 	}

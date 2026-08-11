@@ -24,7 +24,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -32,7 +31,7 @@ import (
 // pipelineLister answers list_pipelines from the workspace's live pipeline
 // configuration.
 func pipelineLister(pool *pgxpool.Pool) agents.PipelineLister {
-	store := deals.NewStore(pool, identity.BaseCurrencyOf)
+	store := deals.NewStore(pool, DealsInstallation())
 	return func(ctx context.Context) ([]agents.Pipeline, error) {
 		// Live only: this list is what a tool call picks a target stage
 		// from, and an archived pipeline is not one a deal may be moved to.

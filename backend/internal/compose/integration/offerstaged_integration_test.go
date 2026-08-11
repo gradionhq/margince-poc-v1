@@ -306,7 +306,7 @@ func TestAddStagedOfferLinesDeniesWithoutOfferUpdateGrant(t *testing.T) {
 
 	readOnly := principal.Permissions{
 		RoleKeys: []string{"read_only"},
-		Objects:  map[string]principal.ObjectGrant{"offer": {Read: true}},
+		Objects:  map[string]principal.ObjectGrant{"offer": {Read: true}, "installation_settings": {Read: true}},
 		RowScope: principal.RowScopeAll,
 	}
 	denied := e.As(e.Rep2, []ids.UUID{e.Team1}, readOnly)

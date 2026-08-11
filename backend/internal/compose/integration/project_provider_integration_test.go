@@ -20,8 +20,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -29,7 +29,7 @@ import (
 )
 
 func projectProvider(e *Env) *deals.Provider {
-	return deals.NewProvider(e.Pool, identity.BaseCurrencyOf)
+	return deals.NewProvider(e.Pool, installseam.Deals())
 }
 
 // The seam's create-read-update-archive round trip, with the provenance the
@@ -187,8 +187,9 @@ func principalReadOnlyProject() principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"project":      {Read: true},
-			"organization": {Read: true},
+			"project":               {Read: true},
+			"organization":          {Read: true},
+			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeOwn,
 	}

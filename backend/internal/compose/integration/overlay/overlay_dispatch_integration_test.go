@@ -152,11 +152,12 @@ func seedOverlayModeWorkspace(t *testing.T) (ws, user ids.UUID) {
 var overlayReaderPerms = principal.Permissions{
 	RoleKeys: []string{"read_only"},
 	Objects: map[string]principal.ObjectGrant{
-		"person":       {Read: true},
-		"organization": {Read: true},
-		"deal":         {Read: true},
-		"lead":         {Read: true},
-		"activity":     {Read: true},
+		"person":                {Read: true},
+		"organization":          {Read: true},
+		"deal":                  {Read: true},
+		"lead":                  {Read: true},
+		"activity":              {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

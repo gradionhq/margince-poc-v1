@@ -28,9 +28,9 @@ type Provider struct {
 }
 
 // NewProvider wires the datasource verbs over the same store the transport
-// uses, base-currency seam included.
-func NewProvider(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Provider {
-	return &Provider{store: NewStore(pool, baseCurrency)}
+// uses, installation seam included.
+func NewProvider(pool *pgxpool.Pool, inst Installation) *Provider {
+	return &Provider{store: NewStore(pool, inst)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

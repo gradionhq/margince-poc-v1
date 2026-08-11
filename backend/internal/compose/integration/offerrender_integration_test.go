@@ -29,9 +29,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -61,8 +61,9 @@ var offerRenderDeskPerms = principal.Permissions{
 var offerRenderReadOnlyPerms = principal.Permissions{
 	RoleKeys: []string{"read_only"},
 	Objects: map[string]principal.ObjectGrant{
-		"deal":  {Read: true},
-		"offer": {Read: true},
+		"deal":                  {Read: true},
+		"offer":                 {Read: true},
+		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -432,7 +433,7 @@ func TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound(t *testing.T)
 
 	noOfferGrant := principal.Permissions{
 		RoleKeys: []string{"no_offer"},
-		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}, "installation_settings": {Read: true}},
 		RowScope: principal.RowScopeAll,
 	}
 	denied := e.As(e.Rep2, []ids.UUID{e.Team1}, noOfferGrant)
@@ -490,7 +491,7 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
 	blob := &spyBlobStore{Store: blobstore.NewMemory()}
-	h := deals.NewHandlers(e.Pool, identity.BaseCurrencyOf).WithBlobstore(blob)
+	h := deals.NewHandlers(e.Pool, installseam.Deals()).WithBlobstore(blob)
 
 	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)
