@@ -48,6 +48,28 @@ func main() {
 	}
 }
 
+// ownerDSNFromEnv resolves the default --dsn: the OWNER role's DSN first, the
+// single MARGINCE_DSN second.
+//
+// The order is the fix for a mislabelled default. This flag reads "(owner role)"
+// and every verb here needs owner rights — migrations run DDL — but it used to
+// default to MARGINCE_DSN alone, which everywhere else in the product is the APP
+// role: NOSUPERUSER, NOBYPASSRLS, no DDL. A deployment that set both and relied on
+// the default therefore ran migrations under the one credential that cannot apply
+// them, and the only thing hiding it was a container entrypoint passing
+// `--dsn "$MARGINCE_OWNER_DSN"` by hand.
+//
+// MARGINCE_DSN stays as the second choice rather than being dropped: a small
+// installation may legitimately run everything under one sufficiently-privileged
+// credential, and that setup works today. Only the precedence changes, so a
+// deployment that sets both now gets the credential the flag always claimed.
+func ownerDSNFromEnv() string {
+	if owner := os.Getenv("MARGINCE_OWNER_DSN"); owner != "" {
+		return owner
+	}
+	return os.Getenv("MARGINCE_DSN")
+}
+
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
@@ -55,7 +77,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	direction := args[0]
 
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (owner role)")
+	dsn := fs.String("dsn", ownerDSNFromEnv(), "Postgres DSN (owner role; MARGINCE_OWNER_DSN, else MARGINCE_DSN)")
 	steps := fs.Int("steps", 1, "migrations to revert (down only)")
 	email := fs.String("email", "", "user email (reset-password only)")
 	name := fs.String("name", "", "database name (recreate-db, drop-db, db-exists only)")
@@ -64,7 +86,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	if *dsn == "" {
-		return errors.New("migrate: --dsn or MARGINCE_DSN required")
+		return errors.New("migrate: --dsn, MARGINCE_OWNER_DSN or MARGINCE_DSN required")
 	}
 
 	conn, err := pgx.Connect(ctx, *dsn)
