@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // The ingress half of the Telegram acceptance suite (telegram-oa design v2 §3):
 // what an inbound message leaves behind once the real poll has collected it and
@@ -51,7 +51,7 @@ const captureLatencyBudget = 60 * time.Second
 // marker, not a captured conversation.
 func (c *telegramEnv) capturedMessage(t *testing.T, u telegramUpdate) (activityID, personID string) {
 	t.Helper()
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT a.id::text, l.person_id::text
 			  FROM activity a
@@ -119,7 +119,7 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 
 	var ownerID *string
 	var fullName string
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT owner_id::text, full_name FROM person WHERE id = $1`, personID).
 			Scan(&ownerID, &fullName)
@@ -142,7 +142,7 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 		t.Errorf("%d email rows beside the channel identity, want 0", n)
 	}
 	var boundUsername, identitySource, identityCapturedBy string
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT username, source, captured_by FROM person_channel_identity
 			 WHERE provider = 'telegram' AND channel_user_id = $1`, u.account()).
@@ -280,7 +280,7 @@ func TestAC_TG_5_MailGatesAreNoOpsForAChannelRecord(t *testing.T) {
 	c := setupTelegramConnected(t)
 	// The workspace's own mail domain, so the colleagues gate has something to
 	// find if anything asks it about a record with no domain.
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`INSERT INTO workspace_email_domain (workspace_id, domain) VALUES ($1, 'own-house.test')`, c.ws)
 		return err
@@ -353,7 +353,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit(t *testing.T) {
 	}
 
 	injectedReceipt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE raw_capture SET received_at = $2
 			  WHERE source_system = 'telegram' AND payload->>'update_id' = $1`,
@@ -364,7 +364,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit(t *testing.T) {
 	}
 
 	var receivedAt, createdAt, occurredAt time.Time
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
 			`SELECT received_at FROM raw_capture

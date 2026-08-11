@@ -305,11 +305,11 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 	})
 }
 
-// personIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
+// PersonIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
 // the entity a people-store call targets — the suites' spelling of the
 // contracts-edge ids.From widening (the harness keeps its fixture ids
 // untyped so every module's suite can share them).
-func personIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
+func PersonIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
 func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
 func leadIDOf(u ids.UUID) ids.LeadID        { return ids.From[ids.LeadKind](u) }
 func projectIDOf(u ids.UUID) ids.ProjectID  { return ids.From[ids.ProjectKind](u) }

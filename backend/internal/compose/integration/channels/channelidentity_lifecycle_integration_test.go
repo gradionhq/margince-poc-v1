@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // person_channel_identity is a person satellite, so it owes every lifecycle
 // path its siblings ride: Art. 17 erasure (plus the suppression row that makes
@@ -26,6 +26,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -41,7 +42,7 @@ const telegramProvider = "telegram"
 // must be unique per test: the live unique index spans (provider,
 // channel_user_id) without person_id, deliberately, because one account is one
 // human across the whole installation.
-func seedChannelIdentity(t *testing.T, e *Env, person ids.UUID, channelUserID, username string) {
+func seedChannelIdentity(t *testing.T, e *integration.Env, person ids.UUID, channelUserID, username string) {
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO person_channel_identity
@@ -52,7 +53,7 @@ func seedChannelIdentity(t *testing.T, e *Env, person ids.UUID, channelUserID, u
 }
 
 // liveIdentities counts the person's un-archived channel identities.
-func liveIdentities(t *testing.T, e *Env, person ids.UUID) int {
+func liveIdentities(t *testing.T, e *integration.Env, person ids.UUID) int {
 	t.Helper()
 	return e.WsCount(t,
 		`SELECT count(*) FROM person_channel_identity WHERE person_id = $1 AND archived_at IS NULL`, person)
@@ -60,7 +61,7 @@ func liveIdentities(t *testing.T, e *Env, person ids.UUID) int {
 
 // suppressed asks the same probe the ingest paths ask: is this account an
 // erased subject's?
-func suppressed(t *testing.T, e *Env, channelUserID string) bool {
+func suppressed(t *testing.T, e *integration.Env, channelUserID string) bool {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	var answer bool
@@ -75,7 +76,7 @@ func suppressed(t *testing.T, e *Env, channelUserID string) bool {
 }
 
 func TestErasurePurgesTheChannelIdentityAndSuppressesTheAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	admin := e.Admin()
 	person := e.SeedPerson(t, "Tomas Telegram", nil)
 	seedChannelIdentity(t, e, person, "10101", "tomas")
@@ -83,7 +84,7 @@ func TestErasurePurgesTheChannelIdentityAndSuppressesTheAccount(t *testing.T) {
 	// Art. 15 hands the binding back while it is held — asserted BEFORE the
 	// erasure, so the emptiness afterwards measures the erasure and not a
 	// section that never worked.
-	pkg, err := privacy.AssembleSAR(admin, e.Pool, personIDOf(person))
+	pkg, err := privacy.AssembleSAR(admin, e.Pool, integration.PersonIDOf(person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -142,8 +143,8 @@ func TestErasurePurgesTheChannelIdentityAndSuppressesTheAccount(t *testing.T) {
 // suppression list stays empty — suppressing here would silently bar a person
 // the workspace is free to re-capture.
 func TestRetentionAnonymizeDropsTheChannelIdentityWithoutSuppressingIt(t *testing.T) {
-	e := Setup(t)
-	seedRetentionPolicies(t, e)
+	e := integration.Setup(t)
+	integration.SeedRetentionPolicies(t, e)
 	person := e.SeedPerson(t, "Otto Overage", nil)
 	seedChannelIdentity(t, e, person, "30303", "otto")
 	// Past the seeded person/no_consent_no_deal window (730 days), with no
@@ -151,7 +152,7 @@ func TestRetentionAnonymizeDropsTheChannelIdentityWithoutSuppressingIt(t *testin
 	e.WsExec(t, `UPDATE person SET created_at = now() - interval '800 days' WHERE id = $1`, person)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("retention pass: %v", err)
 	}
 
@@ -165,16 +166,16 @@ func TestRetentionAnonymizeDropsTheChannelIdentityWithoutSuppressingIt(t *testin
 }
 
 func TestMergeRelinksTheChannelIdentityOntoTheSurvivor(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	source := e.SeedPerson(t, "Ada Source", nil)
 	target := e.SeedPerson(t, "Ada Target", nil)
 	seedChannelIdentity(t, e, source, "40404", "ada")
 
-	survivor, err := e.People.MergePerson(e.Admin(), personIDOf(source), personIDOf(target))
+	survivor, err := e.People.MergePerson(e.Admin(), integration.PersonIDOf(source), integration.PersonIDOf(target))
 	if err != nil {
 		t.Fatalf("MergePerson: %v", err)
 	}
-	if personIDOf(ids.UUID(survivor.Id)) != personIDOf(target) {
+	if integration.PersonIDOf(ids.UUID(survivor.Id)) != integration.PersonIDOf(target) {
 		t.Fatalf("survivor = %s, want the target %s", survivor.Id, target)
 	}
 
@@ -187,11 +188,11 @@ func TestMergeRelinksTheChannelIdentityOntoTheSurvivor(t *testing.T) {
 }
 
 func TestArchivingAPersonArchivesTheChannelIdentity(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Vera Vanished", nil)
 	seedChannelIdentity(t, e, person, "50505", "vera")
 
-	if _, err := e.People.ArchivePerson(e.Admin(), personIDOf(person)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(person)); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 
@@ -213,7 +214,7 @@ func TestArchivingAPersonArchivesTheChannelIdentity(t *testing.T) {
 // update_id — irrelevant to the fixture, but it is itself a second place a
 // digit run can appear in the payload, which is exactly what the
 // over-deletion guard test below needs.
-func seedTelegramMessageRaw(t *testing.T, e *Env, sourceID string, messageID int64, senderID, text string) {
+func seedTelegramMessageRaw(t *testing.T, e *integration.Env, sourceID string, messageID int64, senderID, text string) {
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
@@ -240,7 +241,7 @@ func seedTelegramMessageRaw(t *testing.T, e *Env, sourceID string, messageID int
 // their user id. A fixture that instead put the customer in new_chat_member.user
 // would agree with a matcher reading that path and prove nothing about
 // production, where such a matcher purges and exports nothing at all.
-func seedTelegramMembershipRaw(t *testing.T, e *Env, sourceID string, updateID int64, senderID, status string) {
+func seedTelegramMembershipRaw(t *testing.T, e *integration.Env, sourceID string, updateID int64, senderID, status string) {
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
@@ -257,7 +258,7 @@ func seedTelegramMembershipRaw(t *testing.T, e *Env, sourceID string, updateID i
 // rawCaptureSurvives reports whether exactly one raw_capture row still holds
 // the given source_id — the harness's WsCount wrapped for readability at the
 // call sites below.
-func rawCaptureSurvives(t *testing.T, e *Env, sourceID string) bool {
+func rawCaptureSurvives(t *testing.T, e *integration.Env, sourceID string) bool {
 	t.Helper()
 	return e.WsCount(t,
 		`SELECT count(*) FROM raw_capture WHERE source_system = 'telegram' AND source_id = $1`, sourceID) == 1
@@ -276,7 +277,7 @@ func rawCaptureSurvives(t *testing.T, e *Env, sourceID string) bool {
 // evidence gone — would be the catastrophic failure mode here, worse than the
 // under-deleting one this task fixes.
 func TestErasureOfAChannelOnlySubjectPurgesRawCaptureWithoutOverreaching(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	admin := e.Admin()
 
 	subject := e.SeedPerson(t, "Ilya Channel-Only", nil)
@@ -328,7 +329,7 @@ func TestErasureOfAChannelOnlySubjectPurgesRawCaptureWithoutOverreaching(t *test
 // history — an Art. 15 failure as real as erasure's, and just as silent,
 // because nothing about assembling an incomplete package errors or logs.
 func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	subject := e.SeedPerson(t, "Nadia Channel-Only", nil)
 	seedChannelIdentity(t, e, subject, "40404", "nadia")
 	seedTelegramMessageRaw(t, e, "sar-message", 5, "40404", "hi from telegram")
@@ -339,7 +340,7 @@ func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
 	seedChannelIdentity(t, e, unrelated, "50506", "boris")
 	seedTelegramMessageRaw(t, e, "sar-unrelated-message", 7, "50506", "not the subject")
 
-	pkg, err := privacy.AssembleSAR(e.Admin(), e.Pool, personIDOf(subject))
+	pkg, err := privacy.AssembleSAR(e.Admin(), e.Pool, integration.PersonIDOf(subject))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
 // seedPersonEmail binds one address to a person. person_email's dedupe index
 // is partial on archived_at IS NULL exactly like the channel one's, which is
 // what makes the two halves of the guard below the SAME defect.
-func seedPersonEmail(t *testing.T, e *Env, person ids.UUID, email string) {
+func seedPersonEmail(t *testing.T, e *integration.Env, person ids.UUID, email string) {
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
@@ -376,11 +377,11 @@ func seedPersonEmail(t *testing.T, e *Env, person ids.UUID, email string) {
 // archived row, and a SECOND Person is created holding a live binding for the
 // same account. uq_person_channel_identity admits it — it is partial on
 // archived_at IS NULL. Returns both records.
-func archiveAndRebindTheAccount(t *testing.T, e *Env, account, handle string) (archived, live ids.UUID) {
+func archiveAndRebindTheAccount(t *testing.T, e *integration.Env, account, handle string) (archived, live ids.UUID) {
 	t.Helper()
 	archived = e.SeedPerson(t, "Ada Archived", nil)
 	seedChannelIdentity(t, e, archived, account, handle)
-	if _, err := e.People.ArchivePerson(e.Admin(), personIDOf(archived)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived)); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 	live = e.SeedPerson(t, "Ada Writes Again", nil)
@@ -402,7 +403,7 @@ func archiveAndRebindTheAccount(t *testing.T, e *Env, account, handle string) (a
 // duplicates, then erase the survivor — and it leaves the installation
 // untouched, which the assertions below insist on.
 func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameChannelAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	archived, live := archiveAndRebindTheAccount(t, e, "60601", "ada")
 	seedTelegramMessageRaw(t, e, "rival-account-message", 11, "60601", "written to the surviving record")
 
@@ -429,10 +430,10 @@ func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameChannelAccount(t *testin
 // covering both satellites (erasure_rivals.go) rather than a fix applied to
 // whichever one was reported.
 func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameEmail(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	archived := e.SeedPerson(t, "Bruno Archived", nil)
 	seedPersonEmail(t, e, archived, "bruno@rival.test")
-	if _, err := e.People.ArchivePerson(e.Admin(), personIDOf(archived)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived)); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 	live := e.SeedPerson(t, "Bruno Captured Again", nil)
@@ -455,7 +456,7 @@ func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameEmail(t *testing.T) {
 // row that would otherwise go on holding the erased human's account id and
 // handle after the erasure certified them gone.
 func TestErasingTheLiveRecordAlsoClearsAnArchivedDuplicatesBinding(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	_, live := archiveAndRebindTheAccount(t, e, "60701", "beatrix")
 
 	if n := e.WsCount(t,

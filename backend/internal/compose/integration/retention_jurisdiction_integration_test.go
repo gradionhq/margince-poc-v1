@@ -23,28 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
-
-// gobdFloorPack is the test's own six-calendar-year correspondence
-// floor — the same span the de extension declares. The engine is what
-// this suite proves; the de unit's statutory CONTENT is pinned by its
-// own test lane (extensions/de), and the backend never imports an
-// extension module (TestCompositionWiredOnlyFromCmd), so the floor is
-// registered here the way the boot reconciliation would.
-type gobdFloorPack struct{}
-
-func (gobdFloorPack) Code() jurisdiction.Code { return "zq" }
-
-func (gobdFloorPack) Retention() jurisdiction.Retention { return gobdFloorClasses{} }
-
-type gobdFloorClasses struct{}
-
-func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
-	return []jurisdiction.RetentionClass{
-		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}, Anchor: jurisdiction.AnchorCalendarYearEnd},
-	}
-}
 
 // init mirrors the arming the composed boot performs: the registry is
 // process-global, so registering once arms the floor for THIS BINARY — and one
@@ -53,7 +32,7 @@ func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
 // a destructive pass over correspondence would go green precisely because the
 // floor that shields it is absent. A suite that moves out takes this with it.
 func init() {
-	jurisdiction.Register(gobdFloorPack{})
+	RegisterGoBDFloorPack()
 }
 
 func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
