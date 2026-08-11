@@ -197,6 +197,7 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 		Goal:       spec.Goal,
 		TriggerRef: job.TriggerRef,
 		Budget:     spec.Budget,
+		Tools:      spec.Tools,
 		Grounding:  grounding,
 	})
 	s.landOutcome(runCtx, runID, res, err)
@@ -264,10 +265,14 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 
 	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
 	defer cancel()
+	// Tools rides the CURRENT catalog entry, beside the current budget and
+	// for the same reason: a suspended run resumes under the authority the
+	// entry states now, never the one it stated when the call was staged.
 	res, err := s.runner.Resume(bounded, runner.Job{
 		Goal:       suspended.Goal,
 		TriggerRef: suspended.TriggerRef,
 		Budget:     spec.Budget,
+		Tools:      spec.Tools,
 	}, runner.Decision{
 		Pending:  suspended.Pending,
 		Approved: payload.Verdict == "approved",
