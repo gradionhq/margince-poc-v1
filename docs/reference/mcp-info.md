@@ -12,10 +12,10 @@ receives it. This page is rendered from that file.
 | | |
 |---|---:|
 | Tools | 37 |
-| Resources | 7 |
+| Resources | 8 |
 | Tool catalog | 102.5 KB |
-| Resource catalog | 2.7 KB |
-| Approx. wire tokens | 26943 |
+| Resource catalog | 3.0 KB |
+| Approx. wire tokens | 27028 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -26,8 +26,9 @@ budget in `agenttooldescriptions_test.go`.
 
 ## Index
 
-### Resources (7)
+### Resources (8)
 
+- [`margince://capabilities`](#capabilities) — What this installation can do
 - [`margince://schema/query`](#query_vocabulary) — Workspace query vocabulary
 - [`margince://schema/record-fields`](#record_fields) — Record write vocabulary
 - [`ui://margince/account-brief.html`](#account_brief_view) — Morning brief
@@ -83,6 +84,14 @@ budget in `agenttooldescriptions_test.go`.
 A resource takes no arguments and changes nothing, so it carries no autonomy
 tier — but it is scope-filtered exactly as a tool is, so a passport holding
 fewer scopes is served fewer documents.
+
+### capabilities
+
+`margince://capabilities` · application/json
+
+**What this installation can do**
+
+The verbs this passport may call, which of them execute directly and which stage for a human decision, and the scopes it holds. Names and governance only — the input schemas live in tools/list.
 
 ### query_vocabulary
 

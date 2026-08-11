@@ -175,7 +175,8 @@ func TestAFailingProviderStopsTheWalkRatherThanBecomingANotFound(t *testing.T) {
 // resources/list rather than an absent capability.
 func TestARoleWithNoViewProviderComposesTheRestAndServesIt(t *testing.T) {
 	vocabulary := stubProvider{documents: map[string]string{"margince://schema/query": "{}"}}
-	composed := composeResources(mcpResourceProviders(vocabulary, nil)...)
+	composed := composeResources(mcpResourceProviders(
+		agents.NewCapabilitiesResource(NewRegistry(nil, SendPath{})), vocabulary, nil)...)
 	if composed == nil {
 		t.Fatal("a role with no views composed no resource surface at all")
 	}
@@ -183,12 +184,14 @@ func TestARoleWithNoViewProviderComposesTheRestAndServesIt(t *testing.T) {
 	for _, r := range composed.Resources(context.Background()) {
 		published[r.URI] = true
 	}
-	// The write vocabulary is the one document that is NOT conditional: it is
-	// composed from the contract alone, so no deployment can lack it and a role
-	// that dropped it would leave both write tools pointing at nothing.
-	want := []string{"margince://schema/query", agents.RecordFieldsURI}
+	// Two documents are NOT conditional. The write vocabulary is composed from
+	// the contract alone, so no deployment can lack it and a role that dropped
+	// it would leave both write tools pointing at nothing; capabilities is
+	// derived from the registry the transport already holds, so no role can
+	// serve tools and fail to describe them.
+	want := []string{"margince://schema/query", agents.RecordFieldsURI, agents.CapabilitiesURI}
 	if len(published) != len(want) {
-		t.Fatalf("the composed surface published %v, want exactly the two vocabularies %v", published, want)
+		t.Fatalf("the composed surface published %v, want exactly %v", published, want)
 	}
 	for _, uri := range want {
 		if !published[uri] {
@@ -204,5 +207,15 @@ func TestARoleWithNoViewProviderComposesTheRestAndServesIt(t *testing.T) {
 	}
 	if !json.Valid([]byte(contents.Text)) {
 		t.Errorf("the write vocabulary served %q, which no client can parse", contents.Text)
+	}
+	// Same for capabilities, and for the same reason: it is derived from the
+	// real registry here, so advertising it without serving it would be a
+	// catalogue entry no client can follow.
+	capabilities, err := composed.ReadResource(context.Background(), agents.CapabilitiesURI)
+	if err != nil {
+		t.Fatalf("capabilities is advertised but cannot be read: %v", err)
+	}
+	if !json.Valid([]byte(capabilities.Text)) {
+		t.Errorf("capabilities served %q, which no client can parse", capabilities.Text)
 	}
 }
