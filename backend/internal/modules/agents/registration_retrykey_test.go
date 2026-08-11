@@ -73,6 +73,57 @@ func TestAReadOnlyToolIsNotAdvertisedWithTheRetryKey(t *testing.T) {
 	}
 }
 
+// unitTool is a fakeTool an extension unit shipped: the same tool, plus the one
+// fact mcp.UnitScopedTool carries. A core tool cannot answer that question at
+// all, which is what the surface reads it by.
+type unitTool struct {
+	*fakeTool
+	unit string
+}
+
+func (u unitTool) OwningUnit() string { return u.unit }
+
+// An extension's records never enter the datasource seam a replay re-proves its
+// evidence through, so its recorded result could never pass the replay gate.
+// Advertising the key there would promise a recovery the surface cannot perform
+// — and a caller that believes it is protected repeats an irreversible call.
+func TestAMutatingExtensionToolIsNotAdvertisedWithTheRetryKey(t *testing.T) {
+	spec := mutatingSpec("notes_create_note")
+	r := NewRegistry(nil, nil)
+	r.Register(unitTool{fakeTool: &fakeTool{spec: spec}, unit: "notes"})
+	registered, ok := r.Spec(spec.Name)
+	if !ok {
+		t.Fatalf("%s did not register", spec.Name)
+	}
+	props := declaredProperties(t, registered.InputSchema)
+	if _, advertised := props[idempotencyKeyArg]; advertised {
+		t.Fatalf("an extension tool advertises `%s`, whose promise its records cannot keep: %s",
+			idempotencyKeyArg, registered.InputSchema)
+	}
+	// The exclusion withholds ONE member and touches nothing else the unit
+	// declared: a tool that lost its own arguments to it would be unusable
+	// rather than merely unprotected.
+	if _, kept := props["deal_id"]; !kept {
+		t.Errorf("the exclusion dropped the tool's own argument: %s", registered.InputSchema)
+	}
+}
+
+// The other half of the same rule, so neither can move without the other: the
+// exclusion is about WHO OWNS THE RECORDS, not about mutation, and a core
+// mutating tool's replay machinery is unchanged.
+func TestAMutatingCoreToolKeepsTheRetryKeyBesideAnExtensionsTool(t *testing.T) {
+	r := NewRegistry(nil, nil)
+	r.Register(&fakeTool{spec: mutatingSpec("archive_record")})
+	r.Register(unitTool{fakeTool: &fakeTool{spec: mutatingSpec("notes_create_note")}, unit: "notes"})
+	core, ok := r.Spec("archive_record")
+	if !ok {
+		t.Fatal("the core tool did not register")
+	}
+	if _, advertised := declaredProperties(t, core.InputSchema)[idempotencyKeyArg]; !advertised {
+		t.Fatalf("a core mutating tool lost `%s`: %s", idempotencyKeyArg, core.InputSchema)
+	}
+}
+
 // A mutating tool that takes no arguments still gets the key: having arguments
 // says nothing about whether repeating the call is safe.
 func TestAToolWithNoPropertiesStillGetsTheRetryKey(t *testing.T) {

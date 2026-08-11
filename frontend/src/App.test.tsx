@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { LocaleProvider } from "./i18n";
+import { memoryStorage, sessionOnlyFetch } from "./testing/appharness";
 
 // B-EP09.17: the locale switch flips the whole UI between DE and EN. With the
 // browser asking for a language we don't ship, the app mounts in the A100
@@ -14,24 +15,6 @@ import { LocaleProvider } from "./i18n";
 // The shell only renders behind a session: App probes GET /v1/me and shows the
 // authenticated chrome once it is 200. The test seeds a workspace slug + a
 // stubbed /me so the rail is reached (the signup/login gate has its own test).
-
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, String(value));
-    },
-    removeItem: (key) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-    key: (index) => Array.from(map.keys())[index] ?? null,
-    get length() {
-      return map.size;
-    },
-  };
-}
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
@@ -45,22 +28,7 @@ beforeEach(() => {
   // Only the session probe succeeds; the home screen's own data calls fail and
   // fall to their QueryGate error state (the rail still renders — that is what
   // this test asserts). Routing by URL keeps the stub honest per endpoint.
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: Request | string | URL) => {
-      const url = String(input instanceof Request ? input.url : input);
-      if (url.endsWith("/v1/me")) {
-        return new Response(
-          JSON.stringify({ user: {}, roles: [], teams: [] }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ code: "unavailable" }), {
-        status: 503,
-        headers: { "Content-Type": "application/problem+json" },
-      });
-    }),
-  );
+  vi.stubGlobal("fetch", vi.fn(sessionOnlyFetch()));
 });
 
 afterEach(() => {
@@ -124,6 +92,44 @@ describe("custom-fields route", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: "Custom fields" }),
     ).toBeTruthy();
+  });
+});
+
+// The VANILLA extension lane, end to end through the real router and the real
+// registry. This is the lane a fresh clone, a core developer's `pnpm dev` and
+// the web image all build: the committed empty-tree stub, where every unit
+// name misses. What must hold is that #/ext/<anything> still renders the
+// authenticated shell with an honest not-found card — not a blank frame, not a
+// crash, and not the "not built yet" copy, which would be a different (and
+// false) claim about the same URL.
+//
+// The composed half of the pair is app/extensions.test.ts, which hands the
+// generator's own descriptor shape to the same lookup. Rendering a composed
+// unit here is not possible without build/composition/ existing, and this
+// suite must pass in a tree where it does not.
+describe("extension routes (vanilla registry)", () => {
+  it("renders the honest not-found card for a unit no installation composed", async () => {
+    window.location.hash = "#/ext/notes";
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider>
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByText(
+        "No extension named \u201Cnotes\u201D is enabled on this installation.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Not built yet — this surface arrives with its build ticket.",
+      ),
+    ).toBeNull();
   });
 });
 

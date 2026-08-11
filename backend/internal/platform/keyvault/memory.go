@@ -49,6 +49,12 @@ func (m *memoryVault) Put(_ context.Context, ws ids.WorkspaceID, secret []byte) 
 	return ref, nil
 }
 
+// GetOn ignores the querier: this vault stores nothing in the database, so
+// there is no read to place on the caller's connection.
+func (m *memoryVault) GetOn(ctx context.Context, _ Querier, ws ids.WorkspaceID, ref Ref) ([]byte, error) {
+	return m.Get(ctx, ws, ref)
+}
+
 func (m *memoryVault) Get(_ context.Context, ws ids.WorkspaceID, ref Ref) ([]byte, error) {
 	// The structural workspace gate first: a ref from another workspace is
 	// ErrNotFound before any lookup, matching the local provider.

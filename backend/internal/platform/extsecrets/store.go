@@ -1,0 +1,399 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// Package extsecrets is the extension tier's secret namespace: the one
+// implementation of the published extension.Secrets port (ADR-0069).
+//
+// It sits between two things that each own half the problem and neither of
+// which can own the other's. platform/keyvault is the custodian of secret
+// MATERIAL: it seals bytes, hands back an opaque workspace-scoped Ref, and
+// has no key/value namespace, no user scope, and no notion of an extension.
+// An extension, on the other hand, addresses secrets by its own bare key
+// names ("signing", "token") and must never see a Ref — a Ref is a
+// capability, and one that reached extension code could be persisted
+// somewhere the core cannot revoke. extension_secret is the mapping between
+// the two, and this package is its only writer.
+//
+// The namespace wall is structural rather than checked: For closes over the
+// invoking unit's name and every statement carries it, so there is no method
+// on the port through which a unit could name another unit — reaching a
+// sibling's namespace is not something the surface can express.
+package extsecrets
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"unicode"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
+
+var (
+	// ErrUserOutsideWorkspace refuses a user-scoped operation naming somebody
+	// who is not a member of the calling workspace. The composite FK on
+	// extension_secret refuses such a row too, but as a constraint violation
+	// nobody can read; the store asks first and answers by name.
+	ErrUserOutsideWorkspace = errors.New("extsecrets: that user is not a member of this workspace")
+
+	// ErrInvalidUserID refuses a UserID that is not a canonical UUID. The
+	// published type is a string (the surface is stdlib-only), so this is
+	// where its shape is actually established.
+	ErrInvalidUserID = errors.New("extsecrets: the user id is not a canonical UUID")
+
+	// ErrInvalidKey refuses a key name that could not be read back honestly:
+	// empty, over the length bound, or carrying a control character. The key
+	// is echoed into the system_log detail an operator reads, and a name with
+	// an embedded newline has no honest rendering there.
+	ErrInvalidKey = errors.New("extsecrets: the secret key name is unusable")
+
+	// ErrNoCustodian refuses every operation on a deployment that configured
+	// no keyvault. Failing by name beats a nil dereference, and beats writing
+	// a mapping row pointing at material nothing could ever unseal.
+	ErrNoCustodian = errors.New("extsecrets: no keyvault is configured for this installation, so no extension secret can be stored or read")
+)
+
+// maxKeyLength bounds a key name. The column is unbounded text and nothing
+// breaks at 4KB, but a key is a NAME an operator reads in the audit ledger
+// next to the unit that used it; anything longer is a payload wearing a
+// name's clothes.
+const maxKeyLength = 128
+
+// store is one extension's view of the secret namespace, in whichever
+// workspace the calling context is pinned to. unit is closed over at
+// construction and is never a parameter: see the package doc.
+type store struct {
+	unit  string
+	pool  *pgxpool.Pool
+	vault keyvault.Vault
+	log   *slog.Logger
+}
+
+var _ extension.Secrets = (*store)(nil)
+
+// For builds the secrets port for one extension unit. The unit name is fixed
+// here, at the one place that knows which unit is being invoked — the core —
+// rather than anywhere the extension can reach.
+//
+// vault may be nil on a deployment that configured no custodian; every method
+// then refuses with ErrNoCustodian rather than writing a mapping row naming
+// material that does not exist.
+//
+// There is no logger parameter. The only thing this package logs is a
+// detached vault cleanup that failed after its transaction committed — a
+// condition the caller cannot act on and must not be failed for (see
+// keyvault.DeleteDetached) — and threading a logger for that alone would put
+// it in the signature of every Runtime constructed per tool call.
+//
+//nolint:ireturn // returning the published port IS the seam: callers hold extension.Secrets, never this type.
+func For(unit string, pool *pgxpool.Pool, vault keyvault.Vault) extension.Secrets {
+	return &store{unit: unit, pool: pool, vault: vault, log: slog.Default()}
+}
+
+func (s *store) Get(ctx context.Context, key string) ([]byte, error) {
+	return s.read(ctx, nil, key)
+}
+
+func (s *store) Put(ctx context.Context, key string, secret []byte) error {
+	return s.write(ctx, nil, key, secret)
+}
+
+func (s *store) Delete(ctx context.Context, key string) error {
+	return s.remove(ctx, nil, key)
+}
+
+func (s *store) GetUser(ctx context.Context, userID extension.UserID, key string) ([]byte, error) {
+	user, err := parseUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.read(ctx, &user, key)
+}
+
+func (s *store) PutUser(ctx context.Context, userID extension.UserID, key string, secret []byte) error {
+	user, err := parseUser(userID)
+	if err != nil {
+		return err
+	}
+	return s.write(ctx, &user, key, secret)
+}
+
+func (s *store) DeleteUser(ctx context.Context, userID extension.UserID, key string) error {
+	user, err := parseUser(userID)
+	if err != nil {
+		return err
+	}
+	return s.remove(ctx, &user, key)
+}
+
+// read resolves the mapping row and fetches the material it names. A nil
+// user is the workspace scope.
+//
+// BOTH halves happen inside the one transaction, under the FOR SHARE the
+// lookup takes. That placement is what makes the torn-state alarm below
+// mean anything: a concurrent rotation's FOR UPDATE blocks until this
+// transaction ends, so it cannot commit — and therefore cannot destroy the
+// ref this read is holding — in the window between the lookup and the
+// custodian call. With the fetch outside the transaction the lock would be
+// released before it, and an ordinary rotation would raise an alarm that is
+// supposed to mean corruption.
+//
+// The cost is that a custodian round trip happens with a transaction open,
+// on a second pooled connection. That is the same shape any store that reads
+// through a seam inside its transaction has, and it buys a read that either
+// returns the secret or is genuinely wrong.
+//
+// The audit row is written in the same transaction, before the outcome is
+// known to the caller — including when nothing resolved. See audit.go.
+func (s *store) read(ctx context.Context, user *ids.UserID, key string) ([]byte, error) {
+	ws, err := s.prepare(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		secret  []byte
+		ref     keyvault.Ref
+		outcome string
+	)
+	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := requireMember(ctx, tx, user); err != nil {
+			return err
+		}
+		found, err := s.refFor(ctx, tx, user, key, forShare)
+		switch {
+		case err == nil:
+			ref = found
+		case errors.Is(err, extension.ErrSecretNotFound):
+			// A miss is an OUTCOME, not a failure of this transaction:
+			// returning the error here would roll back the ledger row that
+			// records the probe. The refusal is raised after the commit.
+			outcome = outcomeMissing
+			return s.auditRead(ctx, tx, user, key, outcome)
+		default:
+			return err
+		}
+
+		// GetOn, not Get: the resolve rides THIS transaction's connection.
+		// Get takes one of its own, and with the vault and this store sharing
+		// the app pool that turns a burst of concurrent reads into a deadlock
+		// — every one of them holding a connection and waiting for a
+		// connection. Moving the resolve outside the transaction would not do
+		// either, because the FOR SHARE above is what makes an absent blob
+		// corruption rather than a lost race with a rotation.
+		secret, err = s.vault.GetOn(ctx, tx, ws, ref)
+		switch {
+		case err == nil:
+			outcome = outcomeResolved
+		case errors.Is(err, keyvault.ErrNotFound):
+			outcome = outcomeTorn
+		default:
+			return err
+		}
+		return s.auditRead(ctx, tx, user, key, outcome)
+	}); err != nil {
+		return nil, err
+	}
+
+	if outcome == outcomeTorn {
+		// The mapping row names material the custodian does not hold, and no
+		// concurrent rotation could have caused it (see above) — so this is
+		// corruption, and the only honest report of it is an alarm. The
+		// caller is still told what an absent key gets, because there is
+		// nothing different it could do.
+		//
+		// The ref is NOT in the line, and its absence costs nothing: the
+		// extension, the key and the workspace name the damaged mapping
+		// exactly, and the row itself still holds the ref for anyone
+		// investigating. What putting it here would add is a resolvable vault
+		// handle — the full capability, not a description of it — sitting in
+		// whatever aggregates this installation's logs.
+		s.log.ErrorContext(ctx, "extsecrets: a mapping row names a secret the custodian does not hold",
+			"extension", s.unit, "key", key, "workspace", ws.String())
+	}
+	if outcome != outcomeResolved {
+		return nil, fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)
+	}
+	return secret, nil
+}
+
+// write seals the new material, re-points the mapping row at it, and destroys
+// what the row named before.
+//
+// The order is forced. The row must never name material that is not durable
+// yet, so the seal comes first (put-then-commit, the posture capture's
+// connection stores already document). The destroy must never happen before
+// the replacement is durable, so it comes after the commit — at which point
+// the superseded blob is unreferenced by construction.
+func (s *store) write(ctx context.Context, user *ids.UserID, key string, secret []byte) error {
+	ws, err := s.prepare(ctx, key)
+	if err != nil {
+		return err
+	}
+	newRef, err := s.vault.Put(ctx, ws, secret)
+	if err != nil {
+		return err
+	}
+
+	var oldRef keyvault.Ref
+	committing := false
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := requireMember(ctx, tx, user); err != nil {
+			return err
+		}
+		if err := s.lockKey(ctx, tx, user, key); err != nil {
+			return err
+		}
+		existing, err := s.refFor(ctx, tx, user, key, forUpdate)
+		switch {
+		case err == nil:
+			oldRef = existing
+		case errors.Is(err, extension.ErrSecretNotFound):
+			// First store under this key; nothing to supersede.
+		default:
+			return err
+		}
+		if err := s.upsert(ctx, tx, user, key, newRef); err != nil {
+			return err
+		}
+		action := actionStored
+		if oldRef != "" {
+			action = actionRotated
+		}
+		if err := s.audit(ctx, tx, action, user, key); err != nil {
+			return err
+		}
+		committing = true
+		return nil
+	})
+	if err != nil {
+		if !committing {
+			// The closure failed, so the transaction definitely did not
+			// commit and nothing names the material just sealed. An error
+			// raised after the closure SUCCEEDED is a commit failure, whose
+			// outcome is ambiguous — destroying then could strip a live
+			// mapping row of its secret, so that blob is left orphaned
+			// (inert, encrypted, unreferenced) instead.
+			keyvault.DeleteDetached(ctx, s.vault, s.log, ws.UUID, newRef, "ext-secret-put-rolled-back")
+		}
+		return err
+	}
+	keyvault.DeleteDetached(ctx, s.vault, s.log, ws.UUID, oldRef, "ext-secret-rotated")
+	return nil
+}
+
+// remove drops the mapping row and destroys the material it named. Deleting a
+// key that holds nothing is ErrSecretNotFound rather than a silent success:
+// the caller asked to revoke a specific credential, and "there was nothing
+// there" is an answer it may well need to act on.
+func (s *store) remove(ctx context.Context, user *ids.UserID, key string) error {
+	ws, err := s.prepare(ctx, key)
+	if err != nil {
+		return err
+	}
+	scope := s.scopeOf(user, key)
+	var ref keyvault.Ref
+	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := requireMember(ctx, tx, user); err != nil {
+			return err
+		}
+		var stored string
+		switch err := tx.QueryRow(ctx,
+			`DELETE FROM extension_secret `+whereScope+scope.predicate+` RETURNING vault_ref`,
+			scope.args...).Scan(&stored); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)
+		case err != nil:
+			return err
+		}
+		ref = keyvault.Ref(stored)
+		return s.audit(ctx, tx, actionDeleted, user, key)
+	}); err != nil {
+		return err
+	}
+	keyvault.DeleteDetached(ctx, s.vault, s.log, ws.UUID, ref, "ext-secret-deleted")
+	return nil
+}
+
+// prepare runs the checks every method shares and yields the workspace the
+// custodian calls are scoped to.
+func (s *store) prepare(ctx context.Context, key string) (ids.WorkspaceID, error) {
+	if s.vault == nil {
+		return ids.WorkspaceID{}, ErrNoCustodian
+	}
+	if err := validateKey(key); err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		// The same refusal WithWorkspaceTx would give, raised before a
+		// connection is taken from the pool.
+		return ids.WorkspaceID{}, database.ErrNoWorkspace
+	}
+	return ids.From[ids.WorkspaceKind](ws), nil
+}
+
+// requireMember asks whether the named user belongs to the calling workspace;
+// a nil user is the workspace scope and has nobody to check.
+//
+// The workspace predicate is explicit rather than left to app_user's RLS:
+// this is the check that stops a cross-tenant attachment, and it should not
+// be readable as correct only by knowing another table's policy.
+func requireMember(ctx context.Context, tx pgx.Tx, user *ids.UserID) error {
+	if user == nil {
+		return nil
+	}
+	var member bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM app_user
+			 WHERE id = $1
+			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		)`, *user).Scan(&member); err != nil {
+		return err
+	}
+	if !member {
+		return fmt.Errorf("extsecrets: user %s: %w", user, ErrUserOutsideWorkspace)
+	}
+	return nil
+}
+
+// parseUser establishes the shape of the published UserID string.
+func parseUser(userID extension.UserID) (ids.UserID, error) {
+	user, err := ids.ParseAs[ids.UserKind](string(userID))
+	if err != nil {
+		return ids.UserID{}, fmt.Errorf("extsecrets: %q: %w", string(userID), ErrInvalidUserID)
+	}
+	if user.IsZero() {
+		return ids.UserID{}, fmt.Errorf("extsecrets: the zero uuid names no user: %w", ErrInvalidUserID)
+	}
+	return user, nil
+}
+
+// validateKey holds the key-name rule. It is deliberately permissive about
+// WHICH characters a unit uses — the key is the extension's own vocabulary
+// and the store never builds an identifier out of it — and strict about the
+// two things that would make the audit ledger lie: emptiness and control
+// characters.
+func validateKey(key string) error {
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("extsecrets: the key name is empty: %w", ErrInvalidKey)
+	}
+	if len(key) > maxKeyLength {
+		return fmt.Errorf("extsecrets: the key name is %d bytes, over the %d-byte bound: %w", len(key), maxKeyLength, ErrInvalidKey)
+	}
+	for _, r := range key {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("extsecrets: the key name carries a control character: %w", ErrInvalidKey)
+		}
+	}
+	return nil
+}

@@ -69,7 +69,8 @@ owner_clone_dsn() { local db="$1"; echo "${O_PREFIX}/${db}${O_QUERY:+?$O_QUERY}"
 app_clone_dsn()   { local db="$1"; echo "${A_PREFIX}/${db}${A_QUERY:+?$A_QUERY}"; }
 
 # migrate_template — apply any embedded migration the template has not recorded
-# (cmd/migrate → migrations.Core/Custom, then River). Idempotent: the runner
+# (cmd/migrate → migrations.Core/Custom + the composed extension set's
+# namespaces, then River). Idempotent: the runner
 # compares the tracking tables against the embedded set, so with nothing missing
 # it applies nothing.
 #
@@ -98,8 +99,14 @@ migrate_template() {
   # The summary is the LAST line, matched as its own string rather than as a
   # prefix of the whole capture — same reason: anything printed ahead of it
   # must not decide this.
+  # The prefix tracks cmd/migrate's upSummaryFormat exactly. It counts the
+  # extension namespaces in the same total as core+custom, which is what keeps
+  # a template missing an extension's migration reading as "was behind" rather
+  # than passing this check on the core lane alone. Drift would make this cry
+  # wolf on every run; TestUpSummaryMatchesTheShellMatcher (backend/cmd/migrate)
+  # reads THIS line and fails when the two disagree, so edit both together.
   local summary="${out##*$'\n'}"
-  if [[ "$summary" != "applied 0 core+custom + 0 river"* ]]; then
+  if [[ "$summary" != "applied 0 core+custom+extension + 0 river"* ]]; then
     echo "test-db: template ${TEMPLATE_NAME} was behind — ${summary%%; *}"
   fi
 }

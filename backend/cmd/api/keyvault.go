@@ -25,6 +25,14 @@ func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit 
 	if err != nil {
 		return nil, fmt.Errorf("api: keyvault: %w", err)
 	}
+	// Bound BEFORE the unconfigured return, and with whatever FromEnv gave:
+	// the extension tier's per-call Runtime needs the POOL for its
+	// workspace-pinned transactions whether or not a custodian exists, and a
+	// deployment with no keyvault should have its extension secrets refuse by
+	// name rather than have its extension database access silently disabled
+	// too. FromEnv returns a nil vault when unconfigured, which is the
+	// ErrNoCustodian posture the store already documents.
+	compose.BindExtensionRuntime(pool, vault)
 	if !configured {
 		return nil, nil
 	}

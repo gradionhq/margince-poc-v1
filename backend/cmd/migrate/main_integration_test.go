@@ -21,6 +21,9 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // testDSNs derives the verbs' maintenance-db target from the lane's owner
@@ -259,5 +262,145 @@ func TestDBVerbsRequireAName(t *testing.T) {
 		if _, err := migrateCmd(t, verb, "--dsn", maint); err == nil || !strings.Contains(err.Error(), "--name") {
 			t.Fatalf("%s without --name: got %v, want an error naming the missing flag", verb, err)
 		}
+	}
+}
+
+// TestUpAppliesAnExtensionNamespaceAndTheRiverIndex drives the whole `up`
+// path over a fresh database, which is the only place three claims can be
+// checked at once: an extension namespace lands its schema and records it in
+// its OWN tracking table, the River workspace-arg index exists after River's
+// migrator has created the table it indexes, and a second run of the same
+// input applies nothing.
+//
+// The extension namespace is synthesized rather than taken from the composed
+// set on purpose: no in-tree unit ships a migrations layer yet, so a test
+// reading composition.Extensions() would pass over an empty slice and prove
+// nothing. up() takes the namespaces as a parameter precisely so this can be
+// exercised without one.
+//
+// The seam that leaves — that run() actually calls composition.Extensions()
+// and hands the result here — is held by TestCompositionWiredOnlyFromCmd in
+// backend/extensions_arch_test.go, which REQUIRES cmd/migrate/main.go to
+// import the composition module, plus Go's unused-import rule, which makes an
+// import that feeds nothing a compile error. Neither is a substitute for the
+// other: this test proves the namespaces are applied, the arch test proves
+// they are the composed set's.
+func TestUpAppliesAnExtensionNamespaceAndTheRiverIndex(t *testing.T) {
+	maint, base, withDB := testDSNs(t)
+	name := base + "_up_ext"
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", name) })
+	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", name)
+
+	ctx := context.Background()
+	core, err := migrations.Core()
+	if err != nil {
+		t.Fatalf("loading core: %v", err)
+	}
+	custom, err := migrations.Custom()
+	if err != nil {
+		t.Fatalf("loading custom: %v", err)
+	}
+	namespace, err := dbmigrate.NamespaceFor("up-probe")
+	if err != nil {
+		t.Fatalf("deriving the probe namespace: %v", err)
+	}
+	// The tenant shape a real unit's migration declares, so the apply is
+	// exercised against SQL that references a core table rather than a
+	// standalone CREATE TABLE that could pass in an empty database.
+	probe := dbmigrate.Namespace{Name: namespace, Migrations: []dbmigrate.Migration{{
+		Version: "0001",
+		Name:    "probe",
+		UpSQL: `CREATE TABLE ext.ext_up_probe_probe (
+			id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE)`,
+		DownSQL: `DROP TABLE ext.ext_up_probe_probe`,
+	}}}
+
+	dsn := withDB(name)
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connecting to the fresh database: %v", err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("closing the migrator connection: %v", err)
+		}
+	}()
+
+	var out bytes.Buffer
+	if err := up(ctx, conn, dsn, core, custom, []dbmigrate.Namespace{probe}, &out); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	if !strings.Contains(out.String(), namespace+" (1 declared)") {
+		t.Errorf("up did not name the extension namespace it applied; it printed %q", out.String())
+	}
+	if !tableExists(t, dsn, "ext.ext_up_probe_probe") {
+		t.Fatal("the extension namespace's table is absent — up applied core+custom and silently skipped the extension lane")
+	}
+	assertRecorded(t, dsn, "schema_migrations_"+namespace, "0001")
+	assertRiverWorkspaceArgIndex(t, dsn)
+
+	// Idempotent: the second run must apply nothing at all, extension lane
+	// included, and must not fail re-creating the index.
+	out.Reset()
+	if err := up(ctx, conn, dsn, core, custom, []dbmigrate.Namespace{probe}, &out); err != nil {
+		t.Fatalf("second up: %v", err)
+	}
+	if !strings.Contains(out.String(), "applied 0 core+custom+extension + 0 river") {
+		t.Errorf("re-running up over a database at head printed %q, want a zero-applied summary", out.String())
+	}
+}
+
+// assertRecorded proves the version landed in the namespace's OWN tracking
+// table: an extension migration recorded against core's table would be
+// reverted by a plain `migrate down`.
+func assertRecorded(t *testing.T, dsn, table, version string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connecting to read %s: %v", table, err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("closing after reading %s: %v", table, err)
+		}
+	}()
+	var found bool
+	if err := conn.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM "+table+" WHERE version = $1)", version,
+	).Scan(&found); err != nil {
+		t.Fatalf("reading %s: %v", table, err)
+	}
+	if !found {
+		t.Errorf("%s has no row for version %s — the lane applied without recording, so it would re-apply on every boot", table, version)
+	}
+}
+
+// assertRiverWorkspaceArgIndex pins the post-River statement. It cannot be a
+// core migration (river_job does not exist while the core lane runs, and
+// dbmigrate wraps each migration in a transaction), so nothing but this test
+// would notice it disappearing.
+func assertRiverWorkspaceArgIndex(t *testing.T, dsn string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connecting to probe for the river index: %v", err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("closing after the index probe: %v", err)
+		}
+	}()
+	var exists bool
+	if err := conn.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes
+		    WHERE tablename = 'river_job' AND indexname = 'river_job_workspace_arg')`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("probing for the river index: %v", err)
+	}
+	if !exists {
+		t.Error("river_job_workspace_arg is absent — the per-workspace job fan-out and both job-health statements fall back to a sequential scan")
 	}
 }

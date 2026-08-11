@@ -127,6 +127,10 @@ export const de = {
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
+  "ext.notFound":
+    "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
+  "ext.operations": "Veröffentlichte Operationen",
+
   "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
@@ -3485,6 +3489,37 @@ export const de = {
     "In der Warteschlange — sie wird gleich fertig und aktualisiert sich automatisch.",
   "settings.voice.buildStatus.pending":
     "Wird noch gebaut — das kann einen Moment dauern; es aktualisiert sich hier, sobald es fertig ist.",
+  "settings.tab.extensions": "Erweiterungen",
+  "extAccess.title": "Erweiterungen & Zugriff",
+  "extAccess.sub":
+    "Was jede zusammengesetzte Erweiterungseinheit in diese Installation eingebracht hat und welche Rolle sie nutzen darf. Nur für Admins.",
+  "extAccess.adminOnly": "Der Erweiterungszugriff steht nur Admins offen.",
+  "extAccess.readOnly":
+    "Ihr Sitzplatz liest diese Seite. Eine Berechtigung zu ändern erfordert einen vollen Sitzplatz.",
+  "extAccess.empty":
+    "In diese Installation ist keine Erweiterungseinheit eingebunden.",
+  "extAccess.version": "Version {version}",
+  "extAccess.openUnit": "Seite {name} öffnen",
+  "extAccess.noPage":
+    "{name} ist in die API eingebunden, aber dieser Build der App hat keine Seite dafür — die App ist vermutlich älter als der Server.",
+  "extAccess.brings.objects": "Berechtigungsobjekte",
+  "extAccess.brings.routes": "Routen",
+  "extAccess.brings.jobs": "Hintergrundjobs",
+  "extAccess.brings.none": "Keine",
+  "extAccess.noObjects":
+    "Diese Einheit registriert keine Berechtigungsobjekte — es gibt nichts zu vergeben.",
+  "extAccess.roleColumn": "Rolle",
+  "extAccess.action.read": "Lesen",
+  "extAccess.action.create": "Anlegen",
+  "extAccess.action.update": "Ändern",
+  "extAccess.action.delete": "Löschen",
+  "extAccess.matrixCaption": "Wer darf was mit {object}",
+  "extAccess.cell": "{role} darf {object} {action}",
+  "extAccess.versionSkew":
+    "Jemand anderes hat diese Rolle geändert, während Sie sie ansahen — Ihre Änderung wurde nicht übernommen. Oben stehen jetzt die aktuellen Berechtigungen; nehmen Sie die Änderung erneut vor, wenn Sie sie weiterhin wollen.",
+  "extAccess.systemRole": "Eingebaute Rolle",
+  "extAccess.nobodyReads":
+    "Keine Rolle darf {object} lesen — jedes Mitglied sieht dort eine leere Seite, wo diese Erweiterung stehen sollte. Vergeben Sie unten mindestens einer Rolle das Leserecht.",
   "settings.tab.users": "Nutzer & Rollen",
   "users.title": "Nutzer & Rollen",
   "users.sub":

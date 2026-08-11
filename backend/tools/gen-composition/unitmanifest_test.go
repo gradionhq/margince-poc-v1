@@ -7,10 +7,13 @@ import (
 	"bytes"
 	"go/parser"
 	"go/token"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // TestCollectStringConstsHandlesRepeatedValues: Go repeats a grouped
@@ -101,7 +104,7 @@ func TestDeriveUnitManifestIgnoresGoIgnoredFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := deriveUnitManifest(unit, realVocabulary(t))
+	derived, err := deriveUnitManifest(unit, realVocabulary(t), nil, nil)
 	if err != nil {
 		t.Fatalf("derivation should ignore _scratch.go and read u.go: %v", err)
 	}
@@ -111,6 +114,24 @@ func TestDeriveUnitManifestIgnoresGoIgnoredFiles(t *testing.T) {
 }
 
 const repoRoot = "../../.."
+
+// committedUnitVerbs merges the repository's real contracts with one unit's
+// real fragments and returns that unit's declared operations. It composes the
+// unit in ISOLATION (a one-element unit list) so a manifest assertion is not
+// coupled to whatever else happens to be enabled in the tree.
+func committedUnitVerbs(t *testing.T, unit extensionUnit) []declaredVerb {
+	t.Helper()
+	units := []extensionUnit{unit}
+	contracts, err := composedContracts(repoRoot, units)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verbs, err := extensionVerbs(units, contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verbs
+}
 
 func realVocabulary(t *testing.T) map[string]string {
 	t.Helper()
@@ -127,8 +148,8 @@ func realVocabulary(t *testing.T) map[string]string {
 func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
 	vocab := realVocabulary(t)
 	for ident, want := range map[string]string{
-		"TierAutoExecute":          "green",
-		"TierConfirmationRequired": "yellow",
+		"TierAutoExecute":          "auto_execute",
+		"TierConfirmationRequired": "confirmation_required",
 		"ScopeRead":                "read",
 		"ScopeWrite":               "write",
 		"ScopeSend":                "send",
@@ -156,7 +177,7 @@ func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
 	assertCommittedManifest(t, filepath.Join(repoRoot, "fixtures", "extensions", "crm-hello"), "crm-hello",
 		`"id": "tool/hello_ping"`,
 		`"operation": "agent.tool.invoke"`,
-		`"tier": "yellow"`,
+		`"tier": "confirmation_required"`,
 		`"read"`,
 		`"digest": "sha256:`)
 }
@@ -167,7 +188,10 @@ func assertCommittedManifest(t *testing.T, dir, name string, wantSubstrings ...s
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := deriveUnitManifest(unit, realVocabulary(t))
+	// The verbs come from the MERGED contract, the same way `make gen` derives
+	// them, so this test binds the committed manifest to both halves of the
+	// declaration — the unit's Go file and its api/ fragment.
+	derived, err := deriveUnitManifest(unit, realVocabulary(t), committedUnitVerbs(t, unit), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +211,7 @@ func assertCommittedManifest(t *testing.T, dir, name string, wantSubstrings ...s
 
 // deriveSynthetic lays a one-file unit under a temp root and derives its
 // manifest with the real published vocabulary.
-func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
+func deriveSynthetic(t *testing.T, name, source string, verbs ...declaredVerb) ([]byte, error) {
 	t.Helper()
 	root := t.TempDir()
 	writeUnit(t, root, name, map[string]string{
@@ -198,7 +222,29 @@ func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deriveUnitManifest(unit, realVocabulary(t))
+	return deriveUnitManifest(unit, realVocabulary(t), verbs, nil)
+}
+
+// syntheticVerb is the contract-declared half of a unit under test: what the
+// unit's api/ fragment would have contributed once merged. Tests that used to
+// spell a tier and a scope inside a Go literal spell them here instead, which
+// is where a unit author now spells them.
+func syntheticVerb(unit, tool, tier, scope string) declaredVerb {
+	return declaredVerb{
+		verb: extension.Verb{
+			Unit:           extension.Name(unit),
+			Contract:       "crm.yaml",
+			OperationID:    tool + "Op",
+			Route:          "/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
+			Method:         http.MethodPost,
+			Tool:           tool,
+			Version:        "1.0.0",
+			Description:    "Does the one thing its verb names, and reads nothing else.",
+			Tier:           extension.Tier(tier),
+			RequestedScope: extension.Scope(scope),
+		},
+		fragmentHash: "0000000000000000000000000000000000000000000000000000000000000000",
+	}
 }
 
 // TestJurisdictionPackRequestsNoRiskTier: a jurisdiction pack is
@@ -239,6 +285,131 @@ func (pack) Retention() jurisdiction.Retention { return nil }
 	}
 }
 
+// TestMigrationsLayerRequestsNoRiskTier: a unit's embedded SQL schema is
+// not a governed operation an operator resolves, so the Migrations field is
+// recognized and skipped like Jurisdictions. It must not be REFUSED either:
+// cmd/migrate reads that field to apply the unit's namespace, so a generator
+// rejecting it would make an extension with tables ungeneratable.
+func TestMigrationsLayerRequestsNoRiskTier(t *testing.T) {
+	const migrationsOnly = `package hello
+
+import (
+	"embed"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
+
+//go:embed migrations
+var sql embed.FS
+
+func New() extension.Extension {
+	return extension.Extension{
+		Name:       "hello",
+		Version:    "0.1.0",
+		Migrations: sql,
+	}
+}
+`
+	derived, err := deriveSynthetic(t, "hello", migrationsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(derived), `"risk_tiers": []`) {
+		t.Fatalf("a migrations-only unit must request no risk tier:\n%s", derived)
+	}
+}
+
+// TestMigrationsMustEmbedTheLayerThatShipped: the field is the only thing
+// joining the SQL on disk to the SQL cmd/migrate applies, so both halves of
+// that join are refusals. A unit that ships migrations/ and declares no field
+// boots against a database where its tables were never created, and a field
+// pointing at some other embedded FS does the same thing while looking set.
+func TestMigrationsMustEmbedTheLayerThatShipped(t *testing.T) {
+	const upSQL = "CREATE TABLE ext.ext_hello_note (id uuid PRIMARY KEY);\n"
+	const downSQL = "DROP TABLE ext.ext_hello_note;\n"
+
+	derive := func(t *testing.T, source string) error {
+		t.Helper()
+		root := t.TempDir()
+		writeUnit(t, root, "hello", map[string]string{
+			"go.mod":                        "module example.test/ext/hello\n\ngo 1.26.5\n",
+			"x.go":                          source,
+			"migrations/0001_note.up.sql":   upSQL,
+			"migrations/0001_note.down.sql": downSQL,
+		})
+		unit, err := scanUnit("hello", filepath.Join(root, "extensions", "hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = deriveUnitManifest(unit, realVocabulary(t), nil, nil)
+		return err
+	}
+
+	unitSource := func(imports, vars, field string) string {
+		return "package hello\n\nimport (\n" + imports + "\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n\n" +
+			vars + "\n\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"hello\",\n\t\tVersion: \"0.1.0\",\n" + field + "\t}\n}\n"
+	}
+
+	t.Run("absent", func(t *testing.T) {
+		err := derive(t, unitSource("", "", ""))
+		if err == nil || !strings.Contains(err.Error(), "declares no Migrations field") {
+			t.Fatalf("err = %v, want the unapplied-schema refusal", err)
+		}
+	})
+
+	t.Run("embeds another layer", func(t *testing.T) {
+		err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed x.go\nvar sql embed.FS", "\t\tMigrations: sql,\n"))
+		if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
+			t.Fatalf("err = %v, want the wrong-embed refusal", err)
+		}
+	})
+
+	t.Run("embeds the layer", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed migrations\nvar sql embed.FS", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a unit embedding its own migrations layer must derive: %v", err)
+		}
+	})
+
+	// go/ast hangs the directive on the SPEC inside `var ( … )` and on the DECL
+	// outside it. Both are ordinary Go and both must be read, or the gate
+	// refuses a unit for how it grouped a declaration.
+	t.Run("embeds the layer from inside a var group", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"var (\n\t//go:embed migrations\n\tsql embed.FS\n)", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a grouped var declaration must derive: %v", err)
+		}
+	})
+
+	// A pattern may be a quoted Go string literal.
+	t.Run("embeds the layer through a quoted pattern", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed \"migrations\"\nvar sql embed.FS", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a quoted embed pattern must derive: %v", err)
+		}
+	})
+
+	// And the typos that look like the real thing. The compiler's separator is a
+	// single ASCII space — it matches `go:embed` alone or the prefix `go:embed `
+	// and nothing else — so each of these is an ordinary comment and the FS
+	// below it stays EMPTY: the unit's migrations are then applied by nothing,
+	// which is the whole defect this gate is for. A tab reads as the real
+	// directive to a human and to a looser parser, which is exactly why it has
+	// its own row.
+	for name, decl := range map[string]string{
+		"a directive with no separator":  "//go:embedmigrations\nvar sql embed.FS",
+		"a directive separated by a tab": "//go:embed\tmigrations\nvar sql embed.FS",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := derive(t, unitSource("\t\"embed\"\n", decl, "\t\tMigrations: sql,\n"))
+			if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
+				t.Fatalf("err = %v, want the wrong-embed refusal", err)
+			}
+		})
+	}
+}
+
 // toolUnitSource is a unit declaring one governed tool with the given
 // field body.
 func toolUnitSource(toolFields string) string {
@@ -258,27 +429,36 @@ func New() extension.Extension {
 `
 }
 
-// TestToolDerivesIntoRiskTier is the happy path: a declared 🟢 tool
-// with a required scope becomes one risk-tier request whose
-// descriptor digest is present and stable across derivations.
+// TestToolDerivesIntoRiskTier is the happy path, and it now runs through the
+// CONTRACT: the unit's Go file names a verb and nothing else, the fragment
+// (here, its merged result) carries the tier and the scope, and the manifest
+// records one risk-tier request whose descriptor digest is present and stable.
 func TestToolDerivesIntoRiskTier(t *testing.T) {
-	src := toolUnitSource("\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,")
-	first, err := deriveSynthetic(t, "x", src)
+	src := toolUnitSource("\t\t\tName: \"sync_contacts\",")
+	verb := syntheticVerb("x", "sync_contacts", "auto_execute", "write")
+	first, err := deriveSynthetic(t, "x", src, verb)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		`"id": "tool/sync_contacts"`,
+		`"unit": "x"`,
+		`"kind": "agent_tool"`,
+		`"contract": "crm.yaml"`,
 		`"operation": "agent.tool.invoke"`,
-		`"tier": "green"`,
+		`"operation_id": "sync_contactsOp"`,
+		`"route": "/ext/x/sync-contacts"`,
+		`"method": "POST"`,
+		`"tier": "auto_execute"`,
 		`"write"`,
+		`"fragment_hash": "0000`,
 		`"digest": "sha256:`,
 	} {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("derived tool request misses %s:\n%s", want, first)
 		}
 	}
-	second, err := deriveSynthetic(t, "x", src)
+	second, err := deriveSynthetic(t, "x", src, verb)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,77 +467,131 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 	}
 }
 
-// TestADeclaredTitleDerivesButStaysOutOfTheDescriptor: a display string
-// grants nothing, so declaring one must neither fail the derivation (it did:
-// the field was unrecognized, which made a unit that named its tool
-// unbuildable) nor move the digest an operator decision binds to.
-func TestADeclaredTitleDerivesButStaysOutOfTheDescriptor(t *testing.T) {
-	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
-	untitled, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+// TestEveryDescriptorFieldMovesTheDigest: the widened descriptor is only worth
+// widening if each field it names actually re-opens operator resolution. One
+// mutation per field, against the same baseline — a field present in the JSON
+// and absent from the digest would leave a resolution binding to a capability
+// that has since changed.
+func TestEveryDescriptorFieldMovesTheDigest(t *testing.T) {
+	base := riskTierRequest{
+		ID: "tool/t", Unit: "x", Kind: kindAgentTool, Contract: "crm.yaml",
+		Operation: opAgentToolInvoke, OperationID: "tOp", Route: "/ext/x/t",
+		Method: http.MethodPost, Scopes: []string{"read"}, Tier: "auto_execute",
+		FragmentHash: "aa",
+	}
+	baseline, err := descriptorDigest(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	titled, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tTitle: \"Sync contacts\",\n"+fields))
-	if err != nil {
-		t.Fatalf("a declared title must derive: %v", err)
+	for name, mutate := range map[string]func(*riskTierRequest){
+		"id":            func(c *riskTierRequest) { c.ID = "tool/other" },
+		"unit":          func(c *riskTierRequest) { c.Unit = "y" },
+		"kind":          func(c *riskTierRequest) { c.Kind = "scheduled_job" },
+		"contract":      func(c *riskTierRequest) { c.Contract = "jobs.yaml" },
+		"operation":     func(c *riskTierRequest) { c.Operation = "job.tick" },
+		"operation_id":  func(c *riskTierRequest) { c.OperationID = "otherOp" },
+		"route":         func(c *riskTierRequest) { c.Route = "/ext/x/other" },
+		"method":        func(c *riskTierRequest) { c.Method = http.MethodPut },
+		"scopes":        func(c *riskTierRequest) { c.Scopes = []string{"send"} },
+		"tier":          func(c *riskTierRequest) { c.Tier = "confirmation_required" },
+		"fragment_hash": func(c *riskTierRequest) { c.FragmentHash = "bb" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := base
+			mutate(&mutated)
+			got, err := descriptorDigest(mutated)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == baseline {
+				t.Fatalf("changing %s did not move the digest — a resolution would carry across it", name)
+			}
+		})
 	}
-	if !bytes.Equal(untitled, titled) {
-		t.Fatalf("the title reached the governance descriptor:\n%s\nvs\n%s", untitled, titled)
-	}
-}
-
-// Prose that will not fit on one line is written as literals joined by +, and
-// that is still a value fixed at the declaration — the generator computes it
-// without evaluating anything. Refusing it would push a unit author into one
-// unreadable line to satisfy a tool that never had to be satisfied.
-func TestAConcatenatedLiteralDerivesLikeASingleOne(t *testing.T) {
-	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
-	joined, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tDescription: \"Keep the contacts in step. \" +\n\t\t\t\t\"It reads nothing this workspace holds.\",\n"+fields))
-	if err != nil {
-		t.Fatalf("literals joined by + must derive: %v", err)
-	}
-	// Like the title, it is validated and then left out of the governance
-	// descriptor: a resolution binds to a digest, never to prose.
-	plain, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+	// And the one field that must NOT move it: the digest is the descriptor's
+	// own name, so carrying a previous one forward cannot change it.
+	stale := base
+	stale.Digest = "sha256:whatever"
+	got, err := descriptorDigest(stale)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(joined, plain) {
-		t.Fatalf("the description reached the governance descriptor:\n%s\nvs\n%s", joined, plain)
+	if got != baseline {
+		t.Fatal("the recorded digest fed itself back into the digest")
 	}
 }
 
-// A served tool with no description is refused by the composition at boot. The
-// generator can see the same thing — a Handle key and no Description — so it
-// says so at the declaration, with a line and a column, rather than leaving the
-// author a boot failure in whatever process composes their unit. An INERT tool
-// is untouched: it is a manifest request nothing serves to a client.
-func TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration(t *testing.T) {
-	handler := "\nfunc handle(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n"
-	imports := "package x\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n"
-	unit := func(fields string) string {
-		return imports + "\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"x\",\n\t\tVersion: \"0.1.0\",\n\t\tTools: []extension.Tool{{\n" + fields + "\n\t\t}},\n\t}\n}\n" + handler
+// TestANarrowedToolFieldIsRefusedAtTheDeclaration: after the narrowing, a Tool
+// carries {Name, Handle}. A unit still declaring the governance in Go must be
+// TOLD, at that line — not have it ignored while the contract's value governs,
+// which is the failure mode where two documents disagree and only one is read.
+func TestANarrowedToolFieldIsRefusedAtTheDeclaration(t *testing.T) {
+	verb := syntheticVerb("x", "t", "auto_execute", "read")
+	for _, field := range []string{
+		"Tier:           extension.TierAutoExecute,",
+		"RequestedScope: extension.ScopeRead,",
+		"Description:    \"Reads nothing this workspace holds.\",",
+		"Title:          \"T\",",
+		"Version:        \"1.0.0\",",
+		"InputSchema:    nil,",
+		"OutputSchema:   nil,",
+	} {
+		t.Run(strings.SplitN(field, ":", 2)[0], func(t *testing.T) {
+			_, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tName: \"t\",\n\t\t\t"+field), verb)
+			if err == nil || !strings.Contains(err.Error(), "is not derivable by this generator") ||
+				!strings.Contains(err.Error(), "fragment") {
+				t.Fatalf("err = %v, want the moved-to-the-contract refusal", err)
+			}
+		})
 	}
-	base := "\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"
+}
 
-	_, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: handle,"))
-	if err == nil || !strings.Contains(err.Error(), "serves a handler but declares no Description") {
-		t.Fatalf("err = %v, want the undescribed-served-tool refusal", err)
+// TestBehaviorForAVerbNoContractDeclaresIsRefused: the one direction of the
+// join that is a defect. A Tools entry the contract never declares would be
+// registered into the same registry the core tools ride while nothing lists it,
+// nothing documents it, and no manifest entry asks an operator about it.
+//
+// The reverse direction is asserted too, in the same test, because it must NOT
+// be an error: a declared verb with no Go behavior is a contract-only governed
+// request, which is exactly what fixtures/extensions/crm-hello ships.
+func TestBehaviorForAVerbNoContractDeclaresIsRefused(t *testing.T) {
+	// A HANDLER is what makes it behavior. The entry below serves one, so it
+	// would reach the registry with nothing published about it.
+	orphan := strings.Replace(
+		toolUnitSource("\t\t\tName: \"orphan\",\n\t\t\tHandle: run,"),
+		"func New()",
+		"func run(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n\nfunc New()", 1)
+	orphan = strings.Replace(orphan, `import "github.com/gradionhq/margince/backend/pkg/extension"`,
+		"import (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)", 1)
+	_, err := deriveSynthetic(t, "x", orphan,
+		syntheticVerb("x", "declared_elsewhere", "auto_execute", "read"))
+	if err == nil || !strings.Contains(err.Error(), "no operation in this unit's api/ fragments declares it") {
+		t.Fatalf("err = %v, want the undeclared-behavior refusal", err)
 	}
-	if _, err := deriveSynthetic(t, "x", unit(base)); err != nil {
-		t.Fatalf("an undescribed INERT tool must still derive: %v", err)
+
+	// And an INERT entry the contract does not declare is not that defect.
+	// `Handle: nil` means "declare it, serve nothing": the runtime adapter
+	// skips it, so it registers nothing and publishes nothing, and refusing the
+	// unit over it would contradict the field's own definition.
+	if _, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tName: \"orphan\",\n\t\t\tHandle: nil,"),
+		syntheticVerb("x", "declared_elsewhere", "auto_execute", "read")); err != nil {
+		t.Fatalf("an inert entry the contract does not declare must derive: %v", err)
 	}
-	// The two spellings of an inert handler. Both reach the adapter as the same
-	// nil function value, so a reader that recognised only one would refuse a
-	// declaration the runtime serves nothing for.
-	for _, spelling := range []string{"nil", "extension.ToolHandler(nil)", "(nil)"} {
-		if _, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: "+spelling+",")); err != nil {
-			t.Errorf("an undescribed tool with Handle: %s must derive as inert: %v", spelling, err)
-		}
+
+	noGoEntry := `package x
+
+import "github.com/gradionhq/margince/backend/pkg/extension"
+
+func New() extension.Extension {
+	return extension.Extension{Name: "x", Version: "0.1.0"}
+}
+`
+	derived, err := deriveSynthetic(t, "x", noGoEntry, syntheticVerb("x", "inert_verb", "confirmation_required", "read"))
+	if err != nil {
+		t.Fatalf("a contract-only declaration must derive: %v", err)
 	}
-	described := base + "\n\t\t\tDescription: \"Keeps the contacts in step, and reads nothing else.\",\n\t\t\tHandle: handle,"
-	if _, err := deriveSynthetic(t, "x", unit(described)); err != nil {
-		t.Fatalf("a described served tool must derive: %v", err)
+	if !strings.Contains(string(derived), `"id": "tool/inert_verb"`) {
+		t.Fatalf("the contract-only request never reached the manifest:\n%s", derived)
 	}
 }
 
@@ -387,8 +621,11 @@ var nonLiteralCases = []struct {
 	wantErr string
 }{
 	{
-		name:    "no New constructor",
-		source:  nonLiteralHeader + "var _ = jurisdiction.Code(\"zz\")\n",
+		name: "no New constructor",
+		// A plain literal, not a conversion: this case is about the missing
+		// New(), and a call-bearing initializer (even a type conversion)
+		// now trips the separate package-level-init gate first.
+		source:  nonLiteralHeader + "var _ jurisdiction.Code = \"zz\"\n",
 		wantErr: "no New()",
 	},
 	{
@@ -407,24 +644,9 @@ var nonLiteralCases = []struct {
 		wantErr: "the directory name IS the unit name",
 	},
 	{
-		name:    "tool tier outside the extension vocabulary",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: \"dynamic\", RequestedScope: extension.ScopeRead,"),
-		wantErr: "not one an extension may request",
-	},
-	{
-		name:    "tool scope outside the passport vocabulary",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: \"admin\","),
-		wantErr: "not in the Passport scope vocabulary",
-	},
-	{
 		name:    "tool name is not a verb",
-		source:  toolUnitSource("\t\t\tName: \"Bad-Name\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
+		source:  toolUnitSource("\t\t\tName: \"Bad-Name\","),
 		wantErr: "not a valid verb",
-	},
-	{
-		name:    "computed tool tier",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: tierOf(), RequestedScope: extension.ScopeRead,") + "\nfunc tierOf() extension.Tier { return extension.TierAutoExecute }\n",
-		wantErr: "published extension constant",
 	},
 	{
 		name: "multiple New constructors",
@@ -437,44 +659,6 @@ var nonLiteralCases = []struct {
 		name:    "version with surrounding whitespace",
 		source:  nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \" 1.0.0\","),
 		wantErr: "surrounding whitespace",
-	},
-	{
-		// The core registry refuses a blank title with a boot panic, so the
-		// unit author has to hear it here, at the declaration, instead.
-		name:    "tool title that renders as nothing",
-		source:  toolUnitSource("\t\t\tName: \"t\", Title: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
-		wantErr: "is blank or carries surrounding whitespace",
-	},
-	{
-		// A concatenation is resolved literal by literal, so a computed piece
-		// on either side of the + is still a value the manifest cannot derive
-		// — and this is the shape it hides in most easily, next to real prose.
-		name:    "a computed piece opening a concatenated description",
-		source:  toolUnitSource("\t\t\tName: \"t\", Description: opening() + \" It reads nothing.\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc opening() string { return \"D\" }\n",
-		wantErr: "Tool.Description must be a string literal",
-	},
-	{
-		name:    "a computed piece closing a concatenated description",
-		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"Keeps the contacts in step. \" + closing(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc closing() string { return \"D\" }\n",
-		wantErr: "Tool.Description must be a string literal",
-	},
-	{
-		// Selection prose is the one field a unit author is most likely to
-		// compute — from a constant, a helper, a template. The manifest derives
-		// statically, so it has to be told here rather than at boot.
-		name:    "computed tool description",
-		source:  toolUnitSource("\t\t\tName: \"t\", Description: describe(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc describe() string { return \"D\" }\n",
-		wantErr: "Tool.Description must be a string literal",
-	},
-	{
-		name:    "tool description that renders as nothing",
-		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
-		wantErr: "is blank or carries surrounding whitespace",
-	},
-	{
-		name:    "computed tool title",
-		source:  toolUnitSource("\t\t\tName: \"t\", Title: titleOf(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc titleOf() string { return \"T\" }\n",
-		wantErr: "Tool.Title must be a string literal",
 	},
 }
 

@@ -19,11 +19,37 @@
 // gains a Deps parameter through a versioned successor when the first
 // capability needs injected dependencies.
 //
+// # Stability
+//
+// THIS SURFACE IS NOT YET STABLE, and the "grow additively" rule above
+// describes the intent rather than a promise already in force. Until the first
+// v1.0.0 release tag the freeze gate (scripts/check-pkg-freeze.sh, `make
+// pkg-freeze`) is ADVISORY: an incompatible change prints and does not block.
+// From v1.0.0 it is enforcing and a break must be ratified.
+//
+// Two parts of the surface are expected to change INCOMPATIBLY before that tag,
+// named here so nobody builds on them believing otherwise:
+//
+//   - Runtime.Tx, which hands out arbitrary SQL and so cannot make a unit's
+//     write carry the audit and event records the core's own repositories are
+//     required to write. The intended replacement separates a read-only
+//     transaction from a governed mutation that returns structured change
+//     descriptors the core writes for. Tx is expected to be REMOVED, not
+//     merely joined by a sibling.
+//   - The frontend surface a unit screen imports, whose exported client type
+//     currently infers foreign types (openapi-fetch) into the published shape.
+//     Replacing those with core-owned interfaces changes the exported types.
+//
+// A unit written against today's surface will need editing when either lands.
+// That is acceptable precisely because the composed set is the trust boundary:
+// every unit is first-party or otherwise reviewed, and they migrate together.
+//
 //margince:extension-surface
 package extension
 
 import (
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strings"
 	"unicode"
@@ -39,8 +65,8 @@ var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // maxNameLength bounds the unit name's SHARE of PostgreSQL's 63-byte
 // identifier budget — a longer name would be silently TRUNCATED there,
-// and two long names could collide on one `x_<name>` role. 32 leaves 28
-// bytes for a table suffix in `x_<name>_<table>`; the suffix's own
+// and two long names could collide on one `ext_<name>` role. 32 leaves 26
+// bytes for a table suffix in `ext_<name>_<table>`; the suffix's own
 // share is enforced where tables are DECLARED — the extension-migration
 // slice validates every complete derived identifier
 // against the full budget, since only the migration knows its table
@@ -49,8 +75,8 @@ const maxNameLength = 32
 
 // Name is the canonical extension name and must equal the
 // extensions/<name> directory name, stable across versions. It keys the
-// namespace at every layer (x_<name>_ tables, /x/<name>/ paths, the
-// x_<name> database role).
+// namespace at every layer (ext_<name>_ tables, /v1/ext/<name>/ paths, the
+// ext_<name> database role).
 type Name string
 
 // Validate enforces the exact grammar — lower-case [a-z0-9] segments
@@ -64,9 +90,47 @@ func (n Name) Validate() error {
 		return fmt.Errorf("extension name %q is not a valid unit name (lower-case [a-z0-9] segments joined by single hyphens)", string(n))
 	}
 	if len(n) > maxNameLength {
-		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (x_<name>_<table>, 63-byte limit), so it is capped at %d", string(n), len(n), maxNameLength)
+		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (ext_<name>_<table>, 63-byte limit, 26 bytes left for the table suffix), so it is capped at %d", string(n), len(n), maxNameLength)
 	}
 	return nil
+}
+
+// NamespacePrefix is the one spelling of the extension namespace token. It
+// opens every identifier a unit owns — `ext_<name>_<table>` tables, the
+// `ext_<name>` database role, the `ext_<name>` migration namespace — so a
+// core object can never be mistaken for an extension's and no unit can
+// address another's. Changing it is a breaking rename of the whole tier.
+const NamespacePrefix = "ext_"
+
+// Namespace maps a unit name onto the SQL-identifier namespace it owns:
+// `foo-1` → `ext_foo_1`. The name grammar admits hyphens because a name is
+// also a URL path segment; a SQL identifier cannot hold one unquoted, so the
+// hyphen becomes an underscore here and nowhere else.
+//
+// It validates first rather than trusting its caller: the result is
+// interpolated into SQL identifiers (a migration tracking table, a role
+// name), and Validate is the ONE rule saying which byte sequences may get
+// there. This function adds no refusals of its own, because between them the
+// grammar and the prefix already leave nothing an unquoted identifier could
+// not hold:
+//
+//   - nameGrammar excludes upper case, dots, quotes, spaces and every other
+//     byte outside [a-z0-9-], and the hyphen is the one it admits that this
+//     function converts.
+//   - nameGrammar does NOT exclude a leading digit — `1foo` is a legal unit
+//     name. The prefix is what makes that safe: a derived namespace always
+//     begins `ext_`, so its first byte is never a digit.
+//   - The 32-byte cap keeps `schema_migrations_ext_<name>` (18 + 4 + 32 = 54)
+//     inside PostgreSQL's 63-byte limit.
+//
+// The derived namespace is NOT by itself a promise that a complete
+// `ext_<name>_<table>` identifier fits: the table suffix's own share of the
+// budget is checked where tables are declared (see maxNameLength).
+func (n Name) Namespace() (string, error) {
+	if err := n.Validate(); err != nil {
+		return "", err
+	}
+	return NamespacePrefix + strings.ReplaceAll(string(n), "-", "_"), nil
 }
 
 // Version is the extension's own version string, expected stable for an
@@ -110,4 +174,68 @@ type Extension struct {
 	// resolution — see Tool. Unlike a jurisdiction pack (passive policy),
 	// a tool is a governed capability and appears in manifest.generated.json.
 	Tools []Tool
+
+	// Secrets are the secret keys the unit declares it will use, by name and
+	// scope. Like a Tool's tier these are REQUESTS an operator resolves, not
+	// facts: declaring a key mints nothing and reads nothing, and the live
+	// port arrives only through the Runtime the core builds per invocation.
+	//
+	// This does not contradict "a declaration is inert data […] holds no
+	// handle into the core" above — a SecretsRequest IS inert data, a name
+	// and a scope, which is exactly what lets the generated manifest tell an
+	// operator which secrets a unit expects before it ever runs.
+	Secrets []SecretsRequest
+
+	// Jobs are the scheduled background jobs the unit contributes: named
+	// cadenced passes that fan out over the fleet, one workspace per tick.
+	// Like a Tool this carries BEHAVIOR only — the cadence, wall clocks,
+	// queue and attempt cap are MECHANICS and live in the unit's
+	// api/jobs.yaml fragment, reaching the process as a JobDeclaration.
+	//
+	// A job is not a tool with a timer, and the difference is who is there
+	// when it runs: nobody. That is why the job seam refuses a confirm-first
+	// tier outright (a confirmation nobody can ever give) and refuses an
+	// outbound scope (autonomous outbound authority on a clock), where the
+	// served-tool seam refuses the same two shapes for weaker reasons.
+	Jobs []Job
+
+	// Migrations is the unit's SQL schema layer: a read-only filesystem
+	// holding the MigrationsDir directory of NNNN_name.up.sql/.down.sql
+	// pairs, which a unit supplies with `//go:embed migrations`. A unit
+	// that owns no tables leaves it nil, and that is the common case.
+	//
+	// EMBEDDED, not read back from the source tree, because the process
+	// that applies it is a bare binary: Dockerfile.api ships
+	// /usr/local/bin/margince-migrate and no repository, so a
+	// path-relative read would apply a unit's migrations in dev and CI —
+	// where the checkout is right there — and silently none in
+	// production, which is the one place nobody watches a migration
+	// count. The declaration carrying its own bytes is what makes the
+	// composed binary self-sufficient.
+	//
+	// Still inert data: an fs.FS is bytes to read, not a handle into the
+	// core. Applying them is the migrate role's job (cmd/migrate), after
+	// the composed set is known; declaring them mints nothing.
+	//
+	// WHAT TIES THIS FIELD TO THE GATED SQL, precisely, because the two are
+	// separate facts and the join is only as strong as its weakest link.
+	// gen-composition requires this field to name a package-level var whose
+	// //go:embed directive covers MigrationsDir, and requires the field to be
+	// present at all when the unit ships that directory — so the unset field,
+	// the typo and the var embedding some other layer are each refused at
+	// generation. What is NOT proven is that the bytes reaching cmd/migrate are
+	// the bytes extmigrategate applied: an embed directive may cover more than
+	// migrations/, and an fs.FS assembled at run time is beyond what a static
+	// reader can follow at all. The tier's threat model is a reviewed unit
+	// (see Runtime), and under it that residue is the ordinary distance between
+	// a shape check and a proof — not a hole a hostile unit is being trusted
+	// not to walk through, because such a unit has better roads.
+	Migrations fs.FS
 }
+
+// MigrationsDir is the one spelling of the subdirectory a unit's
+// Migrations FS is rooted above — `extensions/<name>/migrations/`. The
+// generator that validates the layer and the migrate role that applies it
+// must name the same directory, or a unit could pass the gate on files
+// that are never applied.
+const MigrationsDir = "migrations"

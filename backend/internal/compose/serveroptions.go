@@ -264,13 +264,24 @@ func WithRetrievalEmbedder(embedder search.Embedder) Option {
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.
-// Postgres is always probed; the bus, the object store, the secret vault,
-// and the schema pool are probed only when this role wired them, so a
-// split deployment answers ready on exactly what it depends on. A wedged
-// dependency must fail readiness — a probe is never dropped to keep the
-// pod in rotation.
-func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
-	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
+// Postgres and the runtime role it connects as are always probed; the bus,
+// the object store, the secret vault, and the schema pool are probed only
+// when this role wired them, so a split deployment answers ready on exactly
+// what it depends on. A wedged dependency must fail readiness — a probe is
+// never dropped to keep the pod in rotation.
+//
+// runtimeRole takes the same shape as pgPing rather than a pool, because the
+// two unit-testable states here are the answers, not the connections: both
+// arrive as the caller's readings of the one pool routes.go serves from.
+func (s *Server) readinessChecks(pgPing, runtimeRole func(context.Context) error) []httpserver.ReadyCheck {
+	checks := []httpserver.ReadyCheck{
+		{Name: "postgres", Check: pgPing},
+		// Boot already refused a pool holding an exemption; this reports the
+		// same fact for the rest of the process's life, because the role's
+		// attributes are cluster state a grant can change under a running
+		// replica without restarting it.
+		{Name: "runtime-role", Check: runtimeRole},
+	}
 	if s.busReady != nil {
 		checks = append(checks, httpserver.ReadyCheck{Name: "redis", Check: s.busReady})
 	}
@@ -294,6 +305,15 @@ func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserve
 // (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
 // never mounted — a role that runs no runtime DDL declares that by
 // omission, the same posture as WithBlobstore/WithKeyvault.
+//
+// WHICH posture this option should have under the role-separation invariant is
+// still open: issue #651 records the decision. The two candidates are keeping
+// the 501 above as the honest answer for a role that legitimately holds no owner
+// DSN, or relocating the two DDL operations behind a process that does. It is a
+// product call about a CORE module — the extension tier depends on neither
+// outcome — so it is filed rather than settled here, and the pointer sits at the
+// function a reader arrives at with the question rather than in an issue tracker
+// they would first have to think to search.
 func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)

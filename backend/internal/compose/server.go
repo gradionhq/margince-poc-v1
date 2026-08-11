@@ -97,6 +97,10 @@ type Server struct {
 	webhooksHandlers
 	dataResetHandlers
 	jobHealthHandlers
+	// The composed-extension inventory (handlers_extensions.go). Stateless — it
+	// reads the package's own boot-written accessors — so it is embedded as the
+	// zero value rather than assembled in serverassembly.go.
+	extensionsHandlers
 	org360Handlers
 	person360Handlers
 	personBriefHandlers

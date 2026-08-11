@@ -25,7 +25,7 @@ func hasCheck(checks []httpserver.ReadyCheck, name string) bool {
 func TestReadinessChecksIncludeBlobstoreWhenConfigured(t *testing.T) {
 	srv := &Server{blob: blobstore.NewMemory()}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if !hasCheck(checks, "blobstore") {
 		t.Fatal("readiness checks omit blobstore when a store is configured")
@@ -35,7 +35,7 @@ func TestReadinessChecksIncludeBlobstoreWhenConfigured(t *testing.T) {
 func TestReadinessChecksOmitBlobstoreWhenAbsent(t *testing.T) {
 	srv := &Server{}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if hasCheck(checks, "blobstore") {
 		t.Fatal("readiness checks include blobstore when no store is configured")

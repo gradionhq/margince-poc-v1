@@ -4,11 +4,11 @@
 package main
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -22,12 +22,26 @@ type extensionUnit struct {
 	Name       string
 	Dir        string
 	ModulePath string
+	// Tables are the bare table names the unit's migrations declare, each
+	// already stripped of its ext_<namespace>_ prefix — the suffixes whose
+	// join with the namespace checkDerivedIdentifiers validates.
+	Tables []string
+	// HasMigrations reports that the unit ships a migrations/ DIRECTORY —
+	// nothing more. It is not proof of an .up.sql, and not `len(Tables) > 0`: a
+	// migration that alters an existing table declares no new one, and a layer
+	// holding only a .down.sql is an incomplete pair that must still be seen
+	// (see collectUnitTables on why presence is keyed on the directory). What
+	// the flag exists to catch is the unit whose schema is on disk and applied
+	// by nothing, so it must stay true for every broken shape of the layer.
+	HasMigrations bool
+	// Fragments are the unit's contract overlays, keyed by the core contract
+	// each targets (composedContractBases). Nil for a Go-only unit.
+	Fragments map[string]contractFragment
 }
 
-// scanExtensions reads the enabled set. Every capability layer the
-// skeleton cannot compose yet (api/, frontend/, migrations/) is a hard
-// error, not a silent drop — an extension shipping one of those must not
-// build until its composition slice exists.
+// scanExtensions reads the enabled set. A capability layer this composer
+// cannot compose yet (frontend/) is a hard error, not a silent drop — an
+// extension shipping one must not build until its composition slice exists.
 func scanExtensions(root string) ([]extensionUnit, error) {
 	entries, err := os.ReadDir(filepath.Join(root, "extensions"))
 	if err != nil {
@@ -61,14 +75,50 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 		units = append(units, unit)
 	}
 	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
+	// The cross-unit check runs HERE, over the sorted whole set, because
+	// this is the only place in the build that sees every unit at once: a
+	// derived-identifier collision belongs to no single unit's tree, and no
+	// unit can see the other's tables to find it.
+	tables := make([]unitTables, 0, len(units))
+	for _, u := range units {
+		tables = append(tables, unitTables{name: u.Name, tables: u.Tables})
+	}
+	if err := checkDerivedIdentifiers(tables); err != nil {
+		return nil, err
+	}
 	return units, nil
 }
 
+// unbuiltCapabilityLayers are the top-level subdirectory names a unit may
+// hold that this composer does not compose yet. scanUnit refuses their mere
+// presence outright (below).
+//
+// refuseNonRootGoPackages exempts the same names from its walk, and that is
+// not a second, independent policy that happens to agree: the exemption
+// exists ONLY so an already-refused layer reports its own refusal instead of
+// a confusing "holds a Go package outside the unit root". A name on this list
+// never reaches the walk at all. The two uses are therefore one role — "not
+// composed yet, refused on sight" — and stay a single list.
+//
+// A layer that HAS a composition is governed by that composition's own rule
+// and leaves this list entirely. migrations/ was the first: collectUnitTables
+// says what its subtree may hold, and it deliberately does NOT re-grant the
+// walk exemption, so a Go package under migrations/ is refused exactly like
+// one anywhere else in the unit — an init() there would run just as
+// unchecked. api/ is the second, on identical terms: collectUnitFragments
+// (contracts.go) says what it may hold, and it stays subject to the walk.
+// Lifting the next layer means the same two edits: drop the string here, add
+// the layer's own rule.
+var unbuiltCapabilityLayers = []string{"frontend"}
+
 func scanUnit(name, dir string) (extensionUnit, error) {
-	for _, sub := range []string{"api", "frontend", "migrations"} {
+	for _, sub := range unbuiltCapabilityLayers {
 		if _, err := os.Stat(filepath.Join(dir, sub)); err == nil {
 			return extensionUnit{}, fmt.Errorf("extensions/%s: %s/ composition is not built yet — the walking skeleton composes Go registrations only", name, sub)
 		}
+	}
+	if err := refuseNonRootGoPackages(name, dir); err != nil {
+		return extensionUnit{}, err
 	}
 	hasGo, err := hasRootGoFiles(dir)
 	if err != nil {
@@ -94,7 +144,83 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if mod.Module == nil || mod.Module.Mod.Path == "" {
 		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod declares no module path", name)
 	}
-	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path}, nil
+	tables, hasMigrations, err := collectUnitTables(name, dir)
+	if err != nil {
+		return extensionUnit{}, err
+	}
+	fragments, err := collectUnitFragments(name, dir)
+	if err != nil {
+		return extensionUnit{}, err
+	}
+	return extensionUnit{
+		Name:          name,
+		Dir:           dir,
+		ModulePath:    mod.Module.Mod.Path,
+		Tables:        tables,
+		HasMigrations: hasMigrations,
+		Fragments:     fragments,
+	}, nil
+}
+
+// refuseNonRootGoPackages refuses any Go package inside a unit's tree other
+// than the root package itself.
+//
+// This closes a gap the AST liveness walk cannot reach: parser.ParseDir in
+// deriveUnitManifest only ever reads the unit's ROOT directory, never
+// descending, so a package sitting in a subdirectory — reached only through
+// a blank import from the root package's own source, e.g.
+// `import _ ".../internal/live"` next to a `func init() { go dialOut() }` in
+// internal/live/live.go — is parsed by nothing here. rejectLiveInitializers
+// would never see that file to refuse its init(), and digestTree only
+// hashes its bytes for staleness, which does not stop it running at import.
+//
+// Refusing the subpackage outright, rather than walking into it and
+// re-running the same liveness checks there, is the only rule that holds:
+// even a recursive walk would still leave the GENERAL form of this hole
+// open, because a blank import of code OUTSIDE the unit tree — some other
+// module entirely — cannot be gated by a generator that only ever reads
+// this one unit's own files. This function says something about, and only
+// about, Go packages inside the unit's own directory tree; it is not a
+// guarantee about what a unit's import graph can reach.
+//
+// unbuiltCapabilityLayers is exempted at the top level, and the exemption
+// buys message quality, not permission: scanUnit already refused those names
+// outright above, so by the time this runs none of them exist under dir. A
+// layer with a composition (migrations/) is NOT exempt — it is ordinary unit
+// tree as far as Go packages are concerned, and an init() under it would run
+// exactly as unchecked as one anywhere else.
+func refuseNonRootGoPackages(name, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() || slices.Contains(unbuiltCapabilityLayers, e.Name()) {
+			continue
+		}
+		sub := filepath.Join(dir, e.Name())
+		err := filepath.WalkDir(sub, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || !d.IsDir() {
+				return err
+			}
+			hasGo, err := hasRootGoFiles(path)
+			if err != nil {
+				return err
+			}
+			if hasGo {
+				rel, relErr := filepath.Rel(dir, path)
+				if relErr != nil {
+					rel = path
+				}
+				return fmt.Errorf("extensions/%s: %s/ holds a Go package outside the unit root — the declaration reader only parses the root package, so a subpackage's init() or an import-time call would run unchecked", name, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hasRootGoFiles(dir string) (bool, error) {
@@ -146,21 +272,46 @@ func computeInputs(root string) (manifestInputs, error) {
 	return manifestInputs{Core: core, ApprovalsLock: lock, Extensions: rows}, nil
 }
 
-// coreDigest covers exactly the committed inputs the composed outputs
-// derive from: the workspace definition plus EVERY member's go.mod and
-// go.sum (any member's dependency change can change the composed
+// coreDigest covers the committed inputs the composed outputs derive from.
+//
+// EVERY base contract is hashed, not just crm.yaml, and the list is
+// composedContractBases itself rather than a second copy of it. That is the
+// whole point: each base is read by composedContracts and emitted as
+// build/composition/api/<base>, so a base the digest missed would be an input
+// of an output that the fast staleness probe (-verify-inputs) cannot see
+// changing. The full -verify would still catch it — it regenerates and finds
+// the output hash no longer reproduces the recorded one — but nothing goes RED
+// in the meantime, which is the worst failure mode this generator has. Adding a
+// fifth base to composedContractBases therefore extends the digest by
+// construction; there is no second list to forget.
+//
+// What it covers besides: the workspace definition plus EVERY member's go.mod
+// and go.sum (any member's dependency change can change the composed
 // go.work.sum `go list -m all` resolves — tracking only backend's would
 // let a tools/ or cli/ bump slip past `-verify`), the composition module
-// contract (stub), the base API contract, and the published surface the
-// extensions compile against.
+// contract (stub), and the published surface the extensions compile against.
+//
+// What it deliberately does NOT cover is the generator's own source — the merge
+// rules in contractmerge.go among it. A digest of the tool that computes the
+// digest could only ever chase itself, and the recorded toolchain plus -verify's
+// full regeneration are what hold that end: a merge-rule change that alters any
+// output makes the regenerated hash stop reproducing the recorded one.
 func coreDigest(root string) (string, error) {
 	h := newTreeHasher(root)
-	for _, rel := range []string{
+	files := []string{
 		goWorkFile,
-		"backend/api/crm.yaml",
 		"composition/go.mod",
 		"composition/extensions_gen.go",
-	} {
+		// The SPA's committed vanilla registry, for the same reason as the Go
+		// stub beside it: stubMatchesVanilla compares the generator's empty-tree
+		// output against it, so a hand edit changes what the composition means
+		// and must restale the fast probe rather than wait for a full -verify.
+		frontendVanillaStub,
+	}
+	for _, base := range composedContractBases {
+		files = append(files, "backend/"+apiLayer+"/"+base)
+	}
+	for _, rel := range files {
 		if err := h.addFile(rel); err != nil {
 			return "", err
 		}
@@ -188,120 +339,4 @@ func coreDigest(root string) (string, error) {
 		return "", err
 	}
 	return h.sum(), nil
-}
-
-// treeHasher accumulates (relpath, content-hash) pairs and digests the
-// sorted list — file identity and bytes, never timestamps.
-type treeHasher struct {
-	root  string
-	lines []string
-}
-
-func newTreeHasher(root string) *treeHasher { return &treeHasher{root: root} }
-
-func (h *treeHasher) addFile(rel string) error {
-	content, err := os.ReadFile(filepath.Join(h.root, filepath.FromSlash(rel)))
-	if err != nil {
-		return err
-	}
-	h.lines = append(h.lines, rel+"\x00"+digestBytes(content))
-	return nil
-}
-
-// addFileOrEmpty records a file that may legitimately be absent, with
-// an explicit absence MARKER — a zero-byte file and a missing file must
-// not share a digest, or presence itself would stop being part of the
-// input identity.
-func (h *treeHasher) addFileOrEmpty(rel string) error {
-	content, err := os.ReadFile(filepath.Join(h.root, filepath.FromSlash(rel)))
-	if os.IsNotExist(err) {
-		h.lines = append(h.lines, rel+"\x00absent")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	h.lines = append(h.lines, rel+"\x00"+digestBytes(content))
-	return nil
-}
-
-// addTree hashes every regular file under rel — the whole subtree, not
-// just .go — so a non-Go asset the published surface gains (a go:embed
-// template or schema, including a dot-prefixed one an `all:` pattern can
-// embed, or one that happens to end in _test.go) still invalidates the
-// composition when it changes. The digest classifies nothing by name: it
-// hashes bytes, conservatively, so the staleness probe never misses a
-// change. A non-regular entry is refused, as in digestTree.
-func (h *treeHasher) addTree(rel string) error {
-	root := filepath.Join(h.root, filepath.FromSlash(rel))
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		if !d.Type().IsRegular() {
-			return fmt.Errorf("%s: only regular files back the composition digest (found %s)", path, d.Type())
-		}
-		sub, err := filepath.Rel(h.root, path)
-		if err != nil {
-			return err
-		}
-		return h.addFile(filepath.ToSlash(sub))
-	})
-}
-
-func (h *treeHasher) sum() string {
-	sort.Strings(h.lines)
-	return digestBytes([]byte(strings.Join(h.lines, "\n")))
-}
-
-// digestTree hashes every regular file under dir. A symlink is refused:
-// it would digest as its target's bytes while provenance points
-// elsewhere, and a real installation lands extensions as plain trees.
-// The unit's generated manifest is excluded: it derives FROM this tree,
-// so including it would make the digest chase the generator's own
-// output — it rides in its own manifestExtRow field instead.
-func digestTree(dir string) (string, error) {
-	h := newTreeHasher(dir)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		if !d.Type().IsRegular() {
-			// A symlink would digest as its target's bytes while
-			// provenance points elsewhere; a FIFO would block the read
-			// forever. An extension unit is a plain file tree.
-			return fmt.Errorf("%s: only regular files are part of an extension unit (found %s)", path, d.Type())
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		if filepath.ToSlash(rel) == unitManifestFile {
-			return nil
-		}
-		return h.addFile(filepath.ToSlash(rel))
-	})
-	if err != nil {
-		return "", err
-	}
-	return h.sum(), nil
-}
-
-func digestBytes(b []byte) string {
-	return fmt.Sprintf("sha256:%x", sha256.Sum256(b))
-}
-
-// digestFileOrEmpty digests a file that may legitimately be absent (the
-// approval lock before any approval, go.work.sum for a dependency-free
-// workspace); absence digests as empty input, recorded, so appearing and
-// vanishing both register as a change.
-func digestFileOrEmpty(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return digestBytes(nil), nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return digestBytes(content), nil
 }

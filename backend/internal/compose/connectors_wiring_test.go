@@ -30,6 +30,10 @@ func (fakeVault) Put(context.Context, ids.WorkspaceID, []byte) (keyvault.Ref, er
 func (fakeVault) Get(context.Context, ids.WorkspaceID, keyvault.Ref) ([]byte, error) {
 	return nil, nil
 }
+
+func (fakeVault) GetOn(context.Context, keyvault.Querier, ids.WorkspaceID, keyvault.Ref) ([]byte, error) {
+	return nil, nil
+}
 func (fakeVault) Delete(context.Context, ids.WorkspaceID, keyvault.Ref) error { return nil }
 func (fakeVault) Health(context.Context) error                                { return nil }
 

@@ -140,11 +140,14 @@ func generate(root string) error {
 	if err != nil {
 		return err
 	}
-	if err := generateUnitManifests(root, units); err != nil {
+	// composedFiles FIRST: the manifests are derived from the merged contracts
+	// it produces, so the composition has to exist before a manifest can be
+	// written. This is the same ordering `make gen` applies one level up.
+	files, verbs, jobDecls, err := composedFiles(root)
+	if err != nil {
 		return err
 	}
-	files, err := composedFiles(root)
-	if err != nil {
+	if err := generateUnitManifests(root, units, verbs, jobDecls); err != nil {
 		return err
 	}
 	for rel, content := range files {
@@ -230,11 +233,11 @@ func verifyOutputs(root string, recorded manifest) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyUnitManifests(root, units); err != nil {
+	files, verbs, jobDecls, err := composedFiles(root)
+	if err != nil {
 		return err
 	}
-	files, err := composedFiles(root)
-	if err != nil {
+	if err := verifyUnitManifests(root, units, verbs, jobDecls); err != nil {
 		return err
 	}
 	current, err := currentManifest(root, files)
@@ -302,6 +305,21 @@ func verifyManifestBytes(root string, current manifest) error {
 // verifyNoExtraFiles walks build/composition/ and rejects anything the
 // generator did not write: expected outputs + composition.json, all
 // regular files.
+//
+// The expected set is DERIVED from the regenerated outputs, never listed here.
+// Every artifact composedFiles gains — the three contracts beyond crm.yaml, the
+// frontend registry — therefore joins this gate by construction, and the
+// alternative (a literal list beside emit.go's map) would be a second copy whose
+// only failure mode is being forgotten.
+//
+// The walk root is build/composition/ and ONLY that. build/composition-frontend/
+// is a SECOND composition root, deliberately outside this tree: openapi-typescript
+// produces it, and this function's claim is that the verified tree holds exactly
+// what the GO generator wrote — a claim that a Node tool writing into the same
+// directory would falsify on every run. The two roots are one boundary, not an
+// oversight; a Node-produced artifact that needs verifying needs a gate that can
+// reproduce it, which is the frontend lane's (`make fe-typecheck-composed`), not
+// this one's.
 func verifyNoExtraFiles(root string, outputs map[string]string) error {
 	outRoot := filepath.Join(root, "build", "composition")
 	expected := map[string]bool{manifestFile: true}
@@ -329,18 +347,48 @@ func verifyNoExtraFiles(root string, outputs map[string]string) error {
 	})
 }
 
-// stubMatchesVanilla holds the two lanes together: the committed
-// composition/ stub (what a bare go build wires) must be byte-identical
-// to this generator's vanilla output (what a composed vanilla build
-// wires) — otherwise "vanilla output unchanged" would be an assertion,
-// not a checked fact.
+// vanillaStubs are the committed empty-tree outputs, one per lane: the Go
+// stub a bare `go build` wires, and the TypeScript registry a bare
+// `pnpm build` resolves through tsconfig's "@composition/*" alias. Both are
+// checked-in copies of what this generator emits for an empty extensions/
+// tree, and stubMatchesVanilla is what keeps them copies.
+var vanillaStubs = []struct {
+	rel   string
+	emit  func() []byte
+	align string
+}{
+	{
+		rel:   "composition/extensions_gen.go",
+		emit:  func() []byte { return extensionsGen(nil, nil, nil) },
+		align: "align the committed stub with tools/gen-composition",
+	},
+	{
+		rel:   frontendVanillaStub,
+		emit:  func() []byte { return frontendGen(nil, nil) },
+		align: "align the committed stub with tools/gen-composition (emitfrontend.go's frontendGenHeader)",
+	},
+}
+
+// frontendVanillaStub is the SPA's committed empty-tree registry. It sits
+// under frontend/src rather than beside composition/ because the vanilla lane
+// must resolve it with no alias pointing outside the Vite root and no build
+// step having run — a core developer's `pnpm dev` on a fresh clone is the
+// case, and it has never needed build/composition/ to exist.
+const frontendVanillaStub = "frontend/src/composition/extensions.gen.ts"
+
+// stubMatchesVanilla holds the lanes together: each committed stub (what a
+// bare build wires) must be byte-identical to this generator's vanilla output
+// (what a composed vanilla build wires) — otherwise "vanilla output
+// unchanged" would be an assertion, not a checked fact.
 func stubMatchesVanilla(root string) error {
-	stub, err := os.ReadFile(filepath.Join(root, "composition", "extensions_gen.go"))
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(stub, extensionsGen(nil)) {
-		return fmt.Errorf("composition/extensions_gen.go differs from the generator's vanilla output — align the committed stub with tools/gen-composition")
+	for _, s := range vanillaStubs {
+		stub, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.rel)))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(stub, s.emit()) {
+			return fmt.Errorf("%s differs from the generator's vanilla output — %s", s.rel, s.align)
+		}
 	}
 	return nil
 }

@@ -125,6 +125,13 @@ export const en = {
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
 
+  // The composed extension tier (ADR-0069): #/ext/<unit>. The registry is
+  // generated per installation, so these two strings are the only part of a
+  // unit surface the core catalogs own.
+  "ext.notFound":
+    "No extension named “{name}” is enabled on this installation.",
+  "ext.operations": "Published operations",
+
   "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",
@@ -3468,6 +3475,36 @@ export const en = {
     "Queued — it'll finish shortly and update automatically.",
   "settings.voice.buildStatus.pending":
     "Still building — this can take a moment; it'll update here when it's done.",
+  "settings.tab.extensions": "Extensions",
+  "extAccess.title": "Extensions & access",
+  "extAccess.sub":
+    "What each composed extension unit brought into this installation, and which role may use it. Admin-only.",
+  "extAccess.adminOnly": "Extension access is available to admins only.",
+  "extAccess.readOnly":
+    "Your seat reads this page. Changing a grant needs a full seat.",
+  "extAccess.empty": "No extension units are composed into this installation.",
+  "extAccess.version": "Version {version}",
+  "extAccess.openUnit": "Open the {name} page",
+  "extAccess.noPage":
+    "{name} is composed into the API, but this build of the app has no page for it — the app is probably older than the server.",
+  "extAccess.brings.objects": "Permission objects",
+  "extAccess.brings.routes": "Routes",
+  "extAccess.brings.jobs": "Background jobs",
+  "extAccess.brings.none": "None",
+  "extAccess.noObjects":
+    "This unit registers no permission objects, so there is nothing to grant.",
+  "extAccess.roleColumn": "Role",
+  "extAccess.action.read": "Read",
+  "extAccess.action.create": "Create",
+  "extAccess.action.update": "Update",
+  "extAccess.action.delete": "Delete",
+  "extAccess.matrixCaption": "Who may do what with {object}",
+  "extAccess.cell": "Allow {role} to {action} {object}",
+  "extAccess.versionSkew":
+    "Someone else changed this role while you were looking at it, so your change was not applied. The grants above are now the current ones — make the change again if you still want it.",
+  "extAccess.systemRole": "Built-in role",
+  "extAccess.nobodyReads":
+    "No role holds read on {object}, so every member sees an empty screen where this extension should be. Grant read to at least one role below.",
   "settings.tab.users": "Users & roles",
   "users.title": "Users & roles",
   "users.sub": "Invite members, set roles, and deactivate access. Admin-only.",

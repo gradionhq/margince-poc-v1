@@ -59,17 +59,25 @@ var (
 	emptySizes atomic.Pointer[map[string]int64]
 )
 
-// publicTables is the ONE spelling of which relations a reset acts on: ordinary
-// tables in public, minus the schema_migrations_* ledger. That ledger is
-// preserved so EnsureSchema's once-per-process contract holds — re-running
+// resetTables is the ONE spelling of which relations a reset acts on: ordinary
+// tables in the schemas below, minus the schema_migrations_* ledger. That ledger
+// is preserved so EnsureSchema's once-per-process contract holds — re-running
 // dbmigrate.Up in a later process (parallel runner, fresh clone) must still see
 // an unmigrated database, while a reset leaves the applied-version rows intact
 // for the current one. Every caller selects a qualified identifier from it, so
 // the emitted statements never depend on search_path resolution.
-const publicTables = `
+//
+// ext is in scope for exactly the reason public is. Since 0202 every extension
+// unit's tables live there (ADR-0069), applied by the same lane, and an ext_
+// table left out of this fragment is one no reset ever empties: the rows an
+// integration test writes through a unit survive into every later test in the
+// process, and the failure surfaces somewhere else entirely as a flake. The
+// omission is invisible while extensions/ is empty, which is precisely why it is
+// closed BEFORE the first unit ships tables rather than after.
+const resetTables = `
 	FROM pg_class c
 	JOIN pg_namespace n ON n.oid = c.relnamespace
-	WHERE n.nspname = 'public'
+	WHERE n.nspname IN ('public', 'ext')
 	  AND c.relkind = 'r'
 	  AND c.relname NOT LIKE 'schema_migrations_%'`
 
@@ -87,15 +95,14 @@ type execQuerier interface {
 }
 
 // EnsureSchema migrates the test database exactly once per process. The first
-// integration test to run pays the DROP SCHEMA + full embedded migration; every
+// integration test to run pays the schema drop + full embedded migration; every
 // later test in the same process is a no-op here and resets via Reset. Any
 // caller may pass any owner connection to the same database — the migration runs
 // on whichever connection wins the race to the sync.Once, and the result is the
 // same schema for all of them.
 func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
 	migrateOnce.Do(func() {
-		if _, err := owner.Exec(ctx,
-			`DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
+		if err := dropPublicSchema(ctx, owner); err != nil {
 			migrateErr = err
 			return
 		}
@@ -123,8 +130,8 @@ func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
 		}
 		emptySizes.Store(&sizes)
 		// Last, and only on the success path: Pool refuses to hand out a
-		// connection until this is set, so a pool can never predate the DROP
-		// SCHEMA above.
+		// connection until this is set, so a pool can never predate the schema
+		// drop above.
 		schemaReady.Store(true)
 	})
 	return migrateErr
@@ -192,7 +199,7 @@ func resetWithin(ctx context.Context, tx execQuerier) error {
 	}
 
 	tables, err := queryIdents(ctx, tx,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+publicTables+` ORDER BY c.relname`)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+resetTables+` ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		return fmt.Errorf("listing data tables: %w", err)
 	}
@@ -200,7 +207,7 @@ func resetWithin(ctx context.Context, tx execQuerier) error {
 	// gone, not that there is nothing to do. Reporting a clean reset for that is
 	// the same silent-success shape the settings above exist to eliminate.
 	if len(tables) == 0 {
-		return fmt.Errorf("no data tables in public — call EnsureSchema before Reset; the schema is missing or was dropped")
+		return fmt.Errorf("no data tables in public or ext — call EnsureSchema before Reset; the schema is missing or was dropped")
 	}
 	unbaselined, err := reclaimBloat(ctx, tx)
 	if err != nil {
@@ -317,7 +324,7 @@ func reclaimBloat(ctx context.Context, tx execQuerier) ([]string, error) {
 // information_schema row it sees.
 func tableSizes(ctx context.Context, q execQuerier) (map[string]int64, error) {
 	rows, err := q.Query(ctx,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), pg_total_relation_size(c.oid) `+publicTables)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), pg_total_relation_size(c.oid) `+resetTables)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +360,7 @@ func restartSequences(ctx context.Context, tx execQuerier) error {
 		JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass
 		                AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
 		WHERE s.relkind = 'S'
-		  AND d.refobjid IN (SELECT c.oid `+publicTables+`)`)
+		  AND d.refobjid IN (SELECT c.oid `+resetTables+`)`)
 	if err != nil {
 		return fmt.Errorf("listing sequences: %w", err)
 	}
@@ -378,12 +385,29 @@ func dropCustomFieldColumns(ctx context.Context, tx execQuerier) error {
 	// lists view columns, and a view over a record table exposes its cf_ columns.
 	// ALTER TABLE cannot drop a view's column, and since the reset is one
 	// transaction that failure would roll back the whole reset, not just itself.
+	//
+	// The join is on (schema, name), not on the bare name. Once the fragment spans
+	// two schemas a name-only join means a public table is matched because an ext
+	// table shares its name — and, worse, the converse: a relation the fragment
+	// deliberately excludes would be readmitted through a same-named sibling in
+	// the other schema. Row-wise membership keeps "the tables the reset owns"
+	// meaning exactly what resetTables says.
+	//
+	// And constrained to PUBLIC within those. The premise this whole function
+	// rests on — "no migrated baseline table carries a cf_-prefixed column, so
+	// every match is a leaked custom field" — is a statement about the CORE
+	// schema, which customfields is the sole ALTER-TABLE chokepoint for. It is
+	// not true of ext: `cf_` is not a reserved prefix there, so a unit whose
+	// migration declares `cf_stage` on its own table is declaring an ordinary
+	// column, and dropping it would leave the installed schema altered after a
+	// test and every later test in the run reading a table that no longer
+	// matches its migration.
 	rows, err := tx.Query(ctx, `
 		SELECT quote_ident(table_schema) || '.' || quote_ident(table_name), quote_ident(column_name)
 		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND column_name LIKE 'cf\_%'
-		  AND table_name IN (SELECT c.relname `+publicTables+`)`)
+		WHERE column_name LIKE 'cf\_%'
+		  AND table_schema = 'public'
+		  AND (table_schema, table_name) IN (SELECT n.nspname, c.relname `+resetTables+`)`)
 	if err != nil {
 		return fmt.Errorf("listing leaked custom-field columns: %w", err)
 	}

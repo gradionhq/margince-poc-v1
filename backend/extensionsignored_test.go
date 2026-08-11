@@ -1,0 +1,166 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package backendarch
+
+// The enabled set must be a set git actually has.
+//
+// .gitignore carries `/extensions/*` with a per-unit un-ignore list, so a new
+// first-party unit is IGNORED BY DEFAULT. That is the right default — the
+// directory is the installation-owned enabled set, and an operator's units are
+// not this repository's business — but it means a contributor adding a unit
+// meant to ship in the vanilla tree has to remember one line in a file they
+// were not otherwise editing.
+//
+// Nothing caught it. `make composition`, `make migrate`,
+// `make check-ext-migrations` and the whole of `make check` read the WORKING
+// TREE, so every one of them is green over a unit that no clone of this
+// repository has: the composition composes it, the migration gate applies its
+// SQL, its tests run — and `git add extensions/<name>/` adds nothing, the
+// commit lands with the directory absent, and CI builds a vanilla tree without
+// it. The shipped artifact and the gated artifact are two different things,
+// which is the exact failure class a fitness test exists for. notes hit it;
+// docs/how-to/add-an-extension.md had already warned about it in prose, and
+// prose was not enough.
+//
+// It asks git rather than parsing .gitignore because git is the authority: the
+// pattern language has precedence rules (a later negation, a directory-level
+// .gitignore, .git/info/exclude) that a reimplementation would get subtly
+// wrong, and being subtly wrong here is indistinguishable from passing.
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestEveryEnabledExtensionIsTracked: no directory under extensions/ may be
+// ignored.
+//
+// It covers fixtures/extensions/ too. Those are not ignored today and there is
+// no rule that they might become so — but the fixtures are what CI copies into
+// extensions/ to exercise the tier, so a fixture git does not have is the same
+// defect one lane further out.
+func TestEveryEnabledExtensionIsTracked(t *testing.T) {
+	for _, root := range []string{"../extensions", "../fixtures/extensions"} {
+		entries, err := os.ReadDir(root)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue // .gitkeep, approvals.lock
+			}
+			// The check-ignore question is asked about a FILE inside the unit,
+			// not the directory: `/extensions/*` matches the directory itself,
+			// and a negation that re-included the directory without its
+			// contents would still leave every source file ignored. A unit
+			// always has a go.mod — scanUnit refuses one without it — so this
+			// names a path that must exist.
+			onDisk := filepath.Join(root, e.Name(), "go.mod")
+			if _, err := os.Stat(onDisk); err != nil {
+				continue // a unit with no Go module; nothing to be silently dropped
+			}
+			// git runs at the repository root (-C ..), so it is asked about a
+			// root-relative path rather than this package's ../ spelling.
+			repoPath := strings.TrimPrefix(filepath.ToSlash(onDisk), "../")
+			// The one enabled unit that is SUPPOSED to be untracked: the
+			// reference fixture CI copies in (`cp -R fixtures/extensions/
+			// crm-hello extensions/`, ci.yml's extension-reference job) to
+			// prove the tier composes a unit this repository does not ship.
+			// That copy is a build artifact of the job, and un-ignoring it
+			// would invite committing a second copy of a fixture that is
+			// already tracked one directory over. The exemption costs nothing:
+			// the fixture ITSELF is checked by the second root below, so the
+			// "a fixture git does not have" defect is still caught — at its
+			// source, where it belongs. A genuinely new first-party unit has no
+			// fixture of the same name and still fails here.
+			if root == "../extensions" && isTrackedFixture(t, e.Name(), onDisk) {
+				continue
+			}
+			if rule, ignored := gitIgnoreRule(t, repoPath); ignored {
+				t.Errorf("%s is git-ignored by %q — every gate would pass over this unit and no clone "+
+					"of this repository would have it. Add an un-ignore line for it beside the others "+
+					"in .gitignore (see docs/how-to/add-an-extension.md).", repoPath, rule)
+			}
+		}
+	}
+}
+
+// isTrackedFixture reports whether extensions/<name> is CI's copy of the
+// same-named reference fixture. Three things are required: the fixture must
+// exist as a Go module, git must actually have it, and the unit on disk must
+// BE it.
+//
+// The tracked-fixture half is what keeps the exemption from being a hole in
+// the other direction — a fixture that were itself ignored would stop
+// exempting anything, and the copy would be reported again.
+//
+// The module-identity half is what keeps the NAME from being the exemption.
+// Matching on the directory name alone means any git-ignored unit called
+// `crm-hello` is waved through, so the day that fixture is promoted to a
+// first-party unit — or a genuine unit is given a name a fixture already has —
+// this gate silently stops asking about it, which is exactly the "no clone of
+// this repository would have it" defect it was built to catch. Comparing the
+// two `module` lines makes the exemption a statement about the unit rather
+// than about its directory: CI's `cp -R` copies the fixture's go.mod verbatim,
+// so the real copy matches and an impostor does not.
+func isTrackedFixture(t *testing.T, name, onDisk string) bool {
+	t.Helper()
+	fixture := filepath.Join("..", "fixtures", "extensions", name, "go.mod")
+	if _, err := os.Stat(fixture); err != nil {
+		return false
+	}
+	if _, ignored := gitIgnoreRule(t, "fixtures/extensions/"+name+"/go.mod"); ignored {
+		return false
+	}
+	fixtureModule, unitModule := declaredModulePath(t, fixture), declaredModulePath(t, onDisk)
+	return fixtureModule != "" && fixtureModule == unitModule
+}
+
+// declaredModulePath reads a go.mod's module line, or "" when the file cannot be read
+// or declares none — either of which makes the caller's comparison fail, which
+// is the safe direction: an unreadable go.mod exempts nothing.
+func declaredModulePath(t *testing.T, goMod string) string {
+	t.Helper()
+	raw, err := os.ReadFile(goMod) // #nosec G304 -- a path this test walked to
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(path)
+		}
+	}
+	return ""
+}
+
+// gitIgnoreRule reports the rule ignoring path, if any. `git check-ignore -v`
+// exits 1 when nothing matches, which is the ordinary answer here and not a
+// failure — every other exit status is.
+func gitIgnoreRule(t *testing.T, path string) (rule string, ignored bool) {
+	t.Helper()
+	// -C .. : the tests run from backend/, the repository root is one level up.
+	out, err := exec.Command("git", "-C", "..", "check-ignore", "-v", "--no-index", path).Output()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return strings.TrimSpace(string(out)), true
+	case errors.As(err, &exit) && exit.ExitCode() == 1:
+		return "", false
+	default:
+		detail := err.Error()
+		if exit != nil {
+			detail = strings.TrimSpace(string(exit.Stderr))
+		}
+		t.Fatalf("git check-ignore %s: %v — this gate cannot be skipped: the failure it catches is "+
+			"invisible to every other check in the tree", path, detail)
+		return "", false
+	}
+}

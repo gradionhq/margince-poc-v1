@@ -1,0 +1,439 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# notes's contract fragment. The FILENAME names the core contract it extends
+# (crm.yaml); gen-composition merges it into build/composition/api/crm.yaml, and
+# that merged file is what the operator manifest, the client types, the mounted
+# routes and the docs read. So this document — not notes.go — is where every
+# operation's risk tier, Passport scope, RBAC object, prose and I/O schemas are
+# declared. The Go files carry the one thing a YAML file cannot: the functions.
+#
+# Paths are written relative to the document's own `servers` url, which already
+# ends in /v1. Core writes /me; an extension writes /ext/<unit>/…. The server
+# puts the base path back when it mounts the route (extension.Verb.ServedPath),
+# so the served route is /v1/ext/notes/… — spelling it here too would publish
+# https://host/v1/v1/ext/… to every generated client, and the composer refuses
+# it.
+#
+# EVERY operation is a POST, and that is the seam's rule rather than a style
+# choice: a served extension operation IS a governed tool invocation, its
+# arguments are the request body, and extension.Verb's validateMethod admits
+# only post/put/patch because GET and DELETE carry no body. So "list", "add" and
+# "remove" are three POST verbs on three paths rather than three methods on one.
+overlay: 1.0.0
+info:
+  title: notes
+  version: "1.0.0"
+actions:
+  - target: $.paths['/ext/notes/list']
+    update:
+      post:
+        operationId: notesList
+        summary: List this workspace's demo notes.
+        tags: [Extensions]
+        # The unit owns records, so its operations gate on an object a role
+        # document can grant and /me reports. It is registered into the RBAC
+        # vocabulary at boot from this line (compose/extrbac.go), and the
+        # ACTION beside it is what the composed tool adapter requires of the
+        # calling principal before the handler runs — declared rather than
+        # derived, because `scope: read` is a Passport verb class and says
+        # nothing about which of the four object verbs this route needs.
+        x-rbac-object: ext_notes_note
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: list_notes
+          version: 1.0.0
+          title: List demo notes
+          # 🟢 read: the notepad is read and nothing is changed, so there is
+          # nothing to confirm and nothing to stage.
+          tier: auto_execute
+          scope: read
+          description: >-
+            List the notes kept in this workspace's Demo Notepad, newest first,
+            with the time each was written. It reads only the extension's own
+            notepad table and changes nothing, so no person, company or deal is
+            involved either way. Each note carries an id that the remove
+            operation takes.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        responses:
+          '200':
+            description: The workspace's notes, newest first.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [notes]
+                  properties:
+                    notes:
+                      type: array
+                      items:
+                        # The same object the add operation returns, member for
+                        # member. Restated rather than $ref'd: a fragment is
+                        # merged into the core document by gen-composition, and
+                        # a component this unit invented would have to be
+                        # namespaced into the core's #/components — which is
+                        # the core contract's namespace, not a unit's. Two
+                        # copies that must be reconciled by hand is the cost;
+                        # a unit writing into the core's component space is
+                        # what it buys out of.
+                        type: object
+                        additionalProperties: false
+                        required: [id, kind, body, created_at]
+                        properties:
+                          id: { type: string, format: uuid }
+                          # A real enum, and the third place the same pair is
+                          # written: the column's CHECK (0001) refuses a third
+                          # value, noteKind refuses one in Go, and this is what
+                          # a generated client and a model are told. Declaring
+                          # it a bare string would publish "some string" for a
+                          # field with exactly two possible values, and every
+                          # client would then carry its own guess at the set.
+                          kind:
+                            type: string
+                            enum: [note, heartbeat]
+                            description: >-
+                              Which of the two things that write this notepad
+                              wrote the row: `note` for one a person or an
+                              agent added, `heartbeat` for one the scheduled
+                              tick wrote.
+                          body: { type: string }
+                          # NESTED, and OMITTED ENTIRELY for a row with no
+                          # author — which is every heartbeat row, because a
+                          # scheduled tick has no person behind it. Hence
+                          # absent from `required` and typed with 'null' too:
+                          # a client must handle "no author" and is told so by
+                          # the schema rather than by discovering it.
+                          #
+                          # The author is stamped from the invocation's caller
+                          # and cannot be supplied — the add operation's
+                          # request schema takes `body` and nothing else.
+                          author:
+                            type: [object, 'null']
+                            additionalProperties: false
+                            required: [user_id, is_agent]
+                            description: >-
+                              Who wrote the note. Absent when nobody did — the
+                              scheduled heartbeat's rows have no author.
+                            properties:
+                              user_id:
+                                type: string
+                                format: uuid
+                                description: >-
+                                  The user the note is attributed to. For a
+                                  note an agent wrote this is the human whose
+                                  authority it acted on, not the agent.
+                              is_agent:
+                                type: boolean
+                                description: >-
+                                  True when an agent or a connector wrote the
+                                  note on that user's behalf rather than the
+                                  person writing it directly.
+                          created_at: { type: string, format: date-time }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/notes/add']
+    update:
+      post:
+        operationId: notesAdd
+        summary: Add one note to the demo notepad.
+        tags: [Extensions]
+        x-rbac-object: ext_notes_note
+        x-rbac-action: create
+        x-mcp-tool:
+          verb: add_note
+          version: 1.0.0
+          title: Add a demo note
+          # 🟢 write: the row lands in the unit's own table, inside the calling
+          # workspace, and leaves the workspace by no route at all.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Write one note into this workspace's Demo Notepad and return it with
+            the id it was stored under. The note is attributed to whoever is
+            making the call — there is no way to write one as somebody else. It
+            touches only the extension's own notepad table, never a person,
+            company or deal, and nothing it writes leaves the workspace.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [body]
+                # `body` AND NOTHING ELSE, and the absence of an author member
+                # is deliberate rather than an omission to be filled in later.
+                # Authorship is taken from the invocation's caller; a field
+                # here would be a field every caller could forge, and this unit
+                # is the fragment other units are copied from.
+                properties:
+                  body: { type: string, minLength: 1, maxLength: 500 }
+        responses:
+          '200':
+            description: The stored note.
+            content:
+              application/json:
+                schema:
+                  # The same note object the list returns; see the note there
+                  # on why the shape is written twice rather than $ref'd.
+                  type: object
+                  additionalProperties: false
+                  required: [id, kind, body, created_at]
+                  properties:
+                    id: { type: string, format: uuid }
+                    # Always `note` on this route — the tick is the only thing
+                    # that writes the other value — but declared with the full
+                    # set anyway, because the field means the same thing in
+                    # both responses and a client parses one type for it.
+                    kind:
+                      type: string
+                      enum: [note, heartbeat]
+                      description: >-
+                        Which of the two things that write this notepad wrote
+                        the row. Always `note` here.
+                    body: { type: string }
+                    # PRESENT on this route in practice, since a served
+                    # operation always has a caller behind it — but typed
+                    # exactly as the list types it, so one client model covers
+                    # both and nothing has to know which route a note came
+                    # from.
+                    author:
+                      type: [object, 'null']
+                      additionalProperties: false
+                      required: [user_id, is_agent]
+                      description: >-
+                        Who wrote the note, taken from the caller making this
+                        request and never from the request body.
+                      properties:
+                        user_id:
+                          type: string
+                          format: uuid
+                          description: >-
+                            The user the note is attributed to. For a note an
+                            agent wrote this is the human whose authority it
+                            acted on, not the agent.
+                        is_agent:
+                          type: boolean
+                          description: >-
+                            True when an agent or a connector wrote the note on
+                            that user's behalf rather than the person writing
+                            it directly.
+                    created_at: { type: string, format: date-time }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/notes/remove']
+    update:
+      post:
+        operationId: notesRemove
+        summary: Remove one note from the demo notepad.
+        tags: [Extensions]
+        x-rbac-object: ext_notes_note
+        x-rbac-action: delete
+        x-mcp-tool:
+          verb: remove_note
+          version: 1.0.0
+          title: Remove a demo note
+          tier: auto_execute
+          scope: write
+          description: >-
+            Remove one note from this workspace's Demo Notepad by its id and
+            report whether a note was actually removed. An id this workspace
+            does not hold removes nothing and is not an error. It touches only
+            the extension's own notepad table.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [id]
+                properties:
+                  # The id is a UUID, and declaring it as a bare string was a
+                  # contract that lied by omission: a generated caller could
+                  # submit schema-valid input the route then answered 500 to,
+                  # because the value reaches PostgreSQL's ::uuid cast. The
+                  # handler checks the same shape (notes.go) — the schema tells
+                  # a client, the handler enforces it, and nothing between the
+                  # two validates a body against the schema.
+                  id: { type: string, format: uuid, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
+        responses:
+          '200':
+            description: Whether a note was removed.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [removed]
+                  properties:
+                    removed: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/notes/signing-key']
+    update:
+      post:
+        operationId: notesStoreSigningKey
+        summary: Store this workspace's demo signing key.
+        tags: [Extensions]
+        # A SECOND object, not ext_notes_note. A role that may add a note has
+        # no business rotating the installation's credential, and one object for
+        # both would make that a single grant. Nothing requires an RBAC object to
+        # be a table — the object is what a role document grants, and this unit
+        # holds two governable things.
+        x-rbac-object: ext_notes_signing_key
+        # UPDATE, not create. There is exactly ONE signing key per workspace: the
+        # slot always exists conceptually and this operation SETS it, first store
+        # and rotation alike. `create` would be the wrong grant twice over — it
+        # would read as "may add a key" when what it means is "may replace the
+        # one in use", and a role granted create-but-not-update would still be
+        # able to overwrite, which is the whole risk.
+        #
+        # Absent before: with no object declared, extensionTool.Handle's check
+        # never ran and this operation was admitted on scope ∧ seat ∧ tier ∧
+        # quota alone — i.e. any authenticated seat, read-only included, on both
+        # the REST and the agent path. Found by the UAT re-run (R1).
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: store_signing_key
+          version: 1.0.0
+          title: Store the demo signing key
+          tier: auto_execute
+          scope: write
+          description: >-
+            Store (or replace) the HMAC signing key this workspace's Demo
+            Notepad signs payloads with. The key is sealed by the installation's
+            custodian and is never returned by this or any other operation, so
+            the only observable effect is that signing starts working. It reads
+            and writes no record of any kind.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [key]
+                properties:
+                  key: { type: string, minLength: 1, maxLength: 4096 }
+        responses:
+          '200':
+            description: The key is stored.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [stored]
+                  properties:
+                    stored: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/notes/signing-key/status']
+    update:
+      post:
+        operationId: notesSigningKeyStatus
+        summary: Report whether a demo signing key is stored.
+        tags: [Extensions]
+        # Same object as the store, read verb: whether the installation holds a
+        # credential is a fact about the credential, so it is gated by the thing
+        # it is a fact about rather than left ungated because it is only a
+        # boolean.
+        x-rbac-object: ext_notes_signing_key
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: signing_key_status
+          version: 1.0.0
+          title: Demo signing key status
+          tier: auto_execute
+          scope: read
+          description: >-
+            Report whether this workspace has stored a Demo Notepad signing key.
+            It answers a single boolean and returns no part of the key, masked
+            or otherwise — presence is the only fact about a stored credential
+            this unit ever discloses.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        responses:
+          '200':
+            description: Whether a key is stored.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [stored]
+                  properties:
+                    stored: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/notes/signature']
+    update:
+      post:
+        operationId: notesSignPayload
+        summary: HMAC-sign a payload with the stored demo signing key.
+        tags: [Extensions]
+        # READ, and the honest caveat is that the four-verb vocabulary has no
+        # better word. Signing USES the key and does not change it, so of
+        # create/read/update/delete it is a read — but "may use the credential"
+        # is a stronger grant than "may see that one exists", and here both are
+        # spelled `read` on one object. Split them only when a role genuinely
+        # needs one without the other; declaring a second object to express a
+        # distinction nobody grants would be governance theatre.
+        x-rbac-object: ext_notes_signing_key
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: sign_payload
+          version: 1.0.0
+          title: Sign a demo payload
+          # 🟢 read: the payload is signed and discarded. Nothing is stored,
+          # and nothing leaves the workspace — the signature is returned to the
+          # caller that asked for it.
+          tier: auto_execute
+          scope: read
+          description: >-
+            Return the HMAC-SHA256 signature of a payload, computed with the
+            signing key this workspace stored. It proves the extension can wield
+            a credential it never emits: the key itself is not in the result and
+            no operation returns it. Fails when no key has been stored yet.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [payload]
+                properties:
+                  payload: { type: string, minLength: 1, maxLength: 4096 }
+        responses:
+          '200':
+            description: The signature, hex-encoded.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [algorithm, signature]
+                  properties:
+                    algorithm: { type: string }
+                    signature: { type: string }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }

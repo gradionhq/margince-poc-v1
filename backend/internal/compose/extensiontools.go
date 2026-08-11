@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -44,7 +45,23 @@ var composedTools struct {
 // deliberately — the same trust a jurisdiction pack rides when it ships
 // enabled. A distributed, less-trusted unit is not the model until that
 // resolution lands.
-func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
+func buildExtensionTools(exts []extension.Extension, verbs []extension.Verb) ([]mcp.Tool, error) {
+	// The declaration side, keyed by (unit, verb). A unit's Go Tools entry is
+	// only a verb and a function now; everything the adapted spec carries —
+	// tier, scope, prose, schemas, version — comes from the contract-declared
+	// operation, re-emitted into the composition as a literal.
+	declared := make(map[string]extension.Verb, len(verbs))
+	for _, v := range verbs {
+		if err := v.Validate(); err != nil {
+			return nil, fmt.Errorf("compose: extension %q: %w", v.Unit, err)
+		}
+		key := verbKey(v.Unit, v.Tool)
+		if prior, dup := declared[key]; dup {
+			return nil, fmt.Errorf("compose: extension %q declares tool %q on both %s %s and %s %s — one verb, one operation",
+				v.Unit, v.Tool, prior.Method, prior.Route, v.Method, v.Route)
+		}
+		declared[key] = v
+	}
 	var tools []mcp.Tool
 	// preflightTools rejects a name declared twice WITHIN a unit; the tool
 	// registry's namespace is global, so a name two units both serve would
@@ -61,7 +78,15 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 				return nil, fmt.Errorf("compose: extensions %q and %q both serve a tool named %q", owner, e.Name, tool.Name)
 			}
 			served[tool.Name] = e.Name
-			adapted, err := adaptExtensionTool(tool)
+			verb, ok := declared[verbKey(e.Name, tool.Name)]
+			if !ok {
+				// Behavior with no published surface. The generator already
+				// refuses this at the declaration's own line, so reaching it
+				// here means the composed set was assembled outside that path —
+				// which is exactly when a fail-closed boot matters.
+				return nil, fmt.Errorf("compose: extension %q serves tool %q but no operation in its contract fragments declares it", e.Name, tool.Name)
+			}
+			adapted, err := adaptExtensionTool(e.Name, tool, verb)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
 			}
@@ -72,9 +97,13 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 }
 
 // adaptExtensionTool maps ONE handler-bearing declaration onto the core
-// seam, refusing the shapes this surface cannot honestly serve.
-func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
-	tier, err := mcpTier(tool.Tier)
+// seam, refusing the shapes this surface cannot honestly serve. unit is the
+// declaring extension's name, carried onto the adapted tool because it is
+// what the per-call Runtime is scoped to — the composed declaration is the
+// only place that fact exists, and the handler must never be able to supply
+// it.
+func adaptExtensionTool(unit extension.Name, tool extension.Tool, verb extension.Verb) (extensionTool, error) {
+	tier, err := mcpTier(verb.Tier)
 	if err != nil {
 		return extensionTool{}, err
 	}
@@ -86,7 +115,7 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 	if tier == mcp.TierConfirmationRequired {
 		return extensionTool{}, errors.New("a served confirmation-required tool is not yet supported (its approvals could never be staged)")
 	}
-	scope, err := mcpScope(tool.RequestedScope)
+	scope, err := mcpScope(verb.RequestedScope)
 	if err != nil {
 		return extensionTool{}, err
 	}
@@ -119,25 +148,37 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 	// phase where the unit and the tool are both named, rather than as the core
 	// registry's boot panic. A handler-LESS tool is untouched: it is a manifest
 	// request no client is ever shown.
-	if strings.TrimSpace(tool.Description) == "" {
+	if strings.TrimSpace(verb.Description) == "" {
 		return extensionTool{}, errors.New("a served tool declares no Description — the text a model selects it by, " +
 			"which nothing about the tool can be derived from")
 	}
 	// And its result contract's version, in the same phase and for the same
 	// shape of reason: every result this surface seals carries it as
 	// `schema_version`, and a unit declaring none would tell every client that
-	// its result shape can never be compared against a later one.
-	if strings.TrimSpace(tool.Version) == "" {
+	// its result shape can never be compared against a later one. The version
+	// is the CONTRACT's now, like the description above — Verb.Validate
+	// already refuses an empty one at gen time, and this restates it at the
+	// serving side so a composed set assembled outside that path fails here,
+	// named, rather than as the core registry's Register panic.
+	if strings.TrimSpace(verb.Version) == "" {
 		return extensionTool{}, errors.New("a served tool declares no Version — every result carries it as " +
 			"schema_version, which is what lets a client tell a changed shape from changed data")
 	}
-	input := tool.InputSchema
+	input := verb.InputSchema
 	if input == nil {
 		// MCP requires every tool to advertise an object input schema; a tool
 		// that takes no arguments still needs one.
 		input = json.RawMessage(`{"type":"object"}`)
 	}
+	// The object and the action are carried onto the adapted tool for the same
+	// reason unit is: the composed declaration is the only place they exist,
+	// and mcp.ToolSpec has no field for either — the core gate's model is
+	// scope ∧ seat ∧ tier ∧ quota, and object-level RBAC is enforced by the
+	// handler at every core store rather than by the gate. So this adapter is
+	// where an extension's declared grant becomes a live check; see Handle.
 	return extensionTool{
+		rbacObject: verb.RbacObject,
+		rbacAction: verb.RbacAction,
 		spec: mcp.ToolSpec{
 			Name: tool.Name,
 			// A unit that declares a title gets it; one that does not is
@@ -145,22 +186,31 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 			// anyway. Optional rather than required on purpose: making a
 			// display string mandatory would refuse to boot an otherwise valid
 			// third-party unit over a label.
-			Title: cmp.Or(tool.Title, tool.Name),
+			Title: cmp.Or(verb.Title, tool.Name),
 			// Required above, so it is never the empty string a client would
 			// render as an undescribed tool.
-			Description:   tool.Description,
-			Version:       tool.Version,
+			Description:   verb.Description,
+			Version:       verb.Version,
 			RequiredScope: scope,
 			Tier:          tier,
 			InputSchema:   input,
-			OutputSchema:  tool.OutputSchema,
+			OutputSchema:  verb.OutputSchema,
 			// Derived, never declared: egress is a property of the cap spent,
 			// not something a unit asserts. The refusal above means it is
 			// false for everything this surface serves today.
 			Egress: scope.Egresses(),
 		},
+		unit:   string(unit),
 		handle: tool.Handle,
 	}, nil
+}
+
+// verbKey pairs a unit with one of its verbs. A tool name is unique within a
+// unit but the registry's namespace is global, so the JOIN between behavior and
+// declaration has to be per unit — otherwise one unit's contract could supply
+// the governance for another unit's handler.
+func verbKey(unit extension.Name, tool string) string {
+	return string(unit) + "\x00" + tool
 }
 
 // setComposedTools records the boot's tool set. Called once by
@@ -189,6 +239,11 @@ func registerComposedTools(registry *agents.Registry) {
 // composedToolNames names the extension tools this boot registered. The
 // contract-parity sweeps use it to tell the third legitimate kind of registered
 // verb — one a unit manifest declares — from a core verb nothing declares.
+//
+// It answers a question about the GLOBAL registry namespace ("is this
+// registered verb an extension's?"), which is why a bare name is the right key
+// here. It is NOT the right key for deciding whether a unit's own route is
+// implemented — see composedServedVerbs.
 func composedToolNames() map[string]bool {
 	composedTools.mu.RLock()
 	defer composedTools.mu.RUnlock()
@@ -197,6 +252,47 @@ func composedToolNames() map[string]bool {
 		names[t.Spec().Name] = true
 	}
 	return names
+}
+
+// OwningUnit satisfies mcp.UnitScopedTool: an adapted tool can name the unit
+// that shipped its handler, and a core tool cannot.
+//
+// The marker used to be declared here, as an unexported interface, because the
+// served set was its only reader. It moved to the port when a SECOND reader
+// appeared that cannot see an unexported method — the tool registry, deciding
+// whether a mutating tool may advertise `idempotency_key` (see withRetryKey).
+// One fact, one declaration, so the two readers cannot come to disagree about
+// which tools are an extension's.
+//
+// A registered tool that cannot name its unit is served by NO unit, so every
+// route over it answers 501. That is the fail-closed direction: an unattributed
+// handler must not become some route's implementation by default.
+func (t extensionTool) OwningUnit() string { return t.unit }
+
+// composedServedVerbs is this boot's served set keyed by (unit, tool) — the
+// same verbKey the behavior-to-contract join uses, and for the same reason.
+//
+// Keying it on the tool name alone was a route-ownership defect, not a
+// shortcut. A tool NAME is unique across the whole registry (buildExtensionTools
+// refuses two units serving one name), but an `x-mcp-tool` VERB in a contract
+// fragment is just a string a unit writes: unit B could declare a contract-only
+// operation naming unit A's served verb, be marked implemented on the strength
+// of A's handler, and have its published route dispatch A's handler — running
+// A's tier, scope, RBAC object and schemas under B's operation. Pairing the key
+// with the declaring unit is what makes "implemented" mean "THIS unit shipped
+// it".
+func composedServedVerbs() map[string]bool {
+	composedTools.mu.RLock()
+	defer composedTools.mu.RUnlock()
+	served := make(map[string]bool, len(composedTools.tools))
+	for _, t := range composedTools.tools {
+		owned, ok := t.(mcp.UnitScopedTool)
+		if !ok {
+			continue
+		}
+		served[verbKey(extension.Name(owned.OwningUnit()), t.Spec().Name)] = true
+	}
+	return served
 }
 
 // mcpTier maps a published request tier to the core RiskTier. Only the two
@@ -233,12 +329,73 @@ func mcpScope(s extension.Scope) (principal.Scope, error) {
 // seam: the derived spec drives the admission gate exactly as a core
 // tool's does, and Handle runs only after admission.
 type extensionTool struct {
-	spec   mcp.ToolSpec
-	handle extension.ToolHandler
+	spec mcp.ToolSpec
+	// unit is the declaring extension's name, the scope of every Runtime
+	// this tool's handler is invoked with.
+	unit string
+	// rbacObject and rbacAction are the grant the contract declares this
+	// operation needs, or both empty for a tool that owns no records.
+	rbacObject string
+	rbacAction extension.RbacAction
+	handle     extension.ToolHandler
 }
 
 func (t extensionTool) Spec() mcp.ToolSpec { return t.spec }
 
+// Handle mints the call-scoped Runtime, runs the handler with it, and
+// releases it — which is the design's central mechanism, and the reason it
+// is HERE and not in the unit's constructor. A declaration holds no handle,
+// so nothing an extension can reach exists until admission has already
+// happened and this line runs; and because the release is deferred rather
+// than left to the handler, a retained Runtime is a reported failure
+// (extension.ErrRuntimeExpired) rather than a live capability that outlived
+// the call it was granted for.
 func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	return t.handle(ctx, in)
+	// Object-level RBAC, and this is the ONE place it can be: the core gate
+	// decides scope ∧ seat ∧ tier ∧ quota and knows nothing about objects, so
+	// without this line a declared x-rbac-object would register into the
+	// vocabulary, reach /me, and gate nothing — a screen would hide a control
+	// the same principal could still reach through the agent.
+	//
+	// HERE rather than in the mounted route (extroutes.go), because this is
+	// where the CALLER-BEARING surfaces converge. The REST route and an MCP
+	// tools/call both arrive through Registry.Invoke, so a check in the route
+	// would leave the agent path open.
+	//
+	// Where the grants come from differs by principal, and both are current:
+	// for an AGENT, Gate.Admit has just re-derived the granting human's live
+	// RBAC onto this context; for a HUMAN, Admit returns early and the grants
+	// are the ones the cookie resolve loaded for this request. Neither is a
+	// copy stamped at session start. (An earlier version of this comment
+	// credited Invoke with re-deriving in both cases — it does not, and the
+	// human path is sound for its own reason rather than that one.)
+	//
+	// WHAT THIS DOES NOT COVER, said plainly because the check reads like it
+	// covers everything a unit can do: a scheduled job tick reaches unit code
+	// without passing through here at all. For notes that tick writes into
+	// ext_notes_note — the very object the human path gates `create` on. The
+	// reason a check there would be wrong is not that a tick is harmless: it is
+	// that extjobsrun.go's deriveAuthority mints a principal carrying scopes and
+	// no permissions document, so auth.Require would deny EVERY tick
+	// unconditionally. A job's bound is its declared scope and the fact that its
+	// SQL is its own; the object grant is a caller's question, and a tick has no
+	// caller.
+	//
+	// It runs BEFORE the Runtime is minted: a principal who may not touch the
+	// records must not reach a live capability handle, even briefly.
+	if t.rbacObject != "" {
+		if err := auth.Require(ctx, t.rbacObject, principal.Action(t.rbacAction)); err != nil {
+			return nil, err
+		}
+	}
+	pool, vault := boundExtensionRuntime()
+	// ctx here is the INVOCATION's — the one the admission gate ran against —
+	// and the Runtime keeps it, so every capability re-derives the tenant from
+	// it rather than from whatever context the handler later passes back in.
+	rt := runtimeFor(ctx, t.unit, pool, vault)
+	// Deferred, not called on the return path: a handler that panics has
+	// still finished with its Runtime, and a panic recovered upstream must
+	// not leave a live one behind.
+	defer rt.release()
+	return t.handle(ctx, rt, in)
 }
