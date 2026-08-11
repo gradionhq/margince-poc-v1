@@ -13,18 +13,20 @@ import { Logomark } from "../design-system/logomark";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
+import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
 import { AccountMenu } from "./account";
 import { AgentDock } from "./agentdock";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
 import {
-  BADGE_SCREENS,
   MOBILE_PRIMARY,
   NAV,
-  NAV_GROUPS,
+  type NavCounts,
+  type NavSection,
   RAIL_LESS_SCREENS,
 } from "./nav";
+import { NavLevelView, useNavLevel } from "./navlevel";
 import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
@@ -44,7 +46,11 @@ type CompanyProfile = components["schemas"]["CompanyProfile"];
 // agent. There is no top bar: a full-width strip of chrome above every screen
 // spent the scarcest space in the layout on things the sidebar already holds.
 
-export type ShellCounts = Partial<Record<string, number>>;
+// The attention counts the whole chrome reads — the rail badges them and the
+// agent beside the page title reports the same numbers. They are the levels'
+// own currency (app/subnav.ts), named here for the shell because App.tsx hands
+// them in at that seam.
+export type ShellCounts = NavCounts;
 
 const COLLAPSE_KEY = "margince.sidebarCollapsed";
 // Comfortably past --shellAnim (0.36s) in shell.css: the two must not disagree.
@@ -151,19 +157,47 @@ function RailSearch({
   );
 }
 
+// The panel's own state as classes: the width it is at, whether the phone sheet
+// is open, whether it is mid-collapse, and whether it is showing a drilled-in
+// LEVEL — at phone width the bar then carries two controls instead of five tabs
+// and arranges them itself. That last one is a class rather than a CSS `:has()`
+// on the level's own markup, whose specificity is its argument's and would have
+// outranked the sheet's layout from a rule that only means to arrange a bar.
+function railClasses(
+  state: Readonly<{
+    collapsed: boolean;
+    sheetOpen: boolean;
+    settling: boolean;
+    leveled: boolean;
+  }>,
+): string {
+  return [
+    "rail",
+    state.collapsed ? "collapsed" : "expanded",
+    state.sheetOpen ? "sheetopen" : "",
+    state.settling ? "settling" : "",
+    state.leveled ? "leveled" : "",
+  ]
+    .filter((name) => name !== "")
+    .join(" ");
+}
+
+type RailProps = {
+  route: Route;
+  counts?: ShellCounts;
+  collapsed?: boolean;
+  onToggle?: () => void;
+  onOpenSearch: () => void;
+};
+
 export function WorkspaceRail({
   route,
   counts,
   collapsed = false,
   onToggle,
   onOpenSearch,
-}: Readonly<{
-  route: Route;
-  counts?: ShellCounts;
-  collapsed?: boolean;
-  onToggle?: () => void;
-  onOpenSearch: () => void;
-}>) {
+  section,
+}: Readonly<RailProps & { section?: NavSection }>) {
   const t = useT();
   // Collapsed items are icon-only, so the label needs a tooltip that satisfies
   // WCAG 1.4.13: it appears on keyboard focus as well as hover, stays visible
@@ -205,6 +239,12 @@ export function WorkspaceRail({
   // makes the scrim behind it work without being a control of its own.
   const closeSheet = useCallback(() => setSheetOpen(false), []);
   usePopoverDismiss(sheetOpen, nav, closeSheet);
+
+  // Which of the route's levels the panel is showing, and the two ways the
+  // reader moves between them (app/navlevel.tsx). A section's entries take the
+  // panel OVER rather than hanging off the destinations: 64px cannot carry two
+  // levels, and 252px carrying both reads as a list of twenty places to go.
+  const level = useNavLevel(route, section, nav, closeSheet);
 
   // Opening a sheet that covers the page has to take focus with it, or a
   // keyboard user is left tabbing through a page they can no longer see; and
@@ -269,14 +309,6 @@ export function WorkspaceRail({
     (item) => item.screen === route.screen && !MOBILE_PRIMARY.has(item.screen),
   );
 
-  const classes = ["rail", collapsed ? "collapsed" : "expanded"];
-  if (sheetOpen) {
-    classes.push("sheetopen");
-  }
-  if (settling) {
-    classes.push("settling");
-  }
-
   return (
     <>
       {/* The scrim dims the page the sheet covers and gives the eye the layer
@@ -285,7 +317,12 @@ export function WorkspaceRail({
       {sheetOpen && <div className="railscrim" aria-hidden="true" />}
       <nav
         ref={nav}
-        className={classes.join(" ")}
+        className={railClasses({
+          collapsed,
+          sheetOpen,
+          settling,
+          leveled: level.parent !== undefined,
+        })}
         aria-label={t("shell.railAria")}
         onKeyDown={dismissTip}
       >
@@ -319,65 +356,18 @@ export function WorkspaceRail({
           onOpenSearch={onOpenSearch}
           onTip={setTip}
         />
-        {NAV_GROUPS.map((group, index) => (
-          <div className="navgroup" key={group.headingKey ?? `group-${index}`}>
-            {/* The heading keeps its box in both states — collapsed it hides its
-              text and draws a hairline inside the same space. Swapping it for a
-              shorter <hr> re-spaced every group and drifted the icons. */}
-            {group.headingKey && (
-              <h2 className="navheading">{t(group.headingKey)}</h2>
-            )}
-            {group.items.map((item) => {
-              const count = BADGE_SCREENS.has(item.screen)
-                ? counts?.[item.screen]
-                : undefined;
-              const active = route.screen === item.screen;
-              const label = t(item.labelKey);
-              const wrapClass = MOBILE_PRIMARY.has(item.screen)
-                ? "navwrap primary"
-                : "navwrap";
-              return (
-                <div className={wrapClass} key={item.screen}>
-                  <a
-                    className={active ? "navitem active" : "navitem"}
-                    href={routeHash({ screen: item.screen })}
-                    aria-label={label}
-                    aria-current={active ? "page" : undefined}
-                    onMouseEnter={() => setTip(item.screen)}
-                    onMouseLeave={() => setTip(null)}
-                    onFocus={() => setTip(item.screen)}
-                    onBlur={() => setTip(null)}
-                    // A destination pressed inside the phone sheet closes it:
-                    // the sheet covers the page it just navigated to. Dismissal
-                    // on an OUTSIDE click cannot do this, and should not — a
-                    // preference row inside a popover must be able to act
-                    // without taking the popover with it.
-                    onClick={closeSheet}
-                  >
-                    <item.icon aria-hidden />
-                    {/* The label stays mounted and collapses its width, so the
-                      transition is continuous rather than a pop. aria-label
-                      carries the accessible name either way. */}
-                    <span className="navlabel">{label}</span>
-                    {count !== undefined && count > 0 && (
-                      <span className="count">{count}</span>
-                    )}
-                    {/* Inside the row, not beside it: the tooltip sits outside the
-                      row's box but within its subtree, so moving the pointer onto
-                      it never leaves the row and never tears it away mid-read
-                      (WCAG 1.4.13, hoverable). A sibling could not manage that
-                      without making the wrapper itself interactive. */}
-                    {collapsed && tip === item.screen && (
-                      <span className="navtip" role="tooltip">
-                        {label}
-                      </span>
-                    )}
-                  </a>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+        {/* Keyed by depth so a level that arrives is a new element and plays its
+            entrance; two addresses at the SAME depth are the same level with
+            another row current, and nothing should move. */}
+        <NavLevelView
+          key={level.depth}
+          level={level.shown}
+          parent={level.parent}
+          counts={counts}
+          state={{ collapsed, tip, onTip: setTip }}
+          onSelect={level.onSelect}
+          onWalkUp={level.onWalkUp}
+        />
         {/* Phone-width only: expands the bar into a sheet carrying every
           destination. Hidden by CSS on the desktop sidebar.
           It carries the active state for every destination it hides, so the
@@ -419,6 +409,43 @@ export function WorkspaceRail({
         </div>
       </nav>
     </>
+  );
+}
+
+/**
+ * The rail on a settings route, carrying the settings level.
+ *
+ * Which settings entries exist for a principal is a GRANT question, and grants
+ * belong to the screen whose cards ask for them (screens/settings.tsx) — the
+ * shell only ever receives a finished section. Mounted on that route alone, so
+ * no other screen pays for the visibility probes the hook makes.
+ */
+export function SettingsRail(props: Readonly<RailProps>) {
+  const section = useSettingsSection(props.route.id);
+  return <WorkspaceRail {...props} section={section} />;
+}
+
+/**
+ * The page head on a settings route, naming the tab the reader opened.
+ *
+ * It reads the same section the rail does — the hook derives it from the
+ * capability cache the rail already warmed, so the two cannot disagree about
+ * which tab is current, and neither can the content column, which resolves it
+ * from that same hook.
+ */
+function SettingsPageHead({
+  route,
+  actions,
+  counts,
+}: Readonly<{ route: Route; actions?: ReactNode; counts?: ShellCounts }>) {
+  const section = useSettingsSection(route.id);
+  return (
+    <PageHead
+      route={route}
+      actions={actions}
+      counts={counts}
+      section={section}
+    />
   );
 }
 
@@ -468,6 +495,26 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : t("shell.unknownPage");
 }
 
+// On a screen that publishes a level, the page is the ENTRY the reader opened,
+// not the section they opened it from: the sidebar's level already carries the
+// section's name, and printing it here too named the section twice and the
+// surface never — a settings page read "Settings" above a heading reading
+// "Settings" with the audit log under both.
+function sectionEntryTitle(
+  section: NavSection,
+  route: Route,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  const activeId = section.activeId ?? route.id;
+  for (const group of section.groups) {
+    const entry = group.items.find((item) => item.id === activeId);
+    if (entry) {
+      return t(entry.labelKey);
+    }
+  }
+  return undefined;
+}
+
 // The page head: the heading of the screen you are on, and beside it the two
 // things that are true of the whole product rather than of this screen — which
 // system of record is answering, and the agent. It is not a bar: no panel, no
@@ -477,15 +524,21 @@ export function PageHead({
   route,
   actions,
   counts,
+  section,
 }: Readonly<{
   route: Route;
   actions?: ReactNode;
   counts?: ShellCounts;
+  section?: NavSection;
 }>) {
   const t = useT();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
-  const title = resolveTitle(route.screen, navItem?.labelKey, t);
+  const entryTitle =
+    section && section.screen === route.screen
+      ? sectionEntryTitle(section, route, t)
+      : undefined;
+  const title = entryTitle ?? resolveTitle(route.screen, navItem?.labelKey, t);
   // A record kind, and only then: an id segment that names no record is a
   // screen's own state — the settings tab, for one — and the page is still the
   // screen. Printing that slug as the page's name gave Settings an h1 reading
@@ -565,17 +618,35 @@ export function Shell({
     );
   }
 
+  const railProps: RailProps = {
+    route,
+    counts,
+    collapsed,
+    onToggle: toggle,
+    onOpenSearch,
+  };
+
+  const leveled = route.screen === SETTINGS_SCREEN;
+
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
-      <WorkspaceRail
-        route={route}
-        counts={counts}
-        collapsed={collapsed}
-        onToggle={toggle}
-        onOpenSearch={onOpenSearch}
-      />
+      {/* One rail, two suppliers of what it shows: a screen owning a level wires
+          its own data in, everything else renders the destinations alone. */}
+      {leveled ? (
+        <SettingsRail {...railProps} />
+      ) : (
+        <WorkspaceRail {...railProps} />
+      )}
       <main className="main">
-        <PageHead route={route} actions={pageActions} counts={counts} />
+        {leveled ? (
+          <SettingsPageHead
+            route={route}
+            actions={pageActions}
+            counts={counts}
+          />
+        ) : (
+          <PageHead route={route} actions={pageActions} counts={counts} />
+        )}
         {/* Public, onboarding, and preference routes are intentionally
             railless; these advisories belong only here. */}
         <EconomyBanner />

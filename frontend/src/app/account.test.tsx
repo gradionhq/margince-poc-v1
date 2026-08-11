@@ -83,7 +83,7 @@ describe("AccountMenu", () => {
       "#/settings/account",
       "#/settings",
     ]);
-    expect(links[0].textContent).toBe("Account settings");
+    expect(links[0].textContent).toBe("Account");
     expect(links[1].textContent).toBe("Settings");
   });
 

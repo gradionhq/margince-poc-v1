@@ -29,13 +29,14 @@ import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
   EmptyState,
-  SectionHeader,
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
@@ -51,6 +52,7 @@ import {
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
@@ -222,6 +224,10 @@ function tabContent(id: SettingsTabId): ReactNode {
 
 const SETTINGS_GROUPS = ["you", "org"] as const;
 
+// The route this screen answers, named once: the shell mounts the settings level
+// by matching it, and the section published below declares it.
+export const SETTINGS_SCREEN = "settings";
+
 type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 
 // Which Organization tabs this principal can use, one answer per tab, each
@@ -307,8 +313,10 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   };
 }
 
-export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
-  const t = useT();
+// Which tabs this principal may use, and which of them the route selects. The
+// nav in the sidebar and the content on the page both read this, so the two
+// cannot disagree about what is current — including on the fallback below.
+function useVisibleSettingsTabs(tab?: string) {
   const orgTabVisible = useOrgTabVisibility();
   const tabs = SETTINGS_TABS.filter(
     (entry) => entry.group !== "org" || orgTabVisible[entry.id],
@@ -316,43 +324,55 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // Unknown / absent id (or one this principal cannot see) falls back to the
   // first visible tab — a stale deep-link lands on Account, never a blank
   // screen.
-  const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
+  return { tabs, active: tabs.find((entry) => entry.id === tab) ?? tabs[0] };
+}
+
+/**
+ * The settings level, as data the sidebar can render.
+ *
+ * The shell asks for this and renders it as the second navigation level; it
+ * never learns what a grant is. The two groups are the ones this screen has
+ * always had — "Your settings" is per-user work, "Organization" is posture an
+ * admin curates — and a group with no visible member is dropped rather than
+ * printed empty.
+ */
+export function useSettingsSection(tab?: string): NavSection {
+  const { tabs, active } = useVisibleSettingsTabs(tab);
+  // Both message keys are composed from the ids, and both annotations are what
+  // make them KEYS: a template literal narrows to the catalog's union only where
+  // something expects one, and unannotated it would compile as any old string —
+  // an unknown key has to stay a compile error.
+  const groups = SETTINGS_GROUPS.map(
+    (group): NavLevelGroup => ({
+      headingKey: `settings.group.${group}`,
+      items: tabs
+        .filter((entry) => entry.group === group)
+        .map(
+          (entry): NavLevelEntry => ({
+            id: entry.id,
+            labelKey: `settings.tab.${entry.id}`,
+            icon: entry.icon,
+          }),
+        ),
+    }),
+  ).filter((group) => group.items.length > 0);
+  return {
+    screen: SETTINGS_SCREEN,
+    titleKey: "nav.settings",
+    activeId: active.id,
+    groups,
+  };
+}
+
+export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
+  const { active } = useVisibleSettingsTabs(tab);
+  // No nav column and no heading of its own: the tabs are the sidebar's second
+  // level now, and the shell's page head names the tab, so the page is the tab's
+  // own content across the whole reading column.
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.settings")} />
       <ResumeConnectBanner />
-      <div className="set-grid">
-        <nav className="set-nav" aria-label={t("settings.navAria")}>
-          {SETTINGS_GROUPS.map((group) => {
-            const groupTabs = tabs.filter((entry) => entry.group === group);
-            if (groupTabs.length === 0) {
-              return null;
-            }
-            return (
-              <div key={group} className="set-nav-group">
-                <div className="set-nav-grouplabel">
-                  {t(`settings.group.${group}`)}
-                </div>
-                {groupTabs.map(({ id, icon: Icon }) => {
-                  const isActive = id === active.id;
-                  return (
-                    <a
-                      key={id}
-                      href={`#/settings/${id}`}
-                      className={isActive ? "active" : undefined}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      <Icon aria-hidden />
-                      {t(`settings.tab.${id}`)}
-                    </a>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </nav>
-        <div className="set-content">{tabContent(active.id)}</div>
-      </div>
+      {tabContent(active.id)}
     </div>
   );
 }
@@ -385,8 +405,7 @@ function IdentityCard() {
   const query = useMe();
   const logout = useLogout();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader title={t("settings.identity")} />
+    <Card title={t("settings.identity")}>
       <QueryGate query={query}>
         {(me) => (
           <div
@@ -408,11 +427,11 @@ function IdentityCard() {
         small
         disabled={logout.isPending}
         onClick={() => logout.mutate()}
-        style={{ marginTop: 10 }}
+        style={{ marginTop: "var(--space-3)" }}
       >
         {t("auth.signOut")}
       </Button>
-    </section>
+    </Card>
   );
 }
 
@@ -480,11 +499,7 @@ function PassportCard() {
   });
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.passports")}
-        sub={t("settings.passportsSub")}
-      />
+    <Card title={t("settings.passports")} sub={t("settings.passportsSub")}>
       <div
         style={{
           display: "flex",
@@ -528,7 +543,7 @@ function PassportCard() {
         </Button>
       </div>
       {mint.isSuccess && (
-        <div className="card card-inset" style={{ marginTop: 10 }}>
+        <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
           <p className="t-label">{t("settings.tokenOnce")}</p>
           <p
             className="t-mono"
@@ -536,7 +551,7 @@ function PassportCard() {
           >
             {mint.data.token}
           </p>
-        </div>
+        </Card>
       )}
       {mint.isError && (
         <p
@@ -650,7 +665,7 @@ function PassportCard() {
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
-    </section>
+    </Card>
   );
 }
 
@@ -699,8 +714,7 @@ function AgentToolsCard() {
   );
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader title={t("tools.title")} sub={t("tools.sub")} />
+    <Card title={t("tools.title")} sub={t("tools.sub")}>
       {passports.data && passports.data.data.length > 0 && (
         <div className="tool-scope-filter">
           <PassportSelect
@@ -774,7 +788,7 @@ function AgentToolsCard() {
           </ul>
         )}
       </QueryGate>
-    </section>
+    </Card>
   );
 }
 
@@ -783,13 +797,9 @@ function AgentToolsCard() {
 function AutomationsLinkCard() {
   const t = useT();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.automations")}
-        sub={t("settings.automationsSub")}
-      />
+    <Card title={t("settings.automations")} sub={t("settings.automationsSub")}>
       <a href="#/automations">{t("settings.openAutomations")}</a>
-    </section>
+    </Card>
   );
 }
 
@@ -798,13 +808,12 @@ function AutomationsLinkCard() {
 function CustomFieldsLinkCard() {
   const t = useT();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.customFields")}
-        sub={t("settings.customFieldsSub")}
-      />
+    <Card
+      title={t("settings.customFields")}
+      sub={t("settings.customFieldsSub")}
+    >
       <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
-    </section>
+    </Card>
   );
 }
 
@@ -872,14 +881,13 @@ function ResetDataCard() {
   }
 
   return (
-    <section
-      className="card"
-      style={{ marginBottom: "var(--space-4)", borderColor: "var(--danger)" }}
+    <Card
+      title={t("settings.dangerZone")}
+      sub={t("settings.dangerZoneSub")}
+      // The one card that announces its own danger: the red border is what
+      // separates a destructive surface from the ordinary settings around it.
+      style={{ borderColor: "var(--danger)" }}
     >
-      <SectionHeader
-        title={t("settings.dangerZone")}
-        sub={t("settings.dangerZoneSub")}
-      />
       <p className="t-caption">{t("settings.resetDataDesc")}</p>
       <Button
         small
@@ -908,7 +916,7 @@ function ResetDataCard() {
         <p
           className="t-caption"
           role="alert"
-          style={{ color: "var(--warning)", marginTop: "var(--space-1)" }}
+          style={{ color: "var(--warn)", marginTop: "var(--space-1)" }}
         >
           {t("settings.resetDataDrainWarning")}
         </p>
@@ -951,7 +959,7 @@ function ResetDataCard() {
           onChange={(event) => setTyped(event.target.value)}
         />
       </ConfirmModal>
-    </section>
+    </Card>
   );
 }
 
@@ -1179,7 +1187,7 @@ function PipelineRow({
     (a, b) => a.position - b.position,
   );
   return (
-    <div className="card card-inset" style={{ marginBottom: 10 }}>
+    <Card as="div" inset style={{ marginBottom: "var(--space-3)" }}>
       <div
         style={{
           display: "flex",
@@ -1235,7 +1243,7 @@ function PipelineRow({
           <StageRow key={stage.id} stage={stage} canEdit={canEdit} t={t} />
         ))}
       </ul>
-    </div>
+    </Card>
   );
 }
 
@@ -1266,11 +1274,7 @@ export function PipelinesCard() {
     },
   });
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.pipelines")}
-        sub={t("settings.pipelinesSub")}
-      />
+    <Card title={t("settings.pipelines")} sub={t("settings.pipelinesSub")}>
       {canCreate && (
         <div style={{ marginBottom: 10 }}>
           <CreateAction
@@ -1304,33 +1308,25 @@ export function PipelinesCard() {
           </>
         )}
       </QueryGate>
-    </section>
+    </Card>
   );
 }
 
 function ProductsLinkCard() {
   const t = useT();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("product.title")}
-        sub={t("product.settingsSub")}
-      />
+    <Card title={t("product.title")} sub={t("product.settingsSub")}>
       <a href="#/products">{t("product.open")}</a>
-    </section>
+    </Card>
   );
 }
 
 function OfferTemplatesLinkCard() {
   const t = useT();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("template.title")}
-        sub={t("template.settingsSub")}
-      />
+    <Card title={t("template.title")} sub={t("template.settingsSub")}>
       <a href="#/offer-templates">{t("template.open")}</a>
-    </section>
+    </Card>
   );
 }
 
@@ -1339,11 +1335,7 @@ function OfferTemplatesLinkCard() {
 function AutonomyCard() {
   const t = useT();
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.autonomy")}
-        sub={t("settings.autonomySub")}
-      />
+    <Card title={t("settings.autonomy")} sub={t("settings.autonomySub")}>
       <ul
         style={{
           listStyle: "none",
@@ -1365,7 +1357,7 @@ function AutonomyCard() {
           <Badge tone="warn">{t("settings.locked")}</Badge>
         </li>
       </ul>
-    </section>
+    </Card>
   );
 }
 
@@ -1428,6 +1420,37 @@ type AuditLogFilters = Readonly<{
   to: string;
 }>;
 
+// The unfiltered question the view opens on. One object rather than six
+// useState strings, so the filter row can be its own component that hands back
+// a whole answer instead of taking six setters — and so the query key is that
+// same answer, which cannot drift from what the request carries.
+const UNFILTERED_AUDIT_LOG: AuditLogFilters = {
+  actor: "",
+  entityType: "",
+  entityId: "",
+  action: "",
+  from: "",
+  to: "",
+};
+
+// The six filters, declared once. Naming them here keeps the accessible wiring
+// identical across the row: each control is named by the `t-label` span beside
+// it via aria-labelledby, because a real <label> per control would wrap every
+// field onto its own line and the row is what makes six filters scannable.
+const AUDIT_LOG_FILTER_FIELDS: readonly Readonly<{
+  key: keyof AuditLogFilters;
+  labelKey: MessageKey;
+  // A calendar picker rather than free text — the two ends of the range.
+  date?: boolean;
+}>[] = [
+  { key: "actor", labelKey: "settings.auditActor" },
+  { key: "entityType", labelKey: "settings.auditEntity" },
+  { key: "entityId", labelKey: "settings.auditEntityId" },
+  { key: "action", labelKey: "settings.auditAction" },
+  { key: "from", labelKey: "settings.auditFrom", date: true },
+  { key: "to", labelKey: "settings.auditTo", date: true },
+];
+
 // Every filter is optional-if-blank, so this stays a flat spread rather than
 // a chain of conditionals in the queryFn itself (kept the query builder under
 // the cognitive-complexity gate).
@@ -1446,6 +1469,56 @@ function auditLogQueryParams(
     ...(from ? { from: fromDateParam(from) } : {}),
     ...(to ? { to: toDateParam(to) } : {}),
   };
+}
+
+function AuditLogFilterFields({
+  filters,
+  onChange,
+}: Readonly<{
+  filters: AuditLogFilters;
+  onChange: (next: AuditLogFilters) => void;
+}>) {
+  const t = useT();
+  const filterId = useId();
+  return (
+    // Six narrow filters read as a grid of labelled cells rather than one long
+    // row: in a row each control took the width of the card and the six of them
+    // stacked into a page-tall form, which is the shape of something to fill in
+    // rather than something to narrow a list with.
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))",
+        gap: "var(--space-3)",
+      }}
+    >
+      {AUDIT_LOG_FILTER_FIELDS.map((field) => {
+        const labelId = `${filterId}-${field.key}`;
+        return (
+          <div
+            key={field.key}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+            }}
+          >
+            <span className="t-label" id={labelId}>
+              {t(field.labelKey)}
+            </span>
+            <TextInput
+              type={field.date ? "date" : undefined}
+              aria-labelledby={labelId}
+              value={filters[field.key]}
+              onChange={(event) =>
+                onChange({ ...filters, [field.key]: event.target.value })
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function AuditLogRow({
@@ -1535,35 +1608,21 @@ function AuditLogRow({
   );
 }
 
-// AC-settings-16: the attributable audit view — live filters over actor /
-// entity_type / entity_id / action / from / to, keyset "load more" via the
-// page cursor. Filtering restarts the cursor chain (a filter change is a new
-// question). Each row expands into the before/after diff plus the agent
-// attribution trail (passport, on-behalf-of human, authorization rule,
-// grounding evidence) — collapsed by default so the flat scan stays fast.
-export function AuditLogCard() {
+// The result half of the audit view: the answer to whatever the filter row
+// currently asks. Keyset "load more" via the page cursor, and a filter change
+// is a new question — the filters ARE the query key, so changing one restarts
+// the cursor chain instead of appending to a stale one.
+function AuditLogEntries({
+  filters,
+  meUserId,
+}: Readonly<{ filters: AuditLogFilters; meUserId?: string }>) {
   const t = useT();
-  // The current user's id resolves audit "You" vs "A teammate" in ActorTag.
-  const meUserId = useMe().data?.user?.id;
-  const [actor, setActor] = useState("");
-  const [entityType, setEntityType] = useState("");
-  const [entityId, setEntityId] = useState("");
-  const [action, setAction] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const filterId = useId();
-
   const query = useInfiniteQuery({
-    queryKey: ["audit-log", actor, entityType, entityId, action, from, to],
+    queryKey: ["audit-log", filters],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/audit-log", {
-        params: {
-          query: auditLogQueryParams(
-            { actor, entityType, entityId, action, from, to },
-            pageParam,
-          ),
-        },
+        params: { query: auditLogQueryParams(filters, pageParam) },
       });
       if (error) {
         throwProblem(error);
@@ -1580,7 +1639,13 @@ export function AuditLogCard() {
   let body: ReactNode;
   if (query.isPending) {
     body = (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
+        }}
+      >
         <Skeleton width="60%" />
         <Skeleton width="90%" />
       </div>
@@ -1589,10 +1654,14 @@ export function AuditLogCard() {
     body = (
       <EmptyState>
         <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
+        <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
           {problemMessageOf(query.error, t)}
         </p>
-        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
+        <Button
+          small
+          onClick={() => query.refetch()}
+          style={{ marginTop: "var(--space-3)" }}
+        >
           {t("common.retry")}
         </Button>
       </EmptyState>
@@ -1607,7 +1676,7 @@ export function AuditLogCard() {
             listStyle: "none",
             display: "flex",
             flexDirection: "column",
-            gap: 10,
+            gap: "var(--space-3)",
           }}
         >
           {entries.map((entry) => (
@@ -1620,69 +1689,34 @@ export function AuditLogCard() {
   }
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader title={t("settings.audit")} sub={t("settings.auditSub")} />
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "center",
-          marginBottom: 10,
-        }}
-      >
-        <span className="t-label" id={`${filterId}-actor`}>
-          {t("settings.auditActor")}
-        </span>
-        <TextInput
-          aria-labelledby={`${filterId}-actor`}
-          value={actor}
-          onChange={(event) => setActor(event.target.value)}
-        />
-        <span className="t-label" id={`${filterId}-entity`}>
-          {t("settings.auditEntity")}
-        </span>
-        <TextInput
-          aria-labelledby={`${filterId}-entity`}
-          value={entityType}
-          onChange={(event) => setEntityType(event.target.value)}
-        />
-        <span className="t-label" id={`${filterId}-entity-id`}>
-          {t("settings.auditEntityId")}
-        </span>
-        <TextInput
-          aria-labelledby={`${filterId}-entity-id`}
-          value={entityId}
-          onChange={(event) => setEntityId(event.target.value)}
-        />
-        <span className="t-label" id={`${filterId}-action`}>
-          {t("settings.auditAction")}
-        </span>
-        <TextInput
-          aria-labelledby={`${filterId}-action`}
-          value={action}
-          onChange={(event) => setAction(event.target.value)}
-        />
-        <span className="t-label" id={`${filterId}-from`}>
-          {t("settings.auditFrom")}
-        </span>
-        <TextInput
-          type="date"
-          aria-labelledby={`${filterId}-from`}
-          value={from}
-          onChange={(event) => setFrom(event.target.value)}
-        />
-        <span className="t-label" id={`${filterId}-to`}>
-          {t("settings.auditTo")}
-        </span>
-        <TextInput
-          type="date"
-          aria-labelledby={`${filterId}-to`}
-          value={to}
-          onChange={(event) => setTo(event.target.value)}
-        />
-      </div>
+    <Card title={t("settings.auditEntries")} sub={t("settings.auditSub")}>
       {body}
-    </section>
+    </Card>
+  );
+}
+
+// AC-settings-16: the attributable audit view — live filters over actor /
+// entity_type / entity_id / action / from / to, keyset "load more" via the
+// page cursor. Two cards, because the question and the answer are two things:
+// six filters and a page of entries in one box made the row read as a header
+// the entries belonged to, and the entries scroll while the filters stay put.
+// Each row expands into the before/after diff plus the agent attribution trail
+// (passport, on-behalf-of human, authorization rule, grounding evidence) —
+// collapsed by default so the flat scan stays fast.
+export function AuditLogCard() {
+  const t = useT();
+  // The current user's id resolves audit "You" vs "A teammate" in ActorTag.
+  const meUserId = useMe().data?.user?.id;
+  const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);
+  return (
+    <>
+      {/* "Filters", not the log's own name: the page head above already says
+          which log this is, and a card repeating it read as the heading the
+          entries below belonged to. */}
+      <Card title={t("settings.auditFilters")}>
+        <AuditLogFilterFields filters={filters} onChange={setFilters} />
+      </Card>
+      <AuditLogEntries filters={filters} meUserId={meUserId} />
+    </>
   );
 }
