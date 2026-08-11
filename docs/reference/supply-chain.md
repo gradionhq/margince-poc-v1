@@ -223,30 +223,41 @@ nor a writable home. So the invocation adds `-u $(id -u):$(id -g)` and
 
 ## CI — `.github/workflows/sbom.yml`
 
-Regenerates the SBOM whenever a dependency set or the pipeline itself changes.
-The runner needs only Docker, which `ubuntu-latest` pre-installs.
+Regenerates the SBOM on **`main`** whenever a dependency set or the pipeline
+itself changes. The runner needs only Docker, which `ubuntu-latest` pre-installs.
 
 | Trigger | Condition |
 |---|---|
 | `workflow_dispatch` | manual, any ref (but see the `sign` job's own guard) |
-| `pull_request` | types `opened`, `synchronize`, `reopened`, `ready_for_review`, filtered to the paths below |
-| `push` | branch `main`, the same paths (anchored once as a YAML alias, reused by both events) |
+| `push` | branch `main`, filtered to the paths below |
 
 Path filter: `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`,
-`pnpm-lock.yaml`, `**/package.json`, `Makefile`, `.syft.yaml`, `.grant.yaml`,
-`.github/workflows/sbom.yml`.
+`**/pnpm-lock.yaml`, `**/package.json`, `Makefile`, `.syft.yaml`, `.grant.yaml`,
+`sbom-schemas/**`, `.github/workflows/sbom.yml`.
+
+`**/pnpm-lock.yaml` is globbed deliberately. The only lockfile in the tree is
+`frontend/pnpm-lock.yaml`, so the unglobbed `pnpm-lock.yaml` matched nothing —
+and a lockfile-only dependency change, the shape Renovate raises most often and
+precisely where new transitive packages and their licenses arrive, never
+triggered this workflow at all.
+
+**There is no `pull_request` trigger.** The PR-side license gate is the
+`license gate` job in `ci.yml`, gated at the job level on the `deps` scope. A
+workflow-level `paths:` filter produces no check run when it does not match, and
+a required context that never posts blocks a merge forever — so a gate that must
+be required cannot live behind one. Splitting the two paths also means the policy
+runs exactly once per event rather than twice on `main`. See
+[infra/ci-pipeline.md](../../infra/ci-pipeline.md).
 
 Workflow-level `permissions: contents: read` is the floor for every job. The
 OIDC minting credential is **not** granted there — only the `sign` job requests
-it, so PR-controlled generation code can never mint a signing token.
+it, so branch-controlled generation code can never mint a signing token.
 
-**Job `sbom`** — skipped while a pull request is still a draft (a draft
-iterating on dependency bumps has no SBOM consumer). Checks out with
-`persist-credentials: false` and `fetch-depth: 0` (resolving an exact tag needs
-tags and history), then runs `make sbom`, then `make sbom-check`. Publishes the
-`sboms` artifact from `sboms/` with `if-no-files-found: error` and retention of
-**14 days on a pull request, 90 otherwise** — PR artifacts are superseded by the
-next push, only main's linger.
+**Job `sbom`** — checks out with `persist-credentials: false` and
+`fetch-depth: 0` (resolving an exact tag needs tags and history), then runs
+`make sbom`, then `make sbom-check`. The license gate stays on this path because
+it is the precondition for `sign` below. Publishes the `sboms` artifact from
+`sboms/` with `if-no-files-found: error` and 90-day retention.
 
 **Job `sign`** — `needs: sbom`, and gated to `push` (which the trigger already
 restricts to `main`) or a `workflow_dispatch` on `refs/heads/main`. It adds
@@ -254,16 +265,17 @@ restricts to `main`) or a `workflow_dispatch` on `refs/heads/main`. It adds
 than regenerating it, runs `make sbom-sign`, and publishes `sboms/*.cosign.bundle`
 as the `sbom-signatures` artifact (retention 90 days).
 
-Two reasons it is a separate job and **never runs on a pull request**:
+Two reasons it is a separate job and **never runs off `main`**:
 
 1. **A keyless signature is permanent.** It lands in the public Rekor
-   transparency log and cannot be retracted. A PR preview, or a dispatch from a
-   feature branch, must never produce one.
-2. **Isolation from PR-controlled code.** Generation runs whatever the branch's
-   `Makefile` and `.syft.yaml` say; keeping that out of any job holding
-   `id-token: write` is what stops a pull request from reaching the signing
-   identity. `needs: sbom` also means the license gate has already passed, so a
-   policy-failing SBOM never reaches signing.
+   transparency log and cannot be retracted. A dispatch from a feature branch
+   must never produce one.
+2. **Isolation from branch-controlled code.** Generation runs whatever the
+   branch's `Makefile` and `.syft.yaml` say; keeping that out of any job holding
+   `id-token: write` is what stops branch-controlled code from reaching the
+   signing identity. `needs: sbom` also means the license gate has already
+   passed, so a policy-failing SBOM never reaches signing — which is why that
+   gate stays in this workflow even though `ci.yml` already gates every PR.
 
 ## Targets
 
