@@ -24,20 +24,8 @@
     // tsconfig.composed.json, which does not build tests.
     "paths": {
       "@composition/extensions": ["./src/composition/extensions.gen"],
-      "@composition/schema": ["./src/api/schema"],
-      "@composition/screens": ["./src/composition/extscreens.gen"],
-      "@composition/copy": ["./src/composition/extlocales.gen"]
+      "@composition/schema": ["./src/api/schema"]
     }
   },
-  "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"],
-  // src/screens/ext/ is the COMPOSED lane's program — its screens call routes
-  // that are in `paths` only under the merged contract — so it cannot be typed
-  // here any more than it can in the app project, and `@composition/screens`
-  // above resolves the empty vanilla registry instead. Their TESTS go with
-  // them: a test imports the screen it drives, and tsc follows the import past
-  // any exclusion. That is the one deliberate typecheck gap in the tree, and
-  // it is bounded — `make fe-typecheck-composed` compiles the screens
-  // themselves against the merged contract, so what is untyped is the test
-  // file's own fixtures and nothing the product ships.
-  "exclude": ["src/screens/ext/**"]
+  "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"]
 }

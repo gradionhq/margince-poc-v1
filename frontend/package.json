@@ -1,11 +1,6 @@
 {
   "name": "@margince/frontend",
   "private": true,
-  "exports": {
-    "./design-system": "./src/surface/design-system.ts",
-    "./api": "./src/surface/api.ts",
-    "./app": "./src/surface/index.ts"
-  },
   "version": "0.1.0",
   "type": "module",
   "scripts": {

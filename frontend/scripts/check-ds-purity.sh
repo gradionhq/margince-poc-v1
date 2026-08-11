@@ -19,13 +19,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/src"
-# The unit trees are swept too. A unit's screen is shipped UI in the same
-# bundle, rendered on the same page, by an author the core team did not review
-# line by line — so a gate that stopped at frontend/src would hold the core to a
-# standard the extension tier escapes, which is the wrong way round. EXT_DIR is
-# overridable so the gate's own tests can point it at a fixture.
-EXT_DIR="${MARGINCE_EXT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)/extensions}"
-
 
 # Excluded: the token source file (literals are its job), generated contract
 # types, and test files (fixtures aren't shipped UI).
@@ -45,21 +38,14 @@ while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
     -not -name "provider-mark.tsx" \
     -print0 2>/dev/null
 )
-while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
-  find "$EXT_DIR" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" \) \
-    -path "*/frontend/*" \
-    -not -path "*/node_modules/*" \
-    -not -name "*.test.*" \
-    -print0 2>/dev/null
-)
 
 # An empty scan means the gate is pointed at the wrong tree — fail closed.
 if [[ "${#FILES[@]}" -eq 0 ]]; then
-  echo "FAIL: DS purity found no files under $SRC_DIR or $EXT_DIR — the gate is miswired" >&2
+  echo "FAIL: DS purity found no files under $SRC_DIR — the gate is miswired" >&2
   exit 1
 fi
 
-echo "==> DS purity check (${#FILES[@]} files under frontend/src + extensions/*/frontend)"
+echo "==> DS purity check (${#FILES[@]} files under frontend/src)"
 
 EXIT=0
 

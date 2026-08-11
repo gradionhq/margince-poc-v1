@@ -21,13 +21,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/src"
-# The unit trees are swept too. A unit's screen is shipped UI in the same
-# bundle, rendered on the same page, by an author the core team did not review
-# line by line — so a gate that stopped at frontend/src would hold the core to a
-# standard the extension tier escapes, which is the wrong way round. EXT_DIR is
-# overridable so the gate's own tests can point it at a fixture.
-EXT_DIR="${MARGINCE_EXT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)/extensions}"
-
 
 FILES=()
 while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
@@ -36,20 +29,13 @@ while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
     -not -name "schema.d.ts" \
     -print0 2>/dev/null
 )
-while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
-  find "$EXT_DIR" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" \) \
-    -path "*/frontend/*" \
-    -not -path "*/node_modules/*" \
-    -not -name "*.test.*" \
-    -print0 2>/dev/null
-)
 
 if [[ "${#FILES[@]}" -eq 0 ]]; then
   echo "FAIL: icon-glyph found no files under $SRC_DIR — the gate is miswired" >&2
   exit 1
 fi
 
-echo "==> Icon-glyph check (${#FILES[@]} files under frontend/src + extensions/*/frontend)"
+echo "==> Icon-glyph check (${#FILES[@]} files under frontend/src)"
 
 EXIT=0
 

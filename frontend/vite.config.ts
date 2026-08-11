@@ -22,16 +22,13 @@ const compositionDir = composedComposition
 // step did not run. Falling back to the vanilla stub would build a bundle that
 // silently routes no extension at all — the failure would surface as a missing
 // screen in a deployed image, long after the build that caused it went green.
-for (const artifact of [
-  "extensions.gen.ts",
-  "extscreens.gen.ts",
-  "extlocales.gen.ts",
-]) {
-  if (composedComposition && !existsSync(join(compositionDir, artifact))) {
-    throw new Error(
-      `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no ${artifact} — run 'make -C backend composition' before building the composed frontend lane`,
-    );
-  }
+if (
+  composedComposition &&
+  !existsSync(join(compositionDir, "extensions.gen.ts"))
+) {
+  throw new Error(
+    `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no extensions.gen.ts — run 'make -C backend composition' before building the composed frontend lane`,
+  );
 }
 
 // The frontend talks only to the /v1 contract surface (architecture/01:
@@ -54,53 +51,9 @@ export default defineConfig({
   // name — so both views would be permanently unadvertised in every dev stack.
   plugins: [react(), tailwindcss(), serveMcpApps()],
   resolve: {
-    // An ARRAY rather than a record, because one entry must match a pattern:
-    // the unit-package mapping below is a family of names, not one name.
-    alias: [
-      {
-        find: "@composition/extensions",
-        replacement: join(compositionDir, "extensions.gen.ts"),
-      },
-      // The unit SCREENS, selected by the same switch and for the same reason.
-      // Both sides are GENERATED now, and the composed one imports each unit's
-      // own workspace package: a screen calls routes only a composed
-      // installation serves, so the vanilla bundle resolves an empty registry
-      // and never pulls a unit into the graph at all.
-      {
-        find: "@composition/screens",
-        replacement: join(compositionDir, "extscreens.gen.ts"),
-      },
-      // A unit's own copy, merged into the catalogue. On a vanilla tree it is
-      // an empty object, so `useT` resolves exactly the core keys it always did.
-      {
-        find: "@composition/copy",
-        replacement: join(compositionDir, "extlocales.gen.ts"),
-      },
-      // Every enabled unit's screen package, by the name the generated registry
-      // imports it under. The compile-time half is tsconfig.composed.json's
-      // "@margince-ext/*" mapping.
-      //
-      // Resolved by NAME rather than installed as a dependency of the SPA: pnpm
-      // links a member into its DEPENDENTS' node_modules, so installing it
-      // would mean frontend/package.json listing every enabled unit — an
-      // upstream-owned file that adding a unit would then have to edit.
-      // Presence under extensions/ is the enablement here exactly as it is on
-      // the Go side.
-      {
-        find: /^@margince-ext\/(.+)$/,
-        replacement: join(frontendRoot, "..", "extensions", "$1", "frontend"),
-      },
-    ],
-    // ONE copy of every package that keeps state the HOST owns: React's hook
-    // dispatcher, and react-query's QueryClient context. A second copy is a
-    // second, empty one — a unit's hooks throw because the host never
-    // dispatched them, or its first useQuery reports no QueryClient on a page
-    // that plainly has one.
-    //
-    // gen-composition refuses these as DIRECT dependencies of a unit; this is
-    // the half that holds when one of a unit's own dependencies pulls a second
-    // copy in transitively.
-    dedupe: ["react", "react-dom", "@tanstack/react-query"],
+    alias: {
+      "@composition/extensions": join(compositionDir, "extensions.gen.ts"),
+    },
   },
   server: {
     // build/composition/ sits OUTSIDE the Vite root (frontend/), and Vite's
@@ -109,15 +62,7 @@ export default defineConfig({
     // the composed lane; in the vanilla lane it names src/composition, which
     // was already allowed, so the entry is inert rather than a widening.
     fs: {
-      allow: [
-        frontendRoot,
-        compositionDir,
-        // The unit trees. A composed dev server resolves a screen out of
-        // extensions/<name>/frontend, which is outside the Vite root, and
-        // without this `pnpm dev` serves the registry and then 403s the very
-        // module it imports.
-        join(frontendRoot, "..", "extensions"),
-      ],
+      allow: [frontendRoot, compositionDir],
     },
     // Everything the api owns is reachable through this origin, so
     // `curl localhost:8080/v1/...` and the operational probes keep working
