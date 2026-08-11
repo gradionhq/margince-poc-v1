@@ -117,7 +117,7 @@ func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
 // is, and this is the write asking what it is about to replace.
 //
 // An absent row does NOT mean "nothing is priced". Bootstrap seeds the row and
-// 0209 refuses to drop the columns without it, so the state is residual — but
+// 0211 refuses to drop the columns without it, so the state is residual — but
 // where it does occur, a rate sheet can still be sitting there priced into
 // whatever the base used to be, and answering "not frozen" would let it be
 // restated out from under exactly the rows ADR-0085 §7 protects. So the sheet
