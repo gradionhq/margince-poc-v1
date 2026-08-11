@@ -27,11 +27,15 @@ fixture:
     email: p.raman@example.com
     relationship: warm
     last_interaction: 2026-07-18T14:30:00Z
+  # No currency, and that is deliberate. A deal's amount does not decode from a
+  # fixture (AmountMinor is json:"-"), and a currency with no amount makes the
+  # marshaller emit "amount":"0.00" — so a fixture naming one would inject into
+  # the prompt the exact fabricated figure the rubric below penalizes. It is
+  # also a state production cannot build: findDeal sets both or neither.
   deal:
     id: c41a7f60-92db-4e83-a5c7-16b8f2049e3d
     name: Dispatch integration
     stage: proposal
-    currency: EUR
   commitment:
     id: e93b5d27-4c81-49af-8236-7fa1c6e05b48
     name: Send the integration scope document
@@ -49,8 +53,8 @@ expect:
     thing there was to write about and cannot score above degraded.
 
     Grounding. The company, industry, description, deal name, stage and
-    commitment are all supplied and may be used. Anything else may not: the deal
-    carries a currency and no amount, so any figure at all is invented and
+    commitment are all supplied and may be used. Anything else may not: no
+    amount and no currency were given, so any figure at all is invented and
     scores at the floor. So is any date beyond the supplied due date, any named
     competitor, and any claim about what the recipient thinks.
 

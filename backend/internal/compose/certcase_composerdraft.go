@@ -23,7 +23,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
@@ -118,12 +117,9 @@ func (c *personDraftCase) Run(ctx context.Context, completer aitasks.Completer) 
 	return composerTrace(personDraftSite, recorder, err)
 }
 
-// Evaluate asks the drafter's own question: did a model write this draft?
-//
-// The floor is not a failure of the model — it is what the product serves when
-// no model could — but it is also not a certifiable answer, because there is
-// nothing about a hardcoded template for a judge to score. So a floored draft
-// is an abstention rather than a wrong answer.
+// Evaluate applies the package's own ParseDraft — the same reading the product
+// gives the reply before it serves it — so the record's verdict is measured
+// rather than inferred from the absence of an error in Run.
 func (c *personDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	return evaluateComposerDraft(trace, func(raw string) error {
 		_, err := persondraft.ParseDraft(raw, c.in)
@@ -184,19 +180,21 @@ func composerTrace(site string, recorder *composerRecorder, err error) (aitasks.
 	return trace, nil
 }
 
-// evaluateComposerDraft applies the site's own parse, then asks whether a model
-// wrote what was served.
+// evaluateComposerDraft applies the site's own parse in the site's own order,
+// and only classifies what it finds.
+//
+// The order carries the meaning. A reply that never happened is an abstention:
+// nothing was asserted, so there is nothing to be wrong about. A reply that
+// happened and the writer refused — empty text included, which its parser
+// rejects like any other unreadable answer — is INVALID, because invalid means
+// production's own validator turned the reply down. Classifying an empty reply
+// as an abstention would move a validator refusal into the bucket that measures
+// how often the model declines to answer, and quietly flatter both numbers.
 func evaluateComposerDraft(trace aitasks.Trace, parse func(string) error) aitasks.Outcome {
 	if len(trace.Requests) == 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeAbstained,
 			Detail: "the drafter issued no request, so no model wrote this draft",
-		}
-	}
-	if strings.TrimSpace(trace.Output) == "" {
-		return aitasks.Outcome{
-			Result: aitasks.OutcomeAbstained,
-			Detail: "the drafter fell to its deterministic floor, which has no model answer to score",
 		}
 	}
 	if err := parse(trace.Output); err != nil {
