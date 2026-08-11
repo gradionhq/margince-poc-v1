@@ -107,11 +107,9 @@ func (s *InstallationSettingsStore) baseCurrencyLock(ctx context.Context) (bool,
 // refused for a caller who may not write rather than answered from the read
 // gate alone.
 //
-// Every field commits in ONE transaction, and the settings rows are now the
-// only copy: the mirror onto the `workspace` columns retired with the columns
-// themselves in 0209, which is what #521 existed to make possible. A change
-// here moves the value everything computes in, because there is no longer a
-// second place for it to disagree.
+// Every field commits in ONE transaction, and the settings rows are the only
+// copy: a change here moves the value everything computes in, because there is
+// no second place for it to disagree.
 func (s *InstallationSettingsStore) UpdateInstallation(ctx context.Context, name, zone, currency *string) (InstallationSettings, error) {
 	if err := auth.Require(ctx, installationSettingsObject, principal.ActionUpdate); err != nil {
 		return InstallationSettings{}, err

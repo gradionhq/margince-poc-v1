@@ -42,12 +42,23 @@ DECLARE missing text; live int;
 BEGIN
   SELECT count(*) INTO live FROM workspace WHERE archived_at IS NULL;
   IF live > 0 THEN
+    -- Presence is not proof. A row holding JSON null, a non-string, an empty
+    -- string, or a currency outside the ISO shape the dropped CHECK enforced
+    -- would satisfy an EXISTS and still leave the installation without a
+    -- usable identity — while the columns that DO hold one are about to go.
+    -- So the guard asks the same question the readers will: can this value be
+    -- used?
     SELECT string_agg(k, ', ') INTO missing
       FROM unnest(ARRAY['installation.name','installation.timezone','installation.base_currency']) AS k
-     WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting.key = k);
+     WHERE NOT EXISTS (
+       SELECT 1 FROM setting s
+        WHERE s.key = k
+          AND jsonb_typeof(s.value) = 'string'
+          AND length(s.value #>> '{}') > 0
+          AND (k <> 'installation.base_currency' OR s.value #>> '{}' ~ '^[A-Z]{3}$'));
     IF missing IS NOT NULL THEN
       RAISE EXCEPTION
-        'installation identity would be lost: % has no stored setting, and this migration drops the column holding it. '
+        'installation identity would be lost: % has no usable stored setting, and this migration drops the column holding it. '
         'Resolve the installation down to exactly one live workspace (ADR-0061 §3) and re-run.', missing;
     END IF;
     -- Presence is not enough. With several live workspaces the settings speak

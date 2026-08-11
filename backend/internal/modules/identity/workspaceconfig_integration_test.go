@@ -96,9 +96,9 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	// against itself afterwards rather than against configBootstrap, because
 	// `setting` is non-tenant: several fixtures bootstrap into one database
 	// per package run and Seed is ON CONFLICT DO NOTHING, so the rows belong
-	// to whichever installation got there first (issue #863). Which one that
-	// is has nothing to do with the claim under test — that a reset wipes the
-	// DATA and leaves the installation standing.
+	// to whichever installation got there first. Which one that is has nothing
+	// to do with the claim under test — that a reset wipes the DATA and leaves
+	// the installation standing.
 	var nameBefore, currencyBefore, zoneBefore string
 	if err := owner.QueryRow(ctx, `
 		SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), ''),

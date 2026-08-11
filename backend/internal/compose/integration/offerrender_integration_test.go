@@ -197,12 +197,12 @@ func TestOfferRenderPrepareRender_Sent_UsesFrozenBuyerAndIssuerSnapshot(t *testi
 		t.Fatalf("rename organization: %v", err)
 	}
 
-	// Renaming the WORKSPACE (the issuer side) after send must equally
+	// Renaming the INSTALLATION (the issuer side) after send must equally
 	// not move — resolveRenderIssuerName's frozen issuer_snapshot is the
 	// legal issuer of record for a sent offer, the same rule as the buyer
 	// side above.
-	renamedWorkspace := "Renamed Workspace After Send"
-	e.WsExec(t, `UPDATE setting SET value = to_jsonb($1::text) WHERE key = 'installation.name'`, renamedWorkspace)
+	renamedInstallation := "Renamed Installation After Send"
+	e.WsExec(t, `UPDATE setting SET value = to_jsonb($1::text) WHERE key = 'installation.name'`, renamedInstallation)
 
 	ing, err := e.Deals.PrepareRender(ctx, offerID)
 	if err != nil {
