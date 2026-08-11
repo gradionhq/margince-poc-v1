@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 # Draft a margince-constellation release for every build that lands on main
 # (and on test, where the flow is exercised against the constellation
@@ -53,8 +53,8 @@ env:
 
 jobs:
   draft:
-    name: draft release
-    runs-on: ubuntu-latest
+    name: Draft release
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       # Pull the private release-management image from ghcr.io with the
@@ -155,9 +155,9 @@ jobs:
   # `image:` in a workflow as a container reference to digest-check, and that
   # includes a job id.
   docker-image:
-    name: images (api + web + worker)
+    name: Docker images
     needs: [draft]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       # Pull the private release-management image from ghcr.io; the baked
@@ -197,30 +197,9 @@ jobs:
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |
           set -euo pipefail
-          # The registry's replicated deployment can briefly deny a blob one
-          # replica just wrote when the manifest PUT lands on the other
-          # ("blob unknown to registry"). A re-push is idempotent and runs
-          # from cache in seconds, and by then every replica sees the links,
-          # so retry a bounded number of times — and loudly, because on a
-          # healthy registry the first attempt is the only one.
-          # Both platforms the constellation serves (PLATFORMS above), with
-          # full provenance attestations; the recorded digest is the pushed
-          # OCI index. Neither is a bake-file default, so a plain local bake
-          # stays a native single-platform build.
-          attempts=3
-          for attempt in $(seq 1 "$attempts"); do
-            if docker buildx bake --push \
-                 --provenance "mode=max" \
-                 --metadata-file bake-metadata.json; then
-              break
-            fi
-            if [ "$attempt" -eq "$attempts" ]; then
-              echo "image push failed $attempts times; this is beyond the registry's replica-coherence lag — investigate the registry" >&2
-              exit 1
-            fi
-            echo "push attempt $attempt rejected by a stale replica read; retrying once the caches settle" >&2
-            sleep 20
-          done
+          docker buildx bake --push \
+             --provenance "mode=max" \
+             --metadata-file bake-metadata.json
           images=()
           for role in api web worker; do
             digest="$(jq -er --arg role "$role" '.[$role]."containerimage.digest"' bake-metadata.json)"
@@ -238,7 +217,7 @@ jobs:
   # pass that gate, so it deliberately stays a draft (the degenerate
   # branch-creation/force-push case).
   publish:
-    name: publish release
+    name: Publish release
     needs: [draft, docker-image]
     # `!= 'false'`, not `== 'true'`: on a re-run of failed jobs the draft job
     # does not re-execute and GitHub drops its outputs, so an equality test
@@ -248,7 +227,7 @@ jobs:
     # this up server-side with a 409. The implicit success() still applies, so
     # a failed draft or image job keeps blocking the publish.
     if: needs.draft.outputs.patched != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       # Pull the private release-management image from ghcr.io with the
