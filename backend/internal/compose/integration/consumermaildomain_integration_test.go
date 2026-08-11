@@ -11,15 +11,22 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// adminGrant is the seeded admin/ops posture on capture_settings after 0210:
+// create + read + update. The tests that exercise the surface as its curator
+// bind this, mirroring the real seed.
+var adminGrant = principal.ObjectGrant{Create: true, Read: true, Update: true}
 
 // listAdminCtx binds a human with the capture_settings grant this surface rides
 // — the same grant that gates the auto-enrich toggle, because an admin who may
@@ -41,7 +48,7 @@ func listAdminCtx(ws, user ids.UUID, grant principal.ObjectGrant) context.Contex
 
 func TestWorkspaceConsumerMailListCorrectsTheBaselineBothWays(t *testing.T) {
 	e := Setup(t)
-	ctx := listAdminCtx(e.WS, e.Rep1, principal.ObjectGrant{Read: true, Update: true})
+	ctx := listAdminCtx(e.WS, e.Rep1, adminGrant)
 	store := capture.NewFreemailDomains(e.Pool)
 
 	// A regional provider the shipped dataset missed, and a domain it wrongly
@@ -112,9 +119,40 @@ func TestWorkspaceConsumerMailListCorrectsTheBaselineBothWays(t *testing.T) {
 	}
 }
 
+// The split write posture (0210): a seat holding create contributes a NEW
+// `extra` entry, and nothing else — the `never` carve-out, flipping an
+// existing entry's kind, and removal all rewrite workspace posture and demand
+// update. Each refusal arm exercises the in-transaction demand, so reverting
+// that gate turns this test red.
+func TestConsumerMailCreateGrantAddsButNeverRewrites(t *testing.T) {
+	e := Setup(t)
+	repCtx := listAdminCtx(e.WS, e.Rep1, principal.ObjectGrant{Create: true, Read: true})
+	store := capture.NewFreemailDomains(e.Pool)
+
+	added, err := store.Add(repCtx, "kleinpost.example", capture.FreemailKindExtra)
+	if err != nil {
+		t.Fatalf("a create-only seat adding a missed provider: %v", err)
+	}
+	if _, err := store.Add(repCtx, "realfirm.example", capture.FreemailKindNever); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a create-only seat carving a fresh domain out of the baseline = %v, want permission denied", err)
+	}
+	if _, err := store.Add(repCtx, "kleinpost.example", capture.FreemailKindNever); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a create-only seat flipping its own existing entry = %v, want permission denied", err)
+	}
+	if err := store.Remove(repCtx, added.ID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a create-only seat removing an entry = %v, want permission denied", err)
+	}
+
+	// The curator path is unchanged: a fresh carve-out admits on update.
+	adminCtx := listAdminCtx(e.WS, e.Rep1, adminGrant)
+	if _, err := store.Add(adminCtx, "realfirm.example", capture.FreemailKindNever); err != nil {
+		t.Fatalf("an admin carving out a fresh domain: %v", err)
+	}
+}
+
 func TestConsumerMailListRefusesWhatTheMatcherCouldNeverRead(t *testing.T) {
 	e := Setup(t)
-	ctx := listAdminCtx(e.WS, e.Rep1, principal.ObjectGrant{Read: true, Update: true})
+	ctx := listAdminCtx(e.WS, e.Rep1, adminGrant)
 	store := capture.NewFreemailDomains(e.Pool)
 
 	if _, err := store.Add(ctx, "localhost", capture.FreemailKindExtra); err == nil {

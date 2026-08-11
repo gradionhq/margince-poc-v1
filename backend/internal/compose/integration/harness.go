@@ -237,11 +237,14 @@ var (
 			// the harness admin fixture can exercise the rate editors.
 			"fx_rate":       {Create: true, Read: true, Update: true, Delete: true},
 			"ai_model_rate": {Create: true, Read: true, Update: true, Delete: true},
-			// capture_settings is admin/ops-only for update and readable by
-			// everyone (the same real seed). It gates the workspace's own-domain
-			// set — including the company-domain change that feeds it, since
-			// that decides whose mail is stored at all.
-			"capture_settings": {Read: true, Update: true},
+			// capture_settings mirrors the real admin seed: create + read +
+			// update (0210 added create — any seat may contribute a consumer
+			// domain, and the admin fixture must hold what the seed holds or
+			// the RBAC assertions stop being evidence about production). It
+			// gates the workspace's own-domain set — including the
+			// company-domain change that feeds it, since that decides whose
+			// mail is stored at all.
+			"capture_settings": {Create: true, Read: true, Update: true},
 			// installation_settings mirrors 0191's real seed: readable by every
 			// system role, updatable by admin/ops. Money readers resolve the
 			// base currency through this gate.

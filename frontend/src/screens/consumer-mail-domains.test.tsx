@@ -7,22 +7,27 @@ import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 
-// The workspace's own consumer-mail list. Both add and remove gate on
-// capture_settings:update server-side (freemailDomainObject IS
-// captureSettingsObject, and removal is an update to the capture configuration
-// rather than a delete of a record) — so a fixture granting capture_settings
-// delete, or any grant on a mail-shaped object, must leave the controls inert.
+// The workspace's own consumer-mail list. The server's write split: adding a
+// NEW `extra` entry admits on capture_settings create OR update (the upsert
+// pair), while the `never` carve-out, kind overwrites and removal demand
+// update — so a fixture granting capture_settings delete, or any grant on a
+// mail-shaped object, must leave every control inert.
 const CAPTURE_EDITOR: GrantSpec = { capture_settings: ["read", "update"] };
 
 function backend(allow: GrantSpec) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
-    const body = url.endsWith("/v1/me")
-      ? meFixture({ allow })
-      : // id is required by the ConsumerMailDomain contract and is what remove
-        // sends; a fixture without it would let a broken remove path call
-        // mutate(undefined) and still pass.
-        { data: [{ id: "cmd-1", domain: "gmx.test", kind: "extra" }] };
+    let body: unknown;
+    if (url.endsWith("/v1/me")) {
+      body = meFixture({ allow });
+    } else if (url.includes("/consumer-mail-baseline")) {
+      body = { data: [], matched: 0, total: 8758 };
+    } else {
+      // id is required by the ConsumerMailDomain contract and is what remove
+      // sends; a fixture without it would let a broken remove path call
+      // mutate(undefined) and still pass.
+      body = { data: [{ id: "cmd-1", domain: "gmx.test", kind: "extra" }] };
+    }
     return new Response(JSON.stringify(body), {
       headers: { "Content-Type": "application/json" },
     });
@@ -78,6 +83,21 @@ describe("ConsumerMailDomainsCard", () => {
     // Both, not just Add: the two share one grant, so a change that decoupled
     // them would otherwise pass.
     expect(addButton().disabled).toBe(true);
+    expect(removeButton().disabled).toBe(true);
+  });
+
+  // The rep posture: create without update adds a NEW consumer domain, and
+  // nothing else — remove stays inert, mirroring the server's split.
+  it("enables add but not remove on capture_settings:create alone", async () => {
+    vi.stubGlobal("fetch", backend({ capture_settings: ["read", "create"] }));
+    render(
+      <Providers>
+        <ConsumerMailDomainsCard />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(screen.getByText("gmx.test")).toBeTruthy());
+    expect(addButton().disabled).toBe(false);
     expect(removeButton().disabled).toBe(true);
   });
 
