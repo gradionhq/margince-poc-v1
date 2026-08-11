@@ -2,10 +2,7 @@
 
 For shipping a bounded add-on — a **jurisdiction pack**, a **governed agent tool**, an **HTTP surface**,
 its **own tables**, its **own secrets** or a **scheduled job** — as a named, versioned unit under
-`extensions/<name>/`, without editing any upstream-owned file — with one exception: a unit that ships a
-`frontend/` with npm dependencies of its own also changes the root `pnpm-lock.yaml`, and that lockfile
-diff is reviewed on the same terms as the unit's Go (see
-[explanation/extensibility.md](../explanation/extensibility.md)). For *why* the seam is a compile-time
+`extensions/<name>/`, without editing any upstream-owned file. For *why* the seam is a compile-time
 declaration and what the surface guarantees, read
 [explanation/extensibility.md](../explanation/extensibility.md) first. For a country pack
 specifically, the live capability is retention floors; the running example below builds one.
@@ -16,9 +13,10 @@ flip. `extensions/notes` is the **reference unit** and exercises every capabilit
 unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
 agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
 
-A unit owns **all six** surfaces, frontend included: `extensions/<name>/frontend/` is a pnpm workspace
-package whose default export the SPA mounts at `#/ext/<name>`. A unit that ships none still gets a
-route and a generic descriptor card automatically.
+A unit owns **five** surfaces — tables, an HTTP surface, governed agent tools, secrets and scheduled
+jobs. It does **not** own a screen: `extensions/<name>/frontend/` is still refused on sight by the
+composer. Every composed unit still gets a route at `#/ext/<name>`, rendering a generic card built from
+the operations its contract fragment publishes.
 
 Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
 a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
@@ -296,56 +294,6 @@ key, err := rt.Secrets().Get(ctx, "signing") // errors.Is(err, extension.ErrSecr
 Declaring grants and stores nothing — it is a request recorded in the manifest. Keys are your unit's own
 bare names, namespaced for you; there is no method that takes another unit's name.
 
-## Own a screen — `frontend/`
-
-Ship `extensions/<name>/frontend/package.json` and the module it names. The package is a workspace
-member, so it may bring its own dependencies; `pnpm install` from the repo root links it.
-
-```json
-{
-  "name": "@margince-ext/<name>",
-  "private": true,
-  "type": "module",
-  "main": "screen.tsx",
-  "peerDependencies": {
-    "@margince/frontend": "workspace:*",
-    "@tanstack/react-query": "^5.101.4",
-    "react": "^19.2.0"
-  }
-}
-```
-
-Four rules, each refused at generation because each fails somewhere worse otherwise:
-
-- **`@margince-ext/<name>`, matching the directory.** One workspace holds every enabled unit, so a
-  shared name is two members claiming one identity and pnpm resolves whichever it saw last.
-- **`private: true`.** A workspace member that is not private is one `pnpm publish -r` from a registry.
-- **`main` names a module that exists**, and its **default export** is the screen.
-- **React, react-dom and `@tanstack/react-query` are PEERS, never dependencies.** Each keeps state the
-  host owns — React's hook dispatcher, react-query's QueryClient context — and a second copy is a
-  second, empty one. This is the rule that fails at *run time* if you get it wrong: hooks throw with a
-  message naming neither the unit nor the cause, or the first `useQuery` reports no QueryClient on a
-  page that plainly has one.
-
-**Import the core only through `@margince/frontend/<subpath>`** — `design-system`, `api`, `app`, as
-published by `frontend/package.json`'s `exports` map. That map is this side's
-`//margince:extension-surface`: the Go tier gets its boundary from the compiler, a bundler gives none,
-so `frontend/scripts/check-ext-imports.sh` is the boundary. It refuses a relative path escaping your
-unit, an unpublished subpath, and any bare specifier your own `package.json` does not declare —
-`devDependencies` count for test files only, so a screen cannot pull a test runner into the bundle.
-
-The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
-unit exactly as they sweep core.
-
-**Ship your copy with your screen.** Put one flat JSON object per locale in
-`frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extNotes.notes.add`. `<CamelUnit>` title-cases
-each hyphen-separated segment, and marks a segment that starts with a DIGIT with a leading underscore
-(`crm-2-x` → `extCrm_2X.`) so that two distinct unit names can never derive one prefix — `foo-1` and
-`foo1` would otherwise both claim `extFoo1.`. The composer merges
-them into the one catalogue, so `useT()` resolves your keys and core's through the same lookup. Supply
-**every** locale the installation ships (en, de, vi) or generation refuses: a reader of the missing one
-gets a blank screen. Keys outside your namespace are refused too — a unit does not rewrite core copy.
-
 ## Own scheduled jobs
 
 Declare **two kinds** in `api/jobs.yaml`: a cadenced `dispatcher` that fans out over the live fleet, and a
@@ -459,21 +407,15 @@ tracked `composition/` stub unchanged unless you are deliberately changing the v
 off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
 merge only when the gates are green.
 
-**Removal is the unit's directory and nothing else**, and this is the whole recipe — run end to end
-against `notes`, with the gate green afterwards:
+**Removal is the unit's directory and nothing else**, and this is the whole recipe:
 
 ```bash
 git rm -r extensions/<name>
-rm -rf extensions/<name>   # the IGNORED install output git rm leaves behind
-pnpm install               # prune the workspace member from the lockfile
 make check-q
 ```
 
-The `rm -rf` is not tidiness: `git rm` takes the tracked files and leaves `node_modules`, so the
-directory survives holding nothing a human wrote — and presence under `extensions/` IS enablement, so
-the composer still sees a unit. It says exactly that if you forget.
-
-`git rm`, never `mv`: a moved directory is still a directory under `extensions/`.
+`git rm`, never `mv`: a moved directory is still a directory under `extensions/`, and presence under
+`extensions/` IS enablement.
 
 No core file is edited, and no core TEST needs touching. Removal
 *disables* cleanly — routes 404, the inventory omits the unit, migrations skip it — but it does **not

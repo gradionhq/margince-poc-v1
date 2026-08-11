@@ -3,6 +3,12 @@
 The demo unit for PR1. Its job is to make every capability the tier gains **visible and clickable**,
 so PR1's acceptance is a human driving the SPA, not a green test suite.
 
+> **The screen below is not part of this PR.** `extensions/<name>/frontend/` is still refused at
+> generation and no unit ships a screen (DESIGN.md §4.5), so `#/ext/notes` serves the generic
+> contract-derived descriptor card. Everything else in this document — the tables, the six operations,
+> the secrets, the job and the tools — is what the branch ships. Read the screen sketch and the
+> click-through as the acceptance the frontend slice's own PR carries.
+
 **`fixtures/extensions/crm-hello` is not touched.** It stays the minimal CI fixture — smallest unit
 that exercises scan → compose → boot, copied under `extensions/` by the CI lane
 (`fixtures/extensions/crm-hello/crmhello.go:5`). Growing it would cost the tier its "smallest path"
@@ -40,12 +46,11 @@ is the tier, and a domain-shaped demo would invite arguing about the domain.
 |---|---|---|
 | **`migrations/`** | owns `ext_notes_note` | add a note, restart the stack, it is still there |
 | **`api/`** | six POSTs — `/v1/ext/notes/list`, `/notes/add`, `/notes/remove`, `/signing-key`, `/signing-key/status`, `/signature` — and its own RBAC object `ext_notes_note` | a read-only seat sees the list, **`Add` is not rendered** |
-| **`frontend/`** | the screen itself, mounted from the composed set | `#/ext/notes` resolves; on a vanilla tree it 404s |
 | **`secrets`** | store a signing key; HMAC-sign a payload with it | paste a key → "connected"; sign a string → signature returned. The key is **never** emitted, not even masked |
 | **`Jobs`** | tick appends `heartbeat — tick #N` | leave the screen open; a row appears with no user action |
 | **`Tools`** | `list_notes`, served, auto-execute + read | ask the agent "what's in my demo notepad" |
 
-Six surfaces, one screen, nothing that needs explaining to whoever is watching.
+Five surfaces, nothing that needs explaining to whoever is watching.
 
 Every operation is a POST, and there is no `/notes` base path: a served extension operation IS a
 governed tool invocation and its arguments are the request body, so the method validator admits only
