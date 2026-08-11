@@ -73,6 +73,38 @@ func TestAGermanReplyAboveAQuotedEnglishThreadIsGerman(t *testing.T) {
 	}
 }
 
+// A captured email body carries its own envelope headers above the text
+// somebody wrote. Those must not read as a quote marker, or the message is cut
+// to nothing and its language resolves to Unknown.
+//
+// This is the shape that shipped the defect: a German thread whose stored body
+// began "From: …" detected as Unknown, so the draft fell back to English.
+func TestAMessagesOwnHeadersAreNotAQuote(t *testing.T) {
+	stored := "From: marek.janetzke@lucidlabs.de\nTo: lars@gradion.com\n\n" +
+		"Hallo zusammen,\n\nwie besprochen verbinde ich euch hiermit gerne direkt. " +
+		"Romina, ich hatte dir Gradion für euren Case empfohlen und wollte fragen, " +
+		"ob wir dazu kurz sprechen können.\n"
+
+	if got := textlang.Detect(stored); got != textlang.German {
+		t.Fatalf("Detect(captured german mail) = %q, want German: the envelope headers "+
+			"the capture path stores are the message's own, not a quoted thread", got)
+	}
+}
+
+// The same words further down DO introduce a quoted message, and there the cut
+// is correct. Position is what separates the two.
+func TestAnAddressHeaderBelowTheReplyStillCutsTheQuote(t *testing.T) {
+	reply := "Hallo Marek,\n\ndas passt gut, ich melde mich bei Ihnen mit einer Antwort " +
+		"und schicke die Unterlagen mit. Viele Grüße\n\n" +
+		strings.Repeat("Ein weiterer Satz auf Deutsch, damit die Antwort lang genug ist.\n", 6)
+	quoted := "From: marek.janetzke@lucidlabs.de\n\n" +
+		strings.Repeat("The team has reviewed this and would like to move forward with it.\n", 12)
+
+	if got := textlang.Detect(reply + quoted); got != textlang.German {
+		t.Fatalf("Detect(german reply over a From:-quoted english thread) = %q, want German", got)
+	}
+}
+
 // A message that is nothing but forwarded text still has a clear language, and
 // refusing to read the quote would answer Unknown for it. The quote is dropped
 // only when there is a reply above it to read instead.
