@@ -772,7 +772,7 @@ export function InboxScreen() {
   const decidedQuery = useDecidedApprovals(tab === "decided");
   const query = tab === "pending" ? pendingQuery : decidedQuery;
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <SectionHeader title={t("nav.inbox")} sub={t("inbox.sub")} />
       {/* .filter-tabs: the gap below the tabs holds for every query state —
           empty and loading bodies clear the tabs like a populated list does. */}

@@ -761,7 +761,11 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
         {(lead) => (
           <div className="card lead-detail">
             <div className="list-head">
+              {/* The lead's name is this page's name: the shell's page head
+                  yields to a record route and prints only the trail that leads
+                  here, so without this the page would carry no heading at all. */}
               <SectionHeader
+                level={1}
                 title={lead.full_name ?? lead.email ?? t("nav.leads")}
                 sub={t("lead.segregated")}
               />

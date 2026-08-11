@@ -27,6 +27,9 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // An em dash standing in for a figure nobody can compute yet. A glyph, not a
   // word — the sentence explaining it is the detail line beside it.
   "co.strip.financeUnknown",
+  // A currency figure and nothing else. Vietnamese groups digits the way en
+  // does, so the only locale that differs here is de, which does.
+  "agent.exampleCost",
   // Brand and provider names: proper nouns, not translated in any locale.
   "connectors.provGmail",
   "connectors.provGcal",
@@ -48,11 +51,6 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.ai.speaker",
   "ob.ai.speakerName",
   "auth.title",
-  // A DOMAIN LITERAL, not a word: this is the example domain shown in the
-  // consumer-mail input's placeholder. A hostname is the same string in every
-  // locale — "translating" it would name a domain that does not exist, and the
-  // field would then reject what it appeared to suggest.
-  "consumerMail.baselinePlaceholder",
 
   // CRM domain nouns kept in English by design (glossary, design.md §6.1):
   // "deal", "pipeline", "timeline" etc. read the same in Vietnamese usage.
@@ -100,6 +98,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "auth.emailPlaceholder",
   "users.emailPlaceholder",
   "consumerMail.domainPlaceholder",
+  "consumerMail.baselinePlaceholder",
   "linkedinImport.profilePlaceholder",
   "ob.conv.linkedin.profilePlaceholder",
   "ob.s4.imapHostPlaceholder",

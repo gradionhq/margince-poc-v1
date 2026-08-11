@@ -1245,10 +1245,6 @@
 }
 
 /* Dedupe review queue (M4): evidence table + per-pair decision. */
-.dedupe-screen {
-  padding: var(--space-5);
-  max-width: 720px;
-}
 .dedupe-card {
   margin-top: var(--space-4);
   padding: var(--space-4);
