@@ -152,7 +152,14 @@ func (e *forecastEnv) dealReadCtx(userID ids.UUID, teams []ids.UUID, scope princ
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID, TeamIDs: teams,
 		Permissions: principal.Permissions{
-			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+			Objects: map[string]principal.ObjectGrant{
+				"deal": {Read: true},
+				// The forecast buckets "today" in the installation's zone, and
+				// that zone is read behind this object now (issue #521). 0191
+				// grants it to all five seeded roles, so no real caller of a
+				// report is without it.
+				"installation_settings": {Read: true},
+			},
 			RowScope: scope,
 		},
 	})
