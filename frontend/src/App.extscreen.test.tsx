@@ -93,6 +93,25 @@ describe("extension routes (composed screen registry)", () => {
     expect(screen.queryByText("Published operations")).toBeNull();
   });
 
+  // The unit owns its surface, so it owns the page's name. The shell mints an
+  // h1 from the NAV rail entry or the off-rail title map, and a unit route is
+  // deliberately in neither — so the head fell through to `shell.unknownPage`
+  // and printed "Not found" at heading level, above a screen the installation
+  // plainly answers. The head has to yield here for the same reason it yields
+  // to a record: two page titles for one page, and the wrong one is the h1.
+  it("gives the page's one h1 to the unit's own screen", async () => {
+    window.location.hash = "#/ext/notes";
+    renderApp();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Demo Notepad" }),
+    ).toBeTruthy();
+    // The COUNT is the assertion that bites: the shell's own h1 renders empty in
+    // this harness (the catalogue loads a tick later), so asserting on the
+    // "Not found" text here would pass without the head yielding at all. That
+    // half of the rule is pinned in shell.test.tsx, where the copy is settled.
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
   // The registry lookup must answer for the unit's OWN entries only. Read off a
   // plain object, `extensionScreens["constructor"]` is Object itself — truthy,
   // and a function, so the dispatch mounts it and the route dies where it
@@ -102,6 +121,19 @@ describe("extension routes (composed screen registry)", () => {
     renderApp();
     expect(await screen.findByText("Published operations")).toBeTruthy();
     expect(await screen.findByText(/Ping/)).toBeTruthy();
+  });
+
+  // A unit with no screen still owns the page: once the head yields to the unit,
+  // the descriptor card is the only thing left that can name it, so its header
+  // is the h1. Otherwise this route has no page-level heading at all — a worse
+  // outcome than the wrong one, because there is nothing for a reader to jump to.
+  it("gives the h1 to the descriptor card when the unit ships no screen", async () => {
+    window.location.hash = "#/ext/constructor";
+    renderApp();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "constructor" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
   it("does not render a screen for a unit the installation did not compose", async () => {

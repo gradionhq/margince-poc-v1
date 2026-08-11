@@ -79,7 +79,15 @@ export default function NotesScreen() {
   const t = useT();
   return (
     <div className="wrap narrow">
-      <SectionHeader title={t("extNotes.title")} sub={t("extNotes.sub")} />
+      {/* level 1, and this is the rule for a unit screen rather than a choice
+          this one made: the app shell yields the page's name to a composed unit,
+          so the screen's own top header IS the page's h1. Every other header
+          under it stays at the default 2. */}
+      <SectionHeader
+        title={t("extNotes.title")}
+        sub={t("extNotes.sub")}
+        level={1}
+      />
       <SigningCard />
       <NotesCard />
     </div>

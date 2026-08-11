@@ -114,6 +114,24 @@ afterEach(() => {
 });
 
 describe("the Demo Notepad screen", () => {
+  // The app shell yields the page's name to a composed unit, so this screen's
+  // own top header is the page's ONE h1 — and every card header under it stays
+  // at level 2. A unit that leaves its top header at the default ships a surface
+  // with no page-level heading for a reader to jump to, which is what the shell
+  // used to paper over by printing "Not found" there instead.
+  it("names the page in the one level-1 heading a unit screen owns", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/notes/list": () => ({ notes: [] }),
+      "/ext/notes/signing-key/status": () => ({ stored: false }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("Demo Notepad");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
   it("lists the workspace's notes, heartbeat rows included", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/notes/list": () => ({

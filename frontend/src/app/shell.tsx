@@ -18,6 +18,7 @@ import { AgentDock } from "./agentdock";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import { EXTENSION_SCREEN, findExtension } from "./extensions";
 import {
   BADGE_SCREENS,
   MOBILE_PRIMARY,
@@ -491,6 +492,24 @@ export function PageHead({
   // screen. Printing that slug as the page's name gave Settings an h1 reading
   // "privacy".
   const recordKind = route.id ? SCREEN_ENTITY[route.screen] : undefined;
+  // A composed unit names its own page, so the head yields to it exactly as it
+  // yields to a record — and for the same reason: the unit's screen prints its
+  // name, and a second one at heading level would leave a screen reader picking
+  // between two page titles.
+  //
+  // Conditioned on the DESCRIPTOR resolving, not on the screen slug alone. A
+  // unit route is deliberately absent from both the NAV rail and
+  // OFF_RAIL_TITLE_KEYS, so resolveTitle fell through to shell.unknownPage and
+  // printed "Not found" over every unit surface an installation answers. But a
+  // unit this installation did not compose is genuinely an unknown page, and the
+  // screen under it says so in words — so that case keeps the heading rather
+  // than yielding to a surface that will not name itself either.
+  //
+  // No crumb, unlike a record: a record's trail leads back to its list, and
+  // there is no `#/ext` index to lead back to. Task 13/14 owns a unit's place in
+  // the rail; when it lands, this is where a trail would go.
+  const unitNamesPage =
+    route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
 
   return (
     <header className="pagehead">
@@ -502,7 +521,7 @@ export function PageHead({
             head yields and shows the trail that leads here instead. Printing
             the name twice, once at heading level and once beside the avatar,
             would leave a screen reader picking between two page titles. */}
-        {recordKind && route.id ? (
+        {unitNamesPage ? null : recordKind && route.id ? (
           <p className="pagecrumb">
             <a className="pageback" href={routeHash({ screen: route.screen })}>
               {navItem && (
