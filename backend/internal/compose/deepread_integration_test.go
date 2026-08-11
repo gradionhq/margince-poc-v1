@@ -620,6 +620,78 @@ func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *te
 	}
 }
 
+func TestAcceptedEmployeeRangeFactFillsSizeBandWhenUnambiguous(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	employeeRangeFact := func(value string) []people.DeepReadFact {
+		return []people.DeepReadFact{{
+			Category: "company", Field: "employee_range", Value: value,
+			EvidenceSnippet: "our team of " + value, SourceURL: "https://acme.example/about", Confidence: 0.9,
+		}}
+	}
+	readSizeBand := func(org ids.UUID) *string {
+		var sizeBand *string
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT size_band FROM organization WHERE id = $1`, org).Scan(&sizeBand)
+		}); err != nil {
+			t.Fatalf("reading size_band: %v", err)
+		}
+		return sizeBand
+	}
+
+	// A cleanly-phrased range fills the chip's column on accept.
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	if err := store.ApplyDeepRead(ctx, people.DeepReadProposal{
+		OrganizationID: ids.From[ids.OrganizationKind](org),
+		SourceURL:      "https://acme.example",
+		Facts:          employeeRangeFact("25 to 50"),
+	}); err != nil {
+		t.Fatalf("ApplyDeepRead: %v", err)
+	}
+	if got := readSizeBand(org); got == nil || *got != "11-50" {
+		t.Fatalf("size_band after accept = %v, want 11-50", got)
+	}
+
+	// A later read never overwrites the standing value — fill-once.
+	if err := store.ApplyDeepRead(ctx, people.DeepReadProposal{
+		OrganizationID: ids.From[ids.OrganizationKind](org),
+		SourceURL:      "https://acme.example",
+		Facts:          employeeRangeFact("about 300 people"),
+	}); err != nil {
+		t.Fatalf("second ApplyDeepRead: %v", err)
+	}
+	if got := readSizeBand(org); got == nil || *got != "11-50" {
+		t.Fatalf("size_band after re-accept = %v, want the first fill kept", got)
+	}
+
+	// A range spanning two bands abstains: the fact lands as evidence, the
+	// column stays empty rather than holding a guess.
+	vague := insertOrg(t, e, e.Rep1, "vague.example", "")
+	if err := store.ApplyDeepRead(ctx, people.DeepReadProposal{
+		OrganizationID: ids.From[ids.OrganizationKind](vague),
+		SourceURL:      "https://vague.example",
+		Facts:          employeeRangeFact("50-200 employees"),
+	}); err != nil {
+		t.Fatalf("ambiguous ApplyDeepRead: %v", err)
+	}
+	if got := readSizeBand(vague); got != nil {
+		t.Fatalf("an ambiguous range filled size_band = %q, want NULL", *got)
+	}
+	var factValue string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT value FROM organization_fact
+			  WHERE organization_id = $1 AND field = 'employee_range'`, vague).Scan(&factValue)
+	}); err != nil {
+		t.Fatalf("reading the fact row: %v", err)
+	}
+	if factValue != "50-200 employees" {
+		t.Fatalf("fact row = %q, want the raw stated range kept as evidence", factValue)
+	}
+}
+
 func TestDeepReadRejectionLandsNothing(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
