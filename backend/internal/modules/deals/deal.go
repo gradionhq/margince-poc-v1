@@ -197,6 +197,9 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crm
 			return fmt.Errorf("emit deal.owner_changed: %w", err)
 		}
 	}
+	if err := recordForecastMovement(ctx, tx, id, current, in, after); err != nil {
+		return err
+	}
 	rest := make(map[string]any, len(after))
 	for field, v := range after {
 		if ownerChanged && field == "owner_id" {
@@ -392,6 +395,9 @@ const currencyField = "currency"
 
 // amountField is the other half of a money value.
 const amountField = "amount_minor"
+
+// closeDateField names the column a slipped forecast moves.
+const closeDateField = "expected_close_date"
 
 // missingMoneyHalf names whichever half of the pair was left out.
 func missingMoneyHalf(amountMissing bool) string {

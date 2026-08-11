@@ -85,6 +85,23 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse, 
 		})
 		return
 	}
+	// BYO-WIRE-1: a scope-filtered catalog caches `private`. Every answer on
+	// this path is derived from the presenting passport — tools/list is cut to
+	// the scopes it holds, and each call is re-authorized against live
+	// authority — so a stored copy is two wrong things at once: one
+	// principal's surface served to another, and an authority claim that went
+	// stale the moment a passport was revoked mid-session. Neither request
+	// reaches the server to be audited, which is what makes this a disclosure
+	// rather than a staleness bug.
+	//
+	// no-store rather than a bare private for the second reason: private
+	// permits a browser's own cache to keep it, and this answer may not
+	// outlive the authority it was computed under.
+	//
+	// Set above the framing branch because it is a property of the ANSWER
+	// rather than of how the client asked for it — the event-stream frame
+	// carries the same scope-filtered body.
+	w.Header().Set("Cache-Control", "private, no-store")
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(status)
