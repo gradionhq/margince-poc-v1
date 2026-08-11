@@ -267,6 +267,12 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return err
 	}
+	// An accepted employee_range fact is also the size chip's answer when its
+	// phrasing maps cleanly onto the size_band enum — promoted here, inside
+	// the same accept, so the column change lands in this audit's images.
+	if err := fillSizeBandFromFacts(ctx, tx, in, by, appliedFacts); err != nil {
+		return err
+	}
 	after, err := readColdStartColumnImages(ctx, tx, in.OrganizationID)
 	if err != nil {
 		return err
