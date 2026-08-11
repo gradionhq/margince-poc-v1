@@ -39,8 +39,9 @@ import (
 // guarantee expressed as a dependency: drafting reads the caller's 360 and
 // writes nothing, so there is nothing for a transaction to do.
 func WithAccountDraft(brain completer) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		svc := accountdraft.NewService(s.org360Svc, brain)
+	return func(s *Server, pool *pgxpool.Pool) {
+		svc := accountdraft.NewService(s.org360Svc, brain).
+			WithEnvelope(draftEnvelope(pool, s.log))
 		s.accountDraftHandlers = accountdraft.NewHandlers(svc, s.sorDispatch.isOverlay)
 	}
 }

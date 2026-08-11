@@ -106,5 +106,6 @@ func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
 	// brief's: WithPersonDraft binds the api role's, and without it the endpoint
 	// answers from its deterministic floor rather than 501-ing.
 	srv.personDraftHandlers = persondraft.NewHandlers(
-		persondraft.NewService(srv.person360Svc, nil), srv.sorDispatch.isOverlay)
+		persondraft.NewService(srv.person360Svc, nil).
+			WithEnvelope(draftEnvelope(pool, srv.log)), srv.sorDispatch.isOverlay)
 }
