@@ -19,10 +19,14 @@ import { ExtensionAccessCard } from "./extension-access";
 // server stays the RBAC authority — this suite asserts the wire calls and the
 // states an operator reads, not the gate itself.
 //
-// Both endpoints are MOCKED rather than typed: /v1/roles and /v1/extensions are
-// landing in parallel, so the fixtures below are this suite's copy of the agreed
-// contract. When the endpoints reach crm.yaml these become generated types and
-// the shapes here should be re-checked against them.
+// The transport is stubbed at `fetch`, but the SHAPES below are now the ones
+// crm.yaml defines — /v1/roles and /v1/extensions have landed, and the fixtures
+// were re-checked against the generated types. Two fields spelled `version`
+// mean different things and are typed differently, which is the trap this
+// fixture set exists to hold still: `ComposedExtension.version` is the unit's
+// display string ("0.3.1"), while `Role.version` is an int64 RowVersion — the
+// one that rides out as `If-Match`, and therefore the one a test asserts as the
+// STRING the header carries.
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -67,7 +71,7 @@ const ROLES = {
       key: "admin",
       name: "Admin",
       is_system: true,
-      version: "admin-v1",
+      version: 1,
       objects: {
         ext_notes_note: {
           read: true,
@@ -81,7 +85,7 @@ const ROLES = {
       key: "rep",
       name: "Rep",
       is_system: true,
-      version: "rep-v1",
+      version: 1,
       // No key at all for either object: an object a role was never granted is
       // absent from the map, and the matrix has to read that as a denial rather
       // than as an unrestricted grant.
@@ -164,7 +168,7 @@ function backend(
     }
     return jsonResponse({
       ...role,
-      version: `${role.key}-v2`,
+      version: role.version + 1,
       objects: { ...role.objects, [object]: body },
     });
   });
@@ -282,7 +286,7 @@ describe("ExtensionAccessCard", () => {
       // computed against a matrix someone else has since changed is refused
       // rather than applied over them. Optional in the contract, always sent
       // here.
-      expect(patch?.ifMatch).toBe("rep-v1");
+      expect(patch?.ifMatch).toBe("1");
     });
 
     // The server's answer repaints the row — no refetch, no locally invented
@@ -303,7 +307,7 @@ describe("ExtensionAccessCard", () => {
         role.key === "rep"
           ? {
               ...role,
-              version: "rep-v9",
+              version: 9,
               objects: {
                 ext_notes_note: {
                   read: true,

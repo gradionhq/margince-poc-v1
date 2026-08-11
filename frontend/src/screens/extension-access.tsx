@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, KeyRound, Route, Timer } from "lucide-react";
 import type { ReactNode } from "react";
+import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { useCanMutate } from "../app/capability";
 import {
   Badge,
@@ -36,48 +38,33 @@ import "./extension-access.css";
 // possibly hold a grant on — every core object already comes granted by the
 // bootstrap matrix.
 
-// The wire shapes. These are hand-written rather than read off
-// src/api/schema.d.ts because the contract is landing in parallel and the
-// generated types do not carry /roles or /extensions yet. When they do, delete
-// these and the raw fetches below in favour of `api.GET("/roles")` — every
-// other screen goes through the typed client and this one should too.
-export type CrudAction = "read" | "create" | "update" | "delete";
+// The wire shapes, read straight off the generated contract — this screen was
+// written against hand-written copies while /roles and /extensions were landing
+// in parallel, and they are gone now that the contract carries both. Everything
+// below goes through the typed client, like every other screen.
+//
+// `RbacAction` is the contract's own verb enum, so the column set here cannot
+// drift from the one the server accepts.
+export type CrudAction = components["schemas"]["RbacAction"];
 
-export type ObjectGrant = Readonly<Record<CrudAction, boolean>>;
+// The four booleans a role holds on one object. Shared with /me's effective
+// grants (same schema), which is exactly why an absent key has to read the same
+// way in both places.
+export type ObjectGrant = components["schemas"]["RbacObjectGrant"];
 
-export type ExtensionRole = Readonly<{
-  key: string;
-  name: string;
-  is_system: boolean;
-  // The RowVersion the read carried. It rides back out as `If-Match` on every
-  // write below, so a grant computed against a stale matrix is refused rather
-  // than applied over another admin's change.
-  version: string;
-  // An index signature: an object a role was never granted is ABSENT, not
-  // written as an all-false grant, exactly as /me reports its own grants. A
-  // missing key therefore has to read as a denial everywhere below.
-  objects: Readonly<Record<string, ObjectGrant | undefined>>;
-}>;
+// `Role.version` is an int64 in the contract, NOT a string: it is a RowVersion,
+// and it rides back out as `If-Match` — stringified at the call, since the
+// header is a string like every other versioned write in the product.
+export type ExtensionRole = components["schemas"]["Role"];
 
 // One entry per OPERATION, not per path: the inventory is deduplicated by
 // (path, method) server-side precisely so a DELETE cannot hide behind a GET on
 // the same path. The method is therefore rendered, never collapsed away — an
 // operator reading this screen has to be able to see that a unit's route can
 // delete.
-export type ExtensionRoute = Readonly<{
-  method: string;
-  path: string;
-}>;
+export type ExtensionRoute = components["schemas"]["ComposedExtensionRoute"];
 
-export type ExtensionUnit = Readonly<{
-  name: string;
-  version: string;
-  rbac_objects: readonly string[];
-  // Already sorted by path then method, so a path's verbs arrive adjacent and
-  // the chip row needs no ordering of its own.
-  routes: readonly ExtensionRoute[];
-  jobs: readonly string[];
-}>;
+export type ExtensionUnit = components["schemas"]["ComposedExtension"];
 
 // The four verbs, in the order an operator reads them: read first, because it
 // is the one that decides whether the extension's screens render at all, and
@@ -87,38 +74,24 @@ const CRUD: readonly CrudAction[] = ["read", "create", "update", "delete"];
 const ROLES_KEY = ["extension-access", "roles"] as const;
 const EXTENSIONS_KEY = ["extension-access", "extensions"] as const;
 
-// Every call here goes through a bare fetch on the same terms the typed client
-// uses — the same same-origin /v1 base, the session cookie, an RFC-7807 body on
-// refusal — so the swap to the generated client is a one-file change and the
-// failure copy never moves. The base resolves per call rather than at module
-// load, so a test or a preview host that swaps the location is followed rather
-// than baked in.
-function apiUrl(path: string): string {
-  const origin =
-    typeof globalThis.window === "undefined"
-      ? "http://localhost"
-      : globalThis.location.origin;
-  return `${origin}/v1${path}`;
-}
-
-async function getJson<Data>(path: string): Promise<Data> {
-  const response = await fetch(apiUrl(path), { credentials: "include" });
-  const payload = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    throwProblem(payload);
-  }
-  return payload as Data;
-}
-
+// Both reads go through the typed client: same same-origin /v1 base, same
+// session cookie, same RFC-7807 body on refusal, and now the same generated
+// types as every other screen.
+//
+// `roles` and `extensions` are REQUIRED in their envelopes, so the `?? []` is
+// not defending against a server that omits them — it narrows `data`, which
+// openapi-fetch types as possibly-undefined on the error branch that
+// `throwProblem` has already left.
 function useRoles(enabled: boolean) {
   return useQuery({
     queryKey: ROLES_KEY,
     enabled,
     queryFn: async (): Promise<readonly ExtensionRole[]> => {
-      const body = await getJson<{ roles?: readonly ExtensionRole[] }>(
-        "/roles",
-      );
-      return body.roles ?? [];
+      const { data, error } = await api.GET("/roles");
+      if (error) {
+        throwProblem(error);
+      }
+      return data?.roles ?? [];
     },
   });
 }
@@ -128,10 +101,11 @@ function useExtensions(enabled: boolean) {
     queryKey: EXTENSIONS_KEY,
     enabled,
     queryFn: async (): Promise<readonly ExtensionUnit[]> => {
-      const body = await getJson<{ extensions?: readonly ExtensionUnit[] }>(
-        "/extensions",
-      );
-      return body.extensions ?? [];
+      const { data, error } = await api.GET("/extensions");
+      if (error) {
+        throwProblem(error);
+      }
+      return data?.extensions ?? [];
     },
   });
 }
@@ -149,32 +123,29 @@ function useSetGrant() {
       roleKey: string;
       object: string;
       grant: ObjectGrant;
-      version: string;
-    }): Promise<ExtensionRole> => {
-      const response = await fetch(
-        apiUrl(
-          `/roles/${encodeURIComponent(input.roleKey)}/objects/${encodeURIComponent(input.object)}`,
-        ),
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "If-Match": input.version,
-          },
-          body: JSON.stringify(input.grant),
+      version: number;
+    }): Promise<ExtensionRole | undefined> => {
+      const { data, error } = await api.PATCH("/roles/{key}/objects/{object}", {
+        params: {
+          path: { key: input.roleKey, object: input.object },
+          // Stringified because the header is text and the version is an
+          // int64 — the same spelling every other If-Match write here uses.
+          header: { "If-Match": String(input.version) },
         },
-      );
-      const payload = await response.json().catch(() => undefined);
-      if (!response.ok) {
-        throwProblem(payload);
+        body: input.grant,
+      });
+      if (error) {
+        throwProblem(error);
       }
-      return payload as ExtensionRole;
+      return data;
     },
     // The server answers with the whole updated role, so the cache takes it
     // verbatim: a refetch would repaint the matrix a beat later and a local
     // merge would invent a grant the server never confirmed.
     onSuccess: (role) => {
+      if (!role) {
+        return;
+      }
       queryClient.setQueryData<readonly ExtensionRole[]>(ROLES_KEY, (roles) =>
         (roles ?? []).map((existing) =>
           existing.key === role.key ? role : existing,
@@ -231,8 +202,16 @@ const NO_GRANT: ObjectGrant = {
   delete: false,
 };
 
+// The lookup is widened to `| undefined` on the way in, because the generated
+// index signature cannot say what the contract's prose does: an object a role
+// was never granted is ABSENT from the map, and `{[key: string]: Grant}` types
+// every key as present. Reading it as the zero grant is the fail-closed
+// behaviour /me gets too — without this widening the `??` would look like dead
+// code and be deleted, turning a missing key into `undefined.read` at runtime.
 function grantOf(role: ExtensionRole, object: string): ObjectGrant {
-  return role.objects[object] ?? NO_GRANT;
+  const objects: Readonly<Record<string, ObjectGrant | undefined>> =
+    role.objects;
+  return objects[object] ?? NO_GRANT;
 }
 
 export function ExtensionAccessCard() {
