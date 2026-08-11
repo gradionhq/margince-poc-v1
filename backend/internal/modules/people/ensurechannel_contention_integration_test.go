@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -311,8 +310,36 @@ func (e *dedupeEnv) refreshInBackground(ctx context.Context, ci connector.Channe
 //
 // Generous enough that only a genuine miss trips it, short enough that the miss
 // reports itself rather than running into the package timeout, where it would
-// read as a hung suite instead of a stated fact.
-const probeBudget = 60 * time.Second
+// read as a hung suite instead of a stated fact. THAT is the ceiling, and it is
+// arithmetic rather than taste: five call sites in this package can each spend
+// this budget, against the lane's 600s per-package timeout
+// (INTEGRATION_TIMEOUT). At 90s a run in which every one of them misses spends
+// 450s and still reports what it found; at 120s it spends the entire package
+// budget and the last miss is cut off mid-sentence by the timeout, which is the
+// failure this comment exists to prevent. Raise this number and that sum moves
+// with it.
+//
+// 60s was not enough under a twelve-shard lane — two tests on this helper
+// reddened two unrelated PRs in one day, each burning the full budget while the
+// writer never reached its lock (#898). The pacing below is the change that
+// addresses WHY; this is the headroom that covers a merely slow runner.
+const probeBudget = 90 * time.Second
+
+// probeInterval paces the poll, and it is the half of #898 that is about cause
+// rather than headroom.
+//
+// The probe calls pg_blocking_pids, which Postgres documents as needing
+// exclusive access to the lock manager's shared state for a short time and
+// warns against calling frequently. Unpaced, this loop issued ~1,800 of them a
+// second — roughly 109,000 probes in one 60s miss — every one of them taking
+// the very shared state the writer it is waiting for must acquire to register
+// its own lock wait. A watcher that grabs the lock manager 1,800 times a second
+// is not a neutral observer of contention; on a loaded runner it is part of it.
+//
+// 5ms cuts that by two orders of magnitude while still resolving a block within
+// a few milliseconds of it happening, which is far finer than any assertion here
+// needs.
+const probeInterval = 5 * time.Millisecond
 
 // waitUntilBlocked returns once a backend in this database is provably waiting
 // on a lock held by pid, or once the racer finishes first — reporting WHICH, so
@@ -330,6 +357,8 @@ func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T)
 	var zero T
 	ctx, cancel := context.WithTimeout(context.Background(), probeBudget)
 	defer cancel()
+	pace := time.NewTicker(probeInterval)
+	defer pace.Stop()
 	for probes := 1; ; probes++ {
 		var blocked bool
 		switch err := probe.QueryRow(ctx, `
@@ -346,20 +375,20 @@ func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T)
 		if blocked {
 			return zero, false
 		}
+		// One select for all three answers: the racer finished, the budget ran
+		// out, or it is time to look again. Paced rather than spun — see
+		// probeInterval — because this loop and the writer it watches compete
+		// for the same processor AND the same lock-manager state under the
+		// lane's concurrency, and the tight version is one of the ways a loaded
+		// runner starves the very writer whose progress it is waiting on.
 		select {
 		case result := <-done:
 			return result, true
-		default:
-		}
-		if ctx.Err() != nil {
+		case <-ctx.Done():
 			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
 				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+		case <-pace.C:
 		}
-		// Yield rather than spin. This loop and the goroutine it is waiting for
-		// compete for the same processor under the lane's concurrency, and a
-		// tight loop that never yields is one of the ways a loaded runner starves
-		// the very writer whose progress it is watching for.
-		runtime.Gosched()
 	}
 }
 
