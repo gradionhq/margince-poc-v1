@@ -35,20 +35,53 @@ import (
 // permission payload. Role is one entry per role even where the source names
 // several in one IN list, so a repair may regroup the roles freely as long as
 // every role ends up with the same payload.
+//
+// verb is empty for a whole-object grant and names the single verb for a
+// verb-level one. The two are DIFFERENT grants and must not collapse together:
+// handing a role the whole `capture_settings` document and adding `create` to a
+// document the role already holds lose different things when they land unbound,
+// so a repair covering one has not covered the other.
 type rbacGrant struct {
 	object string
+	verb   string
 	role   string
 }
 
-// A `UPDATE role SET permissions = jsonb_set(...)` guarded on key absence — the
-// one shape every RBAC backfill in this tree uses. Anything else is not matched,
-// and unmatchedRoleWrites below is what refuses to let that pass unnoticed.
+// name renders a grant the way the migrations talk about it, so an error names
+// something a reader can search the tree for.
+func (g rbacGrant) name() string {
+	if g.verb == "" {
+		return g.object
+	}
+	return g.object + "." + g.verb
+}
+
+// A `UPDATE role SET permissions = jsonb_set(...)` granting a whole object,
+// guarded on key ABSENCE. Anything else is not matched here, and the
+// reconciliation in collectGrants is what refuses to let that pass unnoticed.
 var guardedBackfillPattern = regexp.MustCompile(
 	`UPDATE role SET permissions = jsonb_set\(\s*` +
 		`permissions,\s*'\{objects,(\w+)\}',\s*` +
 		`'([^']*)'::jsonb\)\s*` +
 		`WHERE \(is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
 		`AND NOT permissions->'objects' \? '(\w+)'\)`)
+
+// The same write one level deeper: a single VERB added to an object document the
+// role already carries, and therefore guarded on the object's PRESENCE rather
+// than its absence — the opposite guard, because the two blocks are answering
+// opposite questions. `0210_consumer_mail_create_grant` is the first of these.
+//
+// It is a second pattern rather than an option inside the first. Both are read
+// by a human deciding whether a block is safe, and one regex spanning "grant the
+// object if it is missing" and "grant the verb if the object is there" — with
+// the guard sense flipping on which branch matched — is a sentence that cannot
+// be checked by eye. The reconciliation below covers what neither pattern reads.
+var guardedVerbGrantPattern = regexp.MustCompile(
+	`UPDATE role SET permissions = jsonb_set\(\s*` +
+		`permissions,\s*'\{objects,(\w+),(\w+)\}',\s*` +
+		`'([^']*)'::jsonb\)\s*` +
+		`WHERE \(?is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
+		`AND permissions->'objects' \? '(\w+)'`)
 
 // Every write to role.permissions, however it is spelled. This has to be
 // STRICTLY BROADER than guardedBackfillPattern, not a prefix of it: a canary
@@ -77,11 +110,11 @@ func TestTheRepairsCoverEveryGuardedRBACBackfill(t *testing.T) {
 						"%s and would have matched zero rows on any database already deployed. Every "+
 						"installation that upgraded past it 403s on every %s route, permanently. Add "+
 						"the block to the repair.",
-						namespace.Name, grant.object, grant.role, newestRepair, grant.object)
+						namespace.Name, grant.name(), grant.role, newestRepair, grant.object)
 				case got != want:
 					t.Errorf("%s: the repair grants %q %s on %s, its backfill grants %s. A repair must "+
 						"re-apply what was lost, not a different permission.",
-						namespace.Name, grant.role, got, grant.object, want)
+						namespace.Name, grant.role, got, grant.name(), want)
 				}
 			}
 
@@ -91,7 +124,7 @@ func TestTheRepairsCoverEveryGuardedRBACBackfill(t *testing.T) {
 				if _, declared := backfills[grant]; !declared {
 					t.Errorf("%s: a repair grants %q %s on %s, but no backfill below %s declares it. A "+
 						"repair re-applies a lost write; it does not introduce one.",
-						namespace.Name, grant.role, repairs[grant], grant.object, newestRepair)
+						namespace.Name, grant.role, repairs[grant], grant.name(), newestRepair)
 				}
 			}
 
@@ -126,7 +159,7 @@ func assertNoUnnamedRepairAboveTheCeiling(
 					"named as one — so it raises no ceiling and nothing checks what it writes. Rename it "+
 					"to end in rbac_backfill_repair, or grant a new object.",
 					namespace.Name, migration.Version, migration.Name, grant.role, above[grant],
-					grant.object, ceiling)
+					grant.name(), ceiling)
 			}
 		}
 	}
@@ -175,26 +208,47 @@ func backfillGrants(t *testing.T, namespace dbmigrate.Namespace, ceiling string)
 // fails if the migration writes role permissions in a shape the pattern misses.
 func collectGrants(t *testing.T, migration dbmigrate.Migration, grants map[rbacGrant]string) {
 	t.Helper()
-	matches := guardedBackfillPattern.FindAllStringSubmatch(migration.UpSQL, -1)
-	if written := len(anyRolePermissionWrite.FindAllString(migration.UpSQL, -1)); written != len(matches) {
-		t.Fatalf("%s_%s writes role permissions %d times but only %d are in the guarded shape this test "+
+	objectBlocks := guardedBackfillPattern.FindAllStringSubmatch(migration.UpSQL, -1)
+	verbBlocks := guardedVerbGrantPattern.FindAllStringSubmatch(migration.UpSQL, -1)
+	read := len(objectBlocks) + len(verbBlocks)
+	if written := len(anyRolePermissionWrite.FindAllString(migration.UpSQL, -1)); written != read {
+		t.Fatalf("%s_%s writes role permissions %d times but only %d are in a guarded shape this test "+
 			"reads. The unread ones are invisible to the coverage check above, which would then report "+
 			"a repair complete while a backfill it cannot see goes unrepaired.",
-			migration.Version, migration.Name, written, len(matches))
+			migration.Version, migration.Name, written, read)
 	}
-	for _, match := range matches {
+	for _, match := range objectBlocks {
 		object, payload, roleList, singleRole, guardedObject := match[1], match[2], match[3], match[4], match[5]
 		if object != guardedObject {
 			t.Fatalf("%s_%s sets '{objects,%s}' but guards on absence of %q. One of the two is a typo, and "+
 				"whichever it is, the block writes or skips the wrong object.",
 				migration.Version, migration.Name, object, guardedObject)
 		}
-		if roleList == "" {
-			roleList = singleRole
+		addGrant(t, grants, rbacGrant{object: object}, roleList, singleRole, payload)
+	}
+	for _, match := range verbBlocks {
+		object, verb, payload := match[1], match[2], match[3]
+		roleList, singleRole, guardedObject := match[4], match[5], match[6]
+		if object != guardedObject {
+			t.Fatalf("%s_%s sets '{objects,%s,%s}' but guards on presence of %q. One of the two is a typo, "+
+				"and whichever it is, the block writes the verb onto the wrong object or skips the row it "+
+				"meant to write.", migration.Version, migration.Name, object, verb, guardedObject)
 		}
-		for _, role := range quotedRolePattern.FindAllStringSubmatch(roleList, -1) {
-			grants[rbacGrant{object: object, role: role[1]}] = normalizePayload(t, payload)
-		}
+		addGrant(t, grants, rbacGrant{object: object, verb: verb}, roleList, singleRole, payload)
+	}
+}
+
+// addGrant records one block's payload against every role it names. A block may
+// name its roles as an IN list or as a single quoted key, and the grant is one
+// entry per role either way, so a repair may regroup them freely.
+func addGrant(t *testing.T, grants map[rbacGrant]string, grant rbacGrant, roleList, singleRole, payload string) {
+	t.Helper()
+	if roleList == "" {
+		roleList = singleRole
+	}
+	for _, role := range quotedRolePattern.FindAllStringSubmatch(roleList, -1) {
+		grant.role = role[1]
+		grants[grant] = normalizePayload(t, payload)
 	}
 }
 
@@ -225,9 +279,16 @@ func isRepair(migration dbmigrate.Migration) bool {
 // call `{"create":null}` equal to `{"create":false}`. Postgres stores those as
 // different JSONB, and `permissions->'objects'->'x'->>'create'` returns NULL for
 // one and "false" for the other — a difference this comparison must not erase.
+//
+// The target is `any` rather than a map for the same reason it is not a bool:
+// the two grant shapes carry different payload KINDS — a whole-object block
+// writes a permission document, a verb-level block writes the verb's own scalar
+// — and a map target would fail to parse the scalar rather than compare it.
+// Key order still canonicalizes, because an object decodes to a map and Go
+// marshals a map with its keys sorted.
 func normalizePayload(t *testing.T, payload string) string {
 	t.Helper()
-	var verbs map[string]any
+	var verbs any
 	if err := json.Unmarshal([]byte(payload), &verbs); err != nil {
 		t.Fatalf("a grant payload is not a permission document: %s (%v). The derivation reads these as "+
 			"the thing being compared, so one it cannot parse silently compares as a string instead.",
@@ -248,6 +309,9 @@ func sortedGrants(grants map[rbacGrant]string) []rbacGrant {
 	sort.Slice(ordered, func(i, j int) bool {
 		if ordered[i].object != ordered[j].object {
 			return ordered[i].object < ordered[j].object
+		}
+		if ordered[i].verb != ordered[j].verb {
+			return ordered[i].verb < ordered[j].verb
 		}
 		return ordered[i].role < ordered[j].role
 	})
