@@ -1,0 +1,54 @@
+name: person_first_touch_in_german
+task: draft_reply
+site: person
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+# The person composer's hardest case: a contact nobody has written to yet, at a
+# German employer. Every reflex a drafter has here is wrong — there is no thread
+# to reply to, no earlier conversation to follow up on, and no reason for the
+# draft to be in English.
+fixture:
+  envelope:
+    output_language: de
+    conversation_state: none
+    now: 2026-08-11T09:00:00Z
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+  intent: Kurz vorstellen und ein Gespräch zur Angebotserstellung anbieten.
+  recipient:
+    id: 2f1c9d84-6b3a-4e17-9d52-8a4f1c0e7b93
+    name: Marek Janetzke
+    first_name: Marek
+    title: Leiter IT
+    employer: Beispiel Maschinenbau GmbH
+    email: m.janetzke@example.com
+expect:
+  outcome: accepted
+  answer: written
+  rubric: >
+    This is a first message to somebody who has never been written to, and three
+    things decide the case.
+
+    Language. The correspondence is German — the recipient, the employer and the
+    stated intent all are. An English draft scores at the floor: the rep cannot
+    send it.
+
+    No invented history. The conversation state is "none", so there is nothing
+    to follow up on, check in about, circle back to, or pick up again. A subject
+    line reading "Nachfassen", "Follow-up" or any reply prefix ("Re:", "AW:")
+    claims a thread that does not exist and scores at the floor. So does any
+    body sentence implying an earlier exchange, a previous call, or something
+    "we discussed".
+
+    Nothing invented. The only facts supplied are the recipient's name, title
+    and employer, plus the caller's own intent. A draft that names a product, a
+    price, a date, a mutual contact or a specific problem the company has is
+    inventing, and scores at the floor.
+
+    Full marks for a short German first-touch that says who is writing and why,
+    asks for the conversation the intent named, and is honest that this is the
+    first contact rather than dressing it as a continuation.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
