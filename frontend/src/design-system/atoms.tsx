@@ -1,6 +1,9 @@
 import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
+  type CSSProperties,
+  type ElementType,
+  type FormEventHandler,
   type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
@@ -333,23 +336,68 @@ export function StatCard({
   );
 }
 
+// The element a card wraps its content in. A card is a section of the page by
+// default; the other four exist because a card sometimes IS the form you submit,
+// the item in a list, or a plain grouping box that must not add a section to the
+// document outline.
+type CardElement = "section" | "div" | "article" | "form" | "li";
+
+/**
+ * The one card in the product: elevated ground, subtle border, 12px radius, one
+ * padding. Every surface that reads as a card comes from here — a hand-rolled
+ * `<div className="card">` drifts the moment one of those five values changes.
+ *
+ * `title`/`sub`/`actions` render the card's SectionHeader, so the header sits at
+ * the top of the card's own padding without the caller re-deriving that; a card
+ * whose head is genuinely bespoke passes children only.
+ */
 export function Card({
+  as = "section",
   inset,
+  title,
+  sub,
+  actions,
   children,
   className,
+  style,
+  id,
+  ariaLabel,
+  testId,
+  onSubmit,
 }: Readonly<{
+  as?: CardElement;
   inset?: boolean;
-  children: ReactNode;
+  title?: string;
+  sub?: string;
+  actions?: ReactNode;
+  children?: ReactNode;
   className?: string;
+  style?: CSSProperties;
+  id?: string;
+  // Naming the card makes it a region a screen reader can land on and list;
+  // spelled out rather than spread so the prop reads the same at every call.
+  ariaLabel?: string;
+  testId?: string;
+  // Only meaningful with `as="form"` — a card that is the form it submits.
+  onSubmit?: FormEventHandler<HTMLElement>;
 }>) {
+  const Tag: ElementType = as;
   return (
-    <div
+    <Tag
       className={["card", inset ? "card-inset" : "", className ?? ""]
         .filter(Boolean)
         .join(" ")}
+      style={style}
+      id={id}
+      aria-label={ariaLabel}
+      data-testid={testId}
+      onSubmit={onSubmit}
     >
+      {title !== undefined && (
+        <SectionHeader title={title} sub={sub} actions={actions} />
+      )}
       {children}
-    </div>
+    </Tag>
   );
 }
 
@@ -364,16 +412,24 @@ export function Skeleton({
 }
 
 export function EmptyState({ children }: Readonly<{ children: ReactNode }>) {
-  return <div className="card card-inset empty">{children}</div>;
+  return (
+    <Card as="div" inset className="empty">
+      {children}
+    </Card>
+  );
 }
 
 export function SectionHeader({
   title,
   sub,
+  actions,
   level = 2,
 }: Readonly<{
   title: string;
   sub?: string;
+  // Controls that act on this section, placed beside the title stack rather
+  // than under it. A caller that needs them anywhere else lays them out itself.
+  actions?: ReactNode;
   // A section heading by default. `1` is for the one header on a page that IS
   // the page's name — a record surface the app shell deliberately yields to,
   // where this title is the only thing naming the page. Every other header on
@@ -382,8 +438,11 @@ export function SectionHeader({
 }>) {
   return (
     <div className="section-header">
-      {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
-      {sub && <span className="sub">{sub}</span>}
+      <div className="section-header-text">
+        {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
+        {sub && <span className="sub">{sub}</span>}
+      </div>
+      {actions && <div className="section-header-actions">{actions}</div>}
     </div>
   );
 }

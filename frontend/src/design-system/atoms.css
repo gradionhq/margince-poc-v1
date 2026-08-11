@@ -402,11 +402,34 @@
   padding: 1px 5px;
 }
 
+/* Title over description, both across the card's full width. Side by side on
+ * one baseline the two competed for the same line: a description long enough to
+ * be worth writing pushed the title around, and at narrow widths one of them
+ * lost. Stacked, the title is read first and the description is a full-width
+ * line under it. Actions, when a section has them, are the only thing that sits
+ * beside the pair. */
 .section-header {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
   margin: var(--space-6) 0 var(--space-3);
+}
+.section-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* min-width:0 so a long unbroken title ellipsises inside the row rather than
+   * widening it past the card. */
+  min-width: 0;
+  flex: 1;
+}
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
 }
 /* A section header leading a card sits on the card's own padding — the 24px
  * page-flow top margin (inter-section rhythm down a .wrap) otherwise drops
@@ -438,9 +461,13 @@
   font-weight: 600;
   color: var(--textPrimary);
 }
+/* A measure, not a width: a description that runs the whole width of a wide
+   card is a line the eye loses its place in. */
 .section-header .sub {
   font-size: 13px;
   color: var(--textMeta);
+  line-height: var(--lh-snug);
+  max-width: 78ch;
 }
 
 .field {
