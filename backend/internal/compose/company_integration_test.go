@@ -308,6 +308,17 @@ func TestAcceptedOfferSummaryFillsTheDescriptionColumn(t *testing.T) {
 	if got := readDescription(); got == nil || *got != "Revenue operations software for mid-market manufacturers" {
 		t.Fatalf("description after re-accept = %v, want the first fill kept", got)
 	}
+	var evidenceValue string
+	if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT value FROM organization_profile_field
+			  WHERE organization_id = $1 AND field = 'offer_summary'`, orgID).Scan(&evidenceValue)
+	}); err != nil {
+		t.Fatalf("reading the evidence row: %v", err)
+	}
+	if evidenceValue != "A different sentence entirely" {
+		t.Fatalf("evidence row after re-accept = %q, want the refreshed value", evidenceValue)
+	}
 }
 
 func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
@@ -319,9 +330,11 @@ func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
 		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: integration.AdminPerms,
 	})
 
-	// organization_description_length caps the column at 500 (0203). A longer
-	// accepted summary must skip the fill, not abort the whole apply.
-	long := strings.Repeat("Revenue operations software. ", 20)
+	// organization_description_length caps the column at 500 CHARACTERS (0203).
+	// The pair below is the exact boundary: 501 must skip the fill (not abort
+	// the apply), and 500 must land — spelled in multibyte characters so a
+	// future byte-counting guard (octet_length) fails this test.
+	long := strings.Repeat("ü", 501)
 	orgID, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
 		SourceURL: "https://longwinded.example",
 		Fields: []people.ColdStartFieldInput{{
@@ -333,23 +346,44 @@ func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
 		t.Fatalf("ApplyColdStartProfile with an overlong summary: %v", err)
 	}
 
-	var description, evidenceValue *string
-	if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(),
-			`SELECT description FROM organization WHERE id = $1`, orgID).Scan(&description); err != nil {
-			return err
+	readState := func() (*string, string) {
+		var description *string
+		var evidenceValue string
+		if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
+			if err := tx.QueryRow(context.Background(),
+				`SELECT description FROM organization WHERE id = $1`, orgID).Scan(&description); err != nil {
+				return err
+			}
+			return tx.QueryRow(context.Background(),
+				`SELECT value FROM organization_profile_field
+				  WHERE organization_id = $1 AND field = 'offer_summary'`, orgID).Scan(&evidenceValue)
+		}); err != nil {
+			t.Fatalf("reading the apply's result: %v", err)
 		}
-		return tx.QueryRow(context.Background(),
-			`SELECT value FROM organization_profile_field
-			  WHERE organization_id = $1 AND field = 'offer_summary'`, orgID).Scan(&evidenceValue)
-	}); err != nil {
-		t.Fatalf("reading the apply's result: %v", err)
+		return description, evidenceValue
 	}
+	description, evidenceValue := readState()
 	if description != nil {
-		t.Fatalf("an overlong summary filled description = %q, want NULL", *description)
+		t.Fatalf("a 501-character summary filled description = %q, want NULL", *description)
 	}
-	if evidenceValue == nil || *evidenceValue != long {
+	if evidenceValue != long {
 		t.Fatal("the evidence row should still carry the full accepted summary")
+	}
+
+	// The skipped fill left the column NULL, so a later in-bounds read still
+	// fills it: exactly 500 characters (1000 bytes) passes the guard.
+	atCap := strings.Repeat("ü", 500)
+	if _, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
+		SourceURL: "https://longwinded.example",
+		Fields: []people.ColdStartFieldInput{{
+			Field: "offer_summary", Value: atCap,
+			EvidenceSnippet: "We build RevOps software", SourceURL: "https://longwinded.example", Confidence: 0.9,
+		}},
+	}); err != nil {
+		t.Fatalf("ApplyColdStartProfile at the cap: %v", err)
+	}
+	if description, _ := readState(); description == nil || *description != atCap {
+		t.Fatal("a summary of exactly 500 characters should fill description")
 	}
 }
 

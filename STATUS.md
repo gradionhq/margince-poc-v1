@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
 - [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
