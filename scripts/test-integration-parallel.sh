@@ -142,9 +142,21 @@ done > "$CANDIDATES"
 
 CONSTRAINT_SCOPE="$(mktemp)" LANE_PKGS="$(mktemp)" WORK="$(mktemp)"
 DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
-TIMING="$(mktemp)"
+TIMING="$(mktemp)" WALLCLOCK="$(mktemp)"
+# When the lane started, so each package can record WHEN it ran and not only how
+# long its tests took. The per-package cost report deliberately prices tests
+# alone; that leaves everything around them — clone provisioning, compiling a
+# test binary, process start — invisible, and it is not small: measured at 42s of
+# a 221s run, which is more than any package except the longest. A number nobody
+# can see is a number nobody reduces.
+#
+# Whole seconds: this attributes tens of seconds across a run of hundreds, and a
+# sub-second clock would mean a Perl or Python dependency the lane does not
+# otherwise have.
+LANE_T0="$(date +%s)"
+export LANE_T0 WALLCLOCK
 OUTDIR="$(mktemp -d)"
-trap 'rm -f "$CANDIDATES" "$CONSTRAINT_SCOPE" "$LANE_PKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING" ${GROUPED:+"$GROUPED"}; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+trap 'rm -f "$CANDIDATES" "$CONSTRAINT_SCOPE" "$LANE_PKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING" "$WALLCLOCK" ${GROUPED:+"$GROUPED"}; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
 
 # The ONE spelling of "which build constraints does this file declare": the
 # region above the `package` clause, one expression per line. Both passes below
@@ -346,6 +358,10 @@ fi
 # package's -run slice filter.
 run_one() {
   local line="$1" idx="$2" outdir="$3"
+  # Offsets from lane start, so the report can say when this package OCCUPIED a
+  # slot as against how long its tests ran. The difference is the provisioning
+  # around it, which the cost report prices at nothing.
+  local began=$(( $(date +%s) - LANE_T0 ))
   local d="${line%%|*}" rel="${line#*|}" runre=""
   [[ -n "${REGEX_DIR:-}" ]] && runre="$(cat "$REGEX_DIR/$idx")"
   local db="margince_it_p${idx}_$$"
@@ -384,12 +400,31 @@ run_one() {
     fi
     echo "EXIT $st"
   } > "$log" 2>&1
+  # Written after the log block closes, so a package that failed still reports
+  # the slot time it consumed — a red run is exactly when someone asks where the
+  # wall clock went.
+  #
+  # Best effort, and deliberately the one place in this file that discards a
+  # status: this is the LAST command in run_one, the workers run under `xargs -P`,
+  # and the script is `set -e`. A failed append would therefore fail the whole
+  # lane over a measurement nobody asked to be load-bearing. It hides no test
+  # result — a package's verdict is the EXIT line inside the log above, which the
+  # reconciliation at the end reads.
+  local ended=$(( $(date +%s) - LANE_T0 ))
+  printf '%s\n' "${rel}|${began}|${ended}" >> "$WALLCLOCK" || :
 }
 export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone db_admin bucket_for
 # The workers run in re-exec'd shells, so a variable run_one reads must be
 # exported and not merely set. REDIS_DBS is the only one: unexported it expands
 # to empty, and `% ` is a division by zero rather than a wrong db.
 export REDIS_DBS
+
+# When the first package could START, which separates two very different costs
+# that both look like "before the tests ran": everything this script does before
+# fanning out (the template, the constraint scan over every Go file in the module,
+# the test enumeration) versus a package queueing for a busy slot. Only the first
+# is this script's to reduce.
+FANOUT_T0=$(( $(date +%s) - LANE_T0 ))
 
 # Fan out with a bounded worker pool. nl numbers the lines → stable per-job db
 # names + logs. The work line rides as a positional arg, not spliced into the
@@ -455,6 +490,41 @@ if [[ -s "$TIMING" ]]; then
           printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test  %5.1f%% of budget\n", $1, $2, $3, $4, (budget ? $2 * 100 / budget : 0) }
         END { if (tests) printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test\n", "TOTAL (sum of packages)", total, tests, total * 1000 / tests }
       '
+fi
+
+# Where the WALL clock went, which the cost report above cannot say: it prices
+# tests, and the lane's wall clock is set by the package that finishes last plus
+# everything that happened before it could start. Those two are the only numbers
+# a split or a scheduling change moves, so they are worth printing every run
+# rather than reconstructing from a log afterwards.
+if [[ -s "$WALLCLOCK" ]] && [[ -s "$TIMING" ]]; then
+  # Elapsed is computed here rather than in awk: systime() is a GNU extension and
+  # this lane runs on BSD awk too.
+  LANE_ELAPSED=$(( $(date +%s) - LANE_T0 ))
+  LC_ALL=C sort -t'|' -k3 -rn "$WALLCLOCK" | head -1 | awk -F"|" -v elapsed="$LANE_ELAPSED" -v fanout="$FANOUT_T0" -v timing="$TIMING" '
+    {
+      last = $1; began = $2; ended = $3
+      # The critical package'"'"'s own test seconds, so its slot time can be split
+      # into tests and provisioning. Tracked as FOUND rather than defaulted to
+      # zero: a package whose log carries no go-test duration (a build failure
+      # prints "FAIL pkg [build failed]", with no seconds) has a slot time here
+      # and no row there, and an absent duration read as 0.0 would report the
+      # entire slot as provisioning — inventing a number instead of admitting it
+      # is missing.
+      while ((getline line < timing) > 0) {
+        split(line, f, "|")
+        if (f[1] == last) { tests = f[2]; found = 1 }
+      }
+      printf "test-integration-parallel: wall clock — %ds total\n", elapsed
+      printf "  %ds  before any package could start (template, constraint scan, test enumeration)\n", fanout
+      printf "  %ds  then %s waited for a slot\n", began - fanout, last
+      if (found) {
+        printf "  %ds  %s occupied a slot, of which %.1fs was its tests\n", ended - began, last, tests
+        printf "  %.1fs  provisioning that slot (clone, compile, process start) — not priced above\n", (ended - began) - tests
+      } else {
+        printf "  %ds  %s occupied a slot; it recorded no test duration, so the tests/provisioning split is unavailable\n", ended - began, last
+      }
+    }'
 fi
 
 # Reconcile against discovery: a green run must have executed every package we
