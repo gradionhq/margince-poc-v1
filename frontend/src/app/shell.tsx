@@ -367,7 +367,10 @@ function resolveTitle(
     return t(labelKey);
   }
   const offRailKey = OFF_RAIL_TITLE_KEYS[screen];
-  return offRailKey ? t(offRailKey) : screen;
+  // An address nobody in this app answers. The screen under it says so in
+  // words; the heading must not print the slug the reader typed as though the
+  // product had a page by that name.
+  return offRailKey ? t(offRailKey) : t("shell.unknownPage");
 }
 
 // The page head: the heading of the screen you are on, and beside it the two

@@ -102,6 +102,7 @@ export const en = {
   "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
+  "shell.unknownPage": "Not found",
   "agent.title": "Margince AI",
   "agent.regionAria": "Margince AI status",
   "agent.configured": "Configured",

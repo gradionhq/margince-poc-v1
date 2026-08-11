@@ -104,6 +104,7 @@ export const de = {
   "shell.theme": "Design",
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
+  "shell.unknownPage": "Nicht gefunden",
   "agent.title": "Margince KI",
   "agent.regionAria": "Margince-KI-Status",
   "agent.configured": "Konfiguriert",

@@ -377,6 +377,17 @@ describe("PageHead", () => {
     ).toBeTruthy();
   });
 
+  // The same rule where there is no route at all. A hash nobody answers used to
+  // put whatever the reader typed in the page's heading, which reads as a page
+  // by that name existing.
+  it("names an unknown route rather than echoing the hash", () => {
+    render(<PageHead route={{ screen: "nope" }} />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Not found" }),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("nope");
+  });
+
   // A record names itself: its surface prints the identity block, and that is
   // the page's one h1. The head yields — it prints the trail that leads here
   // and nothing at heading level, or the document would offer two page titles
