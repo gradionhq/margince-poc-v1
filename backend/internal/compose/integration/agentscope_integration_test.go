@@ -60,7 +60,7 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	}
 
 	// The old default: everything a mutating agent did cost `write`.
-	writeOnly := passportBearer(t, e, "write-only agent", "read", "write")
+	writeOnly := apptest.PassportBearer(t, e, "write-only agent", "read", "write")
 
 	var refusal capRefusal
 	status := e.Call(t, "POST", "/v1/organizations/"+org.ID+"/enrich", nil, writeOnly, &refusal)
@@ -81,7 +81,7 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	// The same principal shape with the cap the contract declares. There is
 	// no route that widens a minted passport's scopes (mint and revoke only),
 	// so the grant is a fresh passport differing in exactly that one cap.
-	withEnrich := passportBearer(t, e, "enriching agent", "read", "write", "enrich")
+	withEnrich := apptest.PassportBearer(t, e, "enriching agent", "read", "write", "enrich")
 
 	// What this proves: auth.Admit checks scope BEFORE tier, so
 	// approval_required is unreachable unless the enrich cap was spent — the
@@ -94,7 +94,7 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	if status != http.StatusForbidden || staged.Code != "approval_required" {
 		t.Fatalf("enrich with the enrich cap → %d %q, want 403 approval_required (the 🟡 gate)", status, staged.Code)
 	}
-	approvalID := extractStagedApprovalID(t, staged.Detail)
+	approvalID := ExtractStagedApprovalID(t, staged.Detail)
 	var kind string
 	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT kind FROM approval WHERE id = $1`, approvalID).Scan(&kind); err != nil {
@@ -121,7 +121,7 @@ func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 
 	// The broadest passport short of a human session: even every cap the
 	// contract knows does not reach a human-only verb.
-	bearer := passportBearer(t, e, "drafting agent", "read", "write", "send", "enrich")
+	bearer := apptest.PassportBearer(t, e, "drafting agent", "read", "write", "send", "enrich")
 
 	// Drafting is 🟢 under `write` and still is: send being human-only is
 	// not a blanket tightening of the offer surface.
@@ -156,24 +156,6 @@ func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 	if status := e.Call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &still); status != http.StatusOK || still.Status != "draft" {
 		t.Fatalf("offer after the refused send = %q, want draft", still.Status)
 	}
-}
-
-// passportBearer mints a passport with exactly scopes and returns the
-// Authorization header an agent principal presents.
-func passportBearer(t *testing.T, e *apptest.AppEnv, label string, scopes ...string) map[string]string {
-	t.Helper()
-	var minted struct {
-		Token string `json:"token"`
-	}
-	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
-		"label": label, "scopes": scopes,
-	}, nil, &minted); status != http.StatusCreated {
-		t.Fatalf("issue passport %q → %d", label, status)
-	}
-	if minted.Token == "" {
-		t.Fatalf("passport %q minted without a token", label)
-	}
-	return map[string]string{"Authorization": "Bearer " + minted.Token}
 }
 
 // assertNothingStaged proves the refusal was a cap refusal and not the 🟡

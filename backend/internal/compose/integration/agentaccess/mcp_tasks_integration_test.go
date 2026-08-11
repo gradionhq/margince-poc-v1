@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The io.modelcontextprotocol/tasks extension, end to end on the real origin
 // against a real database.
@@ -36,7 +36,7 @@ const tasksMeta = `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-2
 // lands exactly once no matter how often the client polls.
 func TestAConfirmFirstCallBecomesATaskAndCompletesOnce(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	// The 🟡 call. A client that declared the extension is handed a handle
@@ -123,8 +123,8 @@ func TestAConfirmFirstCallBecomesATaskAndCompletesOnce(t *testing.T) {
 // exist.
 func TestATaskIsInvisibleToAnyOtherPassport(t *testing.T) {
 	e := setupConnector(t)
-	mine := passportBearer(t, e.AppEnv, "the minting client", "read", "write")
-	theirs := passportBearer(t, e.AppEnv, "another client", "read", "write")
+	mine := apptest.PassportBearer(t, e.AppEnv, "the minting client", "read", "write")
+	theirs := apptest.PassportBearer(t, e.AppEnv, "another client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -162,7 +162,7 @@ func TestATaskIsInvisibleToAnyOtherPassport(t *testing.T) {
 // withdraw.
 func TestCancellingATaskTakesItsProposalOffTheInbox(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -197,7 +197,7 @@ func TestCancellingATaskTakesItsProposalOffTheInbox(t *testing.T) {
 // client — and the certification band — on byte-identical behaviour.
 func TestANonDeclaringClientStillGetsThePlainRefusal(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "old client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "old client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	refused := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -224,7 +224,7 @@ func TestANonDeclaringClientStillGetsThePlainRefusal(t *testing.T) {
 // methods refuse a request that did not declare it.
 func TestTheExtensionIsAdvertisedAndItsMethodsRequireIt(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read")
 
 	discovered := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{%s}}`, tasksMeta),
@@ -256,7 +256,7 @@ func TestTheExtensionIsAdvertisedAndItsMethodsRequireIt(t *testing.T) {
 // must land one effect.
 func TestTwoSimultaneousPollsRunTheReleasedCallOnce(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -319,7 +319,7 @@ func TestTwoSimultaneousPollsRunTheReleasedCallOnce(t *testing.T) {
 // act on one human yes, so the task fails and says it does not know.
 func TestATaskWhoseExecutionLeftNoOutcomeFailsRatherThanRunningAgain(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -361,7 +361,7 @@ func TestATaskWhoseExecutionLeftNoOutcomeFailsRatherThanRunningAgain(t *testing.
 // with the first, which is what the one-task-per-approval index is for.
 func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	call := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
@@ -388,7 +388,7 @@ func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
 // predicate can show that; the unit fixture has no clock.
 func TestATaskWhoseExecutorDiedCanStillBeCancelled(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
 
 	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",

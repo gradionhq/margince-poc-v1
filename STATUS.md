@@ -551,7 +551,8 @@ of pre-fan-out is plausibly reducible.
 The cost of a slice is fixture entanglement, not the move itself. #859 took the
 channel suites out (14.8s) and had to leave four neighbours behind, each sharing
 one preflight fixture with suites that were not moving; #866 took the webhook
-suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match).
+suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match);
+#877 took the OAuth + MCP surface (13.25s).
 Two or three shared helpers per slice have to be promoted to importable homes
 first, and each suite package's `doc.go` records where its boundary fell and why.
 Reaching the ~80s floor means repeating that several times — a programme, not a
@@ -559,6 +560,19 @@ follow-up. Each slice also subjects every MOVED line to the full strict linter
 (`new-from-merge-base`), which is a real cost per PR: #866's promotion alone
 surfaced an unchecked type assertion and a naming violation the un-gated original
 had carried.
+
+**Expect one or two more slices to be worth it, not five.** After #877 the parent
+is ~118s of measured test seconds; `./migrations` (96s, 23 tests — replay, which
+does not split the same way) and `./internal/compose` (92s) are the next poles, so
+a third slice roughly reaches them and a fourth buys nothing until those two are
+addressed.
+
+A slice also perturbs what has run by the time each surviving test executes, which
+finds tests that depend on state a neighbour left. #877 turned one red that way
+(#876, fixed on main by #874 while the slice waited): it asserted a field would be
+absent from a change timeline, and passed only because the column that field fills
+was usually already populated. Expect one of these per slice, and read the failure
+as a test-isolation defect before reading it as the slice's fault.
 
 **Where the shared fixtures live, since a slice stalls on this.** A fixture keyed
 on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary

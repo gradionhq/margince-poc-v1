@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // Refresh-token rotation, the two properties a connector's whole lifetime
 // rests on: every presentation of a token is serialized by a row lock, so

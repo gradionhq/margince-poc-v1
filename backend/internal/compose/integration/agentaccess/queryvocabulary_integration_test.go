@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The query vocabulary as a client actually reaches it: over the composed
 // /mcp mount, with a real passport, a real workspace and the real custom-field
@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 )
@@ -100,7 +101,7 @@ func TestACustomFieldReachesThePublishedVocabularyWithoutADeploy(t *testing.T) {
 	// The schema pool is the owner-privileged connection the add-field engine
 	// runs its one ALTER TABLE on; without it the create answers 501 and this
 	// test would be asserting against a surface that is not mounted.
-	env := setupConnectorWith(t, compose.WithSchemaPool(SchemaPool(t)))
+	env := setupConnectorWith(t, compose.WithSchemaPool(integration.SchemaPool(t)))
 	bearer := readPassport(t, env.AppEnv, "custom field reader")
 
 	before := readVocabulary(env.AppEnv, t, bearer)
@@ -108,11 +109,19 @@ func TestACustomFieldReachesThePublishedVocabularyWithoutADeploy(t *testing.T) {
 		t.Fatal("the field under test already exists in the vocabulary")
 	}
 
-	status, created, problem := createCustomField(t, env.AppEnv, apptest.AnyMap{
+	// Created through the real endpoint, decoding only the two fields this suite
+	// reads. The full wire shape and every refusal around it are pinned by the
+	// customfields HTTP suites; what matters here is that a field the engine
+	// accepted turns up in the published vocabulary.
+	var created struct {
+		ID         string `json:"id"`
+		ColumnName string `json:"column_name"`
+	}
+	status := env.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
 		"object": "deal", "label": "Renewal risk", "type": "text", "source": "ui",
-	})
+	}, nil, &created)
 	if status != http.StatusCreated {
-		t.Fatalf("adding a custom field → %d %+v", status, problem)
+		t.Fatalf("adding a custom field → %d", status)
 	}
 	if created.ColumnName != "cf_renewal_risk" {
 		t.Fatalf("the engine named the column %q; this test asks the vocabulary for cf_renewal_risk", created.ColumnName)
@@ -123,8 +132,7 @@ func TestACustomFieldReachesThePublishedVocabularyWithoutADeploy(t *testing.T) {
 		t.Fatal("a custom field active in the catalog is not in the published vocabulary")
 	}
 
-	var retired customFieldWire
-	if status := env.Call(t, "POST", "/v1/custom-fields/"+created.ID+"/retire", nil, nil, &retired); status != http.StatusOK {
+	if status := env.Call(t, "POST", "/v1/custom-fields/"+created.ID+"/retire", nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("retiring the custom field → %d", status)
 	}
 	if fieldNamed(dealVocabulary(t, readVocabulary(env.AppEnv, t, bearer)), "cf_renewal_risk") {

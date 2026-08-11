@@ -88,7 +88,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 		t.Fatalf("agent money patch → %d %q, want 403 approval_required — the human typed those values at create",
 			status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The staged row names the deal, so it reaches the right inbox.
 	var staged struct {

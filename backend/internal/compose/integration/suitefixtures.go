@@ -7,6 +7,8 @@ package integration
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +31,41 @@ import (
 // imports compose, and compose's white-box tests import this package, so an
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
+
+// AppDSN is the app-role DSN the lane hands each package, for a suite that opens
+// its own connection rather than riding a fixture's pool.
+//
+// Fatal rather than skipped when unset, like every other entry point into this
+// lane: a security suite that skipped because its DSN was missing would look
+// exactly like one that passed.
+func AppDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
+	if dsn == "" {
+		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	return dsn
+}
+
+// ExtractStagedApprovalID pulls the staged approval's id out of the 403
+// approval_required detail — the same reference the human inbox lists.
+//
+// Reading it out of the message is deliberate: it is the only reference a 🟡
+// caller is given, so a suite that resolved the id any other way would stop
+// proving that the refusal hands back something actionable.
+func ExtractStagedApprovalID(t *testing.T, detail string) string {
+	t.Helper()
+	const marker = "staged as approval "
+	i := strings.Index(detail, marker)
+	if i < 0 {
+		t.Fatalf("no staged approval reference in %q", detail)
+	}
+	rest := detail[i+len(marker):]
+	if j := strings.IndexByte(rest, ' '); j > 0 {
+		rest = rest[:j]
+	}
+	return rest
+}
 
 // GoBDFloorPack is the six-calendar-year correspondence floor the retention
 // suites test against — a stand-in jurisdiction under a reserved code, not the

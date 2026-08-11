@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The A2 handshake end to end (B-EP06.18, B-EP03.14/.15, ADR-0036):
 // discovery → DCR (public clients only) → authorize (PKCE S256

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The consent screen's read model (GET /oauth/consent-request): which of the
 // signed-in human's passports may be lent to the requesting client. Each

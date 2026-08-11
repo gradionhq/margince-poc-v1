@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // What a HUMAN sees when the consent flow refuses them. The screen is a native
 // form in the SPA, so a JSON refusal replaces it with a body of text on a page

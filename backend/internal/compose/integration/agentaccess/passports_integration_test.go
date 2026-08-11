@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The passport list surface (GET /passports, feedback/13): metadata
 // only, own rows for a regular user, workspace-wide for the admin role

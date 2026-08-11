@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // Both framings, end to end on the real origin, against a real database
 // (ADR-0092/A141). The unit suite proves each framing's rules; only this one
@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // The per-request metadata a modern client sends, spelled as the specification
@@ -53,7 +55,7 @@ func modernHeaders(bearer map[string]string, method, name string) map[string]str
 // server, two eras, and a record created through either one.
 func TestBothFramingsConnectAndLandTheSameEffect(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "dual-era client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "dual-era client", "read", "write")
 
 	t.Run("a modern client needs no handshake", func(t *testing.T) {
 		discovered := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
@@ -196,7 +198,7 @@ func legacyHeaders(bearer map[string]string, negotiated string) map[string]strin
 // working client back to the handshake.
 func TestAModernRequestWhoseHeaderContradictsItsBodyRunsNothing(t *testing.T) {
 	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "mismatching client", "read", "write")
+	bearer := apptest.PassportBearer(t, e.AppEnv, "mismatching client", "read", "write")
 
 	refused := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{`+modernMeta+

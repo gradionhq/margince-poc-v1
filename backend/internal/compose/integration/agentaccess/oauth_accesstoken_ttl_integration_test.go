@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The operator's access-token lifetime (--oauth-access-token-ttl). A connector's
 // access token is a passport, and a passport defaults to 30 days where connector

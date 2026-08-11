@@ -169,7 +169,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 	if status != http.StatusForbidden || problem.Code != "approval_required" {
 		t.Fatalf("agent archive → %d %q, want 403 approval_required", status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The pin the STAGING read produced. Without it the approval would authorize
 	// the archive against whatever the edge had drifted to inside the TTL — and a
@@ -323,7 +323,7 @@ func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
 		map[string]string{"Authorization": "Bearer " + minted.Token}, &problem); status != http.StatusForbidden {
 		t.Fatalf("agent archive → %d, want 403 approval_required", status)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The human archives the edge themselves, which is exactly the race the
 	// approval was staged into: the target is gone before anyone decided.

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 import (
 	"context"
@@ -13,11 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -53,7 +53,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	if status := o.Call(t, "DELETE", "/v1/people/"+person.ID, nil, agentBearer, &problem); status != http.StatusForbidden {
 		t.Fatalf("agent archive → %d, want staged 403", status)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := integration.ExtractStagedApprovalID(t, problem.Detail)
 
 	var approved struct {
 		ApprovalToken *string `json:"approval_token"`
@@ -65,7 +65,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 		t.Fatalf("approve response lacks a compact JWS: %+v", approved.ApprovalToken)
 	}
 
-	pool, err := database.NewPool(context.Background(), envDSN(t))
+	pool, err := database.NewPool(context.Background(), integration.AppDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	_, body := o.exchange(t, url.Values{"code": {code}})
 	token := body["access_token"].(string)
 
-	pool, err := database.NewPool(context.Background(), envDSN(t))
+	pool, err := database.NewPool(context.Background(), integration.AppDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,15 +169,6 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), "oauth-protected-resource") {
 		t.Fatalf("revoked bearer → %d %q, want 401 + RFC 9728 pointer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}
-}
-
-func envDSN(t *testing.T) string {
-	t.Helper()
-	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if dsn == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set")
-	}
-	return dsn
 }
 
 func flipLastChar(s string) string {
