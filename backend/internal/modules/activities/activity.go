@@ -205,8 +205,20 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 // checked as the table owner, bypassing RLS, so it would accept a
 // guessed cross-tenant or out-of-scope UUID as a link target — every
 // target passes the row-scope link check first.
+//
+// A repeated (type, id) is written ONCE. uq_activity_link already says a link
+// is one row per record, so a caller that named the same company twice was
+// answered with a unique violation — a 500 at the end of a send or a booking,
+// and for an agent's approved retry a 500 that consumed the human's one-shot
+// approval on a message that then never left. Deduplicating here rather than in
+// each caller is what makes that true of every transport at once.
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
+	seen := make(map[ActivityLinkInput]struct{}, len(links))
 	for _, link := range links {
+		if _, duplicate := seen[link]; duplicate {
+			continue
+		}
+		seen[link] = struct{}{}
 		column := linkColumn(link.EntityType)
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}

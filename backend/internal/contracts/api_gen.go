@@ -16465,7 +16465,8 @@ type SendAccountEmailRequest struct {
 	// optionally the person and deal it concerns. At least one is required: a message
 	// belonging to no record is one nobody will find again, which is the gap this
 	// operation exists to close. Each target is row-scope probed, so an id the caller
-	// cannot see is refused 404.
+	// cannot see is refused 404 — and each probe is its own query, so the list is bounded
+	// at 25 (a message about more records than that is about none of them).
 	Links   []ActivityLinkInput `json:"links"`
 	Subject string              `json:"subject"`
 

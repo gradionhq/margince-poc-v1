@@ -239,6 +239,12 @@ func (a *accountSendEnv) inboxShows(t *testing.T, approvalID string) bool {
 // account-started send targets — and a human would then be deciding a
 // different question depending on which transport the agent used.
 //
+// They agree here because the REST gate takes its target from the route and
+// this route has no {id}, so the id-less create is the only shape both doors
+// can reach. That is a bound on the approver too — read+create on `activity`
+// rather than the row scope of the records the message is filed under — and
+// #928 is where the gate gains the body-derived target that would lift it.
+//
 // It drives Registry.Invoke directly, for the reason channelsend_mcp does: the
 // JSON-RPC framing is proven elsewhere, and Invoke is the one call every
 // transport dispatches through.

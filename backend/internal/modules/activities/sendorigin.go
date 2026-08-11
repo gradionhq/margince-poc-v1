@@ -16,6 +16,7 @@ package activities
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -92,9 +93,36 @@ func (o SendOrigin) resolve(ctx context.Context, s *Store) ([]ActivityLinkInput,
 	return inheritedLinks(anchor), nil
 }
 
+// maxAccountSendLinks bounds how many records one account-started message may
+// be filed under. It is a REQUEST BOUND rather than a modelling opinion: every
+// entry costs its own row-scoped probe below, and the array is chosen freely by
+// the caller. `SendAccountEmailRequest.links` declares the same 25, and the
+// agent surface refuses the same count earlier so no approval is ever minted
+// for a call this would reject — but THIS is the bound that holds for every
+// transport, a human's own send included.
+const maxAccountSendLinks = 25
+
+// TooManyLinksError refuses a message filed under more records than the send
+// path will probe.
+type TooManyLinksError struct{ Count int }
+
+func (e *TooManyLinksError) Error() string {
+	return fmt.Sprintf("a message may be filed under at most %d records; this one names %d",
+		maxAccountSendLinks, e.Count)
+}
+
+// FieldFault names the field the caller can shorten, so the refusal is a 422
+// against `links` rather than an unattributed rejection.
+func (e *TooManyLinksError) FieldFault() (field, code, message string) {
+	return "links", "too_many_links", e.Error()
+}
+
 // probeLinkTargets refuses an account-started send whose named records the
 // caller cannot read, before any later guard can answer about anyone else.
 func (s *Store) probeLinkTargets(ctx context.Context, links []ActivityLinkInput) error {
+	if len(links) > maxAccountSendLinks {
+		return &TooManyLinksError{Count: len(links)}
+	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		for _, link := range links {
 			if linkColumn(link.EntityType) == "" {

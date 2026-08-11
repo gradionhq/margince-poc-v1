@@ -194,11 +194,19 @@ func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	}
 	// Both doors, not just staging. This one is reached with an approval already
 	// redeemed, so a call that skipped StageInfo would otherwise execute a
-	// booking the schema says is impossible.
+	// booking the schema says is impossible — and the cap and the dedupe are
+	// part of that: the human approved "attached to N record(s)" as StageInfo
+	// counted them, and a booking that reaches the seam with the raw list is one
+	// whose approval was read against a different reach than the one it takes.
 	if err := requireBookingLinks(args); err != nil {
 		return nil, err
 	}
-	for _, link := range args.Links {
+	links, err := uniqueRecordLinks(args.Links)
+	if err != nil {
+		return nil, err
+	}
+	args.Links = links
+	for _, link := range links {
 		noteEvidence(ctx, datasource.EntityType(link.EntityType), link.EntityID)
 	}
 	return t.comms.BookMeeting(ctx, args)

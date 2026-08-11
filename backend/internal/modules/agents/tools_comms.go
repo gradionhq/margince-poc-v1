@@ -14,7 +14,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -201,9 +200,8 @@ func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	// an approval, a human reads a send with no addressee and says yes, the
 	// approved retry consumes that one-shot authority, and only then does the
 	// store refuse — a "yes" spent on something that was never going to happen.
-	if len(args.To) == 0 {
-		return StageInfo{}, &BadArgsError{Cause: errors.New(
-			"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
+	if err := requireAddressee(args.To); err != nil {
+		return StageInfo{}, err
 	}
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
 	if err != nil {

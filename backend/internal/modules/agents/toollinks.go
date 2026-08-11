@@ -13,6 +13,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -24,6 +25,20 @@ import (
 type RecordLink struct {
 	EntityType string   `json:"entity_type"`
 	EntityID   ids.UUID `json:"entity_id"`
+}
+
+// requireAddressee refuses a mail send that reaches nobody.
+//
+// One spelling for both mail verbs. The store refuses it too, at execution, so
+// the point of raising it at staging is that a human is never asked to approve
+// a send that was already impossible — and two copies of that sentence is how
+// one of the two verbs quietly stops asking.
+func requireAddressee(to []string) error {
+	if len(to) > 0 {
+		return nil
+	}
+	return &BadArgsError{Cause: errors.New(
+		"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
 }
 
 // maxRecordLinks bounds how many records one call may attach to.

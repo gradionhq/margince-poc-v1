@@ -67,16 +67,31 @@ func (t sendAccountEmailTool) Spec() mcp.ToolSpec {
 // WHAT IT STAGES IS A CREATE, and the shape says so: the target type is
 // `activity` with no id and no version pin. This send answers no message, so
 // there is no row its effect depends on — approvals.settledByShape reads that
-// shape as decidable on the object-read floor plus the decision grants, which
+// shape as decidable on the object-read floor plus the decision grants, and it
 // is the same row the REST door stages when the identical call arrives as a
-// bearer request (compose.stageRefusal reads a target id out of the route's
-// {id} parameter and this route has none). One operation, one staged shape,
+// bearer request (compose.stageRefusal takes its target id from the route's
+// {id} parameter, and this route has none). One operation, one staged shape,
 // whichever door it came through.
 //
-// It deliberately does NOT pin one of the links the way book_meeting pins its
-// first: a booking is a commitment ON the record it names, so its staleness is
-// the record's; a send's text is not, and pinning a link would refuse an
-// approved message because somebody edited that company's address in between.
+// NAMING A LINK AS THE TARGET — what book_meeting does with its first — was
+// weighed and is not available here, for two reasons that compound. The REST
+// door cannot follow: it never reads the body, so the two doors would stage one
+// kind two ways and a human would be deciding a different question depending on
+// the transport the agent used. And the pin is taken SERVER-SIDE from the
+// target pair (approvals.resolveTargetVersion), so naming an organization pins
+// its version — which an enrichment run bumps while an overnight proposal waits
+// for someone's morning inbox, cancelling a send the record's own content never
+// invalidated. The waiver that would decline the pin is reserved for kinds
+// whose effect approvals itself applies (TestEveryContextTargetKindIsAKindWeStage),
+// and this effect is performed by the agent's own approved retry.
+//
+// WHAT THAT COSTS, stated rather than left to be discovered: the approver is
+// bounded by read+create on `activity` and NOT by the row scope of the records
+// the message is filed under, where the reply path's approver is bounded by the
+// anchor it targets. A manager whose scope excludes those records can release
+// this send and read its proposed text. Closing it needs the REST staging gate
+// to be able to derive a target from the body, which is a change to a gate this
+// verb shares — issue #928.
 //
 // The links are still read, because that is a question about the STAGER's
 // reach rather than the approver's: the store refuses a link the caller cannot
@@ -113,9 +128,8 @@ func readAccountSendArgs(in json.RawMessage) (SendAccountEmailArgs, []RecordLink
 	if err := decodeArgs(in, &args); err != nil {
 		return SendAccountEmailArgs{}, nil, err
 	}
-	if len(args.To) == 0 {
-		return SendAccountEmailArgs{}, nil, &BadArgsError{Cause: errors.New(
-			"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
+	if err := requireAddressee(args.To); err != nil {
+		return SendAccountEmailArgs{}, nil, err
 	}
 	if len(args.Links) == 0 {
 		return SendAccountEmailArgs{}, nil, &BadArgsError{

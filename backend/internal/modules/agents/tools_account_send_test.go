@@ -185,6 +185,54 @@ func TestARefusedAccountStartedSendReachesTheInbox(t *testing.T) {
 	}
 }
 
+// unreadableProvider answers every read the way a row outside the caller's
+// scope does — not-found, indistinguishable from absent, which is how this
+// product hides a record's existence.
+type unreadableProvider struct {
+	datasource.SystemOfRecordProvider
+}
+
+func (unreadableProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	return datasource.Record{}, fmt.Errorf("record %s: %w", ref.ID, apperrors.ErrNotFound)
+}
+
+// A link the caller cannot see is refused at staging, with the row-scope
+// answer and nothing else.
+//
+// The store refuses it too, but only when the approved send runs — by which
+// point a human has read the proposal, said yes, and spent a one-shot
+// authority on a message that was never going to leave. The refusal has to
+// arrive before the question is asked.
+func TestAnAccountStartedSendRefusesALinkTheCallerCannotSee(t *testing.T) {
+	approvals := &recordingApprovals{}
+	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+	RegisterCommsTools(registry, &recordingComms{}, unreadableProvider{})
+
+	_, err := registry.Invoke(sendCtx(), "send_account_email", accountSendArgs(orgLink(ids.NewV7())))
+
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("Invoke err = %v, want the row-scope answer — a record the caller cannot read is not a "+
+			"record they may start a conversation about", err)
+	}
+	if len(approvals.staged) != 0 {
+		t.Errorf("staged %d approvals for an unreachable record, want none", len(approvals.staged))
+	}
+}
+
+// Malformed arguments are refused before anything is staged, at both doors —
+// there is no call here to put in front of a human.
+func TestAnAccountStartedSendRefusesUnreadableArguments(t *testing.T) {
+	tool := sendAccountEmailTool{comms: &recordingComms{}, p: &multiLinkProvider{}}
+	const notAnObject = `["send","this"]`
+
+	if _, err := tool.StageInfo(context.Background(), json.RawMessage(notAnObject)); err == nil {
+		t.Error("StageInfo accepted arguments it cannot read")
+	}
+	if _, err := tool.Handle(withApprovalRedeemed(sendCtx(), 0, false), json.RawMessage(notAnObject)); err == nil {
+		t.Error("Handle accepted arguments it cannot read")
+	}
+}
+
 // Every link is read, not just the first: a send filed under one local record
 // and one mirrored record is exactly what a first-link-only guard waves through
 // into an approval nobody can release.
