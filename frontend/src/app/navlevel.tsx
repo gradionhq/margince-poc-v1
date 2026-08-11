@@ -3,11 +3,12 @@
 
 import { ChevronLeft } from "lucide-react";
 import {
+  createContext,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useRef,
-  useState,
 } from "react";
 import { useT } from "../i18n";
 import {
@@ -17,9 +18,10 @@ import {
   type NavSection,
   type NavTrailLevel,
   navLevelHref,
+  navLevelRoute,
   railTrail,
 } from "./nav";
-import { type Route, routeHash } from "./router";
+import { navigate, type Route } from "./router";
 
 // ONE navigation level, whatever its depth. The rail's ten destinations and the
 // entries of a section drilled into from them render through this, so the two
@@ -39,14 +41,73 @@ function navTipKey(level: NavTrailLevel, id: string): string {
 
 const BACK_TIP_KEY = "rail-level-back";
 
+// Where a reader who never walked into the section is sent when they walk out
+// of it: a deep link carries no origin, and an invented one would be a claim
+// about where they had been.
+const HOME: Route = { screen: "home" };
+
+// What a walk between levels needs to remember, and both halves of it outlive
+// the panel — because they have to. A section route swaps one rail component for
+// the other (shell.tsx), so the rail is REMOUNTED in the middle of a walk: the
+// panel that asks the question is never the panel that answers it. The shell
+// holds this and hands it down; a rail rendered without one — a story, the
+// component workbench — has only its own lifetime, and walks out to home.
+type NavWalk = {
+  // The last route that showed no level at all. Nothing about `#/settings/audit`
+  // says which screen was open before it, so it is remembered as the reader
+  // passes rather than reconstructed.
+  origin: Route;
+  // Asked for by the control that walks, spent by the level that arrives. It is
+  // a flag rather than a comparison of depths because merely LANDING on a route
+  // that has a level must not pull focus off the page the reader is reading.
+  claimFocus: boolean;
+};
+
+const NavWalkMemory = createContext<RefObject<NavWalk> | undefined>(undefined);
+
+export const NavWalkProvider = NavWalkMemory.Provider;
+
+/**
+ * The shell's memory of a walk between levels, held past the rail's lifetime.
+ *
+ * `remembers` is false on the routes that are not somewhere to walk back TO: a
+ * section route is what a walk leaves, and a rail-less surface carries no
+ * navigation to return into. No dependency list, because the route is parsed
+ * fresh per render and would defeat one anyway.
+ */
+export function useNavWalk(
+  route: Route,
+  remembers: boolean,
+): RefObject<NavWalk> {
+  const walk = useRef<NavWalk>({ origin: HOME, claimFocus: false });
+  useEffect(() => {
+    if (remembers) {
+      walk.current.origin = route;
+    }
+  });
+  return walk;
+}
+
+// The address the way back leads to. Below the section's own level it is the
+// entry the reader drilled through — that entry's own address is what names the
+// shallower level. At the section's own level there is no address above it
+// INSIDE the section, so the walk leaves: back to where the reader came in from.
+function walkUpTarget(parent: NavTrailLevel | undefined, origin: Route): Route {
+  if (!parent || parent.path.length === 0 || !parent.activeId) {
+    return origin;
+  }
+  return navLevelRoute(parent.path, parent.activeId);
+}
+
 /**
  * The level the sidebar is showing, and the two ways a reader moves between
  * levels.
  *
- * Which level is on screen is STATE — walking back up must not change the
- * address the reader is on — but the route still owns it: a new address
- * re-derives the depth, so following a link out of a level never leaves the
- * panel parked where the reader had climbed to.
+ * The shown level is a pure function of the ROUTE. Both ways of moving change
+ * the address, so the panel and the address can never disagree about which
+ * level the reader is in — and the link back into a section is never the
+ * address the reader is already standing on, which is what made a level the
+ * panel had climbed out of unreachable.
  */
 export function useNavLevel(
   route: Route,
@@ -55,18 +116,12 @@ export function useNavLevel(
   onNavigate: () => void,
 ) {
   const trail = railTrail(route, section);
-  const deepest = trail.length - 1;
-  const hash = routeHash(route);
-  const [climbed, setClimbed] = useState({ hash, depth: deepest });
-  // Adjusted during render rather than in an effect, so the panel never paints
-  // the previous route's level for a frame first.
-  if (climbed.hash !== hash) {
-    setClimbed({ hash, depth: deepest });
-  }
-  const depth = Math.min(
-    climbed.hash === hash ? climbed.depth : deepest,
-    deepest,
-  );
+  const depth = trail.length - 1;
+  const parent = depth > 0 ? trail[depth - 1] : undefined;
+  // With no shell above it the panel is all there is, so it keeps the walk's
+  // memory itself — one lifetime, and no history before it.
+  const own = useRef<NavWalk>({ origin: HOME, claimFocus: false });
+  const walk = useContext(NavWalkMemory) ?? own;
 
   // Walking between levels replaces every row in the panel, and an unmounted
   // focus owner leaves the document focused on <body> — from where the next Tab
@@ -74,14 +129,10 @@ export function useNavLevel(
   // So the level that ARRIVES takes focus, and only when the walk was ASKED
   // for: merely landing on a route that has a level must not pull focus off the
   // page the reader is reading.
-  const claimFocus = useRef(false);
-  const onWalkUp = useCallback(() => {
-    claimFocus.current = true;
-    setClimbed((current) => ({
-      hash: current.hash,
-      depth: Math.max(0, current.depth - 1),
-    }));
-  }, []);
+  const onWalkUp = () => {
+    walk.current.claimFocus = true;
+    navigate(walkUpTarget(parent, walk.current.origin));
+  };
   const onSelect = useCallback(
     (entry: NavLevelEntry) => {
       // A row pressed inside the phone sheet closes it: the sheet covers the
@@ -92,32 +143,27 @@ export function useNavLevel(
       // A row that OPENS a level is about to be replaced by that level, so it
       // hands its focus on rather than dropping it.
       if (entry.children && entry.children.length > 0) {
-        claimFocus.current = true;
+        walk.current.claimFocus = true;
       }
     },
-    [onNavigate],
+    [onNavigate, walk],
   );
   // No dependency list, because the condition is the FLAG rather than a value:
   // the walk is asked for in a handler, and the rows it asks for are only in the
-  // document after the render that follows. Every other render finds the flag
-  // down and does nothing.
+  // document after the render that follows — in another rail entirely, when the
+  // walk crossed into or out of a section. Every other render finds the flag down
+  // and does nothing.
   useEffect(() => {
-    if (!claimFocus.current) {
+    if (!walk.current.claimFocus) {
       return;
     }
-    claimFocus.current = false;
+    walk.current.claimFocus = false;
     container.current
       ?.querySelector<HTMLElement>(".navlevel .navwrap .navitem")
       ?.focus();
   });
 
-  return {
-    depth,
-    shown: trail[depth],
-    parent: depth > 0 ? trail[depth - 1] : undefined,
-    onWalkUp,
-    onSelect,
-  };
+  return { depth, shown: trail[depth], parent, onWalkUp, onSelect };
 }
 
 type TipState = Readonly<{
@@ -223,10 +269,13 @@ function NavLevelGroupView({
   );
 }
 
-// The way back up. It names where it LEADS rather than saying "back" alone: at
-// the second level that is the destinations it stepped aside for, deeper it is
-// the entry the reader drilled through, and a control whose name never changes
-// while its target does is the one a screen reader gets wrong.
+// The way back up. It READS "Back" — the reader knows what they walked down
+// from, and the word for it is the same at every depth — while its accessible
+// NAME says where it leads: at the section's own level that is the destinations
+// it stepped aside for, deeper it is the entry the reader drilled through, and a
+// control whose name never changes while its target does is the one a screen
+// reader gets wrong. The visible word is contained in that name, which is what
+// WCAG 2.5.3 asks of a control labelled shorter than it is named.
 function NavLevelBack({
   parent,
   state,
@@ -251,7 +300,7 @@ function NavLevelBack({
       onBlur={() => state.onTip(null)}
     >
       <ChevronLeft aria-hidden />
-      <span className="navlabel">{name}</span>
+      <span className="navlabel">{t("shell.navBack")}</span>
       {state.collapsed && state.tip === BACK_TIP_KEY && (
         <span className="navtip" role="tooltip">
           {label}

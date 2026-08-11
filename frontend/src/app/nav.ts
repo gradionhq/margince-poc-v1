@@ -24,7 +24,7 @@ export type {
   NavSection,
   NavTrailLevel,
 } from "./subnav";
-export { navLevelHref } from "./subnav";
+export { navLevelHref, navLevelRoute } from "./subnav";
 
 // The canonical 10-item nav (00-design-language.md §nav, A72/ADR-0035 Am.1
 // promoted Automations to primary nav). Order is normative and shell.test.tsx

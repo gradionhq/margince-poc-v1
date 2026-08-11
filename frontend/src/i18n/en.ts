@@ -7,15 +7,12 @@ export const en = {
     "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
-  // The account menu's theme row: the value it is set to NOW, and the action that
-  // names the row for a screen reader. The two labels above stay the names of the
-  // ICON-ONLY control on sign-in and onboarding, where the surrounding row has no
-  // room for a sentence; in a menu the action is spelled out, so it reads in
-  // parallel with the language row beside it ("Switch to German").
+  // The two themes as the options of a choice — Settings → Account offers both at
+  // once, so each is named by what it IS rather than by what picking it does. The
+  // two labels above stay the names of the ICON-ONLY control on sign-in and
+  // onboarding, where one button stands for the theme it switches to.
   "theme.light": "Light",
   "theme.dark": "Dark",
-  "theme.switchToDark": "Switch to dark theme",
-  "theme.switchToLight": "Switch to light theme",
 
   "section.surfaces": "Surfaces",
   "section.accentAi": "Accent & AI",
@@ -104,8 +101,10 @@ export const en = {
   "shell.more": "More",
   "shell.unknownPage": "Not found",
   "shell.closeMenu": "Close",
-  // The sidebar's second level: the way back up names where it leads, and the
-  // level of destinations needs a name of its own to be led back to.
+  // The sidebar's second level. The control READS one word at every depth; its
+  // accessible name says where it leads, and the level of destinations needs a
+  // name of its own to be led back to.
+  "shell.navBack": "Back",
   "shell.navBackTo": "Back to {name}",
   "shell.navTop": "Destinations",
   "agent.title": "Margince AI",
@@ -1675,6 +1674,8 @@ export const en = {
   "ai.paletteHint": "Ask from anywhere with",
 
   "settings.identity": "You",
+  "settings.preferences": "Preferences",
+  "settings.preferencesSub": "Theme and language, for this browser.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Rep",

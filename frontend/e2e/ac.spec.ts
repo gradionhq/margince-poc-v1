@@ -180,65 +180,82 @@ test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", asyn
   await expect(page.locator(".askfab")).toHaveCount(0);
 });
 
+// The account block carries the three things it is FOR — this person's own
+// account, the installation's settings, and the way out — and nothing that
+// changes a setting in place: theme and language are preferences and live on
+// Settings → Account. A menu offering a control would put a per-person setting
+// in the one place a reader goes to LEAVE.
+test("features/10 §7: the account menu offers its two surfaces and the way out, and no preferences", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  await accountTrigger(page).click();
+  const menu = page.locator("nav.rail .accountmenu");
+  await expect(menu.getByRole("link", { name: "Konto" })).toHaveAttribute(
+    "href",
+    "#/settings/account",
+  );
+  await expect(
+    menu.getByRole("link", { name: "Einstellungen" }),
+  ).toHaveAttribute("href", "#/settings");
+  await expect(menu.getByRole("button", { name: "Abmelden" })).toBeVisible();
+  await expect(menu.getByRole("combobox")).toHaveCount(0);
+});
+
 test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
   page,
 }) => {
   await page.goto("/#/home");
   await expect(page.locator('nav.rail a[aria-label="Kontakte"]')).toBeVisible();
-  // The language control is a preference, so it lives in the account menu at
-  // the SIDEBAR FOOT — there is no top bar. Reaching it takes opening that
-  // menu, and the language itself is a list of the three shipped locales
-  // rather than a toggle.
-  await accountTrigger(page).click();
-  await page.getByRole("button", { name: "Sprache: Deutsch" }).click();
-  await page.getByRole("menuitemradio", { name: "English" }).click();
-  await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
-  // The account menu is still open, and its language row now reads the locale
-  // that was just chosen.
-  await expect(
-    page.getByRole("button", { name: "Language: English" }),
-  ).toBeVisible();
+  // The language is a preference of this person rather than a destination, so it
+  // lives on Settings → Account; the account block at the sidebar foot carries
+  // the three places it can take you and nothing that changes a setting. Three
+  // locales ship, so the control is a list rather than a toggle — a toggle
+  // cannot say where the next click lands.
+  await page.goto("/#/settings/account");
+  await expect(page.getByText("Voreinstellungen")).toBeVisible();
+  await page.getByRole("combobox", { name: "Sprache" }).click();
+  await page.getByRole("option", { name: "English" }).click();
+  // The surface around the control follows the choice, not just the control's
+  // own face: every word on it is rendered from the catalog that just changed.
+  await expect(page.getByText("Preferences")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
 });
 
 /**
- * Where the language menu's focus contract is actually testable.
+ * Where the language control's focus contract is actually testable.
  *
- * The jsdom suite (`src/app/localemenu.test.tsx`) asserts the same restoration,
- * but jsdom does not move `document.activeElement` when the focused node is
- * detached — so a menu that closed WITHOUT handing focus back would still read
- * as focused there. Only a browser blanks the selection to `<body>`, which is
- * exactly the stranding these two tests exist to catch: this menu is the only
+ * The jsdom suite (`src/design-system/select.test.tsx`) asserts the same
+ * restoration, but jsdom does not move `document.activeElement` when the focused
+ * node is detached — so a list that closed WITHOUT handing focus back would still
+ * read as focused there. Only a browser blanks the selection to `<body>`, which
+ * is exactly the stranding these two tests exist to catch: this is the only
  * in-app control for changing language, so its reader is the one least able to
  * recover from being dropped at the top of the document.
  */
-test("features/10 §7: Escape closes the language menu back onto its trigger", async ({
+test("features/10 §7: Escape closes the language list back onto its control", async ({
   page,
 }) => {
-  await page.goto("/#/home");
-  // The language row lives in the account menu at the sidebar foot, so the
-  // trigger is reached through it — and Escape then closes ONE layer: the
-  // language list, not the menu around it, whose own row is where focus lands.
-  await accountTrigger(page).click();
-  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await page.goto("/#/settings/account");
+  const trigger = page.getByRole("combobox", { name: "Sprache" });
   await trigger.click();
-  const menu = page.getByRole("menu", { name: "Sprache" });
-  await expect(menu).toBeVisible();
+  const list = page.getByRole("listbox");
+  await expect(list).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
+  await expect(list).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
 
-test("features/10 §7: Tab closes the language menu and carries on", async ({
+test("features/10 §7: Tab closes the language list and carries on", async ({
   page,
 }) => {
-  await page.goto("/#/home");
-  await accountTrigger(page).click();
-  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await page.goto("/#/settings/account");
+  const trigger = page.getByRole("combobox", { name: "Sprache" });
   await trigger.click();
-  const menu = page.getByRole("menu", { name: "Sprache" });
-  await expect(menu).toBeVisible();
+  const list = page.getByRole("listbox");
+  await expect(list).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(menu).toHaveCount(0);
+  await expect(list).toHaveCount(0);
   // Tab says the reader is leaving, so focus must land on the next control —
   // neither back on the trigger they just left nor nowhere at all.
   await expect(trigger).not.toBeFocused();

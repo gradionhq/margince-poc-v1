@@ -141,6 +141,46 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.queryByText("admin")).toBeNull();
   });
 
+  // Theme and language are this person's own preferences, so the Account tab is
+  // where they are offered — the sidebar's account menu carries destinations.
+  // The theme choice has to reach the document AND storage: on the document
+  // because that is what repaints, in storage because that is what survives a
+  // reload.
+  it("offers the theme on the Account tab, and a choice reaches the document and storage", async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    const dark = screen.getByRole("button", { name: "Dark" });
+    await user.click(dark);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(globalThis.localStorage.getItem("margince.theme")).toBe("dark");
+    expect(dark.getAttribute("aria-pressed")).toBe("true");
+
+    // Put it back. The theme is document-wide state held in theme.ts's own
+    // store, which neither cleanup() nor the localStorage clear reaches, so
+    // leaving it flipped would hand every later test a theme that depends on
+    // the order the file happened to run in.
+    await user.click(screen.getByRole("button", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("switches the language from the Account tab, through the design-system select", async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Language" }),
+      "Deutsch",
+    );
+    // The choice reaches the chrome around the control, not just the control's
+    // own face — which is the whole point of changing a language here.
+    expect(screen.getByRole("combobox", { name: "Sprache" })).toBeTruthy();
+    expect(screen.getByText("Voreinstellungen")).toBeTruthy();
+  });
+
   it("the passport row's token reads as withheld — masked, never re-disclosed — on the AI tab", async () => {
     render(<SettingsScreen tab="ai" />);
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());

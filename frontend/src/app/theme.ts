@@ -24,6 +24,15 @@ import { useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark";
 
+/**
+ * The offered themes, in the order a chooser shows them.
+ *
+ * `satisfies` proves every entry is a real theme, so the settings control's
+ * option set follows the type rather than being a second hand-written list that
+ * can fall behind it.
+ */
+export const THEMES = ["light", "dark"] as const satisfies readonly Theme[];
+
 export const THEME_KEY = "margince.theme";
 
 /** Storage is unavailable in some embedded contexts; a missing preference is a
@@ -82,14 +91,27 @@ function subscribeToTheme(listener: () => void): () => void {
   };
 }
 
-/** Flip the theme, persist the choice, and repaint every mounted toggle. */
-export function toggleTheme(): void {
-  liveTheme = readTheme() === "light" ? "dark" : "light";
-  persistTheme(liveTheme);
-  applyTheme(liveTheme);
+/**
+ * Choose a theme, persist the choice, and repaint every mounted control.
+ *
+ * Unconditional even when the theme asked for is the one already showing: an
+ * unstored theme is the OPERATING SYSTEM's, so picking the theme a reader can
+ * already see is the first time they have said it is theirs rather than their
+ * machine's — and swallowing that write would let the next OS change take it
+ * away again.
+ */
+export function setTheme(theme: Theme): void {
+  liveTheme = theme;
+  persistTheme(theme);
+  applyTheme(theme);
   for (const listener of listeners) {
     listener();
   }
+}
+
+/** Flip the theme, for the surfaces that offer one control rather than a choice. */
+export function toggleTheme(): void {
+  setTheme(readTheme() === "light" ? "dark" : "light");
 }
 
 export function useTheme(): readonly [Theme, () => void] {

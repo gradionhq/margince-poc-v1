@@ -20,12 +20,11 @@ export const vi = {
     "Ledger Green (ADR-0040) — giá trị chuẩn khớp với bản mockup trong spec; test ghim chúng lại.",
   "theme.toDark": "Giao diện tối",
   "theme.toLight": "Giao diện sáng",
-  // Giao diện đang dùng — dòng trong menu tài khoản. Hai nhãn phía trên là tên
-  // của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
+  // Hai giao diện là hai lựa chọn của một nhóm — Cài đặt → Tài khoản hiện cả hai
+  // cùng lúc, nên mỗi nhãn nói nó LÀ gì chứ không nói cú nhấp làm gì. Hai nhãn
+  // phía trên là tên của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
   "theme.light": "Sáng",
   "theme.dark": "Tối",
-  "theme.switchToDark": "Chuyển sang giao diện tối",
-  "theme.switchToLight": "Chuyển sang giao diện sáng",
 
   "section.surfaces": "Bề mặt",
   "section.accentAi": "Màu nhấn & AI",
@@ -114,6 +113,7 @@ export const vi = {
   "shell.more": "Thêm",
   "shell.unknownPage": "Không tìm thấy",
   "shell.closeMenu": "Đóng",
+  "shell.navBack": "Quay lại",
   "shell.navBackTo": "Quay lại {name}",
   "shell.navTop": "Điều hướng",
   "agent.title": "Margince AI",
@@ -1674,6 +1674,8 @@ export const vi = {
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
   "settings.identity": "Bạn",
+  "settings.preferences": "Tùy chọn",
+  "settings.preferencesSub": "Giao diện và ngôn ngữ, cho trình duyệt này.",
   "role.admin": "Quản trị",
   "role.manager": "Quản lý",
   "role.rep": "Nhân viên kinh doanh",

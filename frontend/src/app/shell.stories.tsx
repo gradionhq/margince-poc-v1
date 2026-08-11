@@ -193,8 +193,9 @@ export const SidebarStates: Story = {
  * screen publishes this shape from live grants (`useSettingsSection`), which
  * would make these stories a picture of a permission matrix rather than of the
  * level. The point here is what the SHELL does with a section — one level at a
- * time, the way back up above the entries, the two groups under the section's
- * own name — so the data is held still and the rendering is what varies.
+ * time, the reduced head with the way back under the mark, the two groups under
+ * the section's own name — so the data is held still and the rendering is what
+ * varies.
  *
  * `overlay` carries children no settings tab really has, which is the one part
  * of the fixture that is not a copy of production: it is how the third level
@@ -239,15 +240,22 @@ const SETTINGS_SECTION: NavSection = {
   ],
 };
 
-// The back control is LIVE in every story below: walking up to the destinations
-// and back is the interaction the level exists for, and a story where it did
-// nothing would hide it.
+// The level shown is derived from the ADDRESS, and the way back up navigates —
+// so in a story holding a route still it moves the URL and leaves the panel
+// where the story put it. Each depth below is therefore a story of its own,
+// which is also how a reviewer sees them side by side.
+//
+// A level takes the rail's head for its rows: no brand words, no search row. The
+// palette is left unmounted for that reason — with no row to open it, a wired
+// seam here would be a control nobody can reach, and the shell's own stories
+// above are where that seam belongs.
+const noSearchRow = () => undefined;
+
 function LevelExample({
   initiallyCollapsed,
   tab = "audit",
 }: Readonly<{ initiallyCollapsed: boolean; tab?: string }>) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
-  const { openSearch, palette } = usePaletteSeam();
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
       <WorkspaceRail
@@ -256,12 +264,11 @@ function LevelExample({
         counts={{ inbox: 12, tasks: 4 }}
         collapsed={collapsed}
         onToggle={() => setCollapsed((current) => !current)}
-        onOpenSearch={openSearch}
+        onOpenSearch={noSearchRow}
       />
       <main className="main">
         <div className="scroll" />
       </main>
-      {palette}
     </div>
   );
 }
@@ -275,9 +282,11 @@ function LevelStory({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-// The labeled level: the way back up, the section's name, then its two groups.
-// The ten destinations are GONE rather than pushed below a second list — 252px
-// carrying both levels reads as a list of twenty places to go.
+// The labeled level: the logomark, the way back up, the section's name, then its
+// two groups. The ten destinations are GONE rather than pushed below a second
+// list — 252px carrying both levels reads as a list of twenty places to go — and
+// the head is down to the mark alone, so the entries start where the brand words
+// and the search row used to sit.
 export const SectionLevel: Story = {
   name: "second level — expanded",
   render: () => (
@@ -314,7 +323,9 @@ export const ThirdLevel: Story = {
 /**
  * The level at phone width: a bar of two controls — the way back up, and More
  * opening the sheet at the level the panel is showing, so the section's entries
- * stay one tap away and the destinations one tap behind the back row.
+ * stay one tap away and the destinations one tap behind the back row. The sheet
+ * carries the same reduced head the sidebar does: the mark and the entries, no
+ * search row.
  *
  * One thing about the viewport tool is worth knowing before trusting a picture
  * of this: it is applied by the MANAGER, which resizes the preview iframe. These
