@@ -21,6 +21,103 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-11 — the lane says where its own time goes, 222s → 207s (PRs #854, #859, #861)
+
+Three changes, and the first is the one that matters after the other two are
+forgotten: **the runner prints its own wall-clock breakdown every run.** The
+per-package cost report priced tests and said so, which left everything around
+them unattributed — and unattributed turned out to be 42s of a 221s run. Every
+number in this entry came out of that report; before it existed, three of the four
+components were guesses and two of the guesses were wrong. Clone churn looked like
+the residue and is ~3s of it (eight concurrent `CREATE DATABASE` from one template
+measure 1.06s, not eight times 0.38s — they do not serialize), while pre-fan-out
+discovery looked negligible and is 15–20s.
+
+Measured back to back on one machine, same sitting:
+
+```
+222s  before        long pole waited 12s
+212s  + #859 split  long pole waited 12s
+207s  + #861 order  long pole waited  0s
+```
+
+**The split (#859) bought 10s and cost 4s of total CPU** — an extra binary, clone
+and compile — which is the trade a split is supposed to make. **The ordering
+(#861) bought 11s**, and its mechanism is the load-independent part: slot-wait 16s
+→ 0s. That win is understated, because total package seconds ROSE 1.4% between
+those two runs and the long pole's own occupancy rose with it (183s → 191s), so
+the faster run was the busier one.
+
+**What the numbers corrected.** An earlier edition of the STATUS.md lane section
+said splitting was spent and the wall was no longer bound by the longest package.
+It is: `compose/integration` is 191s of 207s. What is actually spent is
+scheduling — the long pole now starts at t=0 and no ordering can beat that. This
+is worth remembering as a shape: the claim was plausible, held for a while, and
+was only falsifiable once the runner reported the breakdown.
+
+**The entanglement that sized the split.** Grouping was done from measured
+seconds (927 tests aggregated onto the file declaring each), not from names, and
+the boundary still had to be walked back three times — four neighbours that read
+as if they belonged with the channel suites share one preflight fixture with
+suites that were not moving, and `channelsend_mcp` asserts through a sealed
+envelope five types deep in the parent's `_test.go` files. Two helpers with
+callers on both sides were promoted rather than copied: `InWorkspace` to
+`apptest` (it takes an `AppEnv`, and an ordinary file in the parent cannot import
+`apptest` without closing a cycle through `compose`), and the retention seeder to
+`integration/suitefixtures.go`.
+
+**Two traps, both of which produce a passing test that proves nothing.** A suite
+that moves out of a package leaves behind whatever an `init()` armed, with no
+compile error — here the jurisdiction floor, whose absence makes the erasure the
+suite expects to be REFUSED succeed, so the assertion reports a missing floor as
+a missing shield. The registration travels with the suite now, and a guard asserts
+it by pack code and span. And the file holding that guard was first called
+`jurisdiction_arm_test.go`: Go reads the segment before `_test.go` as an implicit
+build constraint, **`arm` is a GOARCH**, and the file was silently dropped on every
+arm64 machine — so the fix appeared not to work, and the guard reported success
+while printing `no tests to run`.
+
+Every review finding across the three PRs was the same shape: instrumentation
+allowed to lie or to break what it measures. A failed timing write would have
+failed the whole lane (last command in `run_one`, under `xargs -P`, `set -e`); a
+package with no recorded duration had its entire slot reported as provisioning; a
+half-written ordering hint would have inverted the ordering, since a heavy package
+truncated mid-line sorts LAST. The hint is published by rename now, and the
+report says the split is unavailable rather than inventing one.
+
+## 2026-08-11 — the cheapest integration run is the one that never starts (PR #816)
+
+The entry above spends itself on making the lane faster. This one is about not
+running it. Editing `infra/ci-pipeline.md` — the file that *documents* the change
+classifier — booted twelve Postgres shards, because the `backend` scope matched
+`infra/**` and `.github/workflows/**` whole. A gate input earns its place by being
+able to change what a gate **does**; prose that merely describes one does not. So
+both scopes now name `infra/**/!(*.md)`, and the workflow glob names
+`.github/workflows/ci.yml` rather than every workflow.
+
+**The negation footgun, since the obvious spelling is wrong.** paths-filter ORs
+its patterns, so a `!infra/**/*.md` list entry matches every path *outside*
+`infra/` and fires the filter on everything — the opposite of the intent, failing
+open. Each cut is therefore one positive extglob. The behaviour was checked
+against picomatch (the matcher the action uses) before pushing, and the merged
+run confirmed it on live CI: two changed files, `ci.yml` matched, the `.md` did
+not.
+
+**What the narrowing nearly broke.** `make check-image-pins` reads the whole
+workflow directory but reached CI only through `make check-backend`, inside the
+`backend`-gated job. Narrowed, it would have skipped on exactly the PR that
+unpins an action in `sbom.yml` or `patch.yml` — and Renovate, which bumps `uses:`
+across all three workflows, auto-merges on green. It moved to `secret-scan`,
+which runs on every non-draft change for the same reason its two existing gates
+do: supply-chain surface is not a scope. No new check name, so branch protection
+was untouched. This is the same shape as the `docker images` fan-in, and worth
+remembering as a class: **narrowing a scope silently disarms every whole-tree
+gate that was riding inside it.** Grep for what a job actually reads before
+cutting what triggers it.
+
+A PR that edits `ci.yml` still runs the full backend lane, by design — a change
+to the merge gate that the merge gate never exercised is not a saving.
+
 ## 2026-08-10 — the MCP App views move to `frontend/` (#742, PR #793)
 
 The two `ui://` views left `go:embed` and became a frontend build target. The api
