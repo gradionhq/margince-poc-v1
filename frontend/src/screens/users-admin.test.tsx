@@ -113,6 +113,11 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
         user: { email: "admin@acme.test" },
         roles: ["admin"],
         teams: [],
+        // The installation CAN mint set-password links. Without this the card
+        // withholds that action from every row, and any assertion that one
+        // particular row lacks it passes without the row having anything to do
+        // with it.
+        admin_password_link: true,
       });
     }
     if (req.url.includes("/users") && req.method === "GET") {
@@ -125,6 +130,19 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
       body = undefined;
     }
     calls.push({ method: req.method, url: req.url, body });
+    // The link mint answers its own shape. With admin_password_link on, the
+    // invite flow opens the link dialog itself, and a generic user row handed
+    // to it renders an expiry from `undefined` — an unhandled error rather
+    // than a failed assertion, which fails the run without naming a test.
+    if (req.url.includes("/password-link")) {
+      return jsonResponse(
+        {
+          set_password_url: "https://crm.example.test/set-password?t=fixture",
+          expires_at: "2026-08-18T09:00:00Z",
+        },
+        201,
+      );
+    }
     return jsonResponse({ ...ROSTER.data[0], id: "u-new" }, 201);
   });
 }
@@ -208,10 +226,15 @@ describe("UsersAdminCard", () => {
       within(agent).queryByRole("button", { name: /set-password link/i }),
     ).toBeNull();
 
-    // A person's row is untouched by any of that.
+    // A person's row is untouched by any of that — and the link's absence above
+    // has to be about the AGENT rather than about an installation that mints no
+    // links at all, so the same control is asserted PRESENT here.
     const person = rowFor("Nora None");
     expect(roleSelect(person, "Nora None")).toBeTruthy();
     expect(within(person).queryByText("Agent")).toBeNull();
+    expect(
+      within(person).getByRole("button", { name: /set-password link/i }),
+    ).toBeTruthy();
   });
 
   // Deactivating the seat stays offered — an operator is entitled to that — but
