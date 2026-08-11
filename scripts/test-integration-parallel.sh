@@ -322,6 +322,34 @@ awk -F'|' '
 REGEX_DIR="$(mktemp -d)"
 export REGEX_DIR
 : > "$WORK"
+# Longest package first, from what the last run measured.
+#
+# Wall clock is set by when the LONGEST package finishes, so it should start at
+# t=0. Dispatched in discovery order it does not: measured, this lane's long pole
+# waited 16s of a 252s run for a slot while shorter packages held all eight. That
+# is the classic longest-processing-time-first result, and the durations to order
+# by are the ones the run below is about to print anyway.
+#
+# A package with no recorded time sorts FIRST, not last. The unknown is usually a
+# new small package, where the cost of guessing wrong is one slot occupied early;
+# guessing wrong the other way puts a new heavy package last and pays its whole
+# duration after everything else has finished. On the first run the cache is
+# absent and the order is discovery's, unchanged.
+#
+# Ordered HERE, before slots are numbered, so each package's -run slice, clone,
+# bucket and Redis db follow it rather than being handed to whoever inherits its
+# slot number.
+ORDER_HINT="$ROOT/.tmp/integration-lane-timing.txt"
+if [[ -s "$ORDER_HINT" ]]; then
+  # Only fields 1 and 2 are read; $0 is reprinted whole, because field 3 is a
+  # -run regex that contains its own pipes.
+  awk -F'|' -v hint="$ORDER_HINT" '
+    BEGIN { while ((getline l < hint) > 0) { split(l, f, "|"); secs[f[1]] = f[2] + 0 } }
+    { printf "%012.3f|%s\n", ($2 in secs ? secs[$2] : 999999), $0 }
+  ' "$GROUPED" | LC_ALL=C sort -t'|' -k1 -rn | cut -d'|' -f2- > "${GROUPED}.ordered"
+  mv "${GROUPED}.ordered" "$GROUPED"
+fi
+
 slot=0
 while IFS= read -r line; do
   slot=$((slot + 1))
@@ -525,6 +553,14 @@ if [[ -s "$WALLCLOCK" ]] && [[ -s "$TIMING" ]]; then
         printf "  %ds  %s occupied a slot; it recorded no test duration, so the tests/provisioning split is unavailable\n", ended - began, last
       }
     }'
+fi
+
+# Leave the durations behind for the next run to dispatch by. Full runs only: a
+# shard measures its own slice, and saving that would order the next full run by
+# a twelfth of each package.
+if [[ -s "$TIMING" ]] && (( SHARD_TOTAL == 0 )); then
+  mkdir -p "$(dirname "$ORDER_HINT")"
+  cut -d'|' -f1,2 "$TIMING" > "$ORDER_HINT" || true
 fi
 
 # Reconcile against discovery: a green run must have executed every package we
