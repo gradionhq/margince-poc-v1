@@ -44,6 +44,28 @@ func TestSizeBandFromEmployeeRangeMapsOnlyUnambiguousPhrasings(t *testing.T) {
 		{"", "", false},
 		// Three numbers state no single range.
 		{"between 10, 50 and 200", "", false},
+		// A comparison states a bound, not a placeable range.
+		{">500 employees", "", false},
+		{"over 500", "", false},
+		{"up to 50", "", false},
+		{"mehr als 1000", "", false},
+		{"über 200 Mitarbeiter", "", false},
+		// Magnitude shorthand in any spelling refuses.
+		{"2m employees", "", false},
+		{"10-k", "", false},
+		{"2 Tsd. Mitarbeiter", "", false},
+		// Register identifiers and negatives are not headcounts.
+		{"HRB 9001", "", false},
+		{"-5 employees", "", false},
+		// Mixed separators are no unambiguous integer.
+		{"1,234.567", "", false},
+		// The band edges, both sides.
+		{"10", "1-10", true},
+		{"11", "11-50", true},
+		{"200", "51-200", true},
+		{"201", "201-500", true},
+		{"5000", "1001-5000", true},
+		{"5001", "5000+", true},
 	}
 	for _, c := range cases {
 		band, ok := sizeBandFromEmployeeRange(c.text)

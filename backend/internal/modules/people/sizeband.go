@@ -38,13 +38,21 @@ var sizeBands = []struct {
 }
 
 var (
-	// A magnitude word next to a digit ("10k", "2 thousand") means the
-	// digits alone are NOT the headcount — always a refusal, never a parse.
-	employeeRangeMagnitude = regexp.MustCompile(`(?i)\d\s*(k\b|thousand|tausend|million|mio\b)`)
-	employeeRangeNumber    = regexp.MustCompile(`\d[\d,.]*`)
-	// Thousands separators are the one punctuation a headcount may carry;
-	// "2.5" is a decimal, and a decimal headcount is nobody's clean answer.
-	thousandsShaped = regexp.MustCompile(`^\d{1,3}([,.]\d{3})*$|^\d+$`)
+	// A magnitude word next to a digit ("10k", "2 thousand", "2-million")
+	// means the digits alone are NOT the headcount — always a refusal,
+	// never a parse.
+	employeeRangeMagnitude = regexp.MustCompile(`(?i)\d\s*[-–.]?\s*(k|m|thousand|tausend|tsd|million|mio|mrd|billion)($|[^\p{L}])`)
+	// A comparison marker (">500", "over 500", "up to 50") states a bound,
+	// not a range this mapping can place in one band.
+	employeeRangeComparison = regexp.MustCompile(`(?i)[<>≤≥]|(^|[^\p{L}])(over|under|more than|less than|fewer than|at least|up to|mehr als|über|unter|weniger als|bis zu|mindestens|höchstens)([^\p{L}]|$)`)
+	// A company-register marker means the digits are an identifier, not a
+	// headcount ("HRB 9001").
+	employeeRangeRegister = regexp.MustCompile(`(?i)(^|[^\p{L}])(hrb|hra|vr|vat|ust)([^\p{L}\d]|\d|$)`)
+	employeeRangeNumber   = regexp.MustCompile(`\d[\d,.]*`)
+	// Thousands separators are the one punctuation a headcount may carry,
+	// and only one KIND of them per number; "2.5" is a decimal and
+	// "1,234.567" is mixed — neither is anybody's clean headcount.
+	thousandsShaped = regexp.MustCompile(`^\d{1,3}(,\d{3})*$|^\d{1,3}(\.\d{3})*$|^\d+$`)
 )
 
 // sizeBandFromEmployeeRange maps a stated headcount phrase onto the
@@ -57,7 +65,11 @@ func sizeBandFromEmployeeRange(text string) (string, bool) {
 			return band.label, true
 		}
 	}
-	if employeeRangeMagnitude.MatchString(trimmed) {
+	// A leading minus is a parse artifact ("-5"), not a headcount.
+	if strings.HasPrefix(trimmed, "-") ||
+		employeeRangeMagnitude.MatchString(trimmed) ||
+		employeeRangeComparison.MatchString(trimmed) ||
+		employeeRangeRegister.MatchString(trimmed) {
 		return "", false
 	}
 	numbers, ok := employeeRangeNumbers(trimmed)
@@ -118,7 +130,18 @@ func bandContaining(n int) (string, bool) {
 // import's) standing value is never overwritten, and only when the phrasing
 // maps cleanly. On abstention the fact row stays the evidence and the column
 // stays fillable by a later, cleaner read.
-func fillSizeBandFromFacts(ctx context.Context, tx pgx.Tx, in DeepReadProposal, by string) error {
+//
+// appliedFacts is upsertOrganizationFacts' report of what actually landed: a
+// proposal whose employee_range the human-precedence guard refused must not
+// promote either, or the column would contradict the standing human fact.
+func fillSizeBandFromFacts(ctx context.Context, tx pgx.Tx, in DeepReadProposal, by string, appliedFacts []map[string]any) error {
+	landed := false
+	for _, applied := range appliedFacts {
+		landed = landed || applied["field"] == FactEmployeeRange
+	}
+	if !landed {
+		return nil
+	}
 	for _, f := range in.Facts {
 		if f.Category != factCategoryCompany || f.Field != FactEmployeeRange {
 			continue

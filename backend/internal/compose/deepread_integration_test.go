@@ -690,6 +690,33 @@ func TestAcceptedEmployeeRangeFactFillsSizeBandWhenUnambiguous(t *testing.T) {
 	if factValue != "50-200 employees" {
 		t.Fatalf("fact row = %q, want the raw stated range kept as evidence", factValue)
 	}
+
+	// A human-claimed employee_range fact blocks the whole promotion: the
+	// upsert refuses the agent's fact, so the column must not contradict the
+	// human's standing statement either.
+	claimed := insertOrg(t, e, e.Rep1, "claimed.example", "")
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_fact
+			  (workspace_id, organization_id, category, field, value, value_key,
+			   evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, 'company', 'employee_range', '11-50', '',
+			        'set by hand', '', 1, 'human', $3)`,
+			e.WS, claimed, "human:"+e.Rep1.String())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyDeepRead(ctx, people.DeepReadProposal{
+		OrganizationID: ids.From[ids.OrganizationKind](claimed),
+		SourceURL:      "https://claimed.example",
+		Facts:          employeeRangeFact("about 300 people"),
+	}); err != nil {
+		t.Fatalf("ApplyDeepRead against a human-claimed fact: %v", err)
+	}
+	if got := readSizeBand(claimed); got != nil {
+		t.Fatalf("a refused fact still promoted size_band = %q, want NULL", *got)
+	}
 }
 
 func TestDeepReadRejectionLandsNothing(t *testing.T) {
