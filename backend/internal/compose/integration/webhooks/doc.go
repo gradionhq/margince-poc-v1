@@ -13,7 +13,6 @@
 // to be the lane's long pole by itself. Its suites ride the parent's exported
 // fixtures and integration/apptest's.
 //
-// The retry and fan-out suite is the reason this split is worth its size — it is
-// the most expensive single file in the parent, because it waits on real delivery
-// attempts. That waiting is now concurrent with the parent instead of inside it.
+// Every outbound-webhook suite moved; none stayed behind, so there is no boundary
+// exception to record here.
 package webhooks

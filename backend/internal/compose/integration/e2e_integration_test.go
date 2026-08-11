@@ -210,3 +210,25 @@ func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
 		t.Fatalf("bad login = %d, want 401", status)
 	}
 }
+
+// TestAdvancingToLostWithoutAReasonIsRefused pins the deal_lost_reason CHECK's
+// 422, which the contract states as a spec-governed refusal rather than a
+// validation nicety: a deal may be lost, but not silently.
+//
+// It is its own named test because the claim has to fail under its own name. The
+// assertion used to live inside the shared won-deal fixture, where a deals
+// regression surfaced as a webhooks payload suite reporting
+// "lost without reason = 200" — a failure nobody would read as being about deals.
+func TestAdvancingToLostWithoutAReasonIsRefused(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	stages := apptest.DiscoverSeededPipeline(t, e)
+	dealID := apptest.CreateOpenDeal(t, e, stages)
+
+	var refusal apptest.AnyMap
+	status := e.Call(t, "POST", "/v1/deals/"+dealID+"/advance",
+		apptest.AnyMap{"to_stage_id": stages.Lost}, nil, &refusal)
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("advance to lost with no reason = %d %v, want 422 — the deal_lost_reason CHECK must refuse it", status, refusal)
+	}
+}

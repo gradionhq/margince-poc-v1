@@ -15,11 +15,6 @@
 // overlay_acceptance_seam_test.go deliberately stayed behind: it carries no
 // integration build tag, so it belongs to the unit lane rather than this one.
 //
-// It owns a backendModuleRoot of its own, and integration/webhooks owns a second
-// copy, which is not duplication anyone can remove. A definition both lanes could
-// reach would have to sit in an untagged, non-test file, and that would pull
-// package integration — and `testing` with it — into ordinary builds.
-//
 // The production overlay module is imported as overlaymod, because inside a
 // package named overlay a bare overlay.X reads as a self-reference.
 package overlay

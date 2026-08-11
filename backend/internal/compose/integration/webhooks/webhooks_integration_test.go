@@ -30,7 +30,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -971,7 +970,7 @@ func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) 
 func publicEventSchema(t *testing.T, name string) *openapi3.Schema {
 	t.Helper()
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile(filepath.Join(backendModuleRoot(t), "api", "public-events.yaml"))
+	doc, err := loader.LoadFromFile("../../../../api/public-events.yaml")
 	if err != nil {
 		t.Fatalf("loading api/public-events.yaml: %v", err)
 	}
