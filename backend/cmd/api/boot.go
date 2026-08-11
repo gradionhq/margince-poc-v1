@@ -231,7 +231,13 @@ func modelSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgx
 // to cmd/worker over the same path. The path comes back because no Server field
 // carries it — each role resolves its own — so the reset's cache flush can only
 // drop what its router cached from here.
-func modelAndHandoffOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger) ([]compose.Option, *compose.ModelPath, error) {
+//
+// quotaMeter is the SAME per-Passport volume meter the admission gate and the
+// tool registry take through WithAgentQuota (MCP-SESS-COST): binding it here
+// charges a model call to the agent that caused it, where the tokens are known.
+// A model path bound to a different meter would meter an agent's spend into a
+// window nothing else looks at, so the path leaves this function already bound.
+func modelAndHandoffOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger, quotaMeter *agentquota.Meter) ([]compose.Option, *compose.ModelPath, error) {
 	opts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
 	if err != nil {
 		return nil, nil, err
@@ -239,6 +245,13 @@ func modelAndHandoffOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *
 	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
 	if err != nil {
 		return nil, nil, err
+	}
+	// Nil is a SUPPORTED deployment, not an error: an api started with neither
+	// --ai-routing nor --ai-fake resolves no model path at all, and every other
+	// consumer here guards it the same way. There is no model call to charge in
+	// that shape, so there is nothing to bind.
+	if modelPath != nil {
+		*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
 	}
 	return append(opts, handoffOpts...), modelPath, nil
 }
