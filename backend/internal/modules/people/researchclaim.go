@@ -22,6 +22,7 @@ package people
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/jackc/pgx/v5"
 
@@ -31,6 +32,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// webSourceURL admits only a document somebody can actually open. A host is
+// required as well as a scheme: bare "http:" parses cleanly and points nowhere.
+func webSourceURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if parsed.Host == "" {
+		return false
+	}
+	return parsed.Scheme == schemeHTTPS || parsed.Scheme == schemeHTTP
+}
+
+// The two schemes a citation can honestly carry.
+const (
+	schemeHTTPS = "https"
+	schemeHTTP  = "http"
 )
 
 // researchSource marks these rows as a human's acceptance of a provider's
@@ -63,6 +83,15 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 			return 0, httperr.Validation(fmt.Sprintf("claims[%d]", i), "required",
 				"a saved research claim carries its value, the words it was read from, and the document it came from — one that lost any of the three cannot be checked, and is refused rather than stored")
 		}
+		// The scheme is checked HERE, not only where the run produced it. A
+		// client is not obliged to send back what the run returned, so a read
+		// path that refuses javascript: and a write path that accepts it is the
+		// asymmetry that lands untrusted input in the record and waits for a
+		// renderer to turn it into a sink.
+		if !webSourceURL(claim.SourceURL) {
+			return 0, httperr.Validation(fmt.Sprintf("claims[%d].source_url", i), "invalid",
+				"a source is a document a reader can open — give an http or https URL with a host")
+		}
 	}
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return 0, err
@@ -74,6 +103,10 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 
 	saved := 0
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// Reset inside the closure: WithWorkspaceTx may run it again, and a
+		// counter that survived the retry would tell the caller more claims
+		// landed than exist — and put that inflated number in the audit row.
+		saved = 0
 		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
@@ -90,7 +123,13 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 				    evidence_snippet = EXCLUDED.evidence_snippet,
 				    source_ref = EXCLUDED.source_ref,
 				    source = EXCLUDED.source,
-				    captured_by = EXCLUDED.captured_by`,
+				    captured_by = EXCLUDED.captured_by
+				-- The conflict target is workspace-blind (migration 0097's
+				-- uq_person_profile_field), so the branch names the workspace
+				-- itself. Person ids are unique across the fleet, but an
+				-- executor that bypasses row-level security would otherwise be
+				-- one id collision away from updating another tenant's row.
+				WHERE person_profile_field.workspace_id = $1`,
 				storekit.MustWorkspace(ctx), personID, claim.Field, claim.Value,
 				claim.Quote, claim.SourceURL, by, researchSource); err != nil {
 				return fmt.Errorf("save the research claim %q: %w", claim.Field, err)

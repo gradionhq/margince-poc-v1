@@ -13,9 +13,13 @@ package integration
 // sees, never whether they may see meetings at all.
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
@@ -105,5 +109,76 @@ func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 	_, err := meetingBriefService(e).Get(rep, meeting)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("brief on a meeting linked only to another team's contact → %v, want ErrNotFound", err)
+	}
+}
+
+// An attendee's "last touch" is read from ACTIVITIES, so it takes the activity
+// row scope like every other activity read on this page.
+//
+// The two tables diverge legitimately: participants are resolved from message
+// headers, links are supplied by the connector. So a conversation can name this
+// caller's attendee as a participant while being linked only to another team's
+// contact — and an unscoped sub-select would report when that conversation
+// happened, disclosing both its timing and that it exists at all.
+func TestMeetingBriefDoesNotReportALastTouchTheCallerCannotRead(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+
+	meeting := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'meeting', 'Expansion review', now() + interval '1 day',
+		        'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, meeting, "person", attendee)
+	seatInRoom(t, owner, e.WS, meeting, attendee)
+
+	// A conversation this caller may not read, which nonetheless names their
+	// attendee as a participant.
+	hidden := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'Cc: budget', now() - interval '3 days',
+		        'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, hidden, "person", theirs)
+	seatInRoom(t, owner, e.WS, hidden, attendee)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	// The attendee is a FIRST-TIME attendee as far as this caller can see:
+	// the only prior conversation naming them is one they may not read. The
+	// brief must say so — reporting a last touch would disclose both when that
+	// conversation happened and that it happened at all.
+	var attendees string
+	for _, section := range brief.Sections {
+		if section.Kind != "attendees" {
+			continue
+		}
+		for _, sentence := range section.Sentences {
+			attendees += sentence.Text + "\n"
+		}
+	}
+	if attendees == "" {
+		t.Fatal("the brief rendered no attendees section, so this proves nothing")
+	}
+	if !strings.Contains(attendees, "Ana Roth") {
+		t.Fatalf("the attendee is missing from the room: %q", attendees)
+	}
+	if !strings.Contains(attendees, "first") {
+		t.Errorf("attendees = %q; want Ana Roth flagged as first-time — the only prior conversation is one this caller cannot read", attendees)
+	}
+}
+
+// seatInRoom names a person as a participant on an activity — the table the
+// brief reads its room from, written separately from activity_link.
+func seatInRoom(t *testing.T, owner *pgx.Conn, ws, activity, person ids.UUID) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO activity_participant (workspace_id, activity_id, role, person_id)
+		 VALUES ($1, $2, 'attendee', $3)`, ws, activity, person); err != nil {
+		t.Fatalf("seating a participant: %v", err)
 	}
 }

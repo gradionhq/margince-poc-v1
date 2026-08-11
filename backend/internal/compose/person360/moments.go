@@ -46,6 +46,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -114,11 +115,15 @@ func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.P
 		return false, nil
 	}
 	var stored string
+	// The workspace is named rather than left to row-level security alone. RLS
+	// does not apply to a superuser or a BYPASSRLS role — which is what every
+	// migration and CI run uses — and without the predicate this QueryRow would
+	// silently take the first of several rows across workspaces.
 	err := tx.QueryRow(ctx, `
 		SELECT evidence_fingerprint
 		FROM person_moment_dismissal
-		WHERE user_id = $1 AND person_id = $2 AND claim_key = $3`,
-		viewer.UserID, personID, moment.ClaimKey).Scan(&stored)
+		WHERE workspace_id = $1 AND user_id = $2 AND person_id = $3 AND claim_key = $4`,
+		storekit.MustWorkspace(ctx), viewer.UserID, personID, moment.ClaimKey).Scan(&stored)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

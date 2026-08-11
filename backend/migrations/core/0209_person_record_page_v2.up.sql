@@ -279,6 +279,19 @@ CREATE TABLE consent_qualifying_event (
 CREATE INDEX consent_qualifying_event_person_ix
   ON consent_qualifying_event (workspace_id, person_id, occurred_at DESC);
 
+-- One event per source record, enforced by the database rather than by a
+-- read-then-write check in Go. The derived arm stamps the event that authorized
+-- a send, and two concurrent sends to the same person both see "no row yet" and
+-- both insert: a NOT EXISTS guard in application code cannot close that race,
+-- and the result is two rows claiming two events where one message happened.
+--
+-- Partial, because the in_person kind carries no source record: those rows are
+-- typed by a named human, one deliberate act at a time, and nothing about them
+-- is derivable to duplicate.
+CREATE UNIQUE INDEX consent_qualifying_event_source_unique
+  ON consent_qualifying_event (workspace_id, person_id, source_entity_type, source_entity_id)
+  WHERE source_entity_id IS NOT NULL;
+
 COMMENT ON TABLE consent_qualifying_event IS
   'The recorded event that flipped business correspondence to allowed (ADR-0098 D2). Recording it is what makes the Art 6(1)(f) balancing accountable.';
 

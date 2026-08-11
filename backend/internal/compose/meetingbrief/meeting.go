@@ -95,6 +95,18 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	if err != nil {
 		return meeting{}, err
 	}
+	// The last-touch sub-select reads ACTIVITIES, so it takes the activity row
+	// scope like every other activity read on this page. Without it the brief
+	// reports when an attendee last spoke to us using a conversation this
+	// caller may not open — the timing, and the fact that any correspondence
+	// exists at all, are both disclosures the scope exists to prevent.
+	touchScope, err := auth.ActivityScopeClause(ctx, "pa", arg)
+	if err != nil {
+		return meeting{}, err
+	}
+	if touchScope == "" {
+		touchScope = scopeAll
+	}
 
 	var out meeting
 	var subject *string
@@ -102,7 +114,7 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	var dealID *ids.UUID
 	var stage, currency *string
 	var attendees []byte
-	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos), args...).
+	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope), args...).
 		Scan(&out.ID, &out.StartsAt, &subject,
 			&dealID, &deal.Name, &stage, &deal.AmountMinor, &currency, &deal.CloseDate,
 			&attendees)
@@ -153,6 +165,7 @@ const meetingQuery = `
 	                    JOIN activity_participant pp ON pp.activity_id = pa.id
 	                    WHERE pp.person_id = p.id AND pa.archived_at IS NULL
 	                      AND pa.id <> a.id AND pa.occurred_at <= a.occurred_at
+	                      AND %[4]s
 	                  ))
 	                ORDER BY p.full_name, p.id)
 	         FROM (SELECT DISTINCT ap.person_id FROM activity_participant ap

@@ -18,6 +18,7 @@ package person360
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -89,7 +90,9 @@ func (s *Service) DismissMoment(ctx context.Context, personID ids.PersonID, in c
 			              dismissed_at = now()`,
 			storekit.MustWorkspace(ctx), userID, personID, in.ClaimKey, in.EvidenceFingerprint)
 		if err != nil {
-			return err
+			// Wrapped: a bare pgx error carries the table and column it failed
+			// on, and this one reaches a client through httperr.
+			return fmt.Errorf("record the moment dismissal: %w", err)
 		}
 		return nil
 	})

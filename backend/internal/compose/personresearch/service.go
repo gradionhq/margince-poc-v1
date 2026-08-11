@@ -6,9 +6,11 @@
 //
 // NOTHING IS WRITTEN BEFORE AN EXPLICIT SAVE. A run stages: it returns claims
 // and touches no record. The record changes only when a human reviews the
-// staged set and accepts specific claims, and the accepted ones land through
-// the conversation-claims writer — the same audited path everything else on
-// this page uses.
+// staged set and accepts specific claims, and the accepted ones land in
+// person_profile_field through the audited write shape — the same table the
+// signature-enrichment pass fills, whose evidence_snippet and source_ref are
+// both NOT NULL, so a claim that lost its quote or its source cannot be stored
+// at all.
 //
 // The zero-write guarantee is STRUCTURAL, not a rule this package remembers:
 // running a research pass needs no store with a write method, so the service
@@ -124,7 +126,7 @@ func subjectFrom(view crmcontracts.Person360) persondata.Subject {
 // beside ones that are would teach a reader to trust the wrong things.
 func wireClaims(claims []persondata.Claim) []crmcontracts.PersonResearchClaim {
 	out := make([]crmcontracts.PersonResearchClaim, 0, len(claims))
-	for i, claim := range claims {
+	for _, claim := range claims {
 		sources := make([]crmcontracts.PersonResearchSource, 0, len(claim.Sources))
 		for _, source := range claim.Sources {
 			if !webURL(source.URL) {
@@ -144,7 +146,10 @@ func wireClaims(claims []persondata.Claim) []crmcontracts.PersonResearchClaim {
 			continue
 		}
 		out = append(out, crmcontracts.PersonResearchClaim{
-			Ordinal:    i + 1,
+			// Numbered by what the reader SEES. Numbering by the provider's
+			// index leaves gaps where a claim was dropped, and a conversation
+			// angle citing "Claim 3" would point at nothing.
+			Ordinal:    len(out) + 1,
 			Body:       claim.Body,
 			Confidence: crmcontracts.PersonResearchClaimConfidence(claim.Confidence),
 			Sources:    sources,
@@ -155,10 +160,12 @@ func wireClaims(claims []persondata.Claim) []crmcontracts.PersonResearchClaim {
 
 // Save writes the claims a human accepted, and only those.
 //
-// This is the first and only write in the whole surface. It goes through the
-// conversation-claims writer rather than a path of its own, so a saved research
-// claim is correctable, dismissible and audited exactly like an extracted one —
-// where it came from changes its provenance, not its lifecycle.
+// This is the first and only write in the whole surface. It lands in
+// person_profile_field, where the two evidence columns are NOT NULL — so the
+// "checkable or refused" rule is the schema's, not this function's good
+// manners. A saved research claim is a FACT about who the person is, not a
+// conversation claim: it has no status, no needs-review and no dismissal,
+// because nobody said it in a conversation we captured.
 func (s *Service) Save(ctx context.Context, personID ids.PersonID, in crmcontracts.SavePersonResearchRequest) (int, error) {
 	if len(in.Claims) == 0 {
 		// Saving nothing is not an error — a reader who dismissed every claim

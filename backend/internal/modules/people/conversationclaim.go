@@ -76,6 +76,13 @@ func (s *Store) RecordConversationClaim(ctx context.Context, in ClaimInput) (crm
 		return crmcontracts.ConversationClaim{}, httperr.Validation("source_quote", "required",
 			"a claim carries the words it was read from — an ungrounded claim is dropped, never stored")
 	}
+	// Human-only in the STORE as well as the router table. The route is
+	// declared human-only today, but a store that relies on the routing
+	// declaration alone is one x-mcp-tool away from being agent-reachable
+	// without anybody revisiting this function.
+	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.ConversationClaim{}, err
+	}
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.ConversationClaim{}, err
 	}

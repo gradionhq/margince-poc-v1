@@ -127,11 +127,11 @@ func VerdictForPerson(ctx context.Context, tx pgx.Tx, personID string, purpose P
 		return Verdict{State: VerdictAllowed, Reason: "account and contract notices need no consent"}, nil
 
 	case ClassBusinessCorrespondence:
-		event, derived, found, err := latestQualifyingEvent(ctx, tx, personID)
+		event, source, err := latestQualifyingEvent(ctx, tx, personID)
 		if err != nil {
 			return Verdict{}, err
 		}
-		if !found {
+		if source == sourceNone {
 			// No inbound, no inquiry, no deal, no recorded exchange. There is
 			// nothing here to balance, so this is not the easy Art 6(1)(f) case
 			// and the honest answer is that nobody has decided.
@@ -144,7 +144,7 @@ func VerdictForPerson(ctx context.Context, tx pgx.Tx, personID string, purpose P
 			State:             VerdictAllowed,
 			Reason:            qualifyingReason(event),
 			Qualifying:        &event,
-			QualifyingDerived: derived,
+			QualifyingDerived: source == sourceDerived,
 		}, nil
 
 	case ClassPhoneOutreach:
@@ -272,14 +272,43 @@ func objectionStands(ctx context.Context, tx pgx.Tx, personID, purposeID string)
 // evidence, and a model that only recognised events recorded after this build
 // shipped would tell a rep they may not answer somebody who wrote to them last
 // week.
-func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, bool, bool, error) {
+func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (QualifyingEvent, eventSource, error) {
 	event, found, err := recordedQualifyingEvent(ctx, tx, personID)
-	if err != nil || found {
-		return event, false, found, err
+	if err != nil {
+		return QualifyingEvent{}, sourceNone, err
+	}
+	if found {
+		return event, sourceRecorded, nil
 	}
 	event, found, err = inboundQualifyingEvent(ctx, tx, personID)
-	return event, found, found, err
+	if err != nil {
+		return QualifyingEvent{}, sourceNone, err
+	}
+	if found {
+		return event, sourceDerived, nil
+	}
+	return QualifyingEvent{}, sourceNone, nil
 }
+
+// eventSource says where a qualifying event came from, and therefore whether
+// the transmit path still owes it a stamp.
+//
+// One value rather than two adjacent bools: `found` and `derived` are the same
+// type in neighbouring positions, so nothing but care stopped a future arm
+// returning them the wrong way round — and returning them the wrong way round
+// means either stamping a duplicate of a row that already exists, or relying on
+// a basis that was never written down.
+type eventSource int
+
+const (
+	// sourceNone: nothing on the record makes correspondence lawful.
+	sourceNone eventSource = iota
+	// sourceRecorded: a stored row already proves it, so there is nothing to stamp.
+	sourceRecorded
+	// sourceDerived: read off the timeline, and the transmit path must record it
+	// before relying on it (Art 5(2)).
+	sourceDerived
+)
 
 // RecordDerivedQualifyingEvent stamps a derived qualifying event onto the
 // record, so what authorized a send is a fact somebody can look up rather than
@@ -294,20 +323,23 @@ func latestQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string) (Qua
 // a legal fact because somebody opened a composer would record a basis for a
 // message that was never sent.
 //
-// The insert is idempotent on the source record: the same inbound message
+// The insert is idempotent on the source record — the same inbound message
 // re-derived on the next send must not stack a second row claiming a second
-// event happened.
+// event happened — and the guarantee is the database's unique index, not a
+// check this function performs and a concurrent caller races past.
 func RecordDerivedQualifyingEvent(ctx context.Context, tx pgx.Tx, personID string, event QualifyingEvent, capturedBy string) error {
+	// ON CONFLICT, not NOT EXISTS: two concurrent sends to the same person both
+	// pass a read-then-write check and both insert. The unique index on the
+	// source record is what actually makes this idempotent.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO consent_qualifying_event
 			(workspace_id, person_id, kind, source_entity_type, source_entity_id,
 			 occurred_at, source, captured_by)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		       $1, $2, $3, $4, $5, 'derived', $6
-		WHERE NOT EXISTS (
-		  SELECT 1 FROM consent_qualifying_event e
-		  WHERE e.person_id = $1 AND e.source_entity_type = $3 AND e.source_entity_id = $4
-		)`,
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, $2, $3, $4, $5, 'derived', $6)
+		ON CONFLICT (workspace_id, person_id, source_entity_type, source_entity_id)
+		  WHERE source_entity_id IS NOT NULL
+		  DO NOTHING`,
 		personID, event.Kind, event.SourceEntityType, event.SourceEntityID,
 		event.OccurredAt, capturedBy)
 	if err != nil {
