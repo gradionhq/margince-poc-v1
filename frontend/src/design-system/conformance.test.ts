@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -170,10 +170,17 @@ describe("design-system conformance gates (B-EP09.1)", () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
-  it("the service worker never caches or fabricates API responses (§4.7)", () => {
-    const sw = readFileSync(join(frontendRoot, "public", "sw.js"), "utf8");
-    expect(sw).toMatch(/pathname\.startsWith\("\/v1"\)/);
-    expect(sw).not.toMatch(/new Response\(/);
+  // No service worker, in both halves: no script to install and no call that
+  // would install one. The previous worker cached the app shell cache-first
+  // under a cache name that never changed between builds, so a browser that
+  // loaded the app once kept serving that build's index.html — and the
+  // content-hashed bundle it named — past every deploy after it. A worker is
+  // the only thing that can answer a request from Cache Storage, so the honest
+  // gate is that the app ships none.
+  it("ships no service worker, and registers none", () => {
+    expect(existsSync(join(frontendRoot, "public", "sw.js"))).toBe(false);
+    const main = readFileSync(join(frontendRoot, "src", "main.tsx"), "utf8");
+    expect(main).not.toMatch(/serviceWorker\.register\(/);
   });
 
   it("the web-app manifest is valid and complete for installability", () => {
