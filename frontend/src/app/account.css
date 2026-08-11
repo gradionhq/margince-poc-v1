@@ -222,26 +222,35 @@
    needs — the row chrome, the hover, the focus ring — it already inherits from
    the rules above, because the trigger is a button inside `.accountmenu`. */
 .rail .accountmenu .localemenu {
-  position: relative;
+  /* A column, so the list the row expands sits UNDER that row rather than
+     beside it — the wrapper is a flex parent and a row direction would have
+     laid the two out side by side in a 235px menu. */
   display: flex;
+  flex-direction: column;
 }
-.rail .accountmenu .menurow {
-  flex: 1;
-}
-/* The list is a SUBMENU here, so it opens beside the account menu — to the right,
-   because the menu is itself pinned to the rail on the left of the viewport. It
-   grows UPWARD from the row that opened it, like the menu around it: the row sits
-   near the bottom of the screen, and a list dropped from it would run off. The
-   -5px cancels the popover's own padding so the last language sits level with
-   that row. */
 .rail .accountmenu .localelist {
-  left: calc(100% + 6px);
-  right: auto;
-  bottom: -5px;
-  top: auto;
-  animation: accountmenu-rise 0.14s
-    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
-  transform-origin: bottom left;
+  /* IN the menu, not beside it. A flyout anchored past the menu's right edge is
+     cut off by the sidebar, which clips horizontally so the expand animation
+     cannot flash a scrollbar across the navigation — and at 64px there is no
+     room to fly out into either. Opening in flow costs the menu some height,
+     which it has: it grows upward, away from the foot it is anchored to. */
+  position: static;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  margin-top: var(--space-1);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  animation: none;
+}
+/* The nested list reads as nested: one rule down its left edge, rather than a
+   second popover chrome inside the popover it already sits in. */
+.rail .accountmenu .localelist {
+  margin-left: var(--space-4);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--borderSubtle);
 }
 /* A preference row states the setting on the left and what it is currently set to
    on the right; the accessible name carries what clicking does. */

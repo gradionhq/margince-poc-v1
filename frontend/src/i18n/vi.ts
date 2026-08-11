@@ -113,6 +113,7 @@ export const vi = {
   "shell.views": "Chế độ xem",
   "shell.more": "Thêm",
   "shell.unknownPage": "Không tìm thấy",
+  "shell.closeMenu": "Đóng",
   "agent.title": "Margince AI",
   "agent.regionAria": "Trạng thái Margince AI",
   "agent.configured": "Đã cấu hình",

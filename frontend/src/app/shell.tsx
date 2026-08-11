@@ -26,6 +26,7 @@ import {
   RAIL_LESS_SCREENS,
 } from "./nav";
 import { paletteHotkeyLabel } from "./palette";
+import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
 import "./shell.css";
@@ -169,6 +170,8 @@ export function WorkspaceRail({
   // sheet carrying every destination. One nav element, so there is still exactly
   // one navigation landmark and no second item list to keep in sync.
   const [sheetOpen, setSheetOpen] = useState(false);
+  const nav = useRef<HTMLElement>(null);
+  const more = useRef<HTMLButtonElement>(null);
   // While the sidebar is mid-collapse the pointer is still inside the head — it
   // has not narrowed past it yet — so the hover rules would hold the toggle on
   // screen at its new centred position and read as the icon sliding into the
@@ -186,12 +189,45 @@ export function WorkspaceRail({
     );
     onToggle?.();
   }, [onToggle]);
-  const dismiss = useCallback((event: KeyboardEvent) => {
+  const dismissTip = useCallback((event: KeyboardEvent) => {
     if (event.key === "Escape") {
       setTip(null);
-      setSheetOpen(false);
     }
   }, []);
+
+  // The sheet is a popover over the page, so it dismisses like every other one
+  // in the chrome: Escape from anywhere, any click outside it — which is what
+  // makes the scrim behind it work without being a control of its own.
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
+  usePopoverDismiss(sheetOpen, nav, closeSheet);
+
+  // Opening a sheet that covers the page has to take focus with it, or a
+  // keyboard user is left tabbing through a page they can no longer see; and
+  // closing it has to hand focus back to the control that opened it rather than
+  // dropping it on <body>. Only when the sheet still HOLDS focus — a row that
+  // navigated away has already put focus somewhere better.
+  useEffect(() => {
+    if (sheetOpen) {
+      nav.current?.querySelector<HTMLElement>(".navwrap .navitem")?.focus();
+      return;
+    }
+    if (nav.current?.contains(document.activeElement)) {
+      more.current?.focus();
+    }
+  }, [sheetOpen]);
+
+  // The page behind the sheet must not scroll under it: a touch that starts on
+  // the scrim would otherwise move the page rather than dismissing anything.
+  useEffect(() => {
+    if (!sheetOpen) {
+      return;
+    }
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [sheetOpen]);
 
   // A nav destination that the phone bar hides behind More: on those routes More
   // is the current tab, since the row that would carry the state is not rendered.
@@ -208,122 +244,135 @@ export function WorkspaceRail({
   }
 
   return (
-    <nav
-      className={classes.join(" ")}
-      aria-label={t("shell.railAria")}
-      onKeyDown={dismiss}
-    >
-      <div className="railhead">
-        <BrandBlock />
-        {onToggle && (
-          <button
-            type="button"
-            className="railtoggle"
-            aria-label={collapsed ? t("shell.expand") : t("shell.collapse")}
-            aria-expanded={!collapsed}
-            onClick={handleToggle}
-          >
-            {collapsed ? (
-              <PanelLeftOpen size={17} aria-hidden />
-            ) : (
-              <PanelLeftClose size={17} aria-hidden />
-            )}
-          </button>
-        )}
-      </div>
-      <RailSearch
-        collapsed={collapsed}
-        tipOpen={tip === SEARCH_TIP_KEY}
-        onOpenSearch={onOpenSearch}
-        onTip={setTip}
-      />
-      {NAV_GROUPS.map((group, index) => (
-        <div className="navgroup" key={group.headingKey ?? `group-${index}`}>
-          {/* The heading keeps its box in both states — collapsed it hides its
+    <>
+      {/* The scrim dims the page the sheet covers and gives the eye the layer
+          boundary. It carries no behaviour of its own: a click on it lands
+          outside the nav, which is already what closes the sheet. */}
+      {sheetOpen && <div className="railscrim" aria-hidden="true" />}
+      <nav
+        ref={nav}
+        className={classes.join(" ")}
+        aria-label={t("shell.railAria")}
+        onKeyDown={dismissTip}
+      >
+        <div className="railhead">
+          <BrandBlock />
+          {onToggle && (
+            <button
+              type="button"
+              className="railtoggle"
+              aria-label={collapsed ? t("shell.expand") : t("shell.collapse")}
+              aria-expanded={!collapsed}
+              onClick={handleToggle}
+            >
+              {collapsed ? (
+                <PanelLeftOpen size={17} aria-hidden />
+              ) : (
+                <PanelLeftClose size={17} aria-hidden />
+              )}
+            </button>
+          )}
+        </div>
+        <RailSearch
+          collapsed={collapsed}
+          tipOpen={tip === SEARCH_TIP_KEY}
+          onOpenSearch={onOpenSearch}
+          onTip={setTip}
+        />
+        {NAV_GROUPS.map((group, index) => (
+          <div className="navgroup" key={group.headingKey ?? `group-${index}`}>
+            {/* The heading keeps its box in both states — collapsed it hides its
               text and draws a hairline inside the same space. Swapping it for a
               shorter <hr> re-spaced every group and drifted the icons. */}
-          {group.headingKey && (
-            <h2 className="navheading">{t(group.headingKey)}</h2>
-          )}
-          {group.items.map((item) => {
-            const count = BADGE_SCREENS.has(item.screen)
-              ? counts?.[item.screen]
-              : undefined;
-            const active = route.screen === item.screen;
-            const label = t(item.labelKey);
-            const wrapClass = MOBILE_PRIMARY.has(item.screen)
-              ? "navwrap primary"
-              : "navwrap";
-            return (
-              <div className={wrapClass} key={item.screen}>
-                <a
-                  className={active ? "navitem active" : "navitem"}
-                  href={routeHash({ screen: item.screen })}
-                  aria-label={label}
-                  aria-current={active ? "page" : undefined}
-                  onMouseEnter={() => setTip(item.screen)}
-                  onMouseLeave={() => setTip(null)}
-                  onFocus={() => setTip(item.screen)}
-                  onBlur={() => setTip(null)}
-                >
-                  <item.icon aria-hidden />
-                  {/* The label stays mounted and collapses its width, so the
+            {group.headingKey && (
+              <h2 className="navheading">{t(group.headingKey)}</h2>
+            )}
+            {group.items.map((item) => {
+              const count = BADGE_SCREENS.has(item.screen)
+                ? counts?.[item.screen]
+                : undefined;
+              const active = route.screen === item.screen;
+              const label = t(item.labelKey);
+              const wrapClass = MOBILE_PRIMARY.has(item.screen)
+                ? "navwrap primary"
+                : "navwrap";
+              return (
+                <div className={wrapClass} key={item.screen}>
+                  <a
+                    className={active ? "navitem active" : "navitem"}
+                    href={routeHash({ screen: item.screen })}
+                    aria-label={label}
+                    aria-current={active ? "page" : undefined}
+                    onMouseEnter={() => setTip(item.screen)}
+                    onMouseLeave={() => setTip(null)}
+                    onFocus={() => setTip(item.screen)}
+                    onBlur={() => setTip(null)}
+                  >
+                    <item.icon aria-hidden />
+                    {/* The label stays mounted and collapses its width, so the
                       transition is continuous rather than a pop. aria-label
                       carries the accessible name either way. */}
-                  <span className="navlabel">{label}</span>
-                  {count !== undefined && count > 0 && (
-                    <span className="count">{count}</span>
-                  )}
-                  {/* Inside the row, not beside it: the tooltip sits outside the
+                    <span className="navlabel">{label}</span>
+                    {count !== undefined && count > 0 && (
+                      <span className="count">{count}</span>
+                    )}
+                    {/* Inside the row, not beside it: the tooltip sits outside the
                       row's box but within its subtree, so moving the pointer onto
                       it never leaves the row and never tears it away mid-read
                       (WCAG 1.4.13, hoverable). A sibling could not manage that
                       without making the wrapper itself interactive. */}
-                  {collapsed && tip === item.screen && (
-                    <span className="navtip" role="tooltip">
-                      {label}
-                    </span>
-                  )}
-                </a>
-              </div>
-            );
-          })}
-        </div>
-      ))}
-      {/* Phone-width only: expands the bar into a sheet carrying every
+                    {collapsed && tip === item.screen && (
+                      <span className="navtip" role="tooltip">
+                        {label}
+                      </span>
+                    )}
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {/* Phone-width only: expands the bar into a sheet carrying every
           destination. Hidden by CSS on the desktop sidebar.
           It carries the active state for every destination it hides, so the
           closed bar always shows where you are — the four tabs cannot, because
           those routes' own rows are display:none at this width. */}
-      <button
-        type="button"
-        className={inSheet ? "railmore active" : "railmore"}
-        aria-label={t("shell.more")}
-        aria-expanded={sheetOpen}
-        // The state has to reach a screen reader, not just the eye: the hidden
-        // route's own link is out of the accessibility tree at this width, so
-        // without this nothing in the bar reports the current page. Dropped once
-        // the sheet is open, because the real row is then visible and carrying
-        // it — two elements claiming the current page is worse than none.
-        aria-current={inSheet && !sheetOpen ? "page" : undefined}
-        onClick={() => setSheetOpen((open) => !open)}
-      >
-        {sheetOpen ? <X aria-hidden /> : <Menu aria-hidden />}
-        <span className="navlabel">{t("shell.more")}</span>
-      </button>
-      <div className="grow" />
-      {/* Who you are signed in as, at the foot where a dashboard sidebar keeps
+        <button
+          type="button"
+          ref={more}
+          className={inSheet ? "railmore active" : "railmore"}
+          // Open, this control closes the sheet — so it says so, in the name as
+          // well as in the glyph. A control whose name stays the same while its
+          // job changes is the one a screen reader gets wrong.
+          aria-label={sheetOpen ? t("shell.closeMenu") : t("shell.more")}
+          aria-expanded={sheetOpen}
+          // The state has to reach a screen reader, not just the eye: the hidden
+          // route's own link is out of the accessibility tree at this width, so
+          // without this nothing in the bar reports the current page. Dropped once
+          // the sheet is open, because the real row is then visible and carrying
+          // it — two elements claiming the current page is worse than none.
+          aria-current={inSheet && !sheetOpen ? "page" : undefined}
+          onClick={() => setSheetOpen((open) => !open)}
+        >
+          {sheetOpen ? <X aria-hidden /> : <Menu aria-hidden />}
+          <span className="navlabel">
+            {sheetOpen ? t("shell.closeMenu") : t("shell.more")}
+          </span>
+        </button>
+        <div className="grow" />
+        {/* Who you are signed in as, at the foot where a dashboard sidebar keeps
           it — and the menu opens upward from there, so it never covers the
           destinations you were reading. */}
-      <div className="railfoot">
-        {/* The sheet is the phone's full-width sidebar, so the block prints who
+        <div className="railfoot">
+          {/* The sheet is the phone's full-width sidebar, so the block prints who
             is signed in there even when the desktop preference it inherits is
             the 64px rail — collapsed is about the rail's width, and inside the
             sheet there is none. (Outside the sheet the foot is hidden at phone
             width, so this only ever reads as the sidebar's own state.) */}
-        <AccountMenu collapsed={collapsed && !sheetOpen} />
-      </div>
-    </nav>
+          <AccountMenu collapsed={collapsed && !sheetOpen} />
+        </div>
+      </nav>
+    </>
   );
 }
 

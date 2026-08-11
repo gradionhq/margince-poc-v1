@@ -105,6 +105,7 @@ export const de = {
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
   "shell.unknownPage": "Nicht gefunden",
+  "shell.closeMenu": "Schließen",
   "agent.title": "Margince KI",
   "agent.regionAria": "Margince-KI-Status",
   "agent.configured": "Konfiguriert",

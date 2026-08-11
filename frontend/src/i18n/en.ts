@@ -103,6 +103,7 @@ export const en = {
   "shell.views": "Views",
   "shell.more": "More",
   "shell.unknownPage": "Not found",
+  "shell.closeMenu": "Close",
   "agent.title": "Margince AI",
   "agent.regionAria": "Margince AI status",
   "agent.configured": "Configured",

@@ -13,6 +13,11 @@
      and the labels stay in step. */
   --shellAnim: 0.36s;
   --shellEase: cubic-bezier(0.4, 0, 0.2, 1);
+  /* ONE content column for the whole app, named once. The page head and every
+     screen's wrap both read it, which is what keeps a heading and the content
+     under it on the same left edge at any window width — they used to agree
+     only until the column stopped growing. */
+  --pageColumn: 1280px;
 
   display: grid;
   grid-template-columns: 64px 1fr;
@@ -70,7 +75,12 @@
      column by the bar's width, which is most visible on the settings tabs —
      Account fits, Integrations does not, and the whole page jumped sideways on the
      way between them. */
-  scrollbar-gutter: stable;
+  /* `both-edges`, not a single edge: reserving the lane on the right only
+     shifts everything centred inside this scroller half a scrollbar to the
+     left, and the page head — which is outside the scroller — does not move
+     with it, so the heading and the content under it stopped sharing a left
+     edge on any window wider than the column. */
+  scrollbar-gutter: stable both-edges;
   /* The containing block for anything absolutely positioned inside a screen.
      Without it such a box escapes to the initial containing block: it is then
      laid out against the VIEWPORT rather than clipped by this scroller, so a
@@ -84,7 +94,7 @@
    the content beneath it start on the same line — the shell no longer insets
    this column, the column does. */
 .wrap {
-  max-width: 1280px;
+  max-width: var(--pageColumn);
   margin: 0 auto;
   padding: var(--space-1) var(--space-6) var(--space-16);
   width: 100%;
@@ -567,6 +577,9 @@
   justify-content: space-between;
   gap: var(--space-4);
   flex: none;
+  width: 100%;
+  max-width: var(--pageColumn);
+  margin: 0 auto;
   padding: var(--space-5) var(--space-6) var(--space-3);
 }
 .pagetitle {
@@ -714,7 +727,10 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
-  z-index: 40;
+  /* Under the phone sheet and its scrim (29/30), above everything the page
+     itself draws: a floating action button that stayed lit over a dimmed page
+     read as the one thing still live while the sheet was open. */
+  z-index: 28;
 }
 .askfab {
   width: 46px;
@@ -816,16 +832,46 @@
   .rail.expanded,
   .rail.collapsed {
     position: fixed;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
+    left: var(--space-2);
+    right: var(--space-2);
+    /* Above the home indicator on a phone that has one, and on the same 8px
+       ledge everywhere else. */
+    bottom: max(var(--space-2), env(safe-area-inset-bottom));
     z-index: 30;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    padding: 5px 6px;
+    padding: var(--space-1) var(--space-1);
     gap: 2px;
     overflow: visible;
+    /* Here the panel IS a floating object — it hovers over the content rather
+       than bounding it — so it takes the card chrome the flush sidebar gives
+       up: all four sides, a radius, and a shadow to sit on. */
+    border: 1px solid var(--borderSubtle);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-pop);
+  }
+  /* The layer the sheet sits on. It fades in rather than appearing, because the
+     page under it does not move and an instant dim reads as a flash. */
+  .railscrim {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+    background: color-mix(in srgb, var(--textPrimary) 38%, transparent);
+    animation: railscrim-in 0.16s ease-out;
+  }
+  @keyframes railscrim-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .railscrim {
+      animation: none;
+    }
   }
   .rail .navgroup,
   .rail.expanded .navgroup {
@@ -918,34 +964,23 @@
   }
   /* The bar runs UNDER the tab here, not down its left edge. The collapsed
      sidebar rule is more specific, so it has to be named to be overridden. */
+  /* No indicator bar in the bar: hung under the row it fell outside the card's
+     rounded edge, and moved above the icon it read as another stroke of the
+     glyph. The tab carries its state the way the sidebar's rows do — a tinted
+     pill behind the whole cell, plus the accent on icon and label — which is
+     shape and colour rather than colour alone. */
   .rail .navitem.active::before,
   .rail.collapsed .navitem.active::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: auto;
-    bottom: -5px;
-    transform: translateX(-50%);
-    width: 20px;
-    height: 3px;
-    background: var(--accent);
-    border-radius: var(--r-full);
+    display: none;
   }
   /* A destination inside the More sheet is still the current one; without this
      the closed bar shows no active tab at all on those routes. */
   .rail .railmore.active {
     color: var(--accent);
   }
-  .rail .railmore.active::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    bottom: -5px;
-    transform: translateX(-50%);
-    width: 20px;
-    height: 3px;
-    background: var(--accent);
-    border-radius: var(--r-full);
+  .rail .railmore.active {
+    background: var(--accentLight);
+    border-radius: var(--r-md);
   }
 
   /* the sheet: the same element, every destination, thumb-reachable */
@@ -956,9 +991,29 @@
     align-items: stretch;
     justify-content: flex-start;
     gap: 1px;
-    padding: 10px;
-    max-height: 80vh;
+    padding: var(--space-2) var(--space-2)
+      max(var(--space-2), env(safe-area-inset-bottom));
+    /* dvh, not vh: on iOS the browser chrome is subtracted from the wrong side
+       of vh, and a sheet measured against the larger viewport runs its last row
+       under the address bar. */
+    max-height: 80dvh;
     overflow-y: auto;
+    /* The page behind is already locked; this stops the scroll chaining into
+       the page's scroller when the sheet itself hits its end. */
+    overscroll-behavior: contain;
+  }
+  /* The grab handle: the sign that this is a sheet and that it dismisses. It is
+     drawn, not built — there is nothing to operate here that Escape, the close
+     control and the scrim do not already do. */
+  .rail.sheetopen::before {
+    content: "";
+    order: -2;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto var(--space-1);
+    border-radius: var(--r-full);
+    background: var(--borderStrong);
+    flex: none;
   }
   .rail.sheetopen .navgroup {
     display: flex;
@@ -966,7 +1021,7 @@
     gap: 1px;
   }
   .rail.sheetopen .navgroup + .navgroup {
-    margin-top: 12px;
+    margin-top: var(--space-3);
   }
   .rail.sheetopen .navwrap,
   .rail.sheetopen .navwrap:not(.primary) {
@@ -1004,15 +1059,18 @@
     top: calc(100% + 6px);
     bottom: auto;
   }
+  /* 48px rows: this is the touch surface, and WCAG 2.2's 24px floor is a floor,
+     not a target — a thumb reaching the middle of a list wants the size the
+     platform guidelines ask for. */
   .rail.sheetopen .navitem,
   .rail.sheetopen.expanded .navitem {
     flex-direction: row;
-    gap: 9px;
+    gap: var(--space-3);
     width: auto;
     height: auto;
-    min-height: 44px;
+    min-height: 48px;
     flex: 1;
-    padding: 0 10px;
+    padding: 0 var(--space-3);
     justify-content: flex-start;
   }
   .rail.sheetopen .navlabel {
@@ -1024,18 +1082,39 @@
     position: static;
     margin-left: auto;
   }
-  .rail.sheetopen .navitem.active::before {
-    display: none;
+  /* The sheet's header: the sidebar's own brand block, back on screen because
+     the sheet IS the sidebar at this width and a panel covering the page should
+     say what it belongs to. The collapse control stays hidden — there is no
+     column to collapse here. */
+  .rail.sheetopen .ws {
+    display: flex;
   }
+  .rail.sheetopen .railhead {
+    display: flex;
+    order: -1;
+    align-items: center;
+    min-height: 40px;
+    margin-bottom: var(--space-2);
+    /* Room for the close control, which is absolutely positioned in this
+       row: without it a long organization name runs under the X. */
+    padding-right: var(--space-16);
+  }
+  /* More is the sheet's close control. It sits in that header row rather than
+     over the first thing in the list, which is where it used to land. */
   .rail.sheetopen .railmore {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: var(--space-4);
+    right: var(--space-2);
+    flex-direction: row;
+    width: auto;
+    min-height: 40px;
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
   }
   /* Open, the sheet shows the active row itself, and More has become its close
-     control — an indicator under a close button would name the wrong thing. */
-  .rail.sheetopen .railmore.active::before {
-    display: none;
+     control — a state on a close button would name the wrong thing. */
+  .rail.sheetopen .railmore.active {
+    background: transparent;
   }
 
   /* the bar floats over the content, so the scroll area ends above it */
@@ -1064,9 +1143,11 @@
 }
 
 /* A list screen is one full-height surface: the page itself does not scroll,
- * the table's own body does. It also drops the reading-width cap every other
- * screen wants — a list uses the width it is given — while keeping the page
- * gutter, so the surface's left edge lines up with the heading above it.
+ * the table's own body does. It keeps the same 1280px column and the same page
+ * gutter as every other screen — it used to opt out of the cap, which read as
+ * "a list uses the width it is given" until a 4K window gave it 3000px and a
+ * six-column table stretched across a metre of desk with the eye losing the row
+ * between name and status.
  *
  * Keyed off the wrap CARRYING a surface, not on it being the only child: a
  * toast is a sibling in the markup even though it is fixed and takes no space,
@@ -1076,7 +1157,6 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-width: none;
   padding: 0 var(--space-6) var(--space-6);
 }
 /* The surface takes the height rather than its content deciding it. Sized by
