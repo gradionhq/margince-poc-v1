@@ -134,7 +134,7 @@ func TestRuntimeTxCommitsAndRollsBack(t *testing.T) {
 	// transaction, so what is asserted is durability rather than the write's
 	// own snapshot.
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		n, err := tx.Exec(ctx, `UPDATE workspace SET name = $1 WHERE id = $2`, "committed", e.WS)
+		n, err := tx.Exec(ctx, `UPDATE workspace SET slug = $1 WHERE id = $2`, "committed", e.WS)
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func TestRuntimeTxCommitsAndRollsBack(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.workspaceName(ctx, t, rt); got != "committed" {
+	if got := e.workspaceSlug(ctx, t, rt); got != "committed" {
 		t.Fatalf("after a committing Tx the row reads %q, want committed", got)
 	}
 
@@ -153,27 +153,31 @@ func TestRuntimeTxCommitsAndRollsBack(t *testing.T) {
 	// the one the caller sees — not a wrapped commit failure.
 	sentinel := errors.New("the handler changed its mind")
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE workspace SET name = $1 WHERE id = $2`, "rolled-back", e.WS); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE workspace SET slug = $1 WHERE id = $2`, "rolled-back", e.WS); err != nil {
 			return err
 		}
 		return sentinel
 	}); !errors.Is(err, sentinel) {
 		t.Fatalf("Tx returned %v, want the callback's own error", err)
 	}
-	if got := e.workspaceName(ctx, t, rt); got != "committed" {
+	if got := e.workspaceSlug(ctx, t, rt); got != "committed" {
 		t.Fatalf("after a rolled-back Tx the row reads %q, want the committed value to have survived", got)
 	}
 }
 
-// workspaceName reads the fixture workspace's name back through the seam,
-// exercising Query/Rows on the way — the cursor idiom the published Rows
-// documents, iterated to exhaustion and checked with Err.
-func (e *extRuntimeEnv) workspaceName(ctx context.Context, t *testing.T, rt *callRuntime) string {
+// workspaceSlug reads the fixture workspace back through the seam, exercising
+// Query/Rows on the way. It reads SLUG rather than name because main dropped
+// workspace.name (0211_drop_workspace_identity_columns) — slug is the remaining
+// writable text column, and what these tests need is any column the unit can
+// write through the seam, not this column in particular.
+// The cursor idiom the published Rows documents, iterated to exhaustion and
+// checked with Err.
+func (e *extRuntimeEnv) workspaceSlug(ctx context.Context, t *testing.T, rt *callRuntime) string {
 	t.Helper()
 	var name string
 	seen := 0
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT name FROM workspace`)
+		rows, err := tx.Query(ctx, `SELECT slug FROM workspace`)
 		if err != nil {
 			return err
 		}
@@ -209,7 +213,7 @@ func TestRuntimeQueryRowReportsAnEmptyMatchAsErrNoRows(t *testing.T) {
 
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		var name string
-		err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, ids.NewV7()).Scan(&name)
+		err := tx.QueryRow(ctx, `SELECT slug FROM workspace WHERE id = $1`, ids.NewV7()).Scan(&name)
 		if !errors.Is(err, extension.ErrNoRows) {
 			t.Errorf("Scan on an empty match = %v, want extension.ErrNoRows", err)
 		}

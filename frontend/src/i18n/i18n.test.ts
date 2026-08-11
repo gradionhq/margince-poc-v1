@@ -48,6 +48,11 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.ai.speaker",
   "ob.ai.speakerName",
   "auth.title",
+  // A DOMAIN LITERAL, not a word: this is the example domain shown in the
+  // consumer-mail input's placeholder. A hostname is the same string in every
+  // locale — "translating" it would name a domain that does not exist, and the
+  // field would then reject what it appeared to suggest.
+  "consumerMail.baselinePlaceholder",
 
   // CRM domain nouns kept in English by design (glossary, design.md §6.1):
   // "deal", "pipeline", "timeline" etc. read the same in Vietnamese usage.

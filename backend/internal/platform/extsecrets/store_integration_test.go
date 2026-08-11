@@ -83,7 +83,7 @@ func setup(t *testing.T) *env {
 	}
 	seed := func(ws, user ids.UUID, slug string) {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, $2, $2, 'EUR')`, ws, slug); err != nil {
+			`INSERT INTO workspace (id, slug) VALUES ($1, $2)`, ws, slug); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := owner.Exec(ctx,

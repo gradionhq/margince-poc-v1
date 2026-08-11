@@ -123,8 +123,8 @@ func seedWorkspaces(t *testing.T, e *integration.Env, n int) []ids.UUID {
 	for i := range n {
 		ws := ids.NewV7()
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, $2, $3, 'EUR')`,
-			ws, fmt.Sprintf("Fan %d", i), fmt.Sprintf("fan-%d", i)); err != nil {
+			`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
+			ws, fmt.Sprintf("fan-%d", i)); err != nil {
 			t.Fatalf("seeding workspace: %v", err)
 		}
 		seedAgentSeat(t, ws)
@@ -219,7 +219,7 @@ func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
 	// The fresh-install tenant: a live workspace with no agent seat at all.
 	seatless := ids.NewV7()
 	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'No Seat', 'no-seat', 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'no-seat')`,
 		seatless); err != nil {
 		t.Fatalf("seeding the seatless workspace: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestAPrincipalFromAnotherTenantDoesNotResolve(t *testing.T) {
 	integration.ApplyRiverSchema(t)
 	other := ids.NewV7()
 	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'other', 'EUR')`, other); err != nil {
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'other')`, other); err != nil {
 		t.Fatalf("seeding the other workspace: %v", err)
 	}
 	foreign := seedAgentSeat(t, other)
