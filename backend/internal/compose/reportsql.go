@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,7 +40,17 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 		if err != nil {
 			return err
 		}
-		pgRows, err := tx.Query(ctx, reportSQL(spec, selects, where, groupBy), args...)
+		sql := reportSQL(spec, selects, where, groupBy)
+		// Bound only when the assembled statement actually asks for it: a
+		// parameter Postgres never references is a bind error, not a spare.
+		if strings.Contains(sql, reportZoneToken) {
+			zone, err := identity.TimezoneOf(ctx, tx)
+			if err != nil {
+				return err
+			}
+			sql = strings.ReplaceAll(sql, reportZoneToken, fmt.Sprintf("$%d", arg(zone)))
+		}
+		pgRows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return fmt.Errorf("report %s: %w", report, err)
 		}

@@ -103,7 +103,7 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetC
 	// sweep re-checks inside its own transaction — one row read that closes
 	// the window where the organization is renamed in between.
 	if err := database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
-		return confirmResetOrgName(ctx, tx, wsID, confirmation)
+		return confirmResetOrgName(ctx, tx, confirmation)
 	}); err != nil {
 		return resetCounts{}, err
 	}
@@ -185,9 +185,12 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clear
 
 // confirmResetOrgName refuses the reset unless confirmation is exactly the
 // organization's name.
-func confirmResetOrgName(ctx context.Context, tx pgx.Tx, wsID ids.UUID, confirmation string) error {
-	var orgName string
-	if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&orgName); err != nil {
+func confirmResetOrgName(ctx context.Context, tx pgx.Tx, confirmation string) error {
+	// The SETTING, because that is the name the operator is reading off the
+	// screen when they type it. Demanding the column's copy would, the moment
+	// the two drifted, refuse the only spelling they can see (issue #521).
+	orgName, err := identity.NameOf(ctx, tx)
+	if err != nil {
 		return err
 	}
 	if confirmation != orgName {
@@ -203,7 +206,7 @@ func confirmResetOrgName(ctx context.Context, tx pgx.Tx, wsID ids.UUID, confirma
 // nothing staged to ship into streams that were just emptied (clearOutbox).
 func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, confirmation string, counts *resetCounts) error {
 	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
-		if err := confirmResetOrgName(ctx, tx, wsID, confirmation); err != nil {
+		if err := confirmResetOrgName(ctx, tx, confirmation); err != nil {
 			return err
 		}
 		tables, err := resetTargetTables(ctx, tx)
