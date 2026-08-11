@@ -364,7 +364,7 @@ ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
 the catalog in typed Go. #521 then moved every reader off the `workspace`
 columns across four slices — quotas and finance (#794), the deals module's
 money reads (#802), name/timezone plus the roll-up and org-360 (#817), and the
-brief ranker, forecast and reset confirmation (#857) — and migration `0209`
+brief ranker, forecast and reset confirmation (#857) — and migration `0211`
 dropped `name`, `base_currency` and `timezone` along with the dual write in
 `UpdateInstallation`.
 
@@ -377,7 +377,7 @@ principal exists to gate anything and the other on the first write, when no row
 exists yet and "nothing is priced against a base that was never set" is the
 honest answer.
 
-`0209` refuses rather than loses: an installation whose settings rows are
+`0211` refuses rather than loses: an installation whose settings rows are
 missing while a live workspace still holds the values fails the migration with
 what to do about it, because dropping the columns would destroy the only copy.
 The one state its repair cannot resolve is several live workspaces, where no
