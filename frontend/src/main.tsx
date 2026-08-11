@@ -45,10 +45,6 @@ api.use({
   },
 });
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js");
-}
-
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("index.html must provide #root");

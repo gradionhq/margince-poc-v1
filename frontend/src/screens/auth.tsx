@@ -82,10 +82,10 @@ function resetTokenFromLocation(): string | null {
   // The FRAGMENT, not the query string, and the whole point is that a fragment
   // never leaves the browser: it is not sent to a server, so it cannot land in
   // an access log or in a Referer header, and it is not part of a Cache Storage
-  // key, so the service worker cannot persist it to disk. The scrub below is
-  // still worth doing — it keeps the token out of the session's history entry —
-  // but it used to be the ONLY defence, and it ran after the first same-origin
-  // API call had already carried the token off the page.
+  // key, so nothing that keys on a URL can persist it to disk. The scrub below
+  // is still worth doing — it keeps the token out of the session's history
+  // entry — but it used to be the ONLY defence, and it ran after the first
+  // same-origin API call had already carried the token off the page.
   //
   // Parsed as the app's own hash route (`#/reset-password?token=…`) so the
   // emailed link is a normal client route: `parseHash` strips a hash-local query
