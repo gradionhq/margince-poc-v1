@@ -6,7 +6,14 @@ the spec disagree, the spec wins). Its tree is `specs/` — `specs/subsystems/` 
 the per-module chapters, `specs/contract/` the normative contract, `specs/adr/` the
 decisions; delivery tracking lives at that repo's root in `tooling/`. See
 [CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
-Don't edit the spec from here — raise discrepancies for upstream reconciliation.
+A session here MAY author and commit spec changes in `margince-foundation` — and
+should when a build need requires a spec change first, since contract-first means
+the spec change lands first, not that somebody else writes it. Ship it through
+that repo's own loop (branch off its `origin/main`, own PR, own gates), and treat
+it as the shared tree it is: branch from `origin/main` rather than whatever is
+checked out, stage by explicit path (never `git add -A` — `DECISIONS.md` is
+routinely mid-edit elsewhere), and take ADR/A-numbers from `origin/main`. A change
+that contradicts a ratified ADR is a discrepancy to raise, not an edit to make.
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
