@@ -7199,6 +7199,16 @@ paths:
         are refused outright — no autonomy tier makes rewriting the permission model an
         agent's call.
 
+        Gated on the admin ROLE, not on an RBAC object, and there is deliberately no `role`
+        entry in `RbacObject`. That is the posture every identity-administration surface here
+        takes (`/users`, `/teams`), for the reason recorded against them: object RBAC exists
+        to narrow WHO among peers may touch a record, and there is no such narrowing to
+        express here — no role but `admin` should ever hold it, so the grant map would encode
+        a constant, at the cost of a backfill of every already-seeded workspace's
+        `role.permissions`. It would also be circular: an admin who revoked their own grant on
+        `role` could never restore it. A client gates this screen on the caller holding
+        `admin` (`/me`'s `roles`), the same way it gates the member roster.
+
         The `objects` map is returned VERBATIM from the stored document, including any object
         this installation no longer knows (a unit that was removed). `policy.Parse` drops such
         a grant at authentication time, so it authorizes nothing; showing it here is what lets
