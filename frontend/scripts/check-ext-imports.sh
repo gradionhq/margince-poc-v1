@@ -10,7 +10,9 @@
 # side the boundary is exactly two things: frontend/package.json's `exports`
 # map, and this script. Delete this and a unit can import the session store.
 #
-# Fails on, in any *.ts / *.tsx under extensions/*/frontend/:
+# Fails on, in any module file under extensions/*/frontend/ (every extension a
+# bundler resolves — ts, tsx, mts, cts, js, jsx, mjs, cjs — because a unit whose
+# `main` is a .jsx is a unit this gate would otherwise never read):
 #   1. A relative specifier escaping the unit's own frontend/ directory
 #      ("../../../frontend/src/app/session") — the deep import wearing a
 #      relative disguise.
@@ -88,12 +90,27 @@ for layer in "$EXT_DIR"/*/frontend; do
     CHECKED=$((CHECKED + 1))
     # A test file may reach the dev dependencies; shipped code may not.
     case "$file" in
-    *.test.ts | *.test.tsx) ALLOWED_PKGS=("${DECLARED_TEST[@]}") ;;
+    *.test.ts | *.test.tsx | *.test.mts | *.test.cts | \
+      *.test.js | *.test.jsx | *.test.mjs | *.test.cjs) ALLOWED_PKGS=("${DECLARED_TEST[@]}") ;;
     *) ALLOWED_PKGS=("${DECLARED[@]}") ;;
     esac
     # Every static specifier in the file: `from "x"`, `import "x"`, and
     # `import("x")`. Comments are not stripped — a commented-out bad import is
     # a bad import somebody is about to uncomment.
+    #
+    # Newlines are collapsed FIRST and all three quote characters are accepted,
+    # because this gate is the only thing standing between a unit and core's
+    # internals and it was previously blind to three spellings of the same
+    # escape: a single-quoted specifier, a template literal, and an import
+    # split across lines. Biome would have normalised the first two, but biome
+    # never sees this tree — `pnpm lint` checks frontend/src, not extensions/.
+    #
+    # The quote characters are a class rather than a matched pair (ERE has no
+    # backreference), so `"x'` over-matches. That bias is deliberate: a false
+    # positive here is a loud, fixable gate failure, and a false negative is a
+    # unit reading the session store. For the same reason, collapsing lines can
+    # pair a comment ending in `from` with the next line's string literal — also
+    # loud, also fixable, and cheaper than a parser.
     while IFS= read -r spec; do
       [[ -n "$spec" ]] || continue
       case "$spec" in
@@ -101,7 +118,12 @@ for layer in "$EXT_DIR"/*/frontend; do
         # A relative specifier is fine inside the unit; it is the ESCAPE that
         # is refused. Resolve it and check it still lands under the layer.
         resolved="$(cd "$(dirname "$file")" && cd "$(dirname "$spec")" 2>/dev/null && pwd || true)"
-        if [[ -z "$resolved" || "$resolved" != "$layer"* ]]; then
+        # The layer itself, or something BENEATH it — the `/` is load-bearing.
+        # An unslashed prefix test accepts a sibling whose name merely starts
+        # with the layer's: extensions/foo/frontend-lib is not inside
+        # extensions/foo/frontend, but "$layer"* says it is, and the collector
+        # below never scans it because it globs */frontend.
+        if [[ -z "$resolved" || ("$resolved" != "$layer" && "$resolved" != "$layer"/*) ]]; then
           echo "FAIL: ${file#"$ROOT"/}: relative import '$spec' leaves the unit's own frontend/ — reach the core through @margince/frontend/<subpath>, never by path" >&2
           EXIT=1
         fi
@@ -133,10 +155,19 @@ for layer in "$EXT_DIR"/*/frontend; do
         ;;
       esac
     done < <(
-      grep -oE '(from|import)[[:space:]]*\(?[[:space:]]*"[^"]+"' "$file" |
-        grep -oE '"[^"]+"' | tr -d '"' || true
+      tr '\n' ' ' <"$file" |
+        grep -oE $'(from|import)[[:space:]]*\\(?[[:space:]]*["\'`][^"\'`]+["\'`]' |
+        grep -oE $'["\'`][^"\'`]+["\'`]' | tr -d $'"\'`' || true
     )
-  done < <(find "$layer" -type f \( -name "*.ts" -o -name "*.tsx" \) -not -path "*/node_modules/*" -print0)
+    # Every module format a bundler will happily take, not just the two a
+    # well-behaved unit writes: `"main": "screen.jsx"` is a legal unit whose
+    # every file this gate used to skip, which made the whole check opt-in.
+  done < <(find "$layer" -type f \( \
+    -name "*.ts" -o -name "*.tsx" -o \
+    -name "*.mts" -o -name "*.cts" -o \
+    -name "*.js" -o -name "*.jsx" -o \
+    -name "*.mjs" -o -name "*.cjs" \
+    \) -not -path "*/node_modules/*" -print0)
 done
 
 echo "==> extension import gate ($CHECKED file(s) under extensions/*/frontend)"
