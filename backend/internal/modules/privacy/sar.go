@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -74,7 +73,7 @@ type SARPackage struct {
 // AssembleSAR builds the package. It is a privileged read: the caller
 // needs the person.delete grant (the same trust level erasure needs)
 // AND an unbounded row scope — see the admin check below.
-func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID) (SARPackage, error) {
+func AssembleSAR(ctx context.Context, db *database.DB, personID ids.PersonID) (SARPackage, error) {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return SARPackage{}, err
 	}
@@ -86,7 +85,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 		return SARPackage{}, apperrors.ErrPermissionDenied
 	}
 	var pkg SARPackage
-	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}

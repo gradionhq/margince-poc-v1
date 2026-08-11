@@ -86,7 +86,7 @@ func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunner
 	// the bus. Without the blobstore its erase action leaves the attachment
 	// objects behind; without the invalidator the aggregates keep counting
 	// interactions that no longer exist.
-	retention := privacy.NewRetentionService(pool, cfg.Blobstore, log).
+	retention := privacy.NewRetentionService(InstallationDB(pool), cfg.Blobstore, log).
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})

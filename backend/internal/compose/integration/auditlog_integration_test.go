@@ -28,7 +28,7 @@ func TestAuditLogReadRequiresUnboundedHuman(t *testing.T) {
 
 	// A bounded rep is refused — 403, not a narrowed page.
 	repCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	if _, err := privacy.ListAuditLog(repCtx, e.Pool, privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := privacy.ListAuditLog(repCtx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("bounded rep reads audit log: err=%v, want permission denied", err)
 	}
 
@@ -41,12 +41,12 @@ func TestAuditLogReadRequiresUnboundedHuman(t *testing.T) {
 		Type: principal.PrincipalAgent, ID: "agent:" + ids.NewV7().String(),
 		UserID: e.Rep1, Permissions: AdminPerms,
 	})
-	if _, err := privacy.ListAuditLog(agentCtx, e.Pool, privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := privacy.ListAuditLog(agentCtx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("agent reads audit log: err=%v, want permission denied", err)
 	}
 
 	// The unbounded human admin reads it.
-	page, err := privacy.ListAuditLog(e.Admin(), e.Pool, privacy.AuditFilter{})
+	page, err := privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{})
 	if err != nil {
 		t.Fatalf("admin list: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestAuditLogFiltersAndKeysetWalk(t *testing.T) {
 	// Filter: only person creates, and only the one entity.
 	action := "create"
 	entityType := "person"
-	page, err := privacy.ListAuditLog(admin, e.Pool, privacy.AuditFilter{
+	page, err := privacy.ListAuditLog(admin, e.DB(), privacy.AuditFilter{
 		Action: &action, EntityType: &entityType, EntityID: &personIDs[2],
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestAuditLogFiltersAndKeysetWalk(t *testing.T) {
 	seen := map[ids.UUID]bool{}
 	var cursor *string
 	for range 10 {
-		page, err := privacy.ListAuditLog(admin, e.Pool, privacy.AuditFilter{
+		page, err := privacy.ListAuditLog(admin, e.DB(), privacy.AuditFilter{
 			EntityType: &entityType, Limit: &limit, Cursor: cursor,
 		})
 		if err != nil {
@@ -115,7 +115,7 @@ func TestAuditLogFiltersAndKeysetWalk(t *testing.T) {
 
 	// A malformed cursor is a client fault, not a 500.
 	bad := "not-a-cursor"
-	if _, err := privacy.ListAuditLog(admin, e.Pool, privacy.AuditFilter{Cursor: &bad}); err == nil {
+	if _, err := privacy.ListAuditLog(admin, e.DB(), privacy.AuditFilter{Cursor: &bad}); err == nil {
 		t.Fatal("malformed cursor accepted")
 	}
 }

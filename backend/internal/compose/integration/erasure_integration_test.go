@@ -169,7 +169,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	admin := e.Admin()
 
 	// The SAR sees the full picture BEFORE erasure — Art. 15 assembly.
-	pkg, err := privacy.AssembleSAR(admin, e.Pool, ids.From[ids.PersonKind](personID))
+	pkg, err := privacy.AssembleSAR(admin, e.DB(), ids.From[ids.PersonKind](personID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 			pkg.Subject["full_name"], len(pkg.Emails), len(pkg.Activities), len(pkg.RawCapture))
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, personID, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, personID, "test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -216,7 +216,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, held, "test"); !errors.Is(err, apperrors.ErrConflict) {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, held, "test"); !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("erasing a held subject → %v, want ErrConflict", err)
 	}
 }
@@ -244,7 +244,7 @@ func TestErasureRetiresTheSubjectsPreferenceToken(t *testing.T) {
 		t.Fatalf("the token resolves to person %s, want the seeded subject %s", ref.PersonID.UUID, personID)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "art-17"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "art-17"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -321,7 +321,7 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, personID, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, personID, "test"); err != nil {
 		t.Fatalf("erasing an unheld person → %v", err)
 	}
 
@@ -414,7 +414,7 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, personID, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, personID, "test"); err != nil {
 		t.Fatalf("erasing the subject → %v", err)
 	}
 

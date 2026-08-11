@@ -103,7 +103,7 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 	}
 
 	// The real service, wired exactly as the worker wires it.
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).
+	svc := privacy.NewRetentionService(InstallationDB(e.Pool), nil, slog.New(slog.NewTextHandler(io.Discard, nil))).
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})

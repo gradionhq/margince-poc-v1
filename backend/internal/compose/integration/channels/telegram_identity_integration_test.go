@@ -409,7 +409,7 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := privacy.NewEraser(c.Pool).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
+	if err := privacy.NewEraser(c.DB()).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := c.channelIdentities(t, before); n != 0 {

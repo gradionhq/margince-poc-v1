@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
@@ -300,4 +301,14 @@ func applyRiverSchema(t *testing.T) {
 	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// DB is the app harness's installation-bound pool.
+//
+// RESOLVED, not pinned, unlike the lower-level harnesses: this env boots the
+// real server, which bootstraps one real installation — so the same resolver
+// production uses answers correctly here, and using it keeps the harness
+// honest about the path under test.
+func (e *AppEnv) DB() *database.DB {
+	return compose.InstallationDB(e.Pool)
 }

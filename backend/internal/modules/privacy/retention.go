@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -107,7 +106,8 @@ const embedCallRetention = 90
 // RetentionService drives the evaluator over one bound workspace at a time;
 // the worker role schedules a pass per tenant.
 type RetentionService struct {
-	pool   *pgxpool.Pool
+	// db binds the installation\'s workspace itself (ADR-0091 §9 step 3).
+	db     *database.DB
 	eraser *Eraser
 	log    *slog.Logger
 	// invalidateEdges keeps the relationship aggregates true as retention
@@ -119,8 +119,8 @@ type RetentionService struct {
 // NewRetentionService wires the nightly evaluator. blob lets its erase
 // action purge attachment objects (Art. 17 reaches the bytes); pass nil in
 // a deployment with no object store, where no attachment object can exist.
-func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Logger) *RetentionService {
-	return &RetentionService{pool: pool, eraser: NewEraser(pool).WithBlobstore(blob), log: log}
+func NewRetentionService(db *database.DB, blob blobstore.Store, log *slog.Logger) *RetentionService {
+	return &RetentionService{db: db, eraser: NewEraser(db).WithBlobstore(blob), log: log}
 }
 
 // EdgeInvalidator re-folds the relationship aggregates an activity fed, inside
@@ -222,7 +222,7 @@ type retentionPolicy struct {
 // policy with nothing recording that it happened.
 func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 	var policies []retentionPolicy
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, object_type, category, retain_days, action
 			FROM retention_policy WHERE enabled ORDER BY object_type, retain_days`)
@@ -264,7 +264,7 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		// (lead, activity, person, deal), so the id kind is only known one
 		// dispatch deeper, in apply.
 		var due []ids.UUID
-		err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 			rows, err := tx.Query(ctx, selector, args...)
 			if err != nil {
 				return err
@@ -297,7 +297,7 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 	if pol.ObjectType == "person" && pol.Action == actionErase {
 		return s.eraser.ErasePerson(ctx, id, "retention")
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		switch pol.ObjectType + "/" + pol.Action {
 		case "activity/archive":

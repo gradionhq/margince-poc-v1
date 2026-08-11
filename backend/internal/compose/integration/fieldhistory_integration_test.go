@@ -84,7 +84,7 @@ func TestFieldHistoryGatesOnReadPermissionAndVisibility(t *testing.T) {
 	// record's owner: 404, not an empty page — existence-hiding on the
 	// row-scope gate like every record read.
 	outsiderCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, RepPerms)
-	_, err := privacy.ListFieldHistory(outsiderCtx, e.Pool, privacy.FieldHistoryFilter{
+	_, err := privacy.ListFieldHistory(outsiderCtx, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
@@ -93,7 +93,7 @@ func TestFieldHistoryGatesOnReadPermissionAndVisibility(t *testing.T) {
 
 	// A principal without person:read at all: 403 before any row is touched.
 	noReadCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{RowScope: principal.RowScopeTeam})
-	if _, err := privacy.ListFieldHistory(noReadCtx, e.Pool, privacy.FieldHistoryFilter{
+	if _, err := privacy.ListFieldHistory(noReadCtx, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("no-permission read: err = %v, want permission denied", err)
@@ -116,7 +116,7 @@ func TestFieldHistoryProjectsDiffsNewestFirst(t *testing.T) {
 		map[string]any{"phone": "111"},
 		map[string]any{"phone": "222"}, newer)
 
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestFieldHistoryActorAndFieldFilters(t *testing.T) {
 		map[string]any{"label": "a2", "score": "2"}, base.Add(time.Second))
 
 	agent := "agent"
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID, ActorType: &agent,
 	})
 	if err != nil {
@@ -167,7 +167,7 @@ func TestFieldHistoryActorAndFieldFilters(t *testing.T) {
 	}
 
 	label := "label"
-	page, err = privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err = privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID, Field: &label,
 	})
 	if err != nil {
@@ -204,7 +204,7 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 		map[string]any{"phone": "1"}, map[string]any{"phone": "2"}, newer)
 
 	one := 1
-	page1, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page1, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "organization", EntityID: orgID, Limit: &one,
 	})
 	if err != nil {
@@ -217,7 +217,7 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 		t.Fatal("page1 must report more (rOldest and the genesis row follow)")
 	}
 
-	page2, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page2, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "organization", EntityID: orgID, Limit: &one, Cursor: &page1.NextCursor,
 	})
 	if err != nil {
@@ -237,7 +237,7 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 
 	// The genesis row is the true last row: a real page boundary with
 	// nothing behind it must report genuine exhaustion, empty cursor.
-	page3, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page3, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "organization", EntityID: orgID, Limit: &one, Cursor: &page2.NextCursor,
 	})
 	if err != nil {
@@ -281,7 +281,7 @@ func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 	// Rep1 shares Team1 with the linked person's owner: in scope, sees
 	// the diff.
 	inScope := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithActivity())
-	page, err := privacy.ListFieldHistory(inScope, e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(inScope, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "activity", EntityID: activityID,
 	})
 	if err != nil {
@@ -301,7 +301,7 @@ func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 	// linked person's owner: 404, existence-hiding like every other
 	// row-scope miss.
 	outOfScope := e.As(e.Rep3, []ids.UUID{e.Team2}, repPermsWithActivity())
-	if _, err := privacy.ListFieldHistory(outOfScope, e.Pool, privacy.FieldHistoryFilter{
+	if _, err := privacy.ListFieldHistory(outOfScope, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "activity", EntityID: activityID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("out-of-scope activity field-history: err = %v, want not found", err)
@@ -325,11 +325,11 @@ func TestFieldHistoryStopsAtErasureBoundary(t *testing.T) {
 		map[string]any{"email": "selma@example.com", "full_name": "Selma Subject"},
 		map[string]any{"email": "selma.subject@example.com", "full_name": "Selma S."}, past)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
 		t.Fatalf("erase: %v", err)
 	}
 
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -344,7 +344,7 @@ func TestFieldHistoryStopsAtErasureBoundary(t *testing.T) {
 	future := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
 	seedAuditDiffRow(t, e, "person", personID, "human",
 		nil, map[string]any{"owner_id": "rep-2"}, future)
-	page, err = privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err = privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -381,7 +381,7 @@ func TestFieldHistoryErasureBoundsCollateralScrubs(t *testing.T) {
 		t.Fatalf("log activity: %v", err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
 		t.Fatalf("erase: %v", err)
 	}
 
@@ -395,7 +395,7 @@ func TestFieldHistoryErasureBoundsCollateralScrubs(t *testing.T) {
 		{"activity", ids.UUID(activity.Id)},
 	}
 	for _, target := range targets {
-		page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 			EntityType: target.entityType, EntityID: target.id,
 		})
 		if err != nil {
@@ -428,7 +428,7 @@ func TestFieldHistoryProjectsOnlyFieldImageVerbs(t *testing.T) {
 	seedAuditDiffRow(t, e, "person", personID, "human",
 		map[string]any{"title": "VP"}, map[string]any{"title": "CTO"}, base.Add(2*time.Second))
 
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -461,12 +461,12 @@ func TestFieldHistoryExcludesRetentionArchiveMeta(t *testing.T) {
 	SeedRetentionPolicies(t, e)
 	_, _, staleDeal, _ := seedOverAgeRecords(t, e)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("retention pass: %v", err)
 	}
 
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "deal", EntityID: staleDeal,
 	})
 	if err != nil {
@@ -489,7 +489,7 @@ func TestFieldHistoryHonestEmptyForVisibleRecordWithNoMatches(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Quiet Subject", nil)
 	ghost := "field_that_never_changed"
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID, Field: &ghost,
 	})
 	if err != nil {
@@ -533,7 +533,7 @@ func TestEnrichmentWritesProjectAsRealColumnDiffs(t *testing.T) {
 		t.Fatalf("apply cold-start profile: %v", err)
 	}
 
-	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+	page, err := privacy.ListFieldHistory(e.Admin(), e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "organization", EntityID: org.UUID,
 	})
 	if err != nil {

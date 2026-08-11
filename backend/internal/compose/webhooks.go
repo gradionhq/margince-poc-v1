@@ -20,7 +20,7 @@ import (
 // shipping an unsigned or guessable delivery. The api role supplies the
 // deployment key via WithWebhookSigningKey.
 func newWebhookHandlers(pool *pgxpool.Pool, cipher *webhooks.Cipher, log *slog.Logger) webhooks.Handlers {
-	store := webhooks.NewStore(pool, cipher)
+	store := webhooks.NewStore(InstallationDB(pool), cipher)
 	// The HTTP-transport deliverer serves replay only (re-sending an
 	// already-authorized delivery), so it needs no principal resolver — the
 	// owner-scoped fan-out lives on the bus-consumer deliverer wired in the
@@ -44,7 +44,7 @@ func NewWebhookDeliverer(pool *pgxpool.Pool, key string, log *slog.Logger) (*web
 	if err != nil {
 		return nil, fmt.Errorf("webhook cipher: %w", err)
 	}
-	store := webhooks.NewStore(pool, cipher)
+	store := webhooks.NewStore(InstallationDB(pool), cipher)
 	return webhooks.NewDeliverer(store, webhooks.NewGuardedClient(), nil, identity.NewService(pool), log), nil
 }
 

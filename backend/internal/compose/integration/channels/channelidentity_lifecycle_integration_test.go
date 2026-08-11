@@ -84,7 +84,7 @@ func TestErasurePurgesTheChannelIdentityAndSuppressesTheAccount(t *testing.T) {
 	// Art. 15 hands the binding back while it is held — asserted BEFORE the
 	// erasure, so the emptiness afterwards measures the erasure and not a
 	// section that never worked.
-	pkg, err := privacy.AssembleSAR(admin, e.Pool, integration.PersonIDOf(person))
+	pkg, err := privacy.AssembleSAR(admin, e.DB(), integration.PersonIDOf(person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestErasurePurgesTheChannelIdentityAndSuppressesTheAccount(t *testing.T) {
 		t.Fatal("a live account already reads as suppressed — the probe cannot detect an erasure")
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -151,7 +151,7 @@ func TestRetentionAnonymizeDropsTheChannelIdentityWithoutSuppressingIt(t *testin
 	// granted consent and no deal stake — the selector's own conditions.
 	e.WsExec(t, `UPDATE person SET created_at = now() - interval '800 days' WHERE id = $1`, person)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := svc.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("retention pass: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestErasureOfAChannelOnlySubjectPurgesRawCaptureWithoutOverreaching(t *test
 	// typed path match must not.
 	seedTelegramMessageRaw(t, e, "decoy-message", 10101, "30303", "reach me at 10101 anytime")
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, subject, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, subject, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -340,7 +340,7 @@ func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
 	seedChannelIdentity(t, e, unrelated, "50506", "boris")
 	seedTelegramMessageRaw(t, e, "sar-unrelated-message", 7, "50506", "not the subject")
 
-	pkg, err := privacy.AssembleSAR(e.Admin(), e.Pool, integration.PersonIDOf(subject))
+	pkg, err := privacy.AssembleSAR(e.Admin(), e.DB(), integration.PersonIDOf(subject))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameChannelAccount(t *testin
 	archived, live := archiveAndRebindTheAccount(t, e, "60601", "ada")
 	seedTelegramMessageRaw(t, e, "rival-account-message", 11, "60601", "written to the surviving record")
 
-	err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), archived, "test")
+	err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), archived, "test")
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("ErasePerson = %v, want a conflict — the erasure cannot cover an account a second live record holds", err)
 	}
@@ -439,7 +439,7 @@ func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameEmail(t *testing.T) {
 	live := e.SeedPerson(t, "Bruno Captured Again", nil)
 	seedPersonEmail(t, e, live, "bruno@rival.test")
 
-	err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), archived, "test")
+	err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), archived, "test")
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("ErasePerson = %v, want a conflict — the erasure cannot cover an address a second live record holds", err)
 	}
@@ -463,7 +463,7 @@ func TestErasingTheLiveRecordAlsoClearsAnArchivedDuplicatesBinding(t *testing.T)
 		`SELECT count(*) FROM person_channel_identity WHERE channel_user_id = $1`, "60701"); n != 2 {
 		t.Fatalf("%d bindings hold the account before the erasure, want the archived one and the live one", n)
 	}
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), live, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), live, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := e.WsCount(t,

@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -124,7 +125,7 @@ func checkInClockEvent(t *testing.T, ws ids.UUID, automationID ids.AutomationID,
 func TestCheckInCadenceFiresOncePerQuietSpell(t *testing.T) {
 	fx := setupAutomationDB(t)
 	provider := &fakeCreateTaskProvider{}
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: this fixture's instance carries no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: this fixture's instance carries no owner_id, so the match-time gate skips before ever touching it
 	h := checkInCadence{ex: Executors{Provider: provider}}
 	instanceID := fx.seedAutomation(t, checkInCadenceName)
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
@@ -186,7 +187,7 @@ func TestCheckInCadenceFiresOncePerQuietSpell(t *testing.T) {
 // never a fabricated firing.
 func TestRenewalReminderScanIsANoOpWhenUnconfigured(t *testing.T) {
 	fx := setupAutomationDB(t)
-	engine := NewWorkflowEngine(fx.pool, nil)
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil)
 	engine.RegisterWorkflow(renewalReminder{ex: Executors{}}) // Apply is never reached: Match never runs for an un-enumerated handler
 	fx.seedAutomation(t, renewalReminderName)
 

@@ -122,7 +122,7 @@ func TestTheSinkRefusesARecordNamingAnErasedChannelAccount(t *testing.T) {
 	seedChannelIdentity(t, e, person, "20301", "erased")
 
 	// A real erasure, so the suppression row is armed the way production arms it.
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestAnErasureReachesAChannelActivityWithNoPersonLink(t *testing.T) {
 		t.Fatalf("the fixture linked the activity to the person (%d links); this test needs the UNLINKED state", n)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -284,7 +284,7 @@ func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
 		t.Fatalf("Upsert (bystander): %v", err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), erased, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), erased, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -319,7 +319,7 @@ func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testin
 	if _, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := activityBodyCount(t, e, body); n != 1 {

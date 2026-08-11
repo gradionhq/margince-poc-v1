@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -262,7 +261,7 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 
 	since := s.now().UTC().AddDate(0, 0, -window)
 	res := AutomationPreviewResult{WindowDays: window}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return def.measure(ctx, tx, since, &res)
 	})
 	if err != nil {

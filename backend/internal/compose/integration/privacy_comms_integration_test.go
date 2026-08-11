@@ -260,7 +260,7 @@ func TestErasureRedactsTheDeliveryBehindARedactedActivity(t *testing.T) {
 	// the timeline selector miss it unless erasure reaches mail by address.
 	unlinked := seedDelivery(t, e, "9 years", "Sent with no timeline link", "the unlinked quote", "sent", mailRecipientEmail, ids.UUID{})
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -312,7 +312,7 @@ func TestErasureReachesAMessageWhereTheSubjectIsOnlyACcRecipient(t *testing.T) {
 		addresses{counterparty: "buyer@example.test", to: "buyer@example.test", cc: mailRecipientEmail}, ids.UUID{})
 	linkToHeldDeal(t, e, held.activity)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -338,7 +338,7 @@ func TestErasureParksAPendingDeliveryInsteadOfLeavingItToTransmit(t *testing.T) 
 		"the words still waiting to go out", "pending", mailRecipientEmail, person)
 	sent := seedDelivery(t, e, "9 years", "Already gone", "the words that left", "sent", mailRecipientEmail, person)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -408,7 +408,7 @@ func TestErasurePreservesUnlinkedMailUnderATransitiveLegalHold(t *testing.T) {
 	free := seedDelivery(t, e, "9 years", "Ordinary quote",
 		"the quote nobody disputed", "sent", mailRecipientEmail, ids.UUID{})
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -446,7 +446,7 @@ func TestSARIncludesTheSubjectsSentMessages(t *testing.T) {
 	unlinked := seedDelivery(t, e, "11 days", "Addressed but unlinked", "second quote",
 		"sent", mailRecipientEmail, ids.UUID{})
 
-	pkg, err := privacy.AssembleSAR(e.Admin(), e.Pool, ids.From[ids.PersonKind](person))
+	pkg, err := privacy.AssembleSAR(e.Admin(), e.DB(), ids.From[ids.PersonKind](person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestRetentionRedactsTheDeliveryOfAnAgedOutActivity(t *testing.T) {
 	aged := seedDelivery(t, e, "9 years", "Ancient campaign", "the words the policy ages out", "sent", mailRecipientEmail, ids.UUID{})
 	fresh := seedDelivery(t, e, "10 days", "This week's message", "still within the window", "sent", mailRecipientEmail, ids.UUID{})
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}

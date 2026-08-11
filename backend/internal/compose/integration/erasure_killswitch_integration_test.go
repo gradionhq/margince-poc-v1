@@ -69,7 +69,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	queued := seedDelivery(t, e, "9 years", "Queued for the subject",
 		"the words still waiting to go out", "pending", mailRecipientEmail, person)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 

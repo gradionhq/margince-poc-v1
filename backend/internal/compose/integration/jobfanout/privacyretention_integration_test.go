@@ -114,7 +114,7 @@ func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.DiscardHandler))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.DiscardHandler))
 
 	if err := svc.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("the healthy tenant's pass: %v", err)

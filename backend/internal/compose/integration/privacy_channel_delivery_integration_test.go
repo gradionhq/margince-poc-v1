@@ -145,7 +145,7 @@ func TestErasureRedactsAChannelDeliveryWithoutBreakingItsShape(t *testing.T) {
 	sent := seedChannelDelivery(t, e, "9 years", "the agreed price was 4200 EUR", "sent", person)
 	pending := seedChannelDelivery(t, e, "9 years", "still queued when they asked to be forgotten", "pending", person)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
