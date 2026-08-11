@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { pickOption } from "./design-system/select-testing";
 import { LocaleProvider } from "./i18n";
 import { memoryStorage, sessionOnlyFetch } from "./testing/appharness";
 
@@ -147,14 +148,18 @@ describe("locale switch", () => {
     );
     // English default: once the session resolves, the rail carries English labels
     expect(await screen.findByRole("link", { name: "Contacts" })).toBeTruthy();
-    // The language control lives in the account menu, so the switch takes opening
-    // that first. Its trigger names the language it is currently on, so match the
-    // label rather than pinning the whole accessible name to one locale's wording.
-    await userEvent.click(screen.getByRole("button", { name: "Account" }));
-    await userEvent.click(screen.getByRole("button", { name: /^Language/ }));
-    await userEvent.click(
-      screen.getByRole("menuitemradio", { name: /Deutsch/ }),
+    // The language is a preference of this person rather than a destination, so
+    // it lives on Settings → Account and reaching it is a navigation. Which is
+    // also what makes this an app-level claim: the choice is made on one route
+    // and has to hold on the next one, not just inside the card that made it.
+    window.location.hash = "#/settings/account";
+    await pickOption(
+      userEvent.setup(),
+      await screen.findByRole("combobox", { name: "Language" }),
+      "Deutsch",
     );
+
+    window.location.hash = "#/home";
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Kontakte" })).toBeTruthy(),
     );

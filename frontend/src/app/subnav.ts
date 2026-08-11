@@ -63,17 +63,23 @@ export type NavTrailLevel = {
   barIds?: ReadonlySet<string>;
 };
 
-// The hash an entry of `path` addresses. The router parses four segments, so a
+// The route an entry of `path` addresses. The router parses four segments, so a
 // level can be addressed three deep below the screen and no deeper — a fifth
 // level would have to arrive with the route that can name it.
-export function navLevelHref(path: readonly string[], id: string): string {
+export function navLevelRoute(path: readonly string[], id: string): Route {
   const segments = [...path, id];
-  return routeHash({
+  return {
     screen: segments[0],
     id: segments[1],
     id2: segments[2],
     id3: segments[3],
-  });
+  };
+}
+
+// The same address as a link target. A row is a link and a walk between levels
+// is a navigation, so both spell the address once, here.
+export function navLevelHref(path: readonly string[], id: string): string {
+  return routeHash(navLevelRoute(path, id));
 }
 
 function activeEntry(level: NavTrailLevel): NavLevelEntry | undefined {

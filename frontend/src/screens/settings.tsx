@@ -31,18 +31,22 @@ import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
+import { setTheme, THEMES, useTheme } from "../app/theme";
 import {
   Badge,
   Button,
   Card,
   Checkbox,
   EmptyState,
+  Field,
+  SegmentedControl,
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
+import { Select } from "../design-system/select";
 import {
   AutonomyDot,
   EvidenceChip,
@@ -51,7 +55,7 @@ import {
   toEvidence,
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
@@ -149,7 +153,12 @@ type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
-      return <IdentityCard />;
+      return (
+        <>
+          <IdentityCard />
+          <PreferencesCard />
+        </>
+      );
     case "voice":
       return <VoiceDnaCard />;
     case "installation":
@@ -431,6 +440,66 @@ function IdentityCard() {
       >
         {t("auth.signOut")}
       </Button>
+    </Card>
+  );
+}
+
+/**
+ * This person's own preferences: how the product looks, and which language it
+ * reads in.
+ *
+ * They sit beside the identity card because that is what they belong to — a
+ * reader looking for their theme looks under their own account, not under an
+ * account MENU in the sidebar, which is for the three places it can take you.
+ * Both controls drive the state the rest of the app already reads (`app/theme.ts`
+ * and the locale context), so nothing here is a second source of truth: the
+ * theme survives a reload because that store persists it, and the language lasts
+ * as long as the session does because the context is where it lives.
+ */
+function PreferencesCard() {
+  const t = useT();
+  const [theme] = useTheme();
+  const { locale, setLocale } = useLocale();
+  return (
+    <Card title={t("settings.preferences")} sub={t("settings.preferencesSub")}>
+      <div className="form-stack">
+        {/* Not a `Field`: a SegmentedControl is a `fieldset`, and a <label for>
+            pointing at one names nothing. So the name rides on the control
+            itself and this line is the eye's copy of it — the same words, which
+            is what WCAG 2.5.3 asks of a voice user who says what they can read. */}
+        <div className="field">
+          <span className="t-label">{t("shell.theme")}</span>
+          <SegmentedControl
+            options={THEMES}
+            value={theme}
+            onChange={setTheme}
+            label={t("shell.theme")}
+            labels={{ light: t("theme.light"), dark: t("theme.dark") }}
+          />
+        </div>
+        <Field label={t("locale.switchLabel")}>
+          {(control) => (
+            <Select
+              {...control}
+              value={locale}
+              // `Select` reports a string. The options are built from LOCALES,
+              // so narrowing the answer through that same list is what makes it
+              // a Locale — no assertion, and nothing acted on that the control
+              // was never offering.
+              onChange={(next) => {
+                const picked = LOCALES.find((option) => option === next);
+                if (picked) {
+                  setLocale(picked);
+                }
+              }}
+              options={LOCALES.map((option) => ({
+                value: option,
+                label: t(localeNameKey(option)),
+              }))}
+            />
+          )}
+        </Field>
+      </div>
     </Card>
   );
 }

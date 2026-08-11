@@ -5,17 +5,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AccountMenu } from "./account";
+import { AccountMenu, AccountRows } from "./account";
 import { meFixture } from "./mefixture";
 
-// The account block at the sidebar foot: the trigger prints who is signed in,
-// the menu it opens carries this person's surfaces, their preferences and the
-// way out. Behaviour only — where it opens is CSS, but WHAT it opens, what it
-// keeps open, and what it hands back to a keyboard user are promises.
+// The account block at the sidebar foot: the trigger prints who is signed in and
+// the menu it opens carries this person's two surfaces and the way out — theme
+// and language are preferences and live on Settings → Account instead. Behaviour
+// only: where it opens is CSS, but WHAT it opens and what it hands back to a
+// keyboard user are promises. `AccountRows` is the same list flat, for the phone
+// sheet, where a popover anchored to the rail's foot has nowhere to open.
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 // Seeded through the cache rather than a fetch stub: `useMe` reads ["me"], and
 // a fixture written into it is the same snapshot the shell renders from.
@@ -87,43 +92,22 @@ describe("AccountMenu", () => {
     expect(links[1].textContent).toBe("Settings");
   });
 
-  it("stays open while a preference is being changed", async () => {
+  // A preference is not a destination: the menu offers the two surfaces and the
+  // way out, and nothing that changes a setting in place.
+  it("carries no preference controls", async () => {
     render(<AccountMenu collapsed={false} />);
     await openMenu();
-    const theme = screen.getByRole("button", {
-      name: /^Theme: Switch to (dark|light) theme$/,
-    });
-    const before = theme.getAttribute("aria-label");
-
-    await userEvent.click(theme);
-    // The row is still there, now offering the way back: a menu that dismissed
-    // itself would take the control out of view together with the change.
-    const after = screen.getByRole("button", {
-      name: /^Theme: Switch to (dark|light) theme$/,
-    });
-    expect(after.getAttribute("aria-label")).not.toBe(before);
-
-    // Put the theme back. It is document-wide state that outlives this test —
-    // persisted to localStorage and held in theme.ts's own store, neither of
-    // which `cleanup()` touches — so leaving it flipped would hand every later
-    // test in this file a theme that depends on test order.
-    await userEvent.click(after);
-    expect(
-      screen
-        .getByRole("button", {
-          name: /^Theme: Switch to (dark|light) theme$/,
-        })
-        .getAttribute("aria-label"),
-    ).toBe(before);
+    expect(screen.queryByRole("button", { name: /Theme/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Language/i })).toBeNull();
   });
 
   it("hands focus back to the trigger when Escape closes it", async () => {
     const { container } = render(<AccountMenu collapsed={false} />);
     const trigger = await openMenu();
     // Standing on a row, the way a keyboard user arrives at one.
-    const language = screen.getByRole("button", { name: /^Language: / });
-    language.focus();
-    expect(document.activeElement).toBe(language);
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+    signOut.focus();
+    expect(document.activeElement).toBe(signOut);
 
     await userEvent.keyboard("{Escape}");
     expect(container.querySelector(".accountmenu")).toBeNull();
@@ -131,24 +115,6 @@ describe("AccountMenu", () => {
     // the body restarts the next Tab at the top of the page, having lost the
     // sidebar the user was standing in.
     expect(document.activeElement).toBe(trigger);
-  });
-
-  // Both dismissals listen on the document. Without an owner for the keystroke
-  // one Escape would collapse the language list AND the menu around it, leaving
-  // the reader two steps from where they were — and the language list is the one
-  // control a reader who cannot read the current locale needs most.
-  it("closes one layer per Escape when the language list is open", async () => {
-    render(<AccountMenu collapsed={false} />);
-    await openMenu();
-    await userEvent.click(screen.getByRole("button", { name: /^Language: / }));
-    expect(screen.getByRole("menu", { name: "Language" })).toBeTruthy();
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("menu", { name: "Language" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Language: / })).toBeTruthy();
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("button", { name: /^Language: / })).toBeNull();
   });
 
   it("keeps the way out reachable from the menu", async () => {
@@ -180,5 +146,53 @@ describe("AccountMenu", () => {
     await openMenu();
     expect(container.querySelector(".accountmenu")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+});
+
+describe("AccountRows", () => {
+  it("offers the same three rows, flat, in the menu's order", () => {
+    render(<AccountRows />);
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "#/settings/account",
+      "#/settings",
+    ]);
+    expect(links[0].textContent).toBe("Account");
+    expect(links[1].textContent).toBe("Settings");
+    // No trigger to open first, and nothing that could hide the rows behind one:
+    // in the sheet the rows ARE the surface.
+    expect(screen.queryByRole("button", { name: /Account$/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+
+  // The sheet is the phone's whole sidebar, and it has no trigger printing the
+  // person — so the rows carry that line themselves, or nothing on the surface
+  // says whose account it is offering.
+  it("prints who is signed in above the rows", () => {
+    const { container } = render(<AccountRows />);
+    const who = container.querySelector(".acctwho");
+    expect(who?.querySelector("b")?.textContent).toBe("Test User");
+    expect(who?.querySelector(".acctmail")?.textContent).toBe(
+      "test@example.test",
+    );
+  });
+
+  // The same mutation the menu's row runs, so the same guard against a second
+  // POST while the first is in flight. The request is left unresolved on
+  // purpose: pending is the state under test, and a stub that answered would
+  // race the assertion against the mutation settling.
+  it("disables the way out while the sign-out request is in flight", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    render(<AccountRows />);
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+    expect(signOut.hasAttribute("disabled")).toBe(false);
+
+    await userEvent.click(signOut);
+    expect(
+      screen.getByRole("button", { name: "Sign out" }).hasAttribute("disabled"),
+    ).toBe(true);
   });
 });

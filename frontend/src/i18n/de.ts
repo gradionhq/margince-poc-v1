@@ -10,14 +10,12 @@ export const de = {
     "Ledger Green (ADR-0040) — die kanonischen Werte spiegeln die Spec-Mockups; Tests pinnen sie.",
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
-  // Die Design-Zeile im Kontomenü: worauf es JETZT steht, und die Aktion, die die
-  // Zeile für einen Screenreader benennt. Die beiden Labels darüber bleiben die
-  // Namen des reinen Icon-Schalters auf Anmeldung und Onboarding, wo kein Satz
-  // in die Zeile passt.
+  // Die beiden Designs als Optionen einer Auswahl: Einstellungen → Konto zeigt
+  // beide gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
+  // ein Klick tut. Die beiden Labels darüber bleiben die Namen des reinen
+  // Icon-Schalters auf Anmeldung und Onboarding.
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
-  "theme.switchToDark": "Auf dunkles Design umschalten",
-  "theme.switchToLight": "Auf helles Design umschalten",
 
   "section.surfaces": "Flächen",
   "section.accentAi": "Akzent & KI",
@@ -106,6 +104,7 @@ export const de = {
   "shell.more": "Mehr",
   "shell.unknownPage": "Nicht gefunden",
   "shell.closeMenu": "Schließen",
+  "shell.navBack": "Zurück",
   "shell.navBackTo": "Zurück zu {name}",
   "shell.navTop": "Bereiche",
   "agent.title": "Margince KI",
@@ -1683,6 +1682,8 @@ export const de = {
   "ai.paletteHint": "Frag von überall mit",
 
   "settings.identity": "Du",
+  "settings.preferences": "Voreinstellungen",
+  "settings.preferencesSub": "Design und Sprache, für diesen Browser.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Vertrieb",

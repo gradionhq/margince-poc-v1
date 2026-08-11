@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
 import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
-import { AccountMenu } from "./account";
+import { AccountMenu, AccountRows } from "./account";
 import { AgentDock } from "./agentdock";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
@@ -26,7 +26,12 @@ import {
   type NavSection,
   RAIL_LESS_SCREENS,
 } from "./nav";
-import { NavLevelView, useNavLevel } from "./navlevel";
+import {
+  NavLevelView,
+  NavWalkProvider,
+  useNavLevel,
+  useNavWalk,
+} from "./navlevel";
 import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
@@ -115,6 +120,9 @@ const SEARCH_TIP_KEY = "rail-search";
 // move rather than as an eleventh place to go. It is a BUTTON styled as a row
 // and never accepts inline typing (AC-shell-7, one search affordance) — the
 // keyboard shortcut beside it is the same palette this opens.
+//
+// A drilled-in level takes the row's space for its own entries (shell.css); the
+// shortcut still opens the palette there, so nothing is lost but the row.
 function RailSearch({
   collapsed,
   tipOpen,
@@ -250,13 +258,20 @@ export function WorkspaceRail({
   // keyboard user is left tabbing through a page they can no longer see; and
   // closing it has to hand focus back to the control that opened it rather than
   // dropping it on <body>. Only when the sheet still HOLDS focus — a row that
-  // navigated away has already put focus somewhere better.
+  // navigated away has already put focus somewhere better — and only once the
+  // sheet has actually been open: this effect also runs on MOUNT, where a rail
+  // arriving with the level's first row already focused (a walk that crossed into
+  // or out of a section mounts a new rail) would have that focus taken straight
+  // off it and put on More.
+  const sheetOpened = useRef(false);
   useEffect(() => {
     if (sheetOpen) {
+      sheetOpened.current = true;
       nav.current?.querySelector<HTMLElement>(".navwrap .navitem")?.focus();
       return;
     }
-    if (nav.current?.contains(document.activeElement)) {
+    if (sheetOpened.current && nav.current?.contains(document.activeElement)) {
+      sheetOpened.current = false;
       more.current?.focus();
     }
   }, [sheetOpen]);
@@ -400,12 +415,12 @@ export function WorkspaceRail({
           it — and the menu opens upward from there, so it never covers the
           destinations you were reading. */}
         <div className="railfoot">
-          {/* The sheet is the phone's full-width sidebar, so the block prints who
-            is signed in there even when the desktop preference it inherits is
-            the 64px rail — collapsed is about the rail's width, and inside the
-            sheet there is none. (Outside the sheet the foot is hidden at phone
-            width, so this only ever reads as the sidebar's own state.) */}
-          <AccountMenu collapsed={collapsed && !sheetOpen} />
+          {/* In the sheet the rows stand on their own. The sheet exists only at
+            phone width, where the foot has no room above it for a popover to
+            open into — anchored to the bottom of the viewport the menu had
+            nowhere to go, so the rows it hides were unreachable. Everywhere else
+            the rail carries ONE account affordance, which is the menu. */}
+          {sheetOpen ? <AccountRows /> : <AccountMenu collapsed={collapsed} />}
         </div>
       </nav>
     </>
@@ -592,9 +607,16 @@ export function Shell({
 }>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
+  const leveled = route.screen === SETTINGS_SCREEN;
   const [collapsed, setCollapsed] = useState(
     () => readStored(COLLAPSE_KEY) === "1",
   );
+  // What the sidebar's walk between levels remembers — where a walk OUT of a
+  // level returns to, and whether the level that arrives was asked for and takes
+  // focus. The shell holds it because the shell outlives every rail: the rail on
+  // a section route is a different component, mounted on the way in and gone
+  // again on the way out.
+  const walk = useNavWalk(route, !railless && !leveled);
 
   const toggle = useCallback(() => {
     setCollapsed((current) => {
@@ -626,17 +648,19 @@ export function Shell({
     onOpenSearch,
   };
 
-  const leveled = route.screen === SETTINGS_SCREEN;
-
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
       {/* One rail, two suppliers of what it shows: a screen owning a level wires
-          its own data in, everything else renders the destinations alone. */}
-      {leveled ? (
-        <SettingsRail {...railProps} />
-      ) : (
-        <WorkspaceRail {...railProps} />
-      )}
+          its own data in, everything else renders the destinations alone. The
+          provider spans both, because the way out of a level is asked for on the
+          rail that has one and answered with what the other one saw. */}
+      <NavWalkProvider value={walk}>
+        {leveled ? (
+          <SettingsRail {...railProps} />
+        ) : (
+          <WorkspaceRail {...railProps} />
+        )}
+      </NavWalkProvider>
       <main className="main">
         {leveled ? (
           <SettingsPageHead

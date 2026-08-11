@@ -640,6 +640,19 @@
 .rail .navback:hover {
   color: var(--textPrimary);
 }
+/* A level reduces the rail's own HEAD to the mark, the way back, and the rows.
+   The brand's words go because the mark alone already stands for the product
+   here — and it keeps both jobs it has, the link home and the collapse
+   affordance, so the head is never a dead box. The search row goes because ⌘K
+   still opens the palette from anywhere, which makes the row cost only the space
+   it took above the level's own entries.
+   One selector serves both sidebar widths: nothing more specific than `.rail …`
+   claims `display` on either element, so the 64px rail follows without being
+   named. The phone block below is where that stops being true. */
+.rail.leveled .ws-name,
+.rail.leveled .railsearchwrap {
+  display: none;
+}
 
 .rail .grow {
   flex: 1;
@@ -1216,6 +1229,14 @@
      than a second arrangement of it. */
   .rail.sheetopen .railsearchwrap {
     display: flex;
+  }
+  /* Except in a level, where the sheet reads the way the sidebar does: the mark
+     without its words, the way back, then the entries. Restated because the two
+     rules above bring the row back for the sheet, and the collapsed variant with
+     them — the desktop preference survives a resize. */
+  .rail.sheetopen.leveled .railsearchwrap,
+  .rail.sheetopen.collapsed.leveled .railsearchwrap {
+    display: none;
   }
   .rail.sheetopen .railfoot {
     display: block;

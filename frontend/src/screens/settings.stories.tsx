@@ -111,6 +111,19 @@ export const AccountTab: Story = {
   render: tab("account", { "GET /me": me }),
 };
 
+// Theme and language sit on this tab because they belong to the person, not to
+// the sidebar. The play() opens the language listbox so the capture carries the
+// options rather than only the control's closed face.
+export const AccountPreferences: Story = {
+  render: tab("account", { "GET /me": me }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("combobox", { name: "Language" }),
+    );
+  },
+};
+
 export const AiTab: Story = {
   render: tab("ai", { "GET /me": me, "GET /passports": passports }),
 };
