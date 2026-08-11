@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -40,6 +41,23 @@ type ollamaWire struct {
 type ollamaOptions struct {
 	NumPredict int `json:"num_predict"`
 	NumCtx     int `json:"num_ctx"`
+}
+
+// ollamaEmbedWire is the /api/embed request. It is the adapter's own rather
+// than the shared embedWire because that one is the OpenAI-compatible shape
+// (it carries `dimensions`, which Ollama has no parameter for) and because
+// options are a runner concept only this provider has.
+type ollamaEmbedWire struct {
+	Model   string              `json:"model"`
+	Input   []string            `json:"input"`
+	Options *ollamaEmbedOptions `json:"options,omitempty"`
+}
+
+// ollamaEmbedOptions is the embed lane's option set: the window, and nothing
+// else. num_predict has no meaning where there is no completion, and sending it
+// as zero would state an output budget on a call that produces no output.
+type ollamaEmbedOptions struct {
+	NumCtx int `json:"num_ctx"`
 }
 
 // ollamaMaxTokensDefault caps a request that didn't set MaxTokens, the same
@@ -103,7 +121,16 @@ func (w ollamaWire) contextWindow(maxTokens int) int {
 	for _, tool := range w.Tools {
 		prompt += len(tool.Function.Name) + len(tool.Function.Description) + len(tool.Function.Parameters)
 	}
-	window := ((prompt/4+maxTokens)/ollamaContextBucket + 1) * ollamaContextBucket
+	return ollamaWindowFor(prompt/4 + maxTokens)
+}
+
+// ollamaWindowFor rounds a token estimate up to a window this adapter is
+// willing to ask for. Both lanes size their own estimate and then come here,
+// because the bucket, the floor and the cap are one rule about what the RUNNER
+// is asked to allocate rather than anything about prompts or documents — and a
+// second copy of it is how the two lanes would drift apart.
+func ollamaWindowFor(tokens int) int {
+	window := (tokens/ollamaContextBucket + 1) * ollamaContextBucket
 	if window < ollamaContextFloor {
 		return ollamaContextFloor
 	}
@@ -111,6 +138,36 @@ func (w ollamaWire) contextWindow(maxTokens int) int {
 		return ollamaMaxContext
 	}
 	return window
+}
+
+// embedContextWindow sizes num_ctx for one /api/embed call, and reports whether
+// the longest input still overruns the window it was able to ask for.
+//
+// Sized off the LONGEST input rather than the sum of the batch: num_ctx is the
+// loaded model's per-SEQUENCE window and /api/embed embeds each input
+// independently, so summing would ask for a window the work never needed and
+// would reach the ceiling on a batch of otherwise ordinary documents.
+//
+// The estimate is returned alongside the window because this is the one place
+// truncation is invisible. A chat request past its window stops generating and
+// says done_reason: "length"; an embedding past its window is computed from the
+// head of the text and returns a vector of the right width that no caller can
+// tell apart from a whole one. And the window ALONE cannot say how much was
+// lost — it saturates at the cap, so a document at 33k tokens and one at a
+// million both report the same 32768. What was asked for is the half that
+// carries the magnitude, so both leave this function.
+func embedContextWindow(inputs []string) (window, estimatedTokens int) {
+	longest := 0
+	for _, input := range inputs {
+		if len(input) > longest {
+			longest = len(input)
+		}
+	}
+	// The same ~4-bytes-per-token heuristic the chat window and the embed
+	// meter both estimate with. It only has to be close: the bucket and the
+	// cap decide the value that actually ships.
+	estimatedTokens = longest / 4
+	return ollamaWindowFor(estimatedTokens), estimatedTokens
 }
 
 type ollamaToolWire struct {
@@ -164,7 +221,23 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	if embedModel == "" {
 		embedModel = c.defaultModel
 	}
-	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs}, nil)
+	// Sized for the same reason the chat path is: Ollama runs /api/embed in
+	// whatever window the loaded model has, so an unsized call embeds long text
+	// from its head — silently, since the vector that comes back is the right
+	// width whether or not the model ever saw the end of the document.
+	window, estimatedTokens := embedContextWindow(req.Inputs)
+	if estimatedTokens > window {
+		// Both numbers, because the ratio between them is the finding: the
+		// window saturates at the cap, so it alone cannot tell an input that
+		// slightly overruns from one embedded almost entirely from its title.
+		slog.WarnContext(ctx,
+			"an embed input is longer than the largest window this adapter asks for; "+
+				"its vector is computed from the head of the text and retrieval will not match the rest",
+			"model", embedModel, "estimated_tokens", estimatedTokens,
+			"window_tokens", window, "inputs", len(req.Inputs))
+	}
+	payload, _, err := sendablePayload(ctx,
+		ollamaEmbedWire{Model: embedModel, Input: req.Inputs, Options: &ollamaEmbedOptions{NumCtx: window}}, nil)
 	if err != nil {
 		return model.Embeddings{}, err
 	}

@@ -5,7 +5,7 @@ package identity
 
 // The workspace row is CONFIGURATION now: its identity — name, base currency,
 // timezone — moved into `setting` (ADR-0090/A135) and the columns were dropped
-// (0209), leaving the slug bootstrap derives and columns that arrive at the
+// (0211), leaving the slug bootstrap derives and columns that arrive at the
 // default their migration declared and are changed later through a settings
 // surface. ResetWorkspaceConfig below restores those defaults. What a data
 // reset must not touch lives in `setting`, where platform/settings.ResetConfig
@@ -27,7 +27,7 @@ import (
 // identity and age outlive it.
 //
 // Name, currency and zone are absent because they are no longer columns
-// (0209): they are settings rows, and platform/settings.ResetConfig spares
+// (0211): they are settings rows, and platform/settings.ResetConfig spares
 // them there for exactly this reason.
 //
 // updated_at is listed for a different reason than the rest. The reset really
