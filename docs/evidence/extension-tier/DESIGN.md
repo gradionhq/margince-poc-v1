@@ -138,6 +138,13 @@ Against the mistakes above, and inside §2.0's trust model:
   `extension_secret` rows and keyvault ciphertext, and its grants inside `role.permissions` all survive.
   There is no purge primitive until #628 gives the tables an owner to `DROP OWNED BY`. `down` cannot
   revert a removed unit's migrations either — the unit is gone, so its SQL is gone with it.
+- **Removal is one place.** **It is two**, and that is the recorded cost of §4.5's ruling: the unit
+  directory, *and* the unit's screen plus its line in `frontend/src/screens/ext/index.tsx`. Leaving the
+  entry behind fails `make fe-typecheck-composed` — the gate doing its job, on a removal that looks
+  complete. The acceptance re-run (finding F5) found the documented recipe also needed the formatter
+  step: deleting the last registry entry leaves `= {\n};` and `check-fe` fails on formatting alone. It
+  briefly *was* three places — a `gen-composition` fixture hard-coded notes's path — which was fixed
+  there rather than documented, because removing a unit must not require editing core tests.
 
 ### 2.3 What held — and is machine-held, not asserted
 
@@ -183,7 +190,7 @@ misleads in the other direction. Each of these is a property some gate would fai
 | River job kinds | `ext_<name>_<job>` (dispatcher) + `ext_<name>_<job>_ws` (workspace child) |
 | Secrets | `extension_secret.extension_name = <name>` |
 | RBAC objects | `ext_<name>_<object>` |
-| Frontend routes | `#/ext/<name>` (a contract-derived card; no unit ships a screen — §4.5) |
+| Frontend routes | `#/ext/<name>` (the screen is a **core** file — §4.5) |
 | Manifest / `approvals.lock` key | `<name>` |
 
 **The route namespace carries no `/v1`, and that was a bug before it was a rule.** A contract path is
@@ -721,6 +728,12 @@ of every affected user forever with no cleanup path, and with no `/roles` endpoi
 write path" that Parse's own doc promises has no write path to live at — so a typo'd grant in the only
 mechanism that exists (hand SQL) now no-ops silently instead of failing loudly.
 
+> **SUPERSEDED by §4.6.** The ruling below stands as the record of what this slice decided and why —
+> it was correct for a slice that had no answer to the supply-chain question. §4.6 takes that question
+> head-on and answers it, so `extensions/<name>/frontend/` becomes a real capability layer and
+> `unbuiltCapabilityLayers` empties. Read this section for the reasoning that held until it did; read
+> §4.6 for what replaces it, including the costs §4.6 accepts that this section declined to.
+
 **Frontend: `defineExtension` was not built, and that is a recorded ruling, not an oversight.**
 `extensions/<name>/frontend/` is **still refused on sight** by `gen-composition`'s scan — it is the one
 remaining member of `unbuiltCapabilityLayers`, and `scanUnit`'s "no Go module" refusal therefore never
@@ -733,26 +746,29 @@ What shipped instead:
   `{name, verbs: [{operationId, route, method, title, version, rbacObject}]}` read out of the **merged
   contracts** — the same source the routes, the agent tools and the manifests derive from, so a screen
   cannot advertise an operation the server does not serve. `App.tsx` falls through to a generic
-  published-operations card for **every** composed unit — there is no bespoke screen for any of them.
-- **No unit has a screen, in the unit or in core.** The descriptor card is the whole of a unit surface
-  on this branch, and that is the direct consequence of the ruling above: a bespoke screen for `notes`
-  would have to be either unit-authored TSX (the supply-chain decision this slice declined) or a core
-  file naming a unit (which makes removing a unit a removal in two places). Both belong to the frontend
-  slice, which ships as its own PR.
+  published-operations card for any composed unit without a bespoke screen (`de`, `yogi`, `crm-hello`).
+- **notes's screen lives in the core tree** (`frontend/src/screens/ext/notes.tsx`), dispatched by unit
+  name once the descriptor resolves. This was forced, not preferred: a generic screen over that descriptor
+  shape cannot express "not connected"→paste key→"connected", HMAC signing, a note list with Add/Delete, an
+  unprompted heartbeat row, or hiding Add on a read-only seat — **five of the acceptance's eight steps.**
+- **Consequence: removing a unit is a removal in two places** (§2.2). Unavoidable while the screen is a
+  core file, and it fails loudly (`fe-typecheck-composed`) rather than silently.
 - **`#/ext/<name>` is not reachable from the nav.** `NAV_GROUPS` is a canonical 10-item list whose order is
   pinned by test, so a composed unit is reachable only by typing the hash. Correct for this slice: no unit
   has a surface worth a rail slot, and deciding where a variable number of installation-defined entries sit
   in a fixed list is its own design question.
-- **`notes` therefore exercises all five tier surfaces from inside the unit.** A sixth — the screen —
-  is not a surface this branch ships at all. Any claim that it exercises six is wrong.
+- **`notes` therefore exercises five of six tier surfaces from inside the unit**, not six. Any claim
+  otherwise — including one made in a commit message on this branch — is wrong.
 
 **Types mirror the `GOWORK` two-lane pattern.** A committed **vanilla** `schema.d.ts` remains the empty-tree
 output and keeps its drift gate; composed artifacts are selected by tsconfig alias. This preserves the
-byte-identity property a single committed-from-composed file would destroy. There are **two** aliases, not
-one: `@composition/extensions` (the descriptor registry) and `@composition/schema` (the merged
-contract's types). The second needed a **second** composition root, `build/composition-frontend/` —
-gitignored, Node-produced, and verified to sit outside the tree `verifyOutputs`/`verifyNoExtraFiles`
-operate on, so the byte-identity gate is untouched by it.
+byte-identity property a single committed-from-composed file would destroy. There are **three** aliases, not
+one: `@composition/extensions` (the descriptor registry), `@composition/schema` (the merged contract's
+types) and `@composition/screens` (the screen registry). The middle one needed a **second** composition root,
+`build/composition-frontend/` — gitignored, Node-produced, and verified to sit outside the tree
+`verifyOutputs`/`verifyNoExtraFiles` operate on, so the byte-identity gate is untouched by it. One
+deliberate typecheck gap is accepted and named: the demo screen's own test file, because a test imports the
+screen and `tsc` follows imports past exclusions.
 
 **Cost, accepted explicitly, and it bit.** The CI `frontend` job has no Go toolchain and `Dockerfile.web`
 copies only the base YAMLs. The first cut made `check-fe` depend on a composed typecheck that hard-exits
@@ -761,6 +777,105 @@ and the local green run never exercised that path. Its paths filter also omitted
 `composition/**` and `gen-composition/**`, so a PR changing the only input that alters the composed registry
 did not run the frontend job at all. Both fixed; the general lesson holds, that a lane which skips
 composition must fail loudly rather than typecheck against a stale contract.
+
+### 4.6 Frontend, the sixth surface — a unit ships its own package
+
+> **Status: BUILT, and reconciled against the code.** This section was written before its slice and
+> has been corrected in place against what shipped. Where the design and the build disagreed, the build
+> won; what the build taught that the design did not predict is recorded at the end.
+>
+> The consequence for the rest of this document: §2.2's "removal is two places", §4's "the screen is a
+> **core** file" and §5's "except `frontend`, which is still refused" are now **superseded** — removal
+> is one place, the screen is the unit's, and `unbuiltCapabilityLayers` is empty.
+
+§4.5 declined to bundle unit-authored TSX because it had no answer to the supply-chain question. This
+section answers it: **a unit's frontend is a pnpm workspace package**, with its own `package.json` and
+its own dependencies, resolved and built by the same toolchain that builds the SPA. That is the
+deliberate choice between three shapes, and the other two are recorded because the reasoning matters
+more than the outcome:
+
+- **Source-only** — unit TSX compiled against core's dependencies, no unit `package.json`. Smallest
+  change, no supply-chain surface, but a unit can never bring a library, and the tier's stated purpose
+  is a bounded add-on somebody else writes.
+- **Workspace package (chosen).** A unit brings its own dependencies. The cost is stated below rather
+  than discovered.
+- **Runtime loading** (module federation, a per-unit bundle fetched at run time). Rejected: it would
+  trade away the property this tier's frontend already has and the backend cannot offer — a screen for a
+  unit whose contract fragment did not merge **fails `tsc`**, because its routes are not in the merged
+  contract's `paths`. That compile-time route guarantee is worth more than the isolation federation
+  would buy, and federation's isolation is weak anyway (one origin, one bundle, one `localStorage`).
+
+**What the mechanism is, and how little of it is new.** The two-lane alias pattern §4.5 built already
+carries three artifacts; `@composition/screens` is the only one still hand-written in core. It becomes
+generated like the other two, and the layer leaves `unbuiltCapabilityLayers` exactly as `migrations/`
+did. Vite already parameterises `server.fs.allow` for a root outside `frontend/`. So the new parts are:
+a workspace that spans `extensions/*/frontend`, a generated screen registry, and the gates below.
+
+**The published frontend surface is `frontend/package.json`'s `exports` map**, and that is the precise
+analogue of `//margince:extension-surface` over `backend/pkg/**`. A unit imports `@margince/frontend/…`
+and nothing else of the core's; a deep import, a relative escape into `../../frontend/src`, or an
+unmarked path is refused by a gate, because unlike Go there is no module boundary doing it for free.
+
+**React is a peer dependency, deduped.** Two React instances in one bundle break hooks at run time with
+an error that names nothing useful, so `react`/`react-dom` are `peerDependencies` of a unit package and
+`resolve.dedupe` pins one copy. This is the single most likely way a unit author breaks the SPA, and it
+is configuration rather than review.
+
+**Costs this section accepts, having named them.** They are real, and none is mitigated by anything in
+this design:
+
+1. **A unit's transitive npm dependencies ship in the SPA bundle**, on the same origin, with the same
+   `localStorage` and the same session as the core. There is no per-unit sandbox in a bundle, and this
+   design does not build one. The composed set was already the trust boundary on the backend (§2.4);
+   this extends the same posture to a place where the blast radius is larger and the review surface —
+   a dependency tree nobody on the core team wrote — is wider. A unit is added deliberately, and that
+   remains the whole of the protection.
+2. **The lockfile is upstream-owned and a unit writes to it.** Adding a unit with dependencies changes
+   the root `pnpm-lock.yaml`, so "a unit edits no upstream file" — true of the backend — is **false**
+   for a frontend-bearing unit. Stated here rather than left for someone to discover in a diff.
+3. **CSP is unchanged and unhelped.** Same bundle, same origin, built at build time: nothing about this
+   makes a unit's code more constrained at run time than core's is.
+
+**What it buys, concretely.** Removal becomes **one place** — `git rm -r extensions/<name>` — closing
+the two-place wart §2.2 records, which the acceptance run found and which three documents currently
+have to warn about. And the sixth surface finally comes from inside the unit, so `notes` exercises
+six of six rather than five.
+
+**The digest collision, and its resolution.** `digestTree` refuses every non-regular file under a unit,
+deliberately (§5) — and pnpm gives each workspace package a `node_modules` of symlinks, so the two
+collide head-on the moment a unit has a dependency. `node_modules` is excluded from the digest by name,
+alongside the manifest that is already excluded, and for the same class of reason: it is resolved
+output, not unit source, and what pins it is the lockfile. The symlink refusal itself is unchanged
+everywhere else.
+
+**What the build taught that this design did not predict.** Six things, each now a comment where it
+bit:
+
+1. **The generated screen registry can import NOTHING.** It is written to two locations at different
+   depths and byte-identity forbids a specifier that differs between them; a bare one is no better,
+   because nothing resolves from `build/composition/`. The registry is emitted untyped and `App.tsx`
+   applies `ExtensionScreenRegistry` at the import site — the check moves rather than disappearing.
+2. **A unit is resolved by NAME through a path mapping, not installed as a dependency of the SPA.**
+   pnpm links a member into its *dependents'* `node_modules`, so installing it would mean
+   `frontend/package.json` listing every enabled unit — an upstream file adding a unit would edit,
+   which is the property this tier exists to protect. Workspace membership still earns its keep: it is
+   what installs and resolves a unit's OWN dependencies.
+3. **`@tanstack/react-query` is a hosted peer, not just React.** Its QueryClient lives in a React
+   context, so a unit with its own copy reads a different context than the provider the app mounted and
+   its first `useQuery` reports no QueryClient on a page that plainly has one.
+4. **Core's `useT` stays narrow; the widening lives on the surface.** `ReturnType<typeof useT>` is the
+   parameter type ~26 core helpers take a translator as, and widening the core return makes every
+   core-only test fake stop being assignable — for a capability no core helper uses.
+5. **`git rm -r` leaves the ignored install behind**, so a removed unit's directory survives holding
+   nothing a human wrote, and presence under `extensions/` is enablement. The composer now recognises
+   that shape and says what to do rather than reporting a missing `go.mod`.
+6. **Removing the LAST frontend-bearing unit** left the composed-tests project with no inputs, which
+   TypeScript treats as an error. The committed stub is included beside the glob, so the tier survives
+   a tree that uses none of it.
+
+**Proof, by doing it.** `git rm -r extensions/notes` + `rm -rf` + `pnpm install`, no core file
+edited, `make check-fe` green — then the unit restored and green again. Findings 5 and 6 are both
+things only that exercise could have found.
 
 ## 5. Gates
 
@@ -815,13 +930,12 @@ and falsely shows whole files as new.
 principle #7. `fixtures/extensions/crm-hello` is untouched — it stays the minimal CI fixture. Detail and the
 click-through acceptance are in `NOTES-SCOPE.md`, with the corrections below taking precedence over it.
 
-**All five tier surfaces come from inside the unit.** `migrations/` (`ext.ext_notes_note`, workspace-scoped
+**Five of six surfaces come from inside the unit.** `migrations/` (`ext.ext_notes_note`, workspace-scoped
 under forced RLS), `api/` (six governed operations under `/ext/notes/`), secrets (an HMAC signing key,
 proven **by use** — signing is the whole demonstration, and no operation returns the key, masked or
 otherwise), a job (a heartbeat tick that names its own workspace, so the dispatcher's fan-out is visible
 rather than silently demonstrating the single-tenant case), and tools (the same six operations reaching the
-agent). **There is no sixth: the frontend layer is not a capability on this branch** (§4.5), so the
-unit's surface in the SPA is the generic descriptor card every composed unit gets.
+agent). **The sixth — the screen — is a core file** (§4.5).
 
 **`GET` and `DELETE` are not declarable, so the three record operations are three POSTs on three paths.**
 `Verb.validateMethod` admits `post`/`put`/`patch` only, and that is the seam's rule rather than a style
@@ -832,11 +946,14 @@ body. `NOTES-SCOPE.md`'s `GET`/`POST`/`DELETE` line is wrong.
 `ext_notes_signing_key` gates the secrets operations — and the second exists because the acceptance
 re-run demonstrated its absence (§2.1, R1). It gates on **`update`** for the store, not `create`: there is
 one key per workspace, the slot always exists, and `create`-but-not-`update` still hands out the first
-overwrite. Two agents reached that independently.
+overwrite. Two agents reached that independently. Note also that the SPA's own gating was **not** in place
+before that round: the claim that the screen had gated on `ext_notes_signing_key` earlier is false —
+`git log -S` finds the string nowhere before it — and the declaration and the client gate landed together.
 
 **No default role seeds either object**, so every seat sees the not-granted state until an admin grants
-them by raw SQL (there is no `/roles` endpoint). Any acceptance of the read-only-seat step must grant
-both objects first or it means nothing.
+them by raw SQL (there is no `/roles` endpoint). The screen says so in words rather than showing an empty
+list, because the superseded compile-time guard can no longer distinguish "no grant" from "the overlay did
+not merge". Any acceptance of the read-only-seat step must grant both objects first or it means nothing.
 
 **One scope item was deliberately not built:** the intentionally-failing tick. The containment it would
 demonstrate already exists and is tested core-side, and a shipped-enabled failure switch on a first-party
@@ -869,7 +986,8 @@ holds it and reviews it. The recorded resolution is that if #1128 is still open 
 reviewed, PR1 merges ahead of the ADR and the report says so plainly. See §8 — the ADR also needs
 renumbering before it can merge at all.
 
-Per-slice acceptance was phrased against what each slice unlocked.
+Per-slice acceptance was phrased against what each slice unlocked, and the full demo screen was not
+reachable until the jobs slice.
 
 ## 8. The ADR
 

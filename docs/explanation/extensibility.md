@@ -266,14 +266,27 @@ validated to the full identifier budget, so a name chosen today stays valid for 
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
 
-**What a unit does NOT own: a screen.** `extensions/<name>/frontend/` is still refused on sight by
-`gen-composition`'s scan — it is the one remaining member of `unbuiltCapabilityLayers` — so a unit
-ships no TSX and no npm dependency of its own, and adding a unit therefore writes no upstream-owned
-file at all. What the SPA composes instead is `frontend/extensions.gen.ts`: a **descriptor** registry
-generated from the merged contracts, listing the governed operations each enabled unit publishes.
-`#/ext/<name>` renders those as a card, so every composed unit is reachable and none of them can
-advertise an operation the server does not serve. Lifting the layer is its own slice, with its own
-supply-chain answer to give (`DESIGN.md` §4.5 records the ruling and its reasoning).
+- **Its own frontend** — a `frontend/` directory whose screen is aliased into the SPA and rendered at
+  the unit's route. Removing a unit is a one-place operation again: delete the unit directory. An
+  import gate (`frontend/scripts/check-ext-imports.sh`) holds a unit screen to the published surface,
+  the same way the Go marker gate holds its handlers.
+
+**The one upstream-owned file a unit may edit: `pnpm-lock.yaml`.** A unit frontend that declares npm
+dependencies changes the root lockfile, so the rule stated at the top of this page — *a unit edits no
+upstream-owned file* — holds for every unit except a frontend-bearing one with dependencies of its own,
+and holds for that one everywhere except the lockfile. `DESIGN.md` §4.6 records why. Nothing else in
+the tree is written by adding a unit.
+
+**The shipping rule that exception implies.** A unit's transitive npm packages enter the SPA bundle and
+run at the same origin, in the same session, as the product. The import gate proves a dependency was
+*declared*; it does not allowlist what may be declared, and it does not require the lockfile diff to be
+read. That is acceptable **only** under this tier's standing posture — units are reviewed, first-party
+or otherwise trusted code (see the closing section) — so adding a frontend-bearing unit means a human
+reviews the `pnpm-lock.yaml` diff on the same terms as the unit's Go. A unit whose dependencies you
+would not vendor into the core is a unit you do not compose.
+
+`frontend/extensions.gen.ts` is generated from the composed set, and a unit's screen is reached through
+it.
 
 One ordering constraint remains worth knowing: the SPA gates affordances with `useCan(object, action)`
 over an `RbacObject` **generated from `crm.yaml`'s enums**, so a page gated on an extension-owned RBAC
@@ -309,7 +322,10 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | A declaration the composer cannot honour is refused rather than discarded — an unknown job role, governance declared on the wrong half of a pair, a `$ref` in an advertised schema, a multi-document base contract | `backend/tools/gen-composition` |
 | Every declared extension operation is mounted, and every mounted route was declared | `backend/internal/compose/extparity_test.go` |
 | A unit's served tool is dispatched only by that unit's own route — one unit cannot inherit another's handler by naming its verb | `backend/internal/compose/extparity_test.go` |
-| A capability layer with no composition — `frontend/` — is refused on sight rather than silently dropped | `backend/tools/gen-composition` (`unbuiltCapabilityLayers`) |
+| A unit's SCREEN reaches the core only through the published surface (`frontend/package.json`'s `exports`), and npm only through what its own package declares | `frontend/scripts/check-ext-imports.sh`, itself tested by `check-ext-imports.test.sh` |
+| A unit's screen is held to the same design system as core — tokens, icons, spacing, no native dropdown | the four `frontend/scripts/check-*.sh` gates, which sweep `extensions/*/frontend` as well as `frontend/src` |
+| A unit cannot ship a second copy of state the host owns (React's hook dispatcher, react-query's QueryClient) | `gen-composition` refuses them as direct dependencies; `resolve.dedupe` catches a transitive one |
+| A unit's copy is namespaced to that unit and cannot rewrite a core string | `gen-composition` (`mergeUnitLocales`), and core keys win the lookup |
 
 The compiler does the heaviest lifting for free (an extension's module path is outside the backend
 module, so `internal/**` is unreachable by construction); the tests hold the rest of the contract that
@@ -335,6 +351,7 @@ the whole path).
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
 | The reference extension (every capability) | `extensions/notes/notes.go` |
+| Its screen, which lives in CORE and not in the unit | `frontend/src/screens/ext/notes.tsx` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |
 | The negative migration fixtures | `fixtures/extensions/bad-unprefixed-table/`, `bad-overbudget-table/` |
 | The secrets namespace-wall fixture | `fixtures/extensions/crm-nosy/crmnosy.go` |
