@@ -30,6 +30,12 @@ report() {
   gh issue create --repo "$REPO" --title "$title" --label "$label" --body "$body"
 }
 
+# Each report is attempted independently. Under `set -e` a bare call would abort
+# the script, so a single `gh` hiccup on the first finding would silently suppress
+# every later one — and a lane whose job is "say what is broken" must not report
+# one failure and swallow two. Failures accumulate and surface at the end instead.
+unreported=0
+
 if [ "${VULN_RESULT:-}" = "failure" ]; then
   report "govulncheck reports a vulnerability reachable from main" security \
 "\`make vuln\` failed on the scheduled run of \`main\`: $RUN_URL
@@ -43,7 +49,8 @@ govulncheck reports **reachability**, not mere presence: the affected code is on
 path this module actually calls. That is a stronger signal than a Dependabot
 alert on the same package, and it is worth acting on rather than deferring.
 
-Reproduce locally with \`make vuln\`."
+Reproduce locally with \`make vuln\`."\
+    || unreported=1
 fi
 
 if [ "${GATE_RESULT:-}" = "failure" ]; then
@@ -60,7 +67,8 @@ A \`NONE\` status is reported as a failure on purpose: it means no analysis is
 attached to \`main\` at all, which looks identical to green on every dashboard.
 
 The failing conditions are printed in the \`quality-gate\` job log of the run
-above."
+above."\
+    || unreported=1
 fi
 
 if [ "${LANE_RESULT:-}" = "failure" ]; then
@@ -75,5 +83,11 @@ is why this lane re-runs the gate unconditionally rather than trusting the last
 push's verdict.
 
 So the breakage may predate the most recent commit. Reproduce locally with
-\`make check-backend\` on \`main\`."
+\`make check-backend\` on \`main\`."\
+    || unreported=1
+fi
+
+if [ "$unreported" -ne 0 ]; then
+  echo "FAIL: at least one finding could not be filed — the run above names what was broken, but an issue for it does not exist" >&2
+  exit 1
 fi

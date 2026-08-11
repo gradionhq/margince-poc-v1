@@ -43,6 +43,7 @@ jobs:
   vuln:
     name: govulncheck (main)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -64,6 +65,7 @@ jobs:
   quality-gate:
     name: sonarcloud quality gate (main)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -94,7 +96,12 @@ jobs:
           # literal. Sonar accepts either, so the header avoids arguing for an
           # allowlist entry, and an allowlist that grows is how a secret scan
           # starts reporting "no leaks found" over a tree that has one.
-          body="$(curl -fsS -H "Authorization: Bearer $SONAR_TOKEN" \
+          # Timeouts, because a stalled read here is worse than a failed one: the
+          # concurrency group below does not cancel in progress, so a request that
+          # hangs holds the lane and every later scheduled run queues behind it.
+          # A day with no answer is recoverable; a lane that stops answering is not.
+          body="$(curl -fsS --connect-timeout 10 --max-time 60 \
+            -H "Authorization: Bearer $SONAR_TOKEN" \
             "https://sonarcloud.io/api/qualitygates/project_status?projectKey=$PROJECT_KEY&branch=main")"
           status="$(printf '%s' "$body" | jq -r '.projectStatus.status')"
           echo "quality gate on main: $status"
@@ -119,6 +126,7 @@ jobs:
   backend-lane:
     name: backend lane (main)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -164,6 +172,7 @@ jobs:
         || needs.quality-gate.result == 'failure'
         || needs.backend-lane.result == 'failure')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: write
