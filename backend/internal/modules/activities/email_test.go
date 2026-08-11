@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 )
 
 // stubUnsubscribeLinker stands in for the consent module's preference-token
@@ -155,4 +157,37 @@ func TestSendPathOptionsAccumulateOnOneStore(t *testing.T) {
 	if handlers.store.publicBaseURL != "https://mail.example.test" {
 		t.Fatalf("public base URL = %q, want it normalized onto the same store", handlers.store.publicBaseURL)
 	}
+}
+
+// The floor greets the person the draft is TO, and greets nobody when nobody is
+// known. Greeting whoever is nearest is how a draft ends up addressed to its
+// own author — the defect the certification judge floored on the
+// eight-months-old fixture.
+func TestTheFloorGreetsTheRecipientOrNobody(t *testing.T) {
+	named := DraftContext{
+		Band:      convstate.BandFresh,
+		Recipient: "Marek",
+		Topic:     "Angebot",
+		Body:      "Hallo, ich wollte kurz nachfragen, ob das Angebot so passt und wann wir sprechen koennen.",
+		Threaded:  true,
+	}
+	_, body := DeterministicEmailDraft(named, "")
+	if !strings.HasPrefix(body, "Hallo Marek,") {
+		t.Errorf("a known recipient should be greeted by name, got %q", firstLineOf(body))
+	}
+
+	anonymous := named
+	anonymous.Recipient = ""
+	_, body = DeterministicEmailDraft(anonymous, "")
+	if strings.Contains(firstLineOf(body), "Marek") {
+		t.Errorf("with no recipient the greeting must name nobody, got %q", firstLineOf(body))
+	}
+	if !strings.HasPrefix(body, "Guten Tag,") {
+		t.Errorf("an unnamed German greeting should open %q, got %q", "Guten Tag,", firstLineOf(body))
+	}
+}
+
+func firstLineOf(body string) string {
+	line, _, _ := strings.Cut(body, "\n")
+	return line
 }
