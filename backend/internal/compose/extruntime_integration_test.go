@@ -362,38 +362,38 @@ func TestRuntimeSecretsCannotReachAnotherUnitsNamespace(t *testing.T) {
 	}
 }
 
-// TestCrmDemoSigningKeyIsUnreachableFromASecondUnit is the same wall as the
+// TestNotesSigningKeyIsUnreachableFromASecondUnit is the same wall as the
 // test above, driven with the REAL unit names the reference extension and its
 // throwaway counterpart ship under.
 //
 // The generic alpha/beta case proves the mechanism. This one proves the CLAIM
-// the demo makes to whoever is watching it: crm-demo stores a signing key and
+// the demo makes to whoever is watching it: notes stores a signing key and
 // signs with it, and fixtures/extensions/crm-nosy — a unit that declares the
 // same workspace-scoped `signing` key, deliberately, so this is a question
 // about a namespace and not about two units that picked different names — gets
 // ErrSecretNotFound. gen-composition's
-// TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo keeps the two
+// TestTheNamespaceWallFixtureDeclaresTheSameKeyAsNotes keeps the two
 // declarations agreeing, or this would pass for the wrong reason.
 //
 // The units are named as STRINGS rather than imported: the backend reaches an
 // extension only through the generated composition (extensions_arch_test.go),
 // and a unit's name is what the core scopes a Runtime by anyway.
-func TestCrmDemoSigningKeyIsUnreachableFromASecondUnit(t *testing.T) {
+func TestNotesSigningKeyIsUnreachableFromASecondUnit(t *testing.T) {
 	e := setupExtRuntime(t)
 	const key = "signing"
 	material := []byte("the demo workspace's HMAC key")
 
-	demo, ctx := e.runtime("crm-demo")
+	demo, ctx := e.runtime("notes")
 	if err := demo.Secrets().Put(ctx, key, material); err != nil {
 		t.Fatal(err)
 	}
 
 	nosy, _ := e.runtime("crm-nosy")
 	if _, err := nosy.Secrets().Get(ctx, key); !errors.Is(err, extension.ErrSecretNotFound) {
-		t.Fatalf("crm-nosy read crm-demo's signing key: err=%v", err)
+		t.Fatalf("crm-nosy read notes's signing key: err=%v", err)
 	}
-	// Storing its OWN key under the same name must not disturb crm-demo's, and
-	// must not be readable as crm-demo's: two namespaces, one key name.
+	// Storing its OWN key under the same name must not disturb notes's, and
+	// must not be readable as notes's: two namespaces, one key name.
 	if err := nosy.Secrets().Put(ctx, key, []byte("crm-nosy's own key")); err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestCrmDemoSigningKeyIsUnreachableFromASecondUnit(t *testing.T) {
 	// intact.
 	stored, err := demo.Secrets().Get(ctx, key)
 	if err != nil || !bytes.Equal(stored, material) {
-		t.Fatalf("crm-demo's own key after crm-nosy wrote one under the same name: %q, %v", stored, err)
+		t.Fatalf("notes's own key after crm-nosy wrote one under the same name: %q, %v", stored, err)
 	}
 	mine := hmac.New(sha256.New, stored)
 	mine.Write([]byte("demo payload"))

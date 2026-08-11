@@ -21,15 +21,15 @@ import {
 vi.mock("@composition/extensions", () => ({
   extensions: [
     {
-      name: "crm-demo",
+      name: "notes",
       verbs: [
         {
-          operationId: "crmDemoListNotes",
-          route: "/ext/crm-demo/notes",
+          operationId: "notesList",
+          route: "/ext/notes",
           method: "GET",
           title: "List demo notes",
           version: "1.0.0",
-          rbacObject: "ext_crm_demo_note",
+          rbacObject: "ext_notes_note",
         },
       ],
     },
@@ -57,19 +57,15 @@ afterEach(() => {
 });
 
 describe("extension routes (composed registry)", () => {
-  it("renders the unit's screen at #/ext/crm-demo", async () => {
-    window.location.hash = "#/ext/crm-demo";
+  it("renders the unit's screen at #/ext/notes", async () => {
+    window.location.hash = "#/ext/notes";
     renderApp();
-    expect(
-      await screen.findByRole("heading", { name: "crm-demo" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "notes" })).toBeTruthy();
     // The published operations, not decoration: this is the whole content of a
     // unit surface at this stage, and a screen that resolved the descriptor and
     // then rendered nothing from it would pass a name-only assertion.
     expect(screen.getByText("Published operations")).toBeTruthy();
-    expect(
-      screen.getByText("List demo notes — GET /ext/crm-demo/notes"),
-    ).toBeTruthy();
+    expect(screen.getByText("List demo notes — GET /ext/notes")).toBeTruthy();
   });
 
   it("still answers not-found for a unit this installation did not compose", async () => {
@@ -83,6 +79,6 @@ describe("extension routes (composed registry)", () => {
         "No extension named “crm-hello” is enabled on this installation.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "crm-demo" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "notes" })).toBeNull();
   });
 });

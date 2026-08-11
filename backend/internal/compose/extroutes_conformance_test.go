@@ -25,7 +25,7 @@ package compose
 // what came back to what the unit published. That is what this file does, and
 // it is written against `extension.Verb.OutputSchema` — the same
 // contract-derived value the client types are generated from — so it covers
-// whatever a future unit declares rather than the one shape crm-demo happens to
+// whatever a future unit declares rather than the one shape notes happens to
 // return today.
 
 import (
@@ -51,7 +51,7 @@ import (
 var envelopeKeys = []string{"schema_version", "trace_id", "freshness", "trust", "evidence", "warnings", "data"}
 
 // notepadPayload is what the tool under test returns — the same shape
-// crm-demo's `demo_signing_key_status` answers with, chosen because it is the
+// notes's `signing_key_status` answers with, chosen because it is the
 // read whose `undefined` the UAT saw first.
 const notepadPayload = `{"stored":true}`
 

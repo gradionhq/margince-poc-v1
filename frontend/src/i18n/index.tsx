@@ -34,7 +34,7 @@ export type Locale = keyof typeof catalogs;
 
 /**
  * A key an extension unit's own copy supplies, namespaced to the unit the way
- * its tables and RBAC objects are (`extCrmDemo.title`).
+ * its tables and RBAC objects are (`extNotes.title`).
  *
  * A template-literal type rather than a union, for the reason
  * ExtensionRbacObject is one: this file cannot enumerate what an installation

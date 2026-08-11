@@ -1,10 +1,11 @@
 # Extensibility — the extension tier
 
-How a bounded add-on lands in this product **without editing a single upstream-owned file**. This is
+How a bounded add-on lands in this product **without editing a single upstream-owned file — with one
+recorded exception, below**. This is
 the *extension tier*: one named, versioned unit under `extensions/<name>/`, its own Go module,
 reaching the core through one narrow published surface and composed in at build time. The vanilla tree
 already ships three — `extensions/de`, the German jurisdiction pack; `extensions/yogi`, the reference
-unit that serves one governed agent tool; and `extensions/crm-demo`, the reference extension that
+unit that serves one governed agent tool; and `extensions/notes`, the reference extension that
 exercises every capability the tier has (its own table under RLS, six governed operations, its own
 RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat).
 
@@ -265,13 +266,27 @@ validated to the full identifier budget, so a name chosen today stays valid for 
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
 
-**What a unit still cannot own: a frontend.** The generator continues to **refuse** a unit that ships a
-`frontend/` directory (`gen-composition/scan.go`). A unit gets a route and a generic descriptor card for
-free; a *bespoke* screen for a unit is written in the core tree today, which means removing a unit is a
-**two-place** operation — delete the unit directory *and* its core screen and registry entry in the same
-commit, or `fe-typecheck-composed` fails. Lifting the refusal is a supply-chain decision (it would make
-a unit's TSX part of the SPA bundle) and was deliberately kept out of the tier's first landing.
-`frontend/extensions.gen.ts` is still emitted and is still a constant no `frontend/src` module imports.
+- **Its own frontend** — a `frontend/` directory whose screen is aliased into the SPA and rendered at
+  the unit's route. Removing a unit is a one-place operation again: delete the unit directory. An
+  import gate (`frontend/scripts/check-ext-imports.sh`) holds a unit screen to the published surface,
+  the same way the Go marker gate holds its handlers.
+
+**The one upstream-owned file a unit may edit: `pnpm-lock.yaml`.** A unit frontend that declares npm
+dependencies changes the root lockfile, so the rule stated at the top of this page — *a unit edits no
+upstream-owned file* — holds for every unit except a frontend-bearing one with dependencies of its own,
+and holds for that one everywhere except the lockfile. `DESIGN.md` §4.6 records why. Nothing else in
+the tree is written by adding a unit.
+
+**The shipping rule that exception implies.** A unit's transitive npm packages enter the SPA bundle and
+run at the same origin, in the same session, as the product. The import gate proves a dependency was
+*declared*; it does not allowlist what may be declared, and it does not require the lockfile diff to be
+read. That is acceptable **only** under this tier's standing posture — units are reviewed, first-party
+or otherwise trusted code (see the closing section) — so adding a frontend-bearing unit means a human
+reviews the `pnpm-lock.yaml` diff on the same terms as the unit's Go. A unit whose dependencies you
+would not vendor into the core is a unit you do not compose.
+
+`frontend/extensions.gen.ts` is generated from the composed set, and a unit's screen is reached through
+it.
 
 One ordering constraint remains worth knowing: the SPA gates affordances with `useCan(object, action)`
 over an `RbacObject` **generated from `crm.yaml`'s enums**, so a page gated on an extension-owned RBAC
@@ -335,8 +350,8 @@ the whole path).
 | The `GOWORK` switch every build lane carries | `backend/Makefile` (`GOWORK_COMPOSED`) |
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
-| The reference extension (every capability) | `extensions/crm-demo/crmdemo.go` |
-| Its screen, which lives in CORE and not in the unit | `frontend/src/screens/ext/crmdemo.tsx` |
+| The reference extension (every capability) | `extensions/notes/notes.go` |
+| Its screen, which lives in CORE and not in the unit | `frontend/src/screens/ext/notes.tsx` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |
 | The negative migration fixtures | `fixtures/extensions/bad-unprefixed-table/`, `bad-overbudget-table/` |
 | The secrets namespace-wall fixture | `fixtures/extensions/crm-nosy/crmnosy.go` |

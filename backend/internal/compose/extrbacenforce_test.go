@@ -60,7 +60,7 @@ func (grantingSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.Sea
 	return principal.SeatFull, nil
 }
 
-// noteObject and the verb below mirror what crm-demo's fragment declares: an
+// noteObject and the verb below mirror what notes's fragment declares: an
 // object in the unit's namespace, and the one action the route needs.
 const noteObject = "ext_demo_note"
 

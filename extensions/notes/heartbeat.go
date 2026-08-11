@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 // The scheduled tick: the only thing on the demo screen that happens without a
 // user. api/jobs.yaml declares the cadence, the two wall clocks, the queue and
@@ -61,10 +61,18 @@ func heartbeat(ctx context.Context, rt extension.Runtime) error {
 		// typed starting with the same characters was counted as a tick and
 		// then DELETED by the prune below. Neither statement carries a tenant
 		// predicate; the policy is what makes both of them this workspace's.
+		//
+		// The author columns are LEFT OUT rather than written as anything, and
+		// that is the whole handling of the no-author case on this side: a tick
+		// has no person behind it (rt.Caller() here is the zero Caller —
+		// CallerSystem, empty UserID), the columns are nullable for exactly
+		// this row, and naming them with a zero uuid would invent a user that
+		// does not exist. Omitting them satisfies the both-or-neither CHECK by
+		// taking the "neither" branch, and the read renders no `author` at all.
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO `+noteTable+` (workspace_id, kind, body)
 			 VALUES (`+callerWorkspace+`, $1, $2 || `+callerWorkspace+`::text)`,
-			kindHeartbeat, heartbeatPrefix); err != nil {
+			string(kindHeartbeat), heartbeatPrefix); err != nil {
 			return err
 		}
 		// Same transaction as the insert, so a tick either writes and prunes or
@@ -76,22 +84,10 @@ func heartbeat(ctx context.Context, rt extension.Runtime) error {
 			      SELECT id FROM `+noteTable+`
 			       WHERE kind = $1
 			       ORDER BY created_at DESC, id DESC
-			       LIMIT $2)`, kindHeartbeat, keptHeartbeats)
+			       LIMIT $2)`, string(kindHeartbeat), keptHeartbeats)
 		return err
 	})
 }
-
-// kindNote and kindHeartbeat are the two values the table's `kind` column
-// admits (0002_note_kind.up.sql pins the pair in a CHECK constraint, so a third
-// value is refused by the database rather than by convention).
-//
-// kindNote is the column's DEFAULT, so nothing has to write it; it is named
-// here because the notes read filters on nothing and a reader needs to know
-// what the other value is.
-const (
-	kindNote      = "note"
-	kindHeartbeat = "heartbeat"
-)
 
 // heartbeatPrefix is the display text a tick's row carries, and it is display
 // text only — no query matches on it any more. The workspace id is appended by

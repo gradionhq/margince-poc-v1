@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package badunprefixedtable is a NEGATIVE fixture: a unit whose migration
-// creates `ext.crm_demo_note` — the table crm-demo owns, spelled WITHOUT the
+// creates `ext.notes_note` — the table notes owns, spelled WITHOUT the
 // unit namespace. It must never compose.
 //
 // Namespacing is the migrations layer's whole claim, and it is a claim about a

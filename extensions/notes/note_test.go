@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // stamp is one fixed instant, so a formatted timestamp can be asserted
@@ -19,8 +21,8 @@ var stamp = time.Date(2026, 8, 9, 9, 14, 0, 0, time.UTC)
 func TestListNotesReturnsTheRowsNewestFirst(t *testing.T) {
 	rt := newRuntime()
 	rt.tx.rows = [][]any{
-		{"11111111-1111-4111-8111-111111111111", "hello from the demo extension", stamp},
-		{"22222222-2222-4222-8222-222222222222", "an older note", stamp.Add(-time.Hour)},
+		noteRow("11111111-1111-4111-8111-111111111111", kindNote, "hello from the demo extension", callerUserID, false, stamp),
+		noteRow("22222222-2222-4222-8222-222222222222", kindNote, "an older note", callerUserID, false, stamp.Add(-time.Hour)),
 	}
 
 	out, err := listNotes(context.Background(), rt, json.RawMessage(`{}`))
@@ -112,7 +114,7 @@ func TestListNotesPropagatesTheReadFailure(t *testing.T) {
 
 func TestAddNoteStoresTheBodyAndReturnsTheStoredRow(t *testing.T) {
 	rt := newRuntime()
-	rt.tx.row = []any{"11111111-1111-4111-8111-111111111111", "  hello  ", stamp}
+	rt.tx.row = noteRow("11111111-1111-4111-8111-111111111111", kindNote, "  hello  ", callerUserID, false, stamp)
 
 	out, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"  hello  "}`))
 	if err != nil {
@@ -134,7 +136,7 @@ func TestAddNoteStoresTheBodyAndReturnsTheStoredRow(t *testing.T) {
 	// And it writes the NOTE kind: a row the heartbeat's prune must never
 	// select. The column is what separates the two, so the notes path stating
 	// its own kind is the other half of that guarantee.
-	if rt.tx.args[0][0] != kindNote {
+	if rt.tx.args[0][0] != string(kindNote) {
 		t.Errorf("the insert writes kind %v, want %q", rt.tx.args[0][0], kindNote)
 	}
 	sql := rt.tx.only(t)
@@ -143,6 +145,134 @@ func TestAddNoteStoresTheBodyAndReturnsTheStoredRow(t *testing.T) {
 	}
 	if !strings.Contains(sql, "RETURNING") {
 		t.Errorf("the insert reads its own row back in a second statement:\n%s", sql)
+	}
+}
+
+// TestAddNoteStampsTheAuthorFromTheCallerAndNotTheBody is the security
+// assertion of this file, not a mapping check.
+//
+// An author a client can supply is an author every client can forge, and a
+// forged one is worse than an absent one: it is a signature on somebody else's
+// note. So the insert must carry the invocation's caller, and the request must
+// have no way to say otherwise. This unit is the template other units are
+// copied from, which is why the rule is pinned here rather than assumed.
+func TestAddNoteStampsTheAuthorFromTheCallerAndNotTheBody(t *testing.T) {
+	rt := newRuntime()
+	rt.caller = extension.Caller{Type: extension.CallerAgent, UserID: callerUserID, IsAgent: true}
+	rt.tx.row = noteRow("11111111-1111-4111-8111-111111111111", kindNote, "hello", callerUserID, true, stamp)
+
+	out, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID, ok := rt.tx.args[0][2].(*string)
+	if !ok || userID == nil || *userID != callerUserID {
+		t.Fatalf("the insert's author is %v, want the caller's user id", rt.tx.args[0][2])
+	}
+	isAgent, ok := rt.tx.args[0][3].(*bool)
+	if !ok || isAgent == nil || !*isAgent {
+		t.Fatalf("the insert's is_agent is %v — an agent's note must say an agent wrote it", rt.tx.args[0][3])
+	}
+	// For an agent the id is the HUMAN's, not a synthetic id for the agent:
+	// attribution names the person accountable for the row, and `is_agent`
+	// beside it says how the row arrived.
+	var got note
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Author == nil || got.Author.UserID != callerUserID || !got.Author.IsAgent {
+		t.Errorf("the response's author is %+v, want the caller's", got.Author)
+	}
+
+	// And there is NO WAY to send one. The request schema declares `body` and
+	// nothing else, and decode matches declared names byte for byte — so every
+	// spelling of an author field is a refusal that never reaches the database.
+	for _, forged := range []string{
+		`{"body":"x","author":{"user_id":"22222222-2222-4222-8222-222222222222","is_agent":false}}`,
+		`{"body":"x","author_user_id":"22222222-2222-4222-8222-222222222222"}`,
+		`{"body":"x","user_id":"22222222-2222-4222-8222-222222222222"}`,
+	} {
+		forger := newRuntime()
+		if _, err := addNote(context.Background(), forger, json.RawMessage(forged)); err == nil {
+			t.Errorf("%s: the add accepted an author from the request body", forged)
+		}
+		if len(forger.tx.statements) != 0 {
+			t.Errorf("%s: the forged author reached the database: %v", forged, forger.tx.statements)
+		}
+	}
+}
+
+// TestAddNoteWritesNoHalfAuthor: the two author columns are one fact split
+// across two nullable columns, and the table's CHECK admits both or neither. A
+// caller with no user id — the job path's zero Caller, which no served
+// operation produces but which the type permits — must therefore write NEITHER,
+// not `is_agent` beside a null id. Getting this wrong is a constraint violation
+// at the INSERT, so it is worth an assertion rather than a comment.
+func TestAddNoteWritesNoHalfAuthor(t *testing.T) {
+	rt := newRuntime()
+	rt.caller = extension.Caller{} // the zero Caller: CallerSystem, no user
+	rt.tx.row = noteRow("11111111-1111-4111-8111-111111111111", kindNote, "hello", "", false, stamp)
+
+	out, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID, isAgent := rt.tx.args[0][2].(*string), rt.tx.args[0][3].(*bool)
+	if userID != nil || isAgent != nil {
+		t.Errorf("the insert writes a half-author (%v, %v), which the CHECK refuses", userID, isAgent)
+	}
+	// Omitted from the JSON, not rendered as an author with an empty id: a
+	// client cannot tell the second from a stamping bug.
+	if strings.Contains(string(out), "author") {
+		t.Errorf("a note with no author still carries the member: %s", out)
+	}
+}
+
+// TestNotesCarryTheirKind pins the enum in both directions: what the reads
+// project, and what a value outside the declared pair does.
+func TestNotesCarryTheirKind(t *testing.T) {
+	rt := newRuntime()
+	rt.tx.rows = [][]any{
+		noteRow("11111111-1111-4111-8111-111111111111", kindNote, "a note", callerUserID, false, stamp),
+		// The tick's row, which the list renders alongside a human's: it is
+		// meant to be SEEN there, and `kind` is what tells a reader which is
+		// which without parsing the body's leading glyph.
+		noteRow("22222222-2222-4222-8222-222222222222", kindHeartbeat, "⟳ heartbeat — workspace …", "", false, stamp),
+	}
+	out, err := listNotes(context.Background(), rt, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Notes []note `json:"notes"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Notes[0].Kind != kindNote || got.Notes[1].Kind != kindHeartbeat {
+		t.Fatalf("kinds = %q, %q — the read does not project the column", got.Notes[0].Kind, got.Notes[1].Kind)
+	}
+	// The tick's row has no author, and the response says so by ABSENCE.
+	if got.Notes[1].Author != nil {
+		t.Errorf("the heartbeat row carries an author %+v — a scheduled tick has no person behind it", got.Notes[1].Author)
+	}
+	if got.Notes[0].Author == nil || got.Notes[0].Author.UserID != callerUserID {
+		t.Errorf("the human's row lost its author: %+v", got.Notes[0].Author)
+	}
+}
+
+// TestListNotesRefusesAKindItCannotName: a kind outside the declared pair means
+// a newer migration added one and THIS binary is reading its rows. Answering it
+// through would put a value the contract's enum does not list into every
+// generated client, which fails as a parse error three systems from the cause.
+func TestListNotesRefusesAKindItCannotName(t *testing.T) {
+	rt := newRuntime()
+	rt.tx.rows = [][]any{
+		noteRow("11111111-1111-4111-8111-111111111111", noteKind("reminder"), "from a newer schema", callerUserID, false, stamp),
+	}
+	_, err := listNotes(context.Background(), rt, json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "older than the schema") {
+		t.Fatalf("err = %v, want the unknown-kind refusal", err)
 	}
 }
 

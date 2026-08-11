@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@margince/frontend/app";
-import CrmDemoScreen from "./screen";
+import NotesScreen from "./screen";
 
 // The reference extension's screen, over a stubbed transport.
 //
@@ -31,7 +31,7 @@ import CrmDemoScreen from "./screen";
 /**
  * The grants a full seat holds on the unit's TWO objects.
  *
- * Two, not one: the secrets operations gate on `ext_crm_demo_signing_key`
+ * Two, not one: the secrets operations gate on `ext_notes_signing_key`
  * separately from the notes, because a role that may add a note has no business
  * rotating the installation's credential. `update` is what stores or rotates the
  * key — there is one per workspace, so setting it is never a create.
@@ -39,8 +39,8 @@ import CrmDemoScreen from "./screen";
 const FULL_GRANT = {
   seat_type: "full",
   objects: {
-    ext_crm_demo_note: { read: true, create: true, delete: true },
-    ext_crm_demo_signing_key: { read: true, update: true },
+    ext_notes_note: { read: true, create: true, delete: true },
+    ext_notes_signing_key: { read: true, update: true },
   },
 };
 
@@ -88,7 +88,7 @@ function renderScreen() {
   render(
     <QueryClientProvider client={client}>
       <LocaleProvider>
-        <CrmDemoScreen />
+        <NotesScreen />
       </LocaleProvider>
     </QueryClientProvider>,
   );
@@ -109,7 +109,7 @@ afterEach(() => {
 describe("the Demo Notepad screen", () => {
   it("lists the workspace's notes, heartbeat rows included", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
-      "/ext/crm-demo/notes/list": () => ({
+      "/ext/notes/list": () => ({
         notes: [
           {
             id: "11111111-1111-4111-8111-111111111111",
@@ -123,7 +123,7 @@ describe("the Demo Notepad screen", () => {
           },
         ],
       }),
-      "/ext/crm-demo/signing-key/status": () => ({ stored: false }),
+      "/ext/notes/signing-key/status": () => ({ stored: false }),
     });
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
@@ -139,9 +139,9 @@ describe("the Demo Notepad screen", () => {
   it("reports the signing key as absent, then present, without ever showing it", async () => {
     let stored = false;
     const { fetchStub, calls } = stubTransport(FULL_GRANT, {
-      "/ext/crm-demo/notes/list": () => ({ notes: [] }),
-      "/ext/crm-demo/signing-key/status": () => ({ stored }),
-      "/ext/crm-demo/signing-key": () => {
+      "/ext/notes/list": () => ({ notes: [] }),
+      "/ext/notes/signing-key/status": () => ({ stored }),
+      "/ext/notes/signing-key": () => {
         stored = true;
         return { stored: true };
       },
@@ -158,7 +158,7 @@ describe("the Demo Notepad screen", () => {
     // The key went UP and never came back down: no response the screen read
     // carries it, and the field was cleared so it is not left sitting in the
     // DOM either.
-    const sent = calls.find((c) => c.path === "/ext/crm-demo/signing-key");
+    const sent = calls.find((c) => c.path === "/ext/notes/signing-key");
     expect(sent?.body).toEqual({ key: "s3cr3t" });
     // The INPUT's value, not document.body.textContent. An <input> never
     // contributes its value to textContent, so the textContent form of this
@@ -179,9 +179,9 @@ describe("the Demo Notepad screen", () => {
 
   it("returns a signature computed with the stored key", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
-      "/ext/crm-demo/notes/list": () => ({ notes: [] }),
-      "/ext/crm-demo/signing-key/status": () => ({ stored: true }),
-      "/ext/crm-demo/signature": () => ({
+      "/ext/notes/list": () => ({ notes: [] }),
+      "/ext/notes/signing-key/status": () => ({ stored: true }),
+      "/ext/notes/signature": () => ({
         algorithm: "hmac-sha256",
         signature: "4f1c9ae207",
       }),
@@ -201,9 +201,9 @@ describe("the Demo Notepad screen", () => {
     const id = "11111111-1111-4111-8111-111111111111";
     let notes: { id: string; body: string; created_at: string }[] = [];
     const { fetchStub, calls } = stubTransport(FULL_GRANT, {
-      "/ext/crm-demo/notes/list": () => ({ notes }),
-      "/ext/crm-demo/signing-key/status": () => ({ stored: true }),
-      "/ext/crm-demo/notes/add": () => {
+      "/ext/notes/list": () => ({ notes }),
+      "/ext/notes/signing-key/status": () => ({ stored: true }),
+      "/ext/notes/add": () => {
         const added = {
           id,
           body: "a note",
@@ -212,7 +212,7 @@ describe("the Demo Notepad screen", () => {
         notes = [added];
         return added;
       },
-      "/ext/crm-demo/notes/remove": () => {
+      "/ext/notes/remove": () => {
         notes = [];
         return { removed: true };
       },
@@ -227,13 +227,13 @@ describe("the Demo Notepad screen", () => {
     // from responses alone would drift away from the table it is displaying.
     expect(await screen.findByText(/a note/)).toBeTruthy();
     expect(
-      calls.find((c) => c.path === "/ext/crm-demo/notes/add")?.body,
+      calls.find((c) => c.path === "/ext/notes/add")?.body,
     ).toEqual({ body: "a note" });
 
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(
-        calls.find((c) => c.path === "/ext/crm-demo/notes/remove")?.body,
+        calls.find((c) => c.path === "/ext/notes/remove")?.body,
       ).toEqual({ id });
     });
     expect(await screen.findByText("No notes yet.")).toBeTruthy();
@@ -255,12 +255,12 @@ describe("the Demo Notepad screen", () => {
       {
         seat_type: "read",
         objects: {
-          ext_crm_demo_note: { read: true },
-          ext_crm_demo_signing_key: { read: true },
+          ext_notes_note: { read: true },
+          ext_notes_signing_key: { read: true },
         },
       },
       {
-        "/ext/crm-demo/notes/list": () => ({
+        "/ext/notes/list": () => ({
           notes: [
             {
               id: "11111111-1111-4111-8111-111111111111",
@@ -269,7 +269,7 @@ describe("the Demo Notepad screen", () => {
             },
           ],
         }),
-        "/ext/crm-demo/signing-key/status": () => ({ stored: true }),
+        "/ext/notes/signing-key/status": () => ({ stored: true }),
       },
     );
     vi.stubGlobal("fetch", vi.fn(fetchStub));
@@ -288,7 +288,7 @@ describe("the Demo Notepad screen", () => {
 
   // The screen against the WRONG body — the envelope the server used to send.
   //
-  // Not a hypothetical: this is verbatim what `POST /v1/ext/crm-demo/…`
+  // Not a hypothetical: this is verbatim what `POST /v1/ext/notes/…`
   // returned before the unwrap, and it is why every read rendered `undefined`.
   // The assertion is that the screen FAILS VISIBLY rather than rendering
   // nothing, because a wrapper is exactly the shape a future transport change
@@ -304,8 +304,8 @@ describe("the Demo Notepad screen", () => {
       data,
     });
     const { fetchStub } = stubTransport(FULL_GRANT, {
-      "/ext/crm-demo/notes/list": () => envelope({ notes: [] }),
-      "/ext/crm-demo/signing-key/status": () => envelope({ stored: true }),
+      "/ext/notes/list": () => envelope({ notes: [] }),
+      "/ext/notes/signing-key/status": () => envelope({ stored: true }),
     });
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
@@ -323,7 +323,7 @@ describe("the Demo Notepad screen", () => {
   it("says so when the principal cannot read the unit's notes at all", async () => {
     const { fetchStub, calls } = stubTransport(
       { seat_type: "full", objects: {} },
-      { "/ext/crm-demo/signing-key/status": () => ({ stored: false }) },
+      { "/ext/notes/signing-key/status": () => ({ stored: false }) },
     );
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
@@ -339,7 +339,7 @@ describe("the Demo Notepad screen", () => {
     // 403 — which matters here more than on a one-shot read, because this
     // query POLLS: an ungranted seat would otherwise repeat a refused request
     // every fifteen seconds for as long as the tab is open.
-    expect(calls.some((c) => c.path === "/ext/crm-demo/notes/list")).toBe(
+    expect(calls.some((c) => c.path === "/ext/notes/list")).toBe(
       false,
     );
   });

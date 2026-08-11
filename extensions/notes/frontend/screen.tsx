@@ -18,9 +18,9 @@ import {
   TextInput,
 } from "@margince/frontend/design-system";
 
-// #/ext/crm-demo — "Demo Notepad", the reference extension's one screen.
+// #/ext/notes — "Demo Notepad", the reference extension's one screen.
 //
-// It lives in the CORE tree, not in extensions/crm-demo/frontend/. That layer
+// It lives in the CORE tree, not in extensions/notes/frontend/. That layer
 // is still refused on sight by gen-composition's scan, and lifting the refusal
 // means bundling unit-authored TSX into the SPA — a supply-chain decision with
 // its own reviewed slice. So the unit ships its contract, its SQL and its Go,
@@ -30,16 +30,16 @@ import {
 //
 // TWO consequences of that, both of which the UAT depends on:
 //
-//   - This file is in the COMPOSED lane only. `api.POST("/ext/crm-demo/…")` is
+//   - This file is in the COMPOSED lane only. `api.POST("/ext/notes/…")` is
 //     correctly a type error in the vanilla lane — that installation does not
 //     serve the route — so tsconfig.app.json excludes src/screens/ext/ and
 //     tsconfig.composed.json compiles it against the MERGED contract. If the
 //     overlay did not merge, this file does not typecheck: the route half of
 //     the ordering constraint is still a compile-time guard, even though the
 //     RBAC-object half is not (see capability.ts).
-//   - `rm -rf extensions/crm-demo && make composition` still reproduces the
+//   - `rm -rf extensions/notes && make composition` still reproduces the
 //     vanilla stub byte for byte, because nothing here is generated. The
-//     registry goes empty, the dispatch misses, and #/ext/crm-demo answers the
+//     registry goes empty, the dispatch misses, and #/ext/notes answers the
 //     ordinary not-found card.
 //
 // The shared `api` client, no second client and no cast: contract paths are
@@ -51,7 +51,7 @@ import {
 // GET or DELETE. "list", "add" and "remove" are three verbs, not three methods.
 
 /** The RBAC object the unit's record operations gate on. */
-const NOTE_OBJECT = "ext_crm_demo_note";
+const NOTE_OBJECT = "ext_notes_note";
 
 /**
  * The RBAC object the unit's three SECRETS operations gate on — a second
@@ -63,16 +63,16 @@ const NOTE_OBJECT = "ext_crm_demo_note";
  * declared no object at all, so any authenticated seat — read-only included —
  * could replace the key on both the screen and the agent path.
  */
-const SIGNING_KEY_OBJECT = "ext_crm_demo_signing_key";
+const SIGNING_KEY_OBJECT = "ext_notes_signing_key";
 
 /** One poll interval for the heartbeat, in milliseconds. */
 const HEARTBEAT_POLL_MS = 15_000;
 
-export default function CrmDemoScreen() {
+export default function NotesScreen() {
   const t = useT();
   return (
     <div className="wrap narrow">
-      <SectionHeader title={t("extCrmDemo.title")} sub={t("extCrmDemo.sub")} />
+      <SectionHeader title={t("extNotes.title")} sub={t("extNotes.sub")} />
       <SigningCard />
       <NotesCard />
     </div>
@@ -89,10 +89,10 @@ export default function CrmDemoScreen() {
 function useSigningKeyStatus(enabled: boolean) {
   return useQuery({
     enabled,
-    queryKey: ["ext", "crm-demo", "signing-key"],
+    queryKey: ["ext", "notes", "signing-key"],
     queryFn: async () => {
       const { data, error, response } = await api.POST(
-        "/ext/crm-demo/signing-key/status",
+        "/ext/notes/signing-key/status",
         { body: {} },
       );
       if (error || !response.ok) {
@@ -136,7 +136,7 @@ function SigningCard() {
 
   const store = useMutation({
     mutationFn: async (value: string) => {
-      const { error, response } = await api.POST("/ext/crm-demo/signing-key", {
+      const { error, response } = await api.POST("/ext/notes/signing-key", {
         body: { key: value },
       });
       if (error || !response.ok) {
@@ -153,14 +153,14 @@ function SigningCard() {
     onSuccess: () => setKey(""),
     onSettled: () =>
       queryClient.invalidateQueries({
-        queryKey: ["ext", "crm-demo", "signing-key"],
+        queryKey: ["ext", "notes", "signing-key"],
       }),
   });
 
   const sign = useMutation({
     mutationFn: async (value: string) => {
       const { data, error, response } = await api.POST(
-        "/ext/crm-demo/signature",
+        "/ext/notes/signature",
         { body: { payload: value } },
       );
       if (error || !response.ok) {
@@ -174,15 +174,15 @@ function SigningCard() {
   if (!canRead) {
     return (
       <Card>
-        <EmptyState>{t("extCrmDemo.signing.noGrant")}</EmptyState>
+        <EmptyState>{t("extNotes.signing.noGrant")}</EmptyState>
       </Card>
     );
   }
   return (
     <Card>
       <SectionHeader
-        title={t("extCrmDemo.signing.title")}
-        sub={t("extCrmDemo.signing.sub")}
+        title={t("extNotes.signing.title")}
+        sub={t("extNotes.signing.sub")}
       />
       {/*
         Through the query gate, not off `status.data` directly. `data` is
@@ -195,15 +195,15 @@ function SigningCard() {
       <QueryStates query={status}>
         <p>
           {status.data ? (
-            <Badge tone="success">{t("extCrmDemo.signing.connected")}</Badge>
+            <Badge tone="success">{t("extNotes.signing.connected")}</Badge>
           ) : (
-            <Badge tone="warn">{t("extCrmDemo.signing.notConnected")}</Badge>
+            <Badge tone="warn">{t("extNotes.signing.notConnected")}</Badge>
           )}
         </p>
       </QueryStates>
       {canStore ? (
         <>
-          <Field label={t("extCrmDemo.signing.keyLabel")}>
+          <Field label={t("extNotes.signing.keyLabel")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -217,12 +217,12 @@ function SigningCard() {
             disabled={key.trim() === "" || store.isPending}
             onClick={() => store.mutate(key)}
           >
-            {t("extCrmDemo.signing.store")}
+            {t("extNotes.signing.store")}
           </Button>
-          {store.isError ? <p>{t("extCrmDemo.signing.storeFailed")}</p> : null}
+          {store.isError ? <p>{t("extNotes.signing.storeFailed")}</p> : null}
         </>
       ) : null}
-      <Field label={t("extCrmDemo.signing.payloadLabel")}>
+      <Field label={t("extNotes.signing.payloadLabel")}>
         {(control) => (
           <TextInput
             {...control}
@@ -235,10 +235,10 @@ function SigningCard() {
         disabled={payload === "" || sign.isPending}
         onClick={() => sign.mutate(payload)}
       >
-        {t("extCrmDemo.signing.sign")}
+        {t("extNotes.signing.sign")}
       </Button>
       {signature === "" ? null : <p>{signature}</p>}
-      {sign.isError ? <p>{t("extCrmDemo.signing.signFailed")}</p> : null}
+      {sign.isError ? <p>{t("extNotes.signing.signFailed")}</p> : null}
     </Card>
   );
 }
@@ -255,10 +255,10 @@ function SigningCard() {
 function useNotes(enabled: boolean) {
   return useQuery({
     enabled,
-    queryKey: ["ext", "crm-demo", "notes"],
+    queryKey: ["ext", "notes", "notes"],
     queryFn: async () => {
       const { data, error, response } = await api.POST(
-        "/ext/crm-demo/notes/list",
+        "/ext/notes/list",
         { body: {} },
       );
       if (error || !response.ok) {
@@ -322,11 +322,11 @@ function NotesCard() {
   const [body, setBody] = useState("");
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["ext", "crm-demo", "notes"] });
+    queryClient.invalidateQueries({ queryKey: ["ext", "notes", "notes"] });
 
   const add = useMutation({
     mutationFn: async (value: string) => {
-      const { error, response } = await api.POST("/ext/crm-demo/notes/add", {
+      const { error, response } = await api.POST("/ext/notes/add", {
         body: { body: value },
       });
       if (error || !response.ok) {
@@ -343,7 +343,7 @@ function NotesCard() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error, response } = await api.POST("/ext/crm-demo/notes/remove", {
+      const { error, response } = await api.POST("/ext/notes/remove", {
         body: { id },
       });
       if (error || !response.ok) {
@@ -356,16 +356,16 @@ function NotesCard() {
   if (!canRead) {
     return (
       <Card>
-        <EmptyState>{t("extCrmDemo.notes.noGrant")}</EmptyState>
+        <EmptyState>{t("extNotes.notes.noGrant")}</EmptyState>
       </Card>
     );
   }
   return (
     <Card>
-      <SectionHeader title={t("extCrmDemo.notes.title")} />
+      <SectionHeader title={t("extNotes.notes.title")} />
       {canAdd ? (
         <>
-          <Field label={t("extCrmDemo.notes.bodyLabel")}>
+          <Field label={t("extNotes.notes.bodyLabel")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -378,14 +378,14 @@ function NotesCard() {
             disabled={body.trim() === "" || add.isPending}
             onClick={() => add.mutate(body)}
           >
-            {t("extCrmDemo.notes.add")}
+            {t("extNotes.notes.add")}
           </Button>
-          {add.isError ? <p>{t("extCrmDemo.notes.addFailed")}</p> : null}
+          {add.isError ? <p>{t("extNotes.notes.addFailed")}</p> : null}
         </>
       ) : null}
       <QueryStates query={notes}>
         {notes.data?.length === 0 ? (
-          <EmptyState>{t("extCrmDemo.notes.empty")}</EmptyState>
+          <EmptyState>{t("extNotes.notes.empty")}</EmptyState>
         ) : (
           <ul>
             {notes.data?.map((item) => (
@@ -397,7 +397,7 @@ function NotesCard() {
                     disabled={remove.isPending}
                     onClick={() => remove.mutate(item.id)}
                   >
-                    {t("extCrmDemo.notes.remove")}
+                    {t("extNotes.notes.remove")}
                   </Button>
                 ) : null}
               </li>
@@ -411,7 +411,7 @@ function NotesCard() {
         happened" is that nothing happened. The signing card already said so
         for `sign`; these are the other three writes.
       */}
-      {remove.isError ? <p>{t("extCrmDemo.notes.removeFailed")}</p> : null}
+      {remove.isError ? <p>{t("extNotes.notes.removeFailed")}</p> : null}
     </Card>
   );
 }

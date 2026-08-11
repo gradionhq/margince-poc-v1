@@ -26,27 +26,27 @@ import { parseHash } from "./router";
 // (stubMatchesVanilla + emit_test.go), so the two halves cannot drift apart
 // without one of them failing.
 
-const CRM_DEMO: ExtensionDescriptor = {
-  name: "crm-demo",
+const NOTES: ExtensionDescriptor = {
+  name: "notes",
   verbs: [
     {
-      operationId: "crmDemoListNotes",
+      operationId: "notesList",
       // The CONTRACT's spelling: a path is relative to the document's own
       // `servers` url, which already ends in /v1, so the descriptor carries
       // /ext/… and the server puts the base path back at mount time. The
       // descriptor's route is an opaque string on this side, which is exactly
       // why a stale /v1-prefixed fixture could sit here contradicting the
       // convention without failing anything.
-      route: "/ext/crm-demo/notes/list",
+      route: "/ext/notes/list",
       method: "POST",
       title: "List demo notes",
       version: "1.0.0",
-      rbacObject: "ext_crm_demo_note",
+      rbacObject: "ext_notes_note",
     },
   ],
 };
 
-const COMPOSED: readonly ExtensionDescriptor[] = [CRM_DEMO];
+const COMPOSED: readonly ExtensionDescriptor[] = [NOTES];
 
 describe("the composed extension registry", () => {
   it("resolves an extension screen from the composed registry", () => {
@@ -55,29 +55,27 @@ describe("the composed extension registry", () => {
     // on findExtension alone would leave the route TOKEN untested, and a
     // registry keyed under a screen name App.tsx never dispatches on resolves
     // nothing however correct its lookup is.
-    const route = parseHash("#/ext/crm-demo");
+    const route = parseHash("#/ext/notes");
     expect(route.screen).toBe(EXTENSION_SCREEN);
 
     const unit = findExtension(route.id, COMPOSED);
     expect(unit).not.toBeNull();
-    expect(unit?.name).toBe("crm-demo");
+    expect(unit?.name).toBe("notes");
     // The screen renders what the unit publishes, so the verbs have to survive
     // the lookup — a descriptor stripped to its name would resolve and then
     // render an empty page.
-    expect(unit?.verbs.map((v) => v.route)).toEqual([
-      "/ext/crm-demo/notes/list",
-    ]);
+    expect(unit?.verbs.map((v) => v.route)).toEqual(["/ext/notes/list"]);
   });
 
   it("404s cleanly when the registry is empty", () => {
     // Three ways the empty lane is reached, all of which must answer null
     // rather than throw or return a half-built descriptor.
-    expect(findExtension("crm-demo", [])).toBeNull();
+    expect(findExtension("notes", [])).toBeNull();
     // The LIVE vanilla registry — the committed stub, not a fixture. This is
     // the assertion that fails the moment the vanilla tree stops being the
     // empty-tree output.
     expect(composedExtensions).toEqual([]);
-    expect(findExtension("crm-demo")).toBeNull();
+    expect(findExtension("notes")).toBeNull();
   });
 
   it("answers null for a unit route that carries no name", () => {
@@ -99,8 +97,8 @@ describe("the composed extension registry", () => {
     // The reason capability.ts's RbacObject is widened at all: the descriptor
     // carries a plain string (the generator cannot type what a unit will
     // declare), and a unit screen has to hand it to useCan without a cast.
-    const object = extensionRbacObject(CRM_DEMO.verbs[0]);
-    expect(object).toBe("ext_crm_demo_note");
+    const object = extensionRbacObject(NOTES.verbs[0]);
+    expect(object).toBe("ext_notes_note");
   });
 
   it("refuses an object outside the ext_ namespace", () => {
@@ -109,12 +107,12 @@ describe("the composed extension registry", () => {
     // extension reaching into the closed vocabulary, and the client must not
     // hand it to a gate that would then read as core.
     expect(
-      extensionRbacObject({ ...CRM_DEMO.verbs[0], rbacObject: "" }),
+      extensionRbacObject({ ...NOTES.verbs[0], rbacObject: "" }),
     ).toBeNull();
     expect(
-      extensionRbacObject({ ...CRM_DEMO.verbs[0], rbacObject: "deal" }),
+      extensionRbacObject({ ...NOTES.verbs[0], rbacObject: "deal" }),
     ).toBeNull();
-    expect(isExtensionRbacObject("ext_crm_demo_note")).toBe(true);
+    expect(isExtensionRbacObject("ext_notes_note")).toBe(true);
     expect(isExtensionRbacObject("deal")).toBe(false);
     expect(isExtensionRbacObject("ext_")).toBe(false);
   });

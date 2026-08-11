@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 // The secrets surface, demonstrated by USE rather than by disclosure.
 //
@@ -14,7 +14,7 @@ package crmdemo
 // on.
 //
 // The namespace wall is not enforced in this file and could not be: the Secrets
-// port a handler holds closes over the invoking unit, so "read crm-demo's key"
+// port a handler holds closes over the invoking unit, so "read notes's key"
 // is not something another unit's handler can express. See
 // backend/internal/compose/extruntime_integration_test.go for the wall driven
 // against this unit's own key name.
@@ -78,9 +78,9 @@ func storeSigningKey(ctx context.Context, rt extension.Runtime, in json.RawMessa
 	key := strings.TrimSpace(args.Key)
 	switch {
 	case key == "":
-		return nil, errors.New("crm-demo: the signing key is empty")
+		return nil, errors.New("notes: the signing key is empty")
 	case utf8.RuneCountInString(key) > maxSigningKey:
-		return nil, fmt.Errorf("crm-demo: the signing key is at most %d characters, this one is %d", maxSigningKey, utf8.RuneCountInString(key))
+		return nil, fmt.Errorf("notes: the signing key is at most %d characters, this one is %d", maxSigningKey, utf8.RuneCountInString(key))
 	}
 	if err := rt.Secrets().Put(ctx, signingKeyName, []byte(key)); err != nil {
 		return nil, err
@@ -121,14 +121,14 @@ func signPayload(ctx context.Context, rt extension.Runtime, in json.RawMessage) 
 	// signature over a value the caller did not send verifies against nothing.
 	switch {
 	case args.Payload == "":
-		return nil, errors.New("crm-demo: there is no payload to sign")
+		return nil, errors.New("notes: there is no payload to sign")
 	case utf8.RuneCountInString(args.Payload) > maxPayload:
-		return nil, fmt.Errorf("crm-demo: a payload is at most %d characters, this one is %d", maxPayload, utf8.RuneCountInString(args.Payload))
+		return nil, fmt.Errorf("notes: a payload is at most %d characters, this one is %d", maxPayload, utf8.RuneCountInString(args.Payload))
 	}
 	key, err := rt.Secrets().Get(ctx, signingKeyName)
 	if err != nil {
 		if errors.Is(err, extension.ErrSecretNotFound) {
-			return nil, fmt.Errorf("crm-demo: this workspace has stored no signing key yet: %w", err)
+			return nil, fmt.Errorf("notes: this workspace has stored no signing key yet: %w", err)
 		}
 		return nil, err
 	}

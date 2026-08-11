@@ -17,9 +17,9 @@
 -- first insert. A silent no-op is the worst available outcome for a schema
 -- change.
 
-ALTER TABLE ext.ext_crm_demo_note
+ALTER TABLE ext.ext_notes_note
     ADD COLUMN kind text NOT NULL DEFAULT 'note'
-        CONSTRAINT ext_crm_demo_note_kind_known CHECK (kind IN ('note', 'heartbeat'));
+        CONSTRAINT ext_notes_note_kind_known CHECK (kind IN ('note', 'heartbeat'));
 
 -- The DEFAULT is what makes this safe on a table that already holds rows: every
 -- existing row is a note, which is true — the heartbeat's own rows are

@@ -19,22 +19,22 @@ import {
 // unit the installation did not compose is inert rather than a route into a
 // surface with no server behind it.
 //
-// The screen itself is a stub. The real one (src/screens/ext/crmdemo.tsx) is
+// The screen itself is a stub. The real one (src/screens/ext/notes.tsx) is
 // outside the vanilla TypeScript program and is exercised by its own suite;
 // what is under test here is App.tsx's dispatch, and mounting the real screen
 // would drag its six network calls into a routing test.
 vi.mock("@composition/extensions", () => ({
   extensions: [
     {
-      name: "crm-demo",
+      name: "notes",
       verbs: [
         {
-          operationId: "crmDemoListNotes",
-          route: "/ext/crm-demo/notes/list",
+          operationId: "notesList",
+          route: "/ext/notes/list",
           method: "POST",
           title: "List demo notes",
           version: "1.0.0",
-          rbacObject: "ext_crm_demo_note",
+          rbacObject: "ext_notes_note",
         },
       ],
     },
@@ -43,7 +43,7 @@ vi.mock("@composition/extensions", () => ({
 
 vi.mock("@composition/screens", () => ({
   extensionScreens: {
-    "crm-demo": () => <h1>Demo Notepad</h1>,
+    notes: () => <h1>Demo Notepad</h1>,
     // A unit this installation did NOT compose. It must never render: the
     // descriptor lookup is the gate, and an entry here is not one.
     "crm-ghost": () => <h1>Ghost</h1>,
@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("extension routes (composed screen registry)", () => {
   it("renders the unit's own screen in place of the descriptor card", async () => {
-    window.location.hash = "#/ext/crm-demo";
+    window.location.hash = "#/ext/notes";
     renderApp();
     expect(
       await screen.findByRole("heading", { name: "Demo Notepad" }),

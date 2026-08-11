@@ -31,6 +31,24 @@ type Tool interface {
 	Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
 }
 
+// UnitScopedTool is the optional half of Tool that names WHICH extension unit
+// shipped the handler. A core tool does not implement it; an adapted extension
+// tool does, so a type assertion against it is the one honest answer to "did
+// this capability come from outside the core tree?".
+//
+// It states a FACT about provenance and carries no policy, which is why it
+// lives HERE beside Tool rather than in either consumer. Two of them need the
+// same answer for different reasons — the composition layer to decide which
+// unit's route a handler implements, the tool registry to decide which promises
+// a tool's records can keep — and a second spelling of the question would be a
+// second answer that drifts the first time either one moves. A tool that cannot
+// name a unit is owned by NO unit, which is the fail-closed direction for both.
+//
+// The unit is a string, not the SDK's extension.Name: this port is what the
+// core surface is defined in terms of, and making it depend on the extension
+// SDK would invert that.
+type UnitScopedTool interface{ OwningUnit() string }
+
 // ToolSpec is the registration shape, versioned and contract-bound to
 // crm.yaml (one source of truth for wire shape).
 type ToolSpec struct {

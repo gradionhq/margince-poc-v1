@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -110,6 +111,11 @@ type callRuntime struct {
 	// are the published Runtime's and cannot grow a parameter for it.
 	callCtx context.Context //nolint:containedctx // the invocation's tenant scope IS this value's lifetime; see above.
 
+	// systemCaller forces Caller to answer the zero value whatever principal
+	// callCtx carries. Exactly one path sets it — a job tick — and the reason
+	// is in jobRuntimeFor.
+	systemCaller bool
+
 	// mu orders live: it is read and written under the same lock, so release
 	// and a handler-spawned goroutine cannot race the FLAG. It does not order
 	// the WORK — see usable.
@@ -127,6 +133,27 @@ var _ extension.Runtime = (*callRuntime)(nil)
 // and deliberately not on the surface a handler holds.
 func runtimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
 	return &callRuntime{unit: unit, pool: pool, vault: vault, callCtx: ctx, live: true}
+}
+
+// jobRuntimeFor mints the Runtime for one JOB tick, which differs from an
+// invocation in exactly one way: who it answers as.
+//
+// A tick's context carries a principal — deriveAuthority re-reads the
+// dispatcher's seat at execution and binds it, because the tenant policies and
+// the audit rows need an actor. That actor is an AGENT seat with no human
+// behind it: its OnBehalfOf is zero and its UserID is the synthetic is_agent
+// app_user the dispatcher minted. Mapping it through Caller's ordinary rules
+// would hand a unit precisely the thing Caller.UserID promises never to be —
+// "a synthetic id for the agent" rather than the person accountable for the
+// row — and would contradict Runtime.Caller's promise that a tick answers the
+// zero Caller. So the tick says so at construction rather than leaving Caller
+// to guess it from a principal that looks, field by field, like a real agent
+// call. Nothing else about the tick changes: the actor on callCtx is still the
+// one every capability and every policy sees.
+func jobRuntimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
+	rt := runtimeFor(ctx, unit, pool, vault)
+	rt.systemCaller = true
+	return rt
 }
 
 // release ends the Runtime's lifetime. Called when the handler returns, so a
@@ -222,6 +249,76 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 		}
 		return fn(ctx, extensionTx{tx: tx})
 	})
+}
+
+// Caller answers who the invocation runs as, copied out of the principal the
+// call arrived under. It reads r.callCtx and nothing the handler supplies, for
+// the same reason Tx re-derives the tenant there: an identity a handler can
+// pass in is an identity a handler can choose.
+//
+// It does NOT pass through usable, and that is deliberate rather than an
+// omission. Every other capability gates on the lifetime because it REACHES
+// something — a pool, a custodian — that the call has finished with; this one
+// reads a value already in hand and grants nothing, which is why the published
+// type is a copied struct that runtime.go says is harmless to retain. Refusing
+// here would also need an error return the surface does not have, so the choice
+// is between answering after release and lying with a zero Caller — and a unit
+// that logs its caller from a deferred line deserves the true answer.
+//
+// It cannot fail and it issues no query: a display name or a team list would
+// each be an app_user read, so this carries only what the principal already
+// holds.
+func (r *callRuntime) Caller() extension.Caller {
+	actor, ok := principal.Actor(r.callCtx)
+	if !ok || r.systemCaller {
+		// No principal is the unauthenticated or unbound path, and the zero
+		// Caller is CallerSystem — the least authority, so a wiring gap reads
+		// as "nobody" rather than as a human whose id happens to be empty.
+		return extension.Caller{}
+	}
+	switch actor.Type {
+	case principal.PrincipalHuman:
+		return extension.Caller{Type: extension.CallerHuman, UserID: callerUserID(actor.UserID)}
+	case principal.PrincipalAgent:
+		return extension.Caller{
+			Type: extension.CallerAgent, UserID: callerUserID(humanBehind(actor)), IsAgent: true,
+		}
+	case principal.PrincipalConnector:
+		return extension.Caller{
+			Type: extension.CallerConnector, UserID: callerUserID(humanBehind(actor)), IsAgent: true,
+		}
+	case principal.PrincipalSystem:
+		return extension.Caller{}
+	default:
+		// An unmapped principal type is a kernel vocabulary this file has not
+		// been taught. Fail towards the least authority rather than towards a
+		// human: a unit that gates on Type must not be opened by a type it
+		// cannot have heard of either.
+		return extension.Caller{}
+	}
+}
+
+// humanBehind is the app_user whose authority a non-human call carries: the
+// granting human when the loader recorded one, and otherwise the principal's
+// own user — a connector configured against a seat directly names it in UserID
+// with OnBehalfOf left zero, and the fallback keeps that call attributable
+// instead of anonymous.
+func humanBehind(actor principal.Principal) ids.UUID {
+	if !actor.OnBehalfOf.IsZero() {
+		return actor.OnBehalfOf
+	}
+	return actor.UserID
+}
+
+// callerUserID renders an id for the published surface, where the ABSENCE of a
+// user must read as "". ids.UUID.String() spells the zero value as the all-zero
+// uuid, which is a perfectly valid-looking id a unit would happily stamp on a
+// row, so the emptiness has to be restored here.
+func callerUserID(id ids.UUID) string {
+	if id.IsZero() {
+		return ""
+	}
+	return id.String()
 }
 
 // callSecrets is the unit's secret namespace with this call's lifetime and

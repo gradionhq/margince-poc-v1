@@ -63,23 +63,23 @@ func TestNegativeMigrationFixturesFailGenerationWithPosition(t *testing.T) {
 	}
 }
 
-// TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo holds the two halves
+// TestTheNamespaceWallFixtureDeclaresTheSameKeyAsNotes holds the two halves
 // of the wall fixture together.
 //
-// crm-nosy's whole job is to declare the SAME key name crm-demo declares, so
+// crm-nosy's whole job is to declare the SAME key name notes declares, so
 // that the run-time demonstration (compose's
-// TestCrmDemoSigningKeyIsUnreachableFromASecondUnit) is about a namespace and
+// TestNotesSigningKeyIsUnreachableFromASecondUnit) is about a namespace and
 // not about two units that happened to pick different names. If either side
 // renames its key, that demonstration silently becomes vacuous — it would pass
 // for the wrong reason — so the agreement is pinned here, where both files are
 // readable at once.
-func TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo(t *testing.T) {
+func TestTheNamespaceWallFixtureDeclaresTheSameKeyAsNotes(t *testing.T) {
 	const key = `{Key: "signing", Scope: extension.SecretScopeWorkspace}`
 	for _, source := range []struct {
 		path string
 		// removable marks a file that a legitimate operation deletes. The
 		// FIXTURE is part of the repository and its absence is a defect; the
-		// installed UNIT is one `git rm -r extensions/crm-demo` away, which is
+		// installed UNIT is one `git rm -r extensions/notes` away, which is
 		// the documented removal recipe. A t.Fatal on the second made removal a
 		// THREE-place operation — delete the unit, delete its core screen, and
 		// edit this test — and the third place is one nobody would find until
@@ -88,11 +88,11 @@ func TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo(t *testing.T) {
 		removable bool
 	}{
 		{path: filepath.Join(fixtureRoot, "crm-nosy", "crmnosy.go")},
-		{path: filepath.Join("..", "..", "..", "extensions", "crm-demo", "crmdemo.go"), removable: true},
+		{path: filepath.Join("..", "..", "..", "extensions", "notes", "notes.go"), removable: true},
 	} {
 		raw, err := os.ReadFile(source.path) // #nosec G304 -- a fixed path inside the repository under test
 		if errors.Is(err, fs.ErrNotExist) && source.removable {
-			// The pairing is vacuous rather than violated: with crm-demo gone
+			// The pairing is vacuous rather than violated: with notes gone
 			// there is no second declaration to agree with, and the run-time
 			// demonstration it guards does not compose either.
 			t.Logf("%s is absent — this installation removed the unit, so there is no pair to hold", source.path)

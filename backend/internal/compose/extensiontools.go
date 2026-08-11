@@ -254,17 +254,20 @@ func composedToolNames() map[string]bool {
 	return names
 }
 
-// unitScopedTool is the one thing the served set needs from an adapted tool
-// beyond its spec: WHICH UNIT shipped the handler. It is spelled as an
-// interface rather than a concrete assertion on extensionTool so a routing
-// test can install a served set without building a whole adapted tool.
+// OwningUnit satisfies mcp.UnitScopedTool: an adapted tool can name the unit
+// that shipped its handler, and a core tool cannot.
+//
+// The marker used to be declared here, as an unexported interface, because the
+// served set was its only reader. It moved to the port when a SECOND reader
+// appeared that cannot see an unexported method — the tool registry, deciding
+// whether a mutating tool may advertise `idempotency_key` (see withRetryKey).
+// One fact, one declaration, so the two readers cannot come to disagree about
+// which tools are an extension's.
 //
 // A registered tool that cannot name its unit is served by NO unit, so every
 // route over it answers 501. That is the fail-closed direction: an unattributed
 // handler must not become some route's implementation by default.
-type unitScopedTool interface{ owningUnit() extension.Name }
-
-func (t extensionTool) owningUnit() extension.Name { return extension.Name(t.unit) }
+func (t extensionTool) OwningUnit() string { return t.unit }
 
 // composedServedVerbs is this boot's served set keyed by (unit, tool) — the
 // same verbKey the behavior-to-contract join uses, and for the same reason.
@@ -283,11 +286,11 @@ func composedServedVerbs() map[string]bool {
 	defer composedTools.mu.RUnlock()
 	served := make(map[string]bool, len(composedTools.tools))
 	for _, t := range composedTools.tools {
-		owned, ok := t.(unitScopedTool)
+		owned, ok := t.(mcp.UnitScopedTool)
 		if !ok {
 			continue
 		}
-		served[verbKey(owned.owningUnit(), t.Spec().Name)] = true
+		served[verbKey(extension.Name(owned.OwningUnit()), t.Spec().Name)] = true
 	}
 	return served
 }
@@ -369,8 +372,8 @@ func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	//
 	// WHAT THIS DOES NOT COVER, said plainly because the check reads like it
 	// covers everything a unit can do: a scheduled job tick reaches unit code
-	// without passing through here at all. For crm-demo that tick writes into
-	// ext_crm_demo_note — the very object the human path gates `create` on. The
+	// without passing through here at all. For notes that tick writes into
+	// ext_notes_note — the very object the human path gates `create` on. The
 	// reason a check there would be wrong is not that a tick is harmless: it is
 	// that extjobsrun.go's deriveAuthority mints a principal carrying scopes and
 	// no permissions document, so auth.Require would deny EVERY tick

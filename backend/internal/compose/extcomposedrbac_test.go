@@ -7,7 +7,7 @@ package compose
 //
 // extrbacenforce_test.go proves the mechanism over a note-shaped fixture: read
 // and create, one object, refused on both transports. That mechanism was already
-// sound when the UAT re-run found R1. The defect was that crm-demo's three
+// sound when the UAT re-run found R1. The defect was that notes's three
 // SECRETS operations declared no object at all, so the mechanism had nothing to
 // enforce and any authenticated seat — read-only included — could replace the
 // installation's signing key on either transport, after which every signature it
@@ -19,7 +19,7 @@ package compose
 //   - the DECLARATION rule, in pkg/extension: Verb.Validate now refuses a
 //     mutating operation that names no RBAC object, at generation and at boot.
 //     That is the half that closes the class for every future unit.
-//   - the BEHAVIOUR, here: the declared pair crm-demo now carries is actually
+//   - the BEHAVIOUR, here: the declared pair notes now carries is actually
 //     refused for a read-only seat, on the agent path AND on the mounted route.
 //
 // A note on what this file does NOT do: it does not read ComposedVerbs(). That
@@ -61,14 +61,14 @@ func (objectSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatT
 	return principal.SeatFull, nil
 }
 
-// signingKeyVerb is crm-demo's store-signing-key declaration, spelled out.
+// signingKeyVerb is notes's store-signing-key declaration, spelled out.
 //
 // NOT read from ComposedVerbs(): the composed set is a BOOT binding written by
 // RegisterExtensions at a role main, so it is empty in this lane and a test that
 // looked there would skip — a vacuous green over exactly the defect it exists
 // for. The declaration side is pinned where it can be pinned: Verb.Validate now
 // refuses a mutating operation that names no object at all (pkg/extension), and
-// crm-demo's own fragment carries these values. What THIS file adds is the
+// notes's own fragment carries these values. What THIS file adds is the
 // behaviour: that the declared pair is actually refused, on both transports, for
 // the seat that overwrote the key.
 // unitVerbBare, NOT unitVerb: the shared builder auto-declares an object for a
@@ -76,9 +76,9 @@ func (objectSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatT
 // to express the shape it exists to refuse — and would quietly absorb any
 // mutation of the pair below.
 func signingKeyVerb() extension.Verb {
-	v := unitVerbBare("crm-demo", "demo_store_signing_key", extension.TierAutoExecute, extension.ScopeWrite)
-	v.Route = "/ext/crm-demo/signing-key"
-	v.RbacObject = "ext_crm_demo_signing_key"
+	v := unitVerbBare("notes", "store_signing_key", extension.TierAutoExecute, extension.ScopeWrite)
+	v.Route = "/ext/notes/signing-key"
+	v.RbacObject = "ext_notes_signing_key"
 	v.RbacAction = extension.RbacUpdate
 	return v
 }
@@ -86,8 +86,8 @@ func signingKeyVerb() extension.Verb {
 // signingKeyReadVerb is the same object's read side — status and signature both
 // gate on it — used to show the fix is a narrowing rather than a lockout.
 func signingKeyReadVerb(tool string) extension.Verb {
-	v := unitVerbBare("crm-demo", tool, extension.TierAutoExecute, extension.ScopeRead)
-	v.RbacObject = "ext_crm_demo_signing_key"
+	v := unitVerbBare("notes", tool, extension.TierAutoExecute, extension.ScopeRead)
+	v.RbacObject = "ext_notes_signing_key"
 	v.RbacAction = extension.RbacRead
 	return v
 }
@@ -202,7 +202,7 @@ func TestAReadOnlySeatCannotReplaceTheComposedSigningKey(t *testing.T) {
 	// And the read-only seat keeps what read-only means: it may still ask
 	// whether a key is stored and still verify a signature. The fix is a
 	// narrowing of one operation, not a lockout of the card.
-	for _, tool := range []string{"demo_signing_key_status", "demo_sign_payload"} {
+	for _, tool := range []string{"signing_key_status", "sign_payload"} {
 		t.Run("the read-only seat still reaches "+tool, func(t *testing.T) {
 			readVerb := signingKeyReadVerb(tool)
 			r, ran := registryForComposedVerb(t, readVerb, objectSeat{objects: readOnly})

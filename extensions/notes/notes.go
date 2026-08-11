@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// Package crmdemo is the tier's REFERENCE extension: one first-party unit that
+// Package notes is the tier's REFERENCE extension: one first-party unit that
 // exercises every capability an extension can hold, so PR1's acceptance is a
 // human driving the SPA rather than a green test suite. It ships enabled in the
 // vanilla tree alongside de and yogi — a demo nobody runs is not a demo.
 //
-// The six surfaces, and the one screen (#/ext/crm-demo, "Demo Notepad") that
+// The six surfaces, and the one screen (#/ext/notes, "Demo Notepad") that
 // makes each of them visible:
 //
-//   - migrations/ — ext_crm_demo_note, workspace-scoped under forced RLS. Add a
+//   - migrations/ — ext_notes_note, workspace-scoped under forced RLS. Add a
 //     note, restart the stack, it is still there.
-//   - api/ — six governed operations under /ext/crm-demo/, three of them gating
-//     on the unit's own RBAC object ext_crm_demo_note. A read-only seat sees the
+//   - api/ — six governed operations under /ext/notes/, three of them gating
+//     on the unit's own RBAC object ext_notes_note. A read-only seat sees the
 //     list and no Add control.
 //   - secrets — a stored HMAC signing key, proven by USE. Signing a payload is
 //     the whole demonstration; no operation returns the key, masked or
@@ -23,18 +23,18 @@
 //     the workspace is what makes the dispatcher's FAN-OUT visible rather than
 //     silently demonstrating the single-tenant case.
 //   - Tools — the same six operations reach the agent as governed tools;
-//     demo_list_notes is the one an operator asks "what's in my demo notepad".
+//     list_notes is the one an operator asks "what's in my demo notepad".
 //   - the screen — served from the CORE frontend tree, not from this unit.
 //     extensions/<name>/frontend/ is still an unbuilt capability layer that
 //     gen-composition refuses on sight, and lifting it means bundling
 //     unit-authored TSX into the SPA — a supply-chain decision with its own
-//     reviewed slice. See frontend/src/screens/ext/crmdemo.tsx.
+//     reviewed slice. See frontend/src/screens/ext/notes.tsx.
 //
 // NOTHING about this unit's GOVERNANCE is repeated in Go. api/crm.yaml holds
 // every operation's tier, scope, RBAC object, prose and schemas; api/jobs.yaml
 // holds the job's cadence, wall clocks, queue and attempt cap. These files hold
 // the one thing a static document cannot: the functions.
-package crmdemo
+package notes
 
 import (
 	"embed"
@@ -49,7 +49,7 @@ import (
 // check both key off the on-disk directory, while cmd/migrate applies the SQL
 // out of THIS filesystem. A unit that shipped migrations/ without setting the
 // Migrations field below would pass every gate green — the SQL blessed, the
-// catalog checked — and ext_crm_demo_note would never be created.
+// catalog checked — and ext_notes_note would never be created.
 //
 //go:embed migrations
 var migrations embed.FS
@@ -63,15 +63,15 @@ var migrations embed.FS
 // a named constant here would be a value the manifest reader cannot resolve.
 func New() extension.Extension {
 	return extension.Extension{
-		Name:    "crm-demo",
+		Name:    "notes",
 		Version: "1.0.0",
 		Tools: []extension.Tool{
-			{Name: "demo_list_notes", Handle: listNotes},
-			{Name: "demo_add_note", Handle: addNote},
-			{Name: "demo_remove_note", Handle: removeNote},
-			{Name: "demo_store_signing_key", Handle: storeSigningKey},
-			{Name: "demo_signing_key_status", Handle: signingKeyStatus},
-			{Name: "demo_sign_payload", Handle: signPayload},
+			{Name: "list_notes", Handle: listNotes},
+			{Name: "add_note", Handle: addNote},
+			{Name: "remove_note", Handle: removeNote},
+			{Name: "store_signing_key", Handle: storeSigningKey},
+			{Name: "signing_key_status", Handle: signingKeyStatus},
+			{Name: "sign_payload", Handle: signPayload},
 		},
 		Secrets: []extension.SecretsRequest{
 			{Key: "signing", Scope: extension.SecretScopeWorkspace},
@@ -87,7 +87,7 @@ func New() extension.Extension {
 // package writes it through this constant: the ext schema is on no search_path
 // the app connects with, so an unqualified name would resolve to a public table
 // the unit does not own.
-const noteTable = "ext.ext_crm_demo_note"
+const noteTable = "ext.ext_notes_note"
 
 // callerWorkspace is the tenant the invocation is pinned to, as SQL sees it.
 //

@@ -254,7 +254,7 @@ func (v Verb) validateGovernance() error {
 	// is enforced when an object is DECLARED, and nothing required one — so "a
 	// governed operation that changes installation state under no RBAC object"
 	// was expressible, and the first unit to use the secrets surface expressed
-	// it: crm-demo's store-signing-key declared neither, the object check in the
+	// it: notes's store-signing-key declared neither, the object check in the
 	// serving adapter therefore never ran, and the operation was admitted on
 	// scope ∧ seat ∧ tier ∧ quota alone. For a cookie-session human that is any
 	// authenticated seat. A read-only user replaced the installation's signing

@@ -7,7 +7,7 @@ leaves `extensions/zalo-personal` as a unit that adds no tier surface of its own
 `api/` and `migrations/` landed; `frontend/` is still refused, and §4.5 records what shipped in its
 place and why.**
 
-Review history is in `REVIEW-v1.md`. Demo detail is in `CRM-DEMO-SCOPE.md`.
+Review history is in `REVIEW-v1.md`. Demo detail is in `NOTES-SCOPE.md`.
 
 > **Reconciled against the build, 2026-08-09.** This document was the source of truth the plan was
 > written from, and it is the thing a follow-on author reads first — so it has been corrected in place
@@ -109,12 +109,12 @@ Against the mistakes above, and inside §2.0's trust model:
   contracts and recorded in `manifest.generated.json` with a digest covering unit, kind, contract,
   operation, route, method and fragment hash. An operator can see, diff and review the full set of
   capabilities an installation is about to serve. **Delivered and verifiable by reading
-  `extensions/crm-demo/manifest.generated.json`** — every row carries all seven fields, and `route`
+  `extensions/notes/manifest.generated.json`** — every row carries all seven fields, and `route`
   carries the *contract* spelling (§3).
 - **A mutating operation names something a role document can withhold.** `Verb.Validate` refuses any
   `write`- or `draft`-scoped declaration that names no RBAC object, at generation and at boot, for
   handler-bearing and contract-only verbs alike (`pkg/extension/verb.go:validateGovernance`).
-  **This guarantee was not in the design and exists because its absence shipped:** crm-demo's
+  **This guarantee was not in the design and exists because its absence shipped:** notes's
   store-signing-key declared neither object nor action, so the serving adapter's object check never
   ran and the operation was admitted on scope ∧ seat ∧ tier ∧ quota alone — which, for a
   cookie-session human, is any authenticated seat. The acceptance re-run (finding R1) had a read-only
@@ -143,7 +143,7 @@ Against the mistakes above, and inside §2.0's trust model:
   entry behind fails `make fe-typecheck-composed` — the gate doing its job, on a removal that looks
   complete. The acceptance re-run (finding F5) found the documented recipe also needed the formatter
   step: deleting the last registry entry leaves `= {\n};` and `check-fe` fails on formatting alone. It
-  briefly *was* three places — a `gen-composition` fixture hard-coded crm-demo's path — which was fixed
+  briefly *was* three places — a `gen-composition` fixture hard-coded notes's path — which was fixed
   there rather than documented, because removing a unit must not require editing core tests.
 
 ### 2.3 What held — and is machine-held, not asserted
@@ -173,7 +173,7 @@ misleads in the other direction. Each of these is a property some gate would fai
   registry sits deliberately outside the generated tree so it cannot perturb the gate. This survived
   thirteen tasks of accretion **and** three new generated artifacts.
 - **Core is unreachable except through published interfaces.** The compiler's, not a convention: a unit
-  is its own Go module (`module github.com/gradionhq/margince/extensions/crm-demo`) outside the backend
+  is its own Go module (`module github.com/gradionhq/margince/extensions/notes`) outside the backend
   module, so `internal/**` cannot be imported. This is the one wall in the tier that holds against
   hostile code.
 
@@ -338,7 +338,7 @@ manifest's source — with **one recorded exception**, `Secrets`, which has no c
 `operation`, `scopes`, `tier`, which would let an approval survive a path, method, schema or cadence
 change. It now covers unit name, capability kind, contract source identity, operation/job/task id, route
 and method where applicable, and the hash of the security-relevant contract fragment — all seven visible
-per row in `extensions/crm-demo/manifest.generated.json`.
+per row in `extensions/notes/manifest.generated.json`.
 
 **Tier vocabulary aligned.** The contract says `auto_execute`/`confirmation_required`; the seam said
 `green`/`yellow`. They unified on the contract spelling while `approvals.lock` was still a stub and no
@@ -564,7 +564,7 @@ refusals, and it matters because `cmd/migrate` today opens one owner connection 
 and that owner is a superuser in dev/CI — exactly where the gate runs.
 
 **This gate is the strongest artifact on the branch** and it delivered as designed — re-verified green at
-HEAD by Fable's review, and accepted crm-demo's migrations first time. One correction to the design's
+HEAD by Fable's review, and accepted notes's migrations first time. One correction to the design's
 grant story: **"no grants on `public`" is unachievable** alongside the required FK to `workspace(id)`, so
 the minimum viable form is `GRANT REFERENCES (id) ON public.workspace`. The accepted residual is an
 existence oracle — the role learns from an FK violation whether a workspace UUID exists — which is
@@ -663,7 +663,7 @@ implied.
   meaningless, because `deriveAuthority` mints an agent principal with `Scopes` only and no `Permissions`,
   so `auth.Require` would deny every tick unconditionally.
 - **A fresh installation has no agent seat, and the design never priced what that means for a
-  ship-enabled cadenced job (#656).** `crm-demo` ships enabled, its heartbeat ticks at 60s, and the first
+  ship-enabled cadenced job (#656).** `notes` ships enabled, its heartbeat ticks at 60s, and the first
   cut deliberately enqueued a child with a zero principal so the tick would "fail with a message that says
   so" — three failures a minute per workspace, forever, on every fresh install of the only product this
   repo builds. Honesty in a comment does not decide a shipping posture. Fable's review escalated it and
@@ -713,7 +713,7 @@ enum.** `$.components.schemas.RbacObject` is a **core** node, so §4.0's ownersh
 inside it and no container addition fixes that — which is correct, because additive-only is the property
 the ownership rule buys, and teaching the composer an enum-append action would spend it. The runtime side
 was always fine (`/me`'s object map is string-keyed, proven against marshalled JSON), but the client aliased
-`RbacObject` from the schema, so `useCan("ext_crm_demo_note", "read")` would not typecheck while the data
+`RbacObject` from the schema, so `useCan("ext_notes_note", "read")` would not typecheck while the data
 sat in the response. The fix is a **client-side widening** at `capability.ts` and the four hook signatures,
 probed empirically with a four-assertion `@ts-expect-error` file: a misspelled core object, a bare string,
 and a core typo inside a `GrantSpec` are all still refused. `schema.d.ts` needed nothing.
@@ -747,7 +747,7 @@ What shipped instead:
   contracts** — the same source the routes, the agent tools and the manifests derive from, so a screen
   cannot advertise an operation the server does not serve. `App.tsx` falls through to a generic
   published-operations card for any composed unit without a bespoke screen (`de`, `yogi`, `crm-hello`).
-- **crm-demo's screen lives in the core tree** (`frontend/src/screens/ext/crmdemo.tsx`), dispatched by unit
+- **notes's screen lives in the core tree** (`frontend/src/screens/ext/notes.tsx`), dispatched by unit
   name once the descriptor resolves. This was forced, not preferred: a generic screen over that descriptor
   shape cannot express "not connected"→paste key→"connected", HMAC signing, a note list with Add/Delete, an
   unprompted heartbeat row, or hiding Add on a read-only seat — **five of the acceptance's eight steps.**
@@ -757,7 +757,7 @@ What shipped instead:
   pinned by test, so a composed unit is reachable only by typing the hash. Correct for this slice: no unit
   has a surface worth a rail slot, and deciding where a variable number of installation-defined entries sit
   in a fixed list is its own design question.
-- **`crm-demo` therefore exercises five of six tier surfaces from inside the unit**, not six. Any claim
+- **`notes` therefore exercises five of six tier surfaces from inside the unit**, not six. Any claim
   otherwise — including one made in a commit message on this branch — is wrong.
 
 **Types mirror the `GOWORK` two-lane pattern.** A committed **vanilla** `schema.d.ts` remains the empty-tree
@@ -838,7 +838,7 @@ this design:
 
 **What it buys, concretely.** Removal becomes **one place** — `git rm -r extensions/<name>` — closing
 the two-place wart §2.2 records, which the acceptance run found and which three documents currently
-have to warn about. And the sixth surface finally comes from inside the unit, so `crm-demo` exercises
+have to warn about. And the sixth surface finally comes from inside the unit, so `notes` exercises
 six of six rather than five.
 
 **The digest collision, and its resolution.** `digestTree` refuses every non-regular file under a unit,
@@ -873,7 +873,7 @@ bit:
    TypeScript treats as an error. The committed stub is included beside the glob, so the tier survives
    a tree that uses none of it.
 
-**Proof, by doing it.** `git rm -r extensions/crm-demo` + `rm -rf` + `pnpm install`, no core file
+**Proof, by doing it.** `git rm -r extensions/notes` + `rm -rf` + `pnpm install`, no core file
 edited, `make check-fe` green — then the unit restored and green again. Findings 5 and 6 are both
 things only that exercise could have found.
 
@@ -904,7 +904,7 @@ still refused (§4.5), so `scanUnit`'s "no Go module" refusal never relaxed eith
 
 | Gate | Why it exists |
 |---|---|
-| `.gitignore` fitness test (`backend/extensionsignored_test.go`) | **Every gate was green while `extensions/crm-demo/` was invisible to git.** `.gitignore` carries a per-unit un-ignore list; composition, migrate, the catalog gate and `check-q` all read the working tree. The how-to already warned about this in prose and it was still missed — which is exactly why it is now a test, using `--no-index` (without it a tracked file is never reported) |
+| `.gitignore` fitness test (`backend/extensionsignored_test.go`) | **Every gate was green while `extensions/notes/` was invisible to git.** `.gitignore` carries a per-unit un-ignore list; composition, migrate, the catalog gate and `check-q` all read the working tree. The how-to already warned about this in prose and it was still missed — which is exactly why it is now a test, using `--no-index` (without it a tracked file is never reported) |
 | `check-ext-migrations` in the CI **`integration`** job | Not `deterministic-gates`. That job is hermetic and container-free; arming it would make the repo's fastest merge gate start a compose stack on every backend PR from the first migration-bearing unit onward. Gate locality costs once; the compose start costs forever. The gate also migrates its **own** throwaway database rather than assuming a clean clone, since a composed template now holds `ext.ext_<name>_*` |
 | core-lane migration-role fitness test | `make check` does not run the integration lane, so **a core migration needing a privilege the restricted role lacks passes every gate a task author runs.** The `ext` schema migration was the first that could hit it, and did — it broke four migration tests on `permission denied for database`, because `CREATE SCHEMA` needs database-level `CREATE`. Now a class guard, running the full lane as a restricted non-owner role with two vacuity guards |
 | `go vet -tags integration ./...` in the `vet` target | **`make check` never compiled the integration lane** — build, vet, lint and test all ran untagged, while `internal/compose` alone holds hundreds of `//go:build integration` files. Any new untagged test in such a package could collide with a tagged helper and the whole merge gate stayed green. DB-free type-check of the tagged lane |
@@ -926,12 +926,12 @@ and falsely shows whole files as new.
 
 ## 6. The demo unit
 
-`extensions/crm-demo` ships enabled and is the concrete consumer for the surfaces above, satisfying
+`extensions/notes` ships enabled and is the concrete consumer for the surfaces above, satisfying
 principle #7. `fixtures/extensions/crm-hello` is untouched — it stays the minimal CI fixture. Detail and the
-click-through acceptance are in `CRM-DEMO-SCOPE.md`, with the corrections below taking precedence over it.
+click-through acceptance are in `NOTES-SCOPE.md`, with the corrections below taking precedence over it.
 
-**Five of six surfaces come from inside the unit.** `migrations/` (`ext.ext_crm_demo_note`, workspace-scoped
-under forced RLS), `api/` (six governed operations under `/ext/crm-demo/`), secrets (an HMAC signing key,
+**Five of six surfaces come from inside the unit.** `migrations/` (`ext.ext_notes_note`, workspace-scoped
+under forced RLS), `api/` (six governed operations under `/ext/notes/`), secrets (an HMAC signing key,
 proven **by use** — signing is the whole demonstration, and no operation returns the key, masked or
 otherwise), a job (a heartbeat tick that names its own workspace, so the dispatcher's fan-out is visible
 rather than silently demonstrating the single-tenant case), and tools (the same six operations reaching the
@@ -940,14 +940,14 @@ agent). **The sixth — the screen — is a core file** (§4.5).
 **`GET` and `DELETE` are not declarable, so the three record operations are three POSTs on three paths.**
 `Verb.validateMethod` admits `post`/`put`/`patch` only, and that is the seam's rule rather than a style
 choice: a served extension operation *is* a governed tool invocation and its arguments are the request
-body. `CRM-DEMO-SCOPE.md`'s `GET`/`POST`/`DELETE` line is wrong.
+body. `NOTES-SCOPE.md`'s `GET`/`POST`/`DELETE` line is wrong.
 
-**The unit declares two RBAC objects, not one.** `ext_crm_demo_note` gates the record operations;
-`ext_crm_demo_signing_key` gates the secrets operations — and the second exists because the acceptance
+**The unit declares two RBAC objects, not one.** `ext_notes_note` gates the record operations;
+`ext_notes_signing_key` gates the secrets operations — and the second exists because the acceptance
 re-run demonstrated its absence (§2.1, R1). It gates on **`update`** for the store, not `create`: there is
 one key per workspace, the slot always exists, and `create`-but-not-`update` still hands out the first
 overwrite. Two agents reached that independently. Note also that the SPA's own gating was **not** in place
-before that round: the claim that the screen had gated on `ext_crm_demo_signing_key` earlier is false —
+before that round: the claim that the screen had gated on `ext_notes_signing_key` earlier is false —
 `git log -S` finds the string nowhere before it — and the declaration and the client gate landed together.
 
 **No default role seeds either object**, so every seat sees the not-granted state until an admin grants

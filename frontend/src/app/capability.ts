@@ -44,6 +44,16 @@ export type CoreRbacObject = components["schemas"]["RbacObject"];
  * The runtime never needed the change — `/me`'s `authorization.objects` is
  * string-keyed and already carries registered extension objects — so this is
  * the client catching up to a response it was already being handed.
+ *
+ * THE COST, stated rather than discovered: this template accepts ANY
+ * `ext_`-prefixed string, so a misspelled EXTENSION object compiles. `useCan`
+ * then finds no grant and denies, which looks from the screen exactly like a
+ * grant the operator has not made — the two failures are indistinguishable
+ * without reading `/me`. That is inherent to a vocabulary whose members depend
+ * on the COMPOSED SET rather than on the contract: the union cannot be
+ * generated because it is not known until an installation is chosen. It is a
+ * deliberate trade-off, not an oversight, and only the CORE half of this union
+ * catches typos at compile time.
  */
 export type ExtensionRbacObject = `ext_${string}`;
 

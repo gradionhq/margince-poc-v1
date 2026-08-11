@@ -1,0 +1,23 @@
+{
+  "extNotes.notes.add": "Thêm",
+  "extNotes.notes.addFailed": "Thêm ghi chú thất bại. Chưa rõ ghi chú đã được lưu hay chưa — hãy kiểm tra danh sách bên dưới trước khi thêm lại.",
+  "extNotes.notes.bodyLabel": "Ghi chú mới",
+  "extNotes.notes.empty": "Chưa có ghi chú nào.",
+  "extNotes.notes.noGrant": "Bạn không có quyền đọc ghi chú của tiện ích mở rộng này.",
+  "extNotes.notes.remove": "Xóa",
+  "extNotes.notes.removeFailed": "Xóa ghi chú thất bại. Hãy kiểm tra danh sách bên dưới.",
+  "extNotes.notes.title": "Ghi chú",
+  "extNotes.signing.connected": "Đã kết nối",
+  "extNotes.signing.keyLabel": "Khóa ký",
+  "extNotes.signing.noGrant": "Bạn không có quyền truy cập khóa ký của tiện ích mở rộng này.",
+  "extNotes.signing.notConnected": "Chưa lưu khóa nào",
+  "extNotes.signing.payloadLabel": "Nội dung cần ký",
+  "extNotes.signing.sign": "Ký",
+  "extNotes.signing.signFailed": "Không có gì được ký. Hãy lưu khóa ký trước đã.",
+  "extNotes.signing.store": "Lưu khóa",
+  "extNotes.signing.storeFailed": "Lưu khóa thất bại. Chưa rõ khóa đã được lưu hay chưa — hãy kiểm tra trạng thái ở trên trước khi dán lại.",
+  "extNotes.signing.sub": "Do bộ giữ khóa của bản cài đặt lưu giữ. Khóa không bao giờ được hiển thị ở đâu cả.",
+  "extNotes.signing.title": "Khóa ký",
+  "extNotes.sub": "Tiện ích mở rộng tham chiếu, từ đầu đến cuối.",
+  "extNotes.title": "Sổ tay demo"
+}

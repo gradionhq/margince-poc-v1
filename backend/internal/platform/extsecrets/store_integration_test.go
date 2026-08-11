@@ -194,7 +194,7 @@ func (e *env) systemLogActions(t *testing.T, ws ids.UUID) []string {
 func TestSecretsNamespaceIsolation(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	a := extsecrets.For("crm-demo", e.pool, e.vault)
+	a := extsecrets.For("notes", e.pool, e.vault)
 	b := extsecrets.For("other-unit", e.pool, e.vault)
 
 	if err := a.Put(ctx, "signing", []byte("s3cret")); err != nil {
@@ -227,16 +227,16 @@ func TestSecretsNamespaceIsolation(t *testing.T) {
 func TestSecretsRotationDestroysThePreviousMaterial(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	if err := s.Put(ctx, "signing", []byte("one")); err != nil {
 		t.Fatal(err)
 	}
-	first := e.currentRef(t, e.ws, "crm-demo", "signing")
+	first := e.currentRef(t, e.ws, "notes", "signing")
 	if err := s.Put(ctx, "signing", []byte("two")); err != nil {
 		t.Fatal(err)
 	}
-	second := e.currentRef(t, e.ws, "crm-demo", "signing")
+	second := e.currentRef(t, e.ws, "notes", "signing")
 	if second == first {
 		t.Fatal("rotation reused the ref: keyvault.Put mints a new one on every call")
 	}
@@ -260,7 +260,7 @@ func TestSecretsRotationDestroysThePreviousMaterial(t *testing.T) {
 func TestSecretsUserScopeRefusesAForeignMember(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	foreign := extension.UserID(e.otherUser.String())
 	if err := s.PutUser(ctx, foreign, "token", []byte("nope")); !errors.Is(err, extsecrets.ErrUserOutsideWorkspace) {
@@ -279,7 +279,7 @@ func TestSecretsUserScopeRefusesAForeignMember(t *testing.T) {
 func TestSecretsScopesAreIndependent(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 	member := extension.UserID(e.user.String())
 
 	if err := s.Put(ctx, "token", []byte("installation")); err != nil {
@@ -324,12 +324,12 @@ func TestSecretsScopesAreIndependent(t *testing.T) {
 func TestSecretsDeleteDestroysTheMaterial(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	if err := s.Put(ctx, "signing", []byte("one")); err != nil {
 		t.Fatal(err)
 	}
-	ref := e.currentRef(t, e.ws, "crm-demo", "signing")
+	ref := e.currentRef(t, e.ws, "notes", "signing")
 	if err := s.Delete(ctx, "signing"); err != nil {
 		t.Fatal(err)
 	}
@@ -352,15 +352,15 @@ func TestSecretsDeleteDestroysTheMaterial(t *testing.T) {
 // mapping row must be invisible to a session bound to the other tenant.
 func TestSecretsAreWorkspaceScoped(t *testing.T) {
 	e := setup(t)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	if err := s.Put(e.ctxFor(e.ws), "signing", []byte("tenant-a")); err != nil {
 		t.Fatal(err)
 	}
-	if n := e.rowsVisibleFrom(t, e.ws, "crm-demo", "signing"); n != 1 {
+	if n := e.rowsVisibleFrom(t, e.ws, "notes", "signing"); n != 1 {
 		t.Fatalf("the owning workspace sees %d mapping rows, want 1 — the fixture is not proving anything", n)
 	}
-	if n := e.rowsVisibleFrom(t, e.otherWS, "crm-demo", "signing"); n != 0 {
+	if n := e.rowsVisibleFrom(t, e.otherWS, "notes", "signing"); n != 0 {
 		t.Fatalf("a session bound to another workspace sees %d of this one's mapping rows, want 0", n)
 	}
 	if _, err := s.Get(e.ctxFor(e.otherWS), "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
@@ -372,7 +372,7 @@ func TestSecretsAreWorkspaceScoped(t *testing.T) {
 func TestSecretsRefuseUnusableInput(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	if err := s.Put(ctx, "", []byte("x")); !errors.Is(err, extsecrets.ErrInvalidKey) {
 		t.Fatalf("empty key: err=%v, want ErrInvalidKey", err)
@@ -386,7 +386,7 @@ func TestSecretsRefuseUnusableInput(t *testing.T) {
 	if _, err := s.Get(context.Background(), "signing"); !errors.Is(err, database.ErrNoWorkspace) {
 		t.Fatalf("unbound workspace: err=%v, want ErrNoWorkspace", err)
 	}
-	if err := extsecrets.For("crm-demo", e.pool, nil).Put(ctx, "signing", []byte("x")); !errors.Is(err, extsecrets.ErrNoCustodian) {
+	if err := extsecrets.For("notes", e.pool, nil).Put(ctx, "signing", []byte("x")); !errors.Is(err, extsecrets.ErrNoCustodian) {
 		t.Fatalf("no vault configured: err=%v, want ErrNoCustodian", err)
 	}
 }
@@ -402,7 +402,7 @@ func TestSecretsRefuseUnusableInput(t *testing.T) {
 func TestSecretsLeaveAnAuditTrail(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
-	s := extsecrets.For("crm-demo", e.pool, e.vault)
+	s := extsecrets.For("notes", e.pool, e.vault)
 
 	if _, err := s.Get(ctx, "never-stored"); !errors.Is(err, extension.ErrSecretNotFound) {
 		t.Fatalf("probing an absent key: err=%v, want ErrSecretNotFound", err)

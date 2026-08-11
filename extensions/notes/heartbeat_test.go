@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 import (
 	"context"
@@ -31,8 +31,15 @@ func TestHeartbeatWritesOneRowNamingItsWorkspace(t *testing.T) {
 	if strings.Count(insert, callerWorkspace) != 2 {
 		t.Errorf("the tick does not both scope and NAME its workspace:\n%s", insert)
 	}
-	if rt.tx.args[0][0] != kindHeartbeat {
+	if rt.tx.args[0][0] != string(kindHeartbeat) {
 		t.Errorf("the tick writes kind %v, want %q — the column is what marks the row as the job's", rt.tx.args[0][0], kindHeartbeat)
+	}
+	// And it names NO author. A tick has no person behind it, so both author
+	// columns must be left out entirely: writing a zero uuid, or writing
+	// is_agent without a user id, invents a user that does not exist and the
+	// table's both-or-neither CHECK refuses the second outright.
+	if strings.Contains(insert, "author") {
+		t.Errorf("the tick writes an author — a scheduled tick has no person behind it:\n%s", insert)
 	}
 }
 
@@ -78,7 +85,7 @@ func TestHeartbeatPrunesItsOwnHistory(t *testing.T) {
 	if !strings.HasPrefix(strings.TrimSpace(prune), "DELETE FROM "+noteTable) {
 		t.Fatalf("the tick does not prune:\n%s", prune)
 	}
-	if rt.tx.args[1][0] != kindHeartbeat || rt.tx.args[1][1] != keptHeartbeats {
+	if rt.tx.args[1][0] != string(kindHeartbeat) || rt.tx.args[1][1] != keptHeartbeats {
 		t.Errorf("the prune runs with %v, want (%q, %d)", rt.tx.args[1], kindHeartbeat, keptHeartbeats)
 	}
 }
@@ -109,7 +116,7 @@ func TestThePruneCannotReachAUserNote(t *testing.T) {
 		t.Fatal("the two kinds are the same string, so the prune matches every note")
 	}
 	for _, statement := range noteWriteStatements(t) {
-		if strings.Contains(statement, kindHeartbeat) {
+		if strings.Contains(statement, string(kindHeartbeat)) {
 			t.Errorf("a notes-path statement writes the heartbeat kind:\n%s", statement)
 		}
 	}
@@ -120,7 +127,7 @@ func TestThePruneCannotReachAUserNote(t *testing.T) {
 func noteWriteStatements(t *testing.T) []string {
 	t.Helper()
 	rt := newRuntime()
-	rt.tx.row = []any{"11111111-1111-4111-8111-111111111111", "a note", stamp}
+	rt.tx.row = noteRow("11111111-1111-4111-8111-111111111111", kindNote, "a note", callerUserID, false, stamp)
 	if _, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"a note"}`)); err != nil {
 		t.Fatal(err)
 	}

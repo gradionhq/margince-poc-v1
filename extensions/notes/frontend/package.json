@@ -1,5 +1,5 @@
 {
-  "name": "@margince-ext/crm-demo",
+  "name": "@margince-ext/notes",
   "private": true,
   "type": "module",
   "main": "screen.tsx",

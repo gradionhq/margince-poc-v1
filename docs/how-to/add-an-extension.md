@@ -2,14 +2,17 @@
 
 For shipping a bounded add-on — a **jurisdiction pack**, a **governed agent tool**, an **HTTP surface**,
 its **own tables**, its **own secrets** or a **scheduled job** — as a named, versioned unit under
-`extensions/<name>/`, without editing any upstream-owned file. For *why* the seam is a compile-time
+`extensions/<name>/`, without editing any upstream-owned file — with one exception: a unit that ships a
+`frontend/` with npm dependencies of its own also changes the root `pnpm-lock.yaml`, and that lockfile
+diff is reviewed on the same terms as the unit's Go (see
+[explanation/extensibility.md](../explanation/extensibility.md)). For *why* the seam is a compile-time
 declaration and what the surface guarantees, read
 [explanation/extensibility.md](../explanation/extensibility.md) first. For a country pack
 specifically, the live capability is retention floors; the running example below builds one.
 
 An extension is its own Go module reaching the core through only the marker-allowlisted
 `backend/pkg/**` surface. **Presence under `extensions/` is the enablement** — there is no flag to
-flip. `extensions/crm-demo` is the **reference unit** and exercises every capability below — copy it when your
+flip. `extensions/notes` is the **reference unit** and exercises every capability below — copy it when your
 unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
 agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
 
@@ -149,7 +152,7 @@ What the surface will and will not serve:
 
 **Validate arguments yourself — the declared input schema is client-facing documentation, and nothing
 on this seam checks a request body against it before your handler runs.** Copy
-`extensions/crm-demo/notes.go`'s `decode`; do not write your own from
+`extensions/notes/notes.go`'s `decode`; do not write your own from
 `Decoder.DisallowUnknownFields` alone, which this guide used to recommend and which leaves four holes
 that each let a document the published schema forbids decide what your handler stores:
 
@@ -178,7 +181,7 @@ the core contract it extends** — `api/crm.yaml` extends `backend/api/crm.yaml`
 the job contract. `gen-composition` merges them into `build/composition/api/`, and the merged document is
 what the operator manifest, the generated client types, the mounted routes and the docs all read.
 
-Copy `extensions/crm-demo/api/crm.yaml`. The rules that will otherwise bite:
+Copy `extensions/notes/api/crm.yaml`. The rules that will otherwise bite:
 
 - **Paths are relative to the document's own `servers` url**, which already ends in `/v1`. Write
   `/ext/<name>/notes/list`, never `/v1/ext/...` — the server puts the base path back when it mounts the
@@ -270,7 +273,7 @@ restricted role against a throwaway database and re-reads the catalog):
 
 **A new migration is a new file — including for an index.** `dbmigrate` keys on the version, so a line
 added to an already-applied `0001` runs on exactly the installations that did not need it (a fresh one)
-and never on the ones that do. `extensions/crm-demo/migrations/0003_note_workspace_index.up.sql` is the
+and never on the ones that do. `extensions/notes/migrations/0003_note_workspace_index.up.sql` is the
 worked example: the index it adds belongs to the table `0001` created, and it is still its own file.
 
 **Index the tenant column.** A unit's table is cross-tenant, so every read the policy admits still has
@@ -335,7 +338,10 @@ The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-co
 unit exactly as they sweep core.
 
 **Ship your copy with your screen.** Put one flat JSON object per locale in
-`frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extCrmDemo.notes.add`. The composer merges
+`frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extNotes.notes.add`. `<CamelUnit>` title-cases
+each hyphen-separated segment, and marks a segment that starts with a DIGIT with a leading underscore
+(`crm-2-x` → `extCrm_2X.`) so that two distinct unit names can never derive one prefix — `foo-1` and
+`foo1` would otherwise both claim `extFoo1.`. The composer merges
 them into the one catalogue, so `useT()` resolves your keys and core's through the same lookup. Supply
 **every** locale the installation ships (en, de, vi) or generation refuses: a reader of the missing one
 gets a blank screen. Keys outside your namespace are refused too — a unit does not rewrite core copy.
@@ -454,7 +460,7 @@ off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](..
 merge only when the gates are green.
 
 **Removal is the unit's directory and nothing else**, and this is the whole recipe — run end to end
-against `crm-demo`, with the gate green afterwards:
+against `notes`, with the gate green afterwards:
 
 ```bash
 git rm -r extensions/<name>

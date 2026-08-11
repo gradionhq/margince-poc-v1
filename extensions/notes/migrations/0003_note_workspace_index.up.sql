@@ -13,5 +13,5 @@
 -- comes free. The leading column is also what the workspace cascade needs:
 -- without an index beginning with the referencing column, deleting one
 -- workspace sequentially scans this whole table once per row it removes.
-CREATE INDEX ext_crm_demo_note_workspace_created
-    ON ext.ext_crm_demo_note (workspace_id, created_at DESC);
+CREATE INDEX ext_notes_note_workspace_created
+    ON ext.ext_notes_note (workspace_id, created_at DESC);

@@ -107,7 +107,7 @@ func derivedIdentifier(namespace, table string) (string, error) {
 // literal's Migrations field connects them.
 //
 // On the schema: declaredTables checks the qualifier only when one is WRITTEN,
-// so a bare `CREATE TABLE ext_crm_demo_note (…)` is accepted here even though
+// so a bare `CREATE TABLE ext_notes_note (…)` is accepted here even though
 // an unqualified name resolves through search_path rather than to ext. That is
 // not a silent hole — the unit's migrations are applied as the ext_<name>
 // role, which holds CREATE on ext alone, so an unqualified create fails loudly

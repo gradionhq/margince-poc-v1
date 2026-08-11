@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 // The fakes the handler tests run against.
 //
@@ -33,19 +33,58 @@ type fakeRuntime struct {
 	// expired Runtime, an unwired role — which every handler must propagate
 	// rather than answer over.
 	txErr error
+
+	// caller is who the invocation runs as. The default is a HUMAN rather than
+	// the zero Caller: a tool invocation always has a principal, and defaulting
+	// to CallerSystem would make every author assertion in the suite pass over
+	// the one path — the job's — that legitimately has none.
+	caller extension.Caller
 }
 
 func newRuntime() *fakeRuntime {
-	return &fakeRuntime{secrets: &fakeSecrets{stored: map[string][]byte{}}, tx: &fakeTx{}}
+	return &fakeRuntime{
+		secrets: &fakeSecrets{stored: map[string][]byte{}},
+		tx:      &fakeTx{},
+		caller:  extension.Caller{Type: extension.CallerHuman, UserID: callerUserID},
+	}
 }
 
+// callerUserID is the human the fake invocations run as, and it is a canonical
+// UUID because that is what the column it lands in accepts.
+const callerUserID = "9f1d0c4a-3b2e-4f57-9a10-2c8e6b5d4f31"
+
 func (r *fakeRuntime) Secrets() extension.Secrets { return r.secrets }
+
+func (r *fakeRuntime) Caller() extension.Caller { return r.caller }
 
 func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension.Tx) error) error {
 	if r.txErr != nil {
 		return r.txErr
 	}
 	return fn(ctx, r.tx)
+}
+
+// noteRow scripts one row of noteColumns, in that order.
+//
+// It exists so that a column added to the projection is ONE edit in the
+// fixtures rather than one per scripted row — and, more usefully, so that the
+// width the handler scans and the width the tests script cannot silently
+// diverge into a "the scripted row has a different width" failure in every
+// test at once.
+//
+// An empty authorUserID scripts BOTH author columns as NULL, which is the
+// tick's row and the shape the both-or-neither CHECK admits. isAgent is then
+// ignored, deliberately: a fixture cannot script the half-written author the
+// database refuses, so no test can assert behaviour for a row that cannot exist.
+func noteRow(id string, kind noteKind, body, authorUserID string, isAgent bool, at time.Time) []any {
+	var (
+		userID       *string
+		isAgentValue *bool
+	)
+	if authorUserID != "" {
+		userID, isAgentValue = &authorUserID, &isAgent
+	}
+	return []any{id, string(kind), body, userID, isAgentValue, at}
 }
 
 // fakeTx records what a handler asked the database to do and answers with what
@@ -146,9 +185,16 @@ func (r fakeRow) Scan(dest ...any) error {
 	return scanInto(r.values, dest)
 }
 
-// scanInto copies a scripted row into a handler's destinations. Only the three
-// column types this unit selects are handled; anything else is a test-fixture
-// mistake and says so rather than scanning a zero value.
+// scanInto copies a scripted row into a handler's destinations. Only the column
+// types this unit selects are handled; anything else is a test-fixture mistake
+// and says so rather than scanning a zero value.
+//
+// The **string and **bool cases are the NULLABLE columns (author_user_id,
+// author_is_agent), and they model the one behaviour the handler depends on: a
+// scripted nil leaves the destination pointer nil, which is how a row with no
+// author reaches scanNote. A fake that could not express NULL would let the
+// tick's authorless rows go untested at exactly the layer that decides whether
+// `author` appears in the response.
 func scanInto(values []any, dest []any) error {
 	if len(values) != len(dest) {
 		return errors.New("fake: the scripted row has a different width from the scan destinations")
@@ -167,6 +213,18 @@ func scanInto(values []any, dest []any) error {
 				return errors.New("fake: scripted a non-time into a *time.Time")
 			}
 			*target = ts
+		case **string:
+			s, ok := value.(*string)
+			if !ok {
+				return errors.New("fake: scripted something other than a *string into a nullable text column")
+			}
+			*target = s
+		case **bool:
+			b, ok := value.(*bool)
+			if !ok {
+				return errors.New("fake: scripted something other than a *bool into a nullable boolean column")
+			}
+			*target = b
 		default:
 			return errors.New("fake: no scan support for this destination type")
 		}
@@ -214,7 +272,7 @@ func (s *fakeSecrets) Delete(_ context.Context, key string) error {
 // The user-scoped half is unreachable from this unit — it declares one
 // workspace-scoped key and calls none of these — so they refuse rather than
 // pretend, which would make a handler that started using them pass silently.
-var errUserScopeUnused = errors.New("fake: crm-demo declares no user-scoped secret")
+var errUserScopeUnused = errors.New("fake: notes declares no user-scoped secret")
 
 func (s *fakeSecrets) GetUser(context.Context, extension.UserID, string) ([]byte, error) {
 	return nil, errUserScopeUnused

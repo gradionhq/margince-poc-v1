@@ -123,7 +123,7 @@ export const en = {
     "No extension named “{name}” is enabled on this installation.",
   "ext.operations": "Published operations",
 
-  // The reference extension's own screen (#/ext/crm-demo). It is a CORE screen
+  // The reference extension's own screen (#/ext/notes). It is a CORE screen
   // for a first-party unit, so its strings are catalogued like every other
   // screen's; a unit does not ship copy any more than it ships TSX.
 

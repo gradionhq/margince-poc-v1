@@ -19,7 +19,7 @@ package backendarch
 // SQL, its tests run — and `git add extensions/<name>/` adds nothing, the
 // commit lands with the directory absent, and CI builds a vanilla tree without
 // it. The shipped artifact and the gated artifact are two different things,
-// which is the exact failure class a fitness test exists for. crm-demo hit it;
+// which is the exact failure class a fitness test exists for. notes hit it;
 // docs/how-to/add-an-extension.md had already warned about it in prose, and
 // prose was not enough.
 //

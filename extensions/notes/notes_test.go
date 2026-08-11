@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package crmdemo
+package notes
 
 // The DECLARATION test: what New() must hold for the six surfaces to be live at
 // all. Everything here is checkable without a database, and each assertion
@@ -21,7 +21,7 @@ func TestDeclarationIsValid(t *testing.T) {
 	if err := e.Name.Validate(); err != nil {
 		t.Fatalf("the unit name is not one the tier admits: %v", err)
 	}
-	if got := string(e.Name); got != "crm-demo" {
+	if got := string(e.Name); got != "notes" {
 		t.Fatalf("Name = %q — the declaration's name IS the extensions/<name> directory, and the composition panics when they disagree", got)
 	}
 	if err := e.Version.Validate(); err != nil {
@@ -62,12 +62,12 @@ func TestEveryToolTheContractDeclaresHasBehavior(t *testing.T) {
 	// reads in the contract, restated here so the two have to be reconciled by
 	// hand when one changes.
 	want := []string{
-		"demo_add_note",
-		"demo_list_notes",
-		"demo_remove_note",
-		"demo_sign_payload",
-		"demo_signing_key_status",
-		"demo_store_signing_key",
+		"add_note",
+		"list_notes",
+		"remove_note",
+		"sign_payload",
+		"signing_key_status",
+		"store_signing_key",
 	}
 	got := make([]string, 0, len(New().Tools))
 	for _, tool := range New().Tools {
@@ -104,7 +104,7 @@ func TestTheSecretDeclarationNamesTheKeyTheHandlersUse(t *testing.T) {
 // ON-DISK migrations/ directory; cmd/migrate applies the SQL out of the
 // EMBEDDED filesystem. A unit that shipped the directory and left Migrations
 // nil would pass every gate green — the SQL reviewed, the catalog checked — and
-// ext_crm_demo_note would never be created on any installation. Nothing else in
+// ext_notes_note would never be created on any installation. Nothing else in
 // the tree can see that gap, because every other check is looking at the
 // directory that is definitely there.
 func TestMigrationsAreEmbedded(t *testing.T) {
@@ -137,14 +137,32 @@ func TestMigrationsAreEmbedded(t *testing.T) {
 		t.Fatalf("the embedded up migration is unreadable or empty: %v", err)
 	}
 	for _, must := range []string{
-		"ext.ext_crm_demo_note",
+		"ext.ext_notes_note",
 		"FORCE ROW LEVEL SECURITY",
 		"ENABLE ROW LEVEL SECURITY",
 		"REFERENCES workspace(id) ON DELETE CASCADE",
+		// The author pair, and the constraint that keeps it coherent. Both
+		// columns are nullable so the tick's authorless rows can exist, which
+		// means the CHECK is the ONLY thing standing between the schema and a
+		// half-written author — a column added without it would be a table that
+		// accepts "an agent acting for nobody" and no test anywhere else would
+		// see it.
+		"author_user_id  uuid",
+		"author_is_agent boolean",
+		"CHECK ((author_user_id IS NULL) = (author_is_agent IS NULL))",
 	} {
 		if !strings.Contains(string(up), must) {
 			t.Errorf("the embedded migration does not carry %q — the catalog gate would refuse it", must)
 		}
+	}
+
+	// And it carries NO foreign key from the author to a core table. The
+	// ext_notes role the pre-merge gate applies this file as holds REFERENCES
+	// (id) on `workspace` and nothing else on public, so `REFERENCES app_user`
+	// here does not fail in review — it fails when the gate applies the file,
+	// for this unit and for every unit that copies it as a template.
+	if strings.Contains(string(up), "REFERENCES app_user") {
+		t.Error("the author references a core table — the restricted role the migration gate applies this as cannot create that constraint")
 	}
 
 	// The SECOND pair, by its own bytes. 0002 adds the `kind` column the

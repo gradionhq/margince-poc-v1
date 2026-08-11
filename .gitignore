@@ -12,7 +12,7 @@ coverage.out
 # extensions/ is the installation-owned enabled set. The vanilla tree
 # ships the placeholder, the approval lock, and the FIRST-PARTY units
 # enabled by default (extensions/de, the German jurisdiction pack;
-# extensions/yogi; extensions/crm-demo, the reference extension — presence
+# extensions/yogi; extensions/notes, the reference extension — presence
 # under extensions/ IS the enablement, so a unit missing from the un-ignore
 # list below is a unit no clone of this repository has).
 /build/composition/
@@ -26,7 +26,7 @@ coverage.out
 /extensions/*
 !/extensions/.gitkeep
 !/extensions/approvals.lock
-!/extensions/crm-demo
+!/extensions/notes
 !/extensions/de
 !/extensions/yogi
 # A unit's installed frontend dependencies. Its package.json and the workspace

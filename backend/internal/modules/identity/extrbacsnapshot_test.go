@@ -60,7 +60,7 @@ func meObjects(t *testing.T, perms principal.Permissions) map[string]map[string]
 }
 
 func TestExtensionRbacObjectReachesTheMeSnapshot(t *testing.T) {
-	const object = "ext_crm_demo_widget"
+	const object = "ext_notes_widget"
 	registerForTest(t, object)
 
 	// Step 1 — a stored role document may now GRANT it. Without registration
@@ -108,7 +108,7 @@ func TestExtensionRbacObjectReachesTheMeSnapshot(t *testing.T) {
 // nothing is granted — without making stored data unreadable.
 func TestAnUnregisteredExtensionObjectReachesNothing(t *testing.T) {
 	t.Cleanup(ResetRbacObjectsForTest)
-	const object = "ext_crm_demo_widget"
+	const object = "ext_notes_widget"
 	// Nothing registered.
 	doc, err := policy.Parse([]byte(`{"objects":{"` + object + `":{"read":true}},"row_scope":"team"}`))
 	if err != nil {
@@ -133,7 +133,7 @@ func TestAnUnregisteredExtensionObjectReachesNothing(t *testing.T) {
 // for every principal not explicitly granted it, and the unit's screen could
 // not tell the two apart.
 func TestARegisteredObjectIsInTheSnapshotEvenUngranted(t *testing.T) {
-	const object = "ext_crm_demo_widget"
+	const object = "ext_notes_widget"
 	registerForTest(t, object)
 
 	// A role document that grants a core object and says nothing about the
@@ -178,10 +178,10 @@ func TestTheExtensionVocabularyIsNotAWayIntoTheCoreOne(t *testing.T) {
 	// And registering one twice is an error rather than a no-op: two claims on
 	// one object name is a wiring defect where each side thinks it owns the
 	// grants.
-	if err := RegisterRbacObjects("ext_crm_demo_widget"); err != nil {
+	if err := RegisterRbacObjects("ext_notes_widget"); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterRbacObjects("ext_crm_demo_widget"); err == nil {
+	if err := RegisterRbacObjects("ext_notes_widget"); err == nil {
 		t.Fatal("re-registering an object succeeded; want the duplicate refusal")
 	}
 }

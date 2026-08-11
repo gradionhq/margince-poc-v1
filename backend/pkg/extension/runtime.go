@@ -87,6 +87,66 @@ type Runtime interface {
 	// On a Runtime the core has already released, Tx answers
 	// ErrRuntimeExpired without opening anything.
 	Tx(ctx context.Context, fn func(ctx context.Context, tx Tx) error) error
+
+	// Caller is WHO this invocation is running as, taken from the invocation
+	// itself and never from anything the handler supplies. A unit that stamps
+	// authorship, writes its own audit line, or varies behaviour by seat needs
+	// this, and the alternative — accepting an identity in the request body —
+	// is one every caller can forge.
+	//
+	// It answers from state the core already holds, so it costs no query and
+	// cannot fail. Everything it does NOT carry is deliberate: a display name,
+	// an email or a team list would each be an app_user read, and a unit that
+	// wants one should be given a capability that says so rather than have
+	// every invocation pay for it.
+	//
+	// A job tick has no human behind it and answers the zero Caller
+	// (CallerSystem, empty UserID); see Job.
+	Caller() Caller
+}
+
+// CallerType is which kind of principal an invocation is running as. It mirrors
+// the core's own principal vocabulary, restated here because the published
+// surface may not export a kernel type — a unit compiles against this package
+// and nothing beneath it.
+type CallerType string
+
+const (
+	// CallerSystem is an invocation with no principal behind it: a scheduled
+	// job tick, and the zero value, so an unset Caller reads as the least
+	// authority rather than as a human.
+	CallerSystem CallerType = ""
+	// CallerHuman is a person acting through a session.
+	CallerHuman CallerType = "human"
+	// CallerAgent is an agent acting under a Passport, always on some human's
+	// authority — OnBehalfOf names them.
+	CallerAgent CallerType = "agent"
+	// CallerConnector is an inbound integration acting on a human's authority.
+	CallerConnector CallerType = "connector"
+)
+
+// Caller identifies the principal an invocation runs as. It is a VALUE, copied
+// at construction: holding one after the invocation ends is harmless, unlike a
+// retained Runtime, because it grants nothing.
+type Caller struct {
+	// Type is which kind of principal this is. The zero value is CallerSystem.
+	Type CallerType
+
+	// UserID is the app_user behind the call, as a string because the
+	// published surface does not export the core's id type. Empty for
+	// CallerSystem.
+	//
+	// For an agent or a connector this is the HUMAN whose authority the call
+	// carries, not a synthetic id for the agent: a unit stamping authorship
+	// wants the person accountable for the row, and "agent ≤ human" already
+	// holds that agent's scopes to that human's.
+	UserID string
+
+	// IsAgent reports whether an agent or connector produced this call rather
+	// than a person acting directly. A unit that must not be driven by an
+	// agent checks this; a unit that only wants authorship uses UserID and
+	// ignores it.
+	IsAgent bool
 }
 
 // Tx is a workspace-pinned database transaction, and the whole of it: the
@@ -164,7 +224,7 @@ type Tx interface {
 //
 // The idiom is the stdlib's, deliberately, so it needs no learning:
 //
-//	rows, err := tx.Query(ctx, "SELECT id, body FROM ext_crm_demo_note")
+//	rows, err := tx.Query(ctx, "SELECT id, body FROM ext_notes_note")
 //	if err != nil {
 //		return err
 //	}

@@ -197,9 +197,9 @@ type servedTool struct {
 
 func (t servedTool) Spec() mcp.ToolSpec { return mcp.ToolSpec{Name: t.name} }
 
-// owningUnit satisfies unitScopedTool: an adapted tool must be able to name the
-// unit that shipped it, or no route counts it as implemented.
-func (t servedTool) owningUnit() extension.Name { return t.unit }
+// OwningUnit satisfies mcp.UnitScopedTool: an adapted tool must be able to name
+// the unit that shipped it, or no route counts it as implemented.
+func (t servedTool) OwningUnit() string { return string(t.unit) }
 
 func (servedTool) Handle(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{}`), nil

@@ -18,7 +18,7 @@ func reset(t *testing.T) {
 }
 
 func TestObjectValidate(t *testing.T) {
-	for _, valid := range []Object{"ext_yogi_quote", "ext_crm_demo_widget", "ext_a_b", "ext_unit1_thing2"} {
+	for _, valid := range []Object{"ext_yogi_quote", "ext_notes_widget", "ext_a_b", "ext_unit1_thing2"} {
 		if err := valid.Validate(); err != nil {
 			t.Errorf("Object(%q).Validate() = %v, want nil", valid, err)
 		}

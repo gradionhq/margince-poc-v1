@@ -114,7 +114,7 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
 // comes from one of two CORE-owned places, in this order:
 //
 //   1. A bespoke screen committed under src/screens/ext/ and listed in the
-//      composed screen registry ("@composition/screens"). crm-demo, the
+//      composed screen registry ("@composition/screens"). notes, the
 //      reference extension, is the one such screen today; its file explains
 //      why it lives in core and why only the composed lane compiles it.
 //   2. Otherwise the contract-derived descriptor set — the operations the

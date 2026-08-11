@@ -23,9 +23,16 @@ type fakeRuntime struct {
 	secrets Secrets
 	live    bool
 	rows    [][]string
+	caller  Caller
 }
 
 func (r *fakeRuntime) Secrets() Secrets { return r.secrets }
+
+// Caller is a plain field read: the identity is decided when the core builds
+// the Runtime, so a fake has nothing to derive it from and nothing to refuse
+// — which is itself the shape the contract promises (it cannot fail, and it
+// answers after release too).
+func (r *fakeRuntime) Caller() Caller { return r.caller }
 
 func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, Tx) error) error {
 	if !r.live {

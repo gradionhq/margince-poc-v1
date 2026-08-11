@@ -19,6 +19,31 @@
 // gains a Deps parameter through a versioned successor when the first
 // capability needs injected dependencies.
 //
+// # Stability
+//
+// THIS SURFACE IS NOT YET STABLE, and the "grow additively" rule above
+// describes the intent rather than a promise already in force. Until the first
+// v1.0.0 release tag the freeze gate (scripts/check-pkg-freeze.sh, `make
+// pkg-freeze`) is ADVISORY: an incompatible change prints and does not block.
+// From v1.0.0 it is enforcing and a break must be ratified.
+//
+// Two parts of the surface are expected to change INCOMPATIBLY before that tag,
+// named here so nobody builds on them believing otherwise:
+//
+//   - Runtime.Tx, which hands out arbitrary SQL and so cannot make a unit's
+//     write carry the audit and event records the core's own repositories are
+//     required to write. The intended replacement separates a read-only
+//     transaction from a governed mutation that returns structured change
+//     descriptors the core writes for. Tx is expected to be REMOVED, not
+//     merely joined by a sibling.
+//   - The frontend surface a unit screen imports, whose exported client type
+//     currently infers foreign types (openapi-fetch) into the published shape.
+//     Replacing those with core-owned interfaces changes the exported types.
+//
+// A unit written against today's surface will need editing when either lands.
+// That is acceptable precisely because the composed set is the trust boundary:
+// every unit is first-party or otherwise reviewed, and they migrate together.
+//
 //margince:extension-surface
 package extension
 

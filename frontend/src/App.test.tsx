@@ -105,7 +105,7 @@ describe("custom-fields route", () => {
 // suite must pass in a tree where it does not.
 describe("extension routes (vanilla registry)", () => {
   it("renders the honest not-found card for a unit no installation composed", async () => {
-    window.location.hash = "#/ext/crm-demo";
+    window.location.hash = "#/ext/notes";
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -118,7 +118,7 @@ describe("extension routes (vanilla registry)", () => {
     );
     expect(
       await screen.findByText(
-        "No extension named \u201Ccrm-demo\u201D is enabled on this installation.",
+        "No extension named \u201Cnotes\u201D is enabled on this installation.",
       ),
     ).toBeTruthy();
     expect(

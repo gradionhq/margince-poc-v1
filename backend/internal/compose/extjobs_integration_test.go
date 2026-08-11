@@ -201,7 +201,7 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 //
 // Nothing in the product creates an agent seat (#656), so on a fresh
 // installation every workspace is seatless — and a composed unit ships enabled
-// at its declared cadence (crm-demo's is 60s). The dispatcher used to enqueue a
+// at its declared cadence (notes's is 60s). The dispatcher used to enqueue a
 // child anyway, with a zero principal, so the tick failed at deriveAuthority;
 // with MaxAttempts 3 that is three discarded rows a minute per workspace,
 // forever, for a condition that is not a fault.

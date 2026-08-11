@@ -89,7 +89,7 @@ func TestDerivedIdentifierPinsBothSidesOfTheBudget(t *testing.T) {
 
 func TestDerivedIdentifierAcceptsDistinctUnits(t *testing.T) {
 	units := []unitTables{
-		{name: "crm-demo", tables: []string{"note", "note_tag"}},
+		{name: "notes", tables: []string{"note", "note_tag"}},
 		{name: "yogi", tables: []string{"pose"}},
 	}
 	if err := checkDerivedIdentifiers(units); err != nil {
@@ -125,11 +125,11 @@ func TestMigrationsLayerIsGovernedByItsOwnRule(t *testing.T) {
 	}
 
 	t.Run("a well-formed layer yields the declared suffixes", func(t *testing.T) {
-		unit, err := unitWithMigrations(t, "crm-demo", map[string]string{
-			"0001_note.up.sql":   "CREATE TABLE ext.ext_crm_demo_note (id uuid PRIMARY KEY);\n",
-			"0001_note.down.sql": "DROP TABLE ext.ext_crm_demo_note;\n",
-			"0002_tag.up.sql":    "CREATE TABLE IF NOT EXISTS ext_crm_demo_note_tag (id uuid);\n",
-			"0002_tag.down.sql":  "DROP TABLE ext.ext_crm_demo_note_tag;\n",
+		unit, err := unitWithMigrations(t, "notes", map[string]string{
+			"0001_note.up.sql":   "CREATE TABLE ext.ext_notes_note (id uuid PRIMARY KEY);\n",
+			"0001_note.down.sql": "DROP TABLE ext.ext_notes_note;\n",
+			"0002_tag.up.sql":    "CREATE TABLE IF NOT EXISTS ext_notes_note_tag (id uuid);\n",
+			"0002_tag.down.sql":  "DROP TABLE ext.ext_notes_note_tag;\n",
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -759,6 +759,47 @@ func TestAReadOnlyToolRefusesTheRetryKeyItNeverAdvertised(t *testing.T) {
 	}
 }
 
+// unitWritingTool is a mutation an extension unit shipped: the same handler,
+// plus the one fact mcp.UnitScopedTool carries.
+type unitWritingTool struct {
+	*writingTool
+	unit string
+}
+
+func (u unitWritingTool) OwningUnit() string { return u.unit }
+
+// An extension tool no longer advertises the key (see withRetryKey), and the
+// door has to agree with the schema in the LOUD direction. splitReserved pops
+// the argument before a handler sees it, so accepting one would run the call
+// unprotected and answer exactly as a protected call does — the caller would
+// repeat an irreversible act believing the first result was coming back.
+func TestAnExtensionToolRefusesTheRetryKeyItNeverAdvertised(t *testing.T) {
+	f := newRetryFixture(t)
+	ext := unitWritingTool{writingTool: &writingTool{spec: writeToolSpec("notes_create_note")}, unit: "notes"}
+	f.registry.Register(ext)
+
+	_, err := f.registry.Invoke(f.ctx, "notes_create_note", json.RawMessage(`{"idempotency_key":"k-1"}`))
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("err = %v, want a BadArgsError", err)
+	}
+	if ext.runs != 0 {
+		t.Fatal("the call ran anyway, so the key was accepted and silently dropped")
+	}
+	if len(f.claims.claimed) != 0 {
+		t.Fatalf("an extension tool claimed %v, against a store that cannot re-prove its records",
+			f.claims.claimed)
+	}
+	// The refusal is about the ARGUMENT, never about the tool: the same call
+	// without it is served exactly as before.
+	if _, err := f.registry.Invoke(f.ctx, "notes_create_note", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("an unkeyed extension call was refused: %v", err)
+	}
+	if ext.runs != 1 {
+		t.Fatalf("the unkeyed call ran %d times, want 1", ext.runs)
+	}
+}
+
 // A replay costs what the CALL cost, recorded with the result — not the length
 // of the evidence list, which dedupes and so is the smaller number every time
 // they differ. Deriving the charge from the document would make retrying an

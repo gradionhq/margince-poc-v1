@@ -180,15 +180,31 @@ func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved
 // refuseUnkeyableCall refuses a key the surface would not honour: one on a tool
 // whose schema never offered it, and one on a surface with no claim store.
 //
-// The read-only half is the runtime side of what withRetryKey advertises. A
+// The two schema halves are the runtime side of what withRetryKey advertises. A
 // read tool's schema omits the member — usually under
 // `additionalProperties:false` — so accepting one anyway would be the surface
 // contradicting its own schema, which is the defect A4 exists to close. It also
 // keeps 24h-freezable copies of read answers from existing at all.
+//
+// An EXTENSION tool's schema omits it for a different reason (see withRetryKey:
+// its records never enter the datasource seam a replay is re-proven through),
+// and the refusal has to be explicit rather than left to the argument split.
+// splitReserved pops `idempotency_key` before the handler ever sees it, so
+// accepting one here would ACCEPT-AND-DROP: the call would run, unprotected,
+// and answer exactly as a protected one does — a caller told nothing would
+// repeat an irreversible act believing the first result was being returned. A
+// refusal is the honest answer, and it is louder than silence on purpose.
 func (r *Registry) refuseUnkeyableCall(spec mcp.ToolSpec) error {
 	if spec.ReadOnly() {
 		return &BadArgsError{Cause: fmt.Errorf(
 			"%s only reads, so it takes no `%s` — a read changes nothing there is anything to repeat",
+			spec.Name, idempotencyKeyArg)}
+	}
+	if r.unitOwnedTool(spec.Name) {
+		return &BadArgsError{Cause: fmt.Errorf(
+			"%s is served by an extension, whose records this surface cannot re-check when handing a "+
+				"recorded result back, so it does not offer `%s` and will not pretend to honour one; "+
+				"omit it and check whether the first attempt took effect before repeating the call",
 			spec.Name, idempotencyKeyArg)}
 	}
 	if r.claims == nil {
@@ -197,6 +213,15 @@ func (r *Registry) refuseUnkeyableCall(spec mcp.ToolSpec) error {
 				"omit it and treat the call as at-most-once yourself", spec.Name, idempotencyKeyArg)}
 	}
 	return nil
+}
+
+// unitOwnedTool reads back what registration recorded about who shipped a tool.
+// Under the same lock every other registered fact is read through, because a
+// registry is written at boot and read by concurrent calls.
+func (r *Registry) unitOwnedTool(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.unitOwned[name]
 }
 
 // settleRun records what a claimed run produced, for the retry that comes after

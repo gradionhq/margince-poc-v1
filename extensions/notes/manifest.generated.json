@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "notes",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "job/heartbeat",
+      "unit": "notes",
+      "kind": "extension_job",
+      "contract": "jobs.yaml",
+      "operation": "extension.job.tick",
+      "operation_id": "ext_notes_heartbeat",
+      "route": "",
+      "method": "",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:e6b99536b9c951665b28ae7c49f75af52b3440b70c136817599760d67ec7875e",
+      "digest": "sha256:0142722edbf6b7bbfd38b8a6eda750b550a08c214b97a5b31aa6531aa27033b0"
+    },
+    {
+      "id": "tool/add_note",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesAdd",
+      "route": "/ext/notes/add",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "702c4a7ae9b3dab1482169de320ec57af63b1c91c87619c2d356fdf8278a2b5b",
+      "digest": "sha256:8c2e468bad5998b2cc9317240a55ed214c7e8709ce91cad9e832e2280d801351"
+    },
+    {
+      "id": "tool/list_notes",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesList",
+      "route": "/ext/notes/list",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "6a731d214ba5e51de4ad7e0ea992f5eeea6b8f64897c606b55362e6ef133004b",
+      "digest": "sha256:3d10f86089b241087f34fa1eb8cc41ddf8ef41e81dc3bae4e5e8377cff586328"
+    },
+    {
+      "id": "tool/remove_note",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesRemove",
+      "route": "/ext/notes/remove",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "70b53d4b8ad01fe9d718948f2a72c2a1db2ed43c355cd401d2d2da69308e8caa",
+      "digest": "sha256:53d83cfd12a11b6779cbedff6e53ca074e98967e7ee69d1320f969ca5bf56314"
+    },
+    {
+      "id": "tool/sign_payload",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesSignPayload",
+      "route": "/ext/notes/signature",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "d3c5abc314b861a2a5da2e1fdc50d8ce04f0761f69f271c8faf3c90eb5789b42",
+      "digest": "sha256:3d4c0c5e25837b4ac0c1f82496ceaa8947fa6620f1ca32b5d046eff295f83ec3"
+    },
+    {
+      "id": "tool/signing_key_status",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesSigningKeyStatus",
+      "route": "/ext/notes/signing-key/status",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "ab98fd6b0734330d25d74129076cbc281fe3af9602c2a468568f7c1567b9b1ea",
+      "digest": "sha256:4fac1a41aec0c89ac10445bec6efe79c6f9ffc788b455bcdd172fba76523a0bc"
+    },
+    {
+      "id": "tool/store_signing_key",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesStoreSigningKey",
+      "route": "/ext/notes/signing-key",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "b054c835e7f67499542ba80509eddb106daee43f2da0643575f8131ba641cb45",
+      "digest": "sha256:9bc9e19c0c284f9be21cc0cc8e446e91252923fa6737d56a076b391ea8b45db4"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "signing",
+      "scope": "workspace"
+    }
+  ]
+}

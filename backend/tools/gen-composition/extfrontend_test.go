@@ -108,17 +108,110 @@ func TestCollectUnitFrontendAbsentIsNotAnError(t *testing.T) {
 
 // The hyphen split every unit name may carry, resolved into an identifier the
 // generated registry can actually name.
+//
+// The hyphen-bearing cases are load-bearing coverage: the reference unit is
+// `notes`, a single word, so nothing in the enabled set exercises the split.
+//
+// The pairs below are the reason unitCamel exists. Title-casing alone made
+// `foo-1` and `foo1` — both legal names — one `Foo1Screen`, so keep asserting
+// them as a PAIR rather than as two independent rows: what matters is that the
+// two lines differ, not what either says on its own.
 func TestScreenIdent(t *testing.T) {
 	for unit, want := range map[string]string{
-		"crm-demo":   "CrmDemoScreen",
+		"notes":      "NotesScreen",
 		"de":         "DeScreen",
 		"a-b-c":      "ABCScreen",
+		"ab-c":       "AbCScreen",
+		"abc":        "AbcScreen",
+		"crm-demo":   "CrmDemoScreen",
 		"crm-hello2": "CrmHello2Screen",
+		// The collision the reviewer found, now two identifiers.
+		"foo-1": "Foo_1Screen",
+		"foo1":  "Foo1Screen",
+		// A digit-initial name is legal, and `1fooScreen` is not an
+		// identifier any JavaScript parser accepts.
+		"1foo":    "_1fooScreen",
+		"a-1-b":   "A_1BScreen",
+		"a1-b":    "A1BScreen",
+		"crm-2-x": "Crm_2XScreen",
+		"crm2-x":  "Crm2XScreen",
 	} {
 		if got := screenIdent(unit); got != want {
 			t.Errorf("screenIdent(%q) = %q, want %q", unit, got, want)
 		}
 	}
+}
+
+// unitFromCamel is unitCamel's INVERSE, written out here so the injectivity
+// argument in unitCamel's doc comment is executed rather than merely asserted:
+// if every name in a representative set survives a round trip, no two of them
+// can share an encoding.
+//
+// It reads the encoding exactly as the argument describes it — segment starts
+// are position 0, every upper-case letter and every `_`, and nothing else.
+func unitFromCamel(camel string) string {
+	var parts []string
+	var cur strings.Builder
+	for i := 0; i < len(camel); i++ {
+		c := camel[i]
+		boundary := i > 0 && (c == '_' || (c >= 'A' && c <= 'Z'))
+		if boundary {
+			parts = append(parts, cur.String())
+			cur.Reset()
+		}
+		if c == '_' {
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	parts = append(parts, cur.String())
+	return strings.ToLower(strings.Join(parts, "-"))
+}
+
+// TestUnitCamelIsInjective: the property the generated registry depends on.
+// Two units sharing an identifier is a duplicate `import` in a file nobody
+// wrote — or, in the copy overlay, no error at all and one unit reading the
+// other's strings.
+//
+// The set is exhaustive over a small alphabet rather than sampled, because the
+// defect this replaces lived precisely in the short digit-bearing names a
+// hand-written list is least likely to think of.
+func TestUnitCamelIsInjective(t *testing.T) {
+	names := representativeUnitNames()
+	seen := map[string]string{}
+	for _, n := range names {
+		got := unitCamel(n)
+		if prev, taken := seen[got]; taken {
+			t.Fatalf("unitCamel(%q) = unitCamel(%q) = %q — two legal unit names, one identifier", prev, n, got)
+		}
+		seen[got] = n
+		// The round trip is the argument itself: a decodable encoding
+		// cannot be many-to-one.
+		if back := unitFromCamel(got); back != n {
+			t.Errorf("unitCamel(%q) = %q decodes to %q — the encoding lost part of the name", n, got, back)
+		}
+	}
+	if len(names) < 100 {
+		t.Fatalf("the injectivity set is only %d names — it is meant to be broad", len(names))
+	}
+}
+
+// representativeUnitNames enumerates every name of up to three segments over
+// {a, b, 1, 2, a1} — hyphen and digit placements in every combination, which is
+// where every collision of this class lives — plus the real enabled set.
+func representativeUnitNames() []string {
+	segments := []string{"a", "b", "1", "2", "a1"}
+	var names []string
+	for _, s1 := range segments {
+		names = append(names, s1)
+		for _, s2 := range segments {
+			names = append(names, s1+"-"+s2)
+			for _, s3 := range segments {
+				names = append(names, s1+"-"+s2+"-"+s3)
+			}
+		}
+	}
+	return append(names, "notes", "de", "yogi", "crm-demo", "crm-hello2", "foo-1", "foo1")
 }
 
 // TestExtScreensGenImportsOnlyUnitsWithAScreen: the registry is the join
@@ -127,12 +220,12 @@ func TestScreenIdent(t *testing.T) {
 // to the generic published-operations card, which is what de and yogi get.
 func TestExtScreensGenImportsOnlyUnitsWithAScreen(t *testing.T) {
 	got := string(extScreensGen([]extensionUnit{
-		{Name: "crm-demo", Frontend: &unitFrontend{Package: "@margince-ext/crm-demo", Export: "@margince-ext/crm-demo"}},
+		{Name: "notes", Frontend: &unitFrontend{Package: "@margince-ext/notes", Export: "@margince-ext/notes"}},
 		{Name: "de"},
 	}))
 	for _, want := range []string{
-		`import CrmDemoScreen from "@margince-ext/crm-demo";`,
-		`"crm-demo": CrmDemoScreen,`,
+		`import NotesScreen from "@margince-ext/notes";`,
+		`"notes": NotesScreen,`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted registry is missing %q:\n%s", want, got)

@@ -114,17 +114,63 @@ func collectUnitFrontend(name, dir string) (*unitFrontend, error) {
 // screenIdent turns a unit name into the JavaScript identifier the generated
 // registry binds its import to: crm-demo → CrmDemoScreen.
 //
-// A hyphen is legal in a package name and illegal in an identifier — the same
-// split the Go side already makes, where `crm-hello` is package `crmhello`.
+// A hyphen is legal in a package name and illegal in an identifier, so the
+// hyphens have to go — the same split the Go side already makes, where
+// `crm-hello` is package `crmhello`. What matters is that they go INJECTIVELY:
+// see unitCamel.
 func screenIdent(unit string) string {
+	return unitCamel(unit) + "Screen"
+}
+
+// unitCamel is the one place a unit name becomes a camel-case token, shared by
+// screenIdent and localeKeyPrefix so the two can never drift into disagreeing
+// about which unit a generated symbol belongs to.
+//
+// It must be INJECTIVE over the validated unit-name alphabet
+// (`^[a-z0-9]+(-[a-z0-9]+)*$`, extension.Name.Validate), and the obvious
+// spelling — title-case every hyphen-separated segment and concatenate — is
+// NOT. Upper-casing a DIGIT is a no-op, so `foo-1` and `foo1` both collapsed to
+// `Foo1`: two legal, distinct units generating one `Foo1Screen` import and one
+// `extFoo1.` copy namespace. That is either a duplicate-identifier failure in
+// generated TypeScript nobody wrote, or — worse, in the copy overlay, whose
+// keys are strings and cannot clash at compile time — one unit's strings
+// silently claiming the other's namespace and mergeUnitLocales blaming the
+// wrong directory.
+//
+// The rule here keeps the readable form and pays only where the ambiguity
+// actually is:
+//
+//   - a segment starting with a LETTER is title-cased, exactly as before, so
+//     crm-demo is still CrmDemo and a stack trace still names the unit;
+//   - a segment starting with a DIGIT, where the case marker is invisible, is
+//     preceded by `_`: foo-1 → Foo_1, which `foo1` → Foo1 cannot equal.
+//
+// The digit rule is applied to the FIRST segment too rather than skipped as
+// redundant, which also keeps a name like `1foo` (legal per the grammar) from
+// emitting `1fooScreen` — an identifier no JavaScript parser accepts.
+//
+// WHY IT IS INJECTIVE. The output is decodable back to the input, so no two
+// inputs can share an output. A unit name contains no upper-case letter and no
+// underscore, and this function introduces an upper-case letter only at a
+// letter-initial segment's first character and an `_` only immediately before a
+// digit-initial segment. So in the output, the segment starts are EXACTLY the
+// position 0, every upper-case letter, and every `_` — no segment start goes
+// unmarked, and no interior position is marked. Split there, drop the `_`s,
+// lower-case the result, rejoin with `-`, and the original name is back. The
+// inverse is spelled out and exercised in TestUnitCamelIsInjective.
+func unitCamel(unit string) string {
 	var b strings.Builder
 	for _, part := range strings.Split(unit, "-") {
 		if part == "" {
+			continue // unreachable for a validated name; a doubled hyphen is refused
+		}
+		if part[0] >= '0' && part[0] <= '9' {
+			b.WriteString("_")
+			b.WriteString(part)
 			continue
 		}
 		b.WriteString(strings.ToUpper(part[:1]))
 		b.WriteString(part[1:])
 	}
-	b.WriteString("Screen")
 	return b.String()
 }

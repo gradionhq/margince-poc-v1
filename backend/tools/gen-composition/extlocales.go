@@ -99,8 +99,15 @@ func collectUnitLocales(name, dir string) ([]unitLocale, error) {
 // localeKeyPrefix is the token a unit's every key must begin with, derived from
 // its own name: crm-demo → extCrmDemo. — the same namespacing its tables, its
 // RBAC objects and its job kinds carry, in the catalogue's camelCase spelling.
+//
+// It shares unitCamel with screenIdent, and it needs that function's
+// injectivity even more than the screen registry does: two units whose names
+// mapped to one prefix would share ONE copy namespace, and copy keys are
+// strings, so nothing would fail to compile — mergeUnitLocales would report
+// `foo-1` and `foo1` as fighting over a key each of them owns, or, if only one
+// of them declared it, hand a unit the other's strings.
 func localeKeyPrefix(unit string) string {
-	return "ext" + strings.TrimSuffix(screenIdent(unit), "Screen") + "."
+	return "ext" + unitCamel(unit) + "."
 }
 
 // mergeUnitLocales folds every unit's copy into one map per locale, refusing

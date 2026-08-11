@@ -26,7 +26,7 @@
 //
 // Usage:
 //
-//	extmigrategate -unit crm-demo -dir extensions/crm-demo/migrations -dsn <throwaway>
+//	extmigrategate -unit notes -dir extensions/notes/migrations -dsn <throwaway>
 //
 // The DSN must name a THROWAWAY database, migrated to head (the gate needs
 // public.workspace and the ext schema) whose owner may create roles. The gate
@@ -49,7 +49,7 @@ import (
 )
 
 func main() {
-	unit := flag.String("unit", "", "extension unit name, e.g. crm-demo")
+	unit := flag.String("unit", "", "extension unit name, e.g. notes")
 	dir := flag.String("dir", "", "the unit's migrations directory")
 	dsn := flag.String("dsn", "", "DSN of a throwaway, migrated database whose owner may create roles")
 	flag.Parse()

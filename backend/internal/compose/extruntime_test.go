@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -175,6 +177,107 @@ func TestRuntimeRefusesBeforeTouchingAnUnwiredPool(t *testing.T) {
 	}
 	if err := rt.Tx(context.Background(), func(context.Context, extension.Tx) error { return nil }); !errors.Is(err, errExtensionRuntimeUnwired) {
 		t.Fatalf("unwired Tx = %v, want errExtensionRuntimeUnwired", err)
+	}
+}
+
+// TestRuntimeCallerIsTheInvocationsPrincipal walks the four callers a unit can
+// meet. The property is one property said four ways: Caller is READ from the
+// invocation's own principal, so a unit stamping authorship gets the person
+// accountable for the row and never an identity a request body could carry.
+//
+// The agent and connector cases pin the "agent ≤ human" half — the id handed
+// over is the HUMAN the seat acts for, not the seat — and the systemless case
+// pins the fail-towards-nobody default.
+func TestRuntimeCallerIsTheInvocationsPrincipal(t *testing.T) {
+	human := ids.NewV7()
+	seat := ids.NewV7()
+
+	for name, tc := range map[string]struct {
+		actor *principal.Principal
+		want  extension.Caller
+	}{
+		"human": {
+			actor: &principal.Principal{Type: principal.PrincipalHuman, UserID: human},
+			want:  extension.Caller{Type: extension.CallerHuman, UserID: human.String()},
+		},
+		"agent on a human's authority": {
+			actor: &principal.Principal{
+				Type: principal.PrincipalAgent, UserID: seat, OnBehalfOf: human,
+			},
+			want: extension.Caller{Type: extension.CallerAgent, UserID: human.String(), IsAgent: true},
+		},
+		"connector on a human's authority": {
+			actor: &principal.Principal{
+				Type: principal.PrincipalConnector, UserID: seat, OnBehalfOf: human,
+			},
+			want: extension.Caller{Type: extension.CallerConnector, UserID: human.String(), IsAgent: true},
+		},
+		"no principal at all": {actor: nil, want: extension.Caller{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.actor != nil {
+				ctx = principal.WithActor(ctx, *tc.actor)
+			}
+			if got := runtimeFor(ctx, "demo", nil, nil).Caller(); got != tc.want {
+				t.Fatalf("Caller() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRuntimeCallerNeverRendersAZeroUserID: the absence of a user must read as
+// absent. ids.UUID spells its zero value as the all-zero uuid, which is a
+// perfectly valid-looking id a unit would stamp on a row and an operator would
+// then have to explain — so the emptiness has to survive the crossing into the
+// published string.
+func TestRuntimeCallerNeverRendersAZeroUserID(t *testing.T) {
+	for name, actor := range map[string]principal.Principal{
+		"human with no user id":  {Type: principal.PrincipalHuman},
+		"agent behind no human":  {Type: principal.PrincipalAgent},
+		"the system principal":   {Type: principal.PrincipalSystem},
+		"an unknown actor class": {Type: principal.PrincipalType("martian")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := principal.WithActor(context.Background(), actor)
+			if got := runtimeFor(ctx, "demo", nil, nil).Caller(); got.UserID != "" {
+				t.Fatalf("Caller().UserID = %q, want the empty string", got.UserID)
+			}
+		})
+	}
+}
+
+// TestRuntimeCallerOfAJobTickIsTheSystem. A tick's context carries the
+// dispatcher's agent seat, because the tenant policies and the audit rows need
+// an actor — but there is no human behind it, and runtime.go promises a tick
+// answers the zero Caller. Without this the unit would be handed the synthetic
+// seat id as if it were the person accountable for the row.
+func TestRuntimeCallerOfAJobTickIsTheSystem(t *testing.T) {
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type:   principal.PrincipalAgent,
+		ID:     "agent:demo",
+		UserID: ids.NewV7(), // the dispatcher's is_agent seat, not a person
+	})
+	if got := jobRuntimeFor(ctx, "demo", nil, nil).Caller(); got != (extension.Caller{}) {
+		t.Fatalf("a job tick's Caller() = %+v, want the zero Caller", got)
+	}
+}
+
+// TestRuntimeCallerStillAnswersAfterRelease. Every other capability fails
+// closed once the call is over; this one does not, and the difference is that
+// it grants nothing — Caller is a copied value runtime.go says is harmless to
+// retain, and it has no error to refuse with. A deferred log line that names
+// its caller must not be told the call was made by nobody.
+func TestRuntimeCallerStillAnswersAfterRelease(t *testing.T) {
+	human := ids.NewV7()
+	ctx := principal.WithActor(context.Background(),
+		principal.Principal{Type: principal.PrincipalHuman, UserID: human})
+
+	rt := runtimeFor(ctx, "demo", nil, nil)
+	live := rt.Caller()
+	rt.release()
+	if got := rt.Caller(); got != live {
+		t.Fatalf("a released Runtime's Caller() = %+v, want the unchanged %+v", got, live)
 	}
 }
 

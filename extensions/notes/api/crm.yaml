@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: BUSL-1.1
 # SPDX-FileCopyrightText: 2026 Gradion
 #
-# crm-demo's contract fragment. The FILENAME names the core contract it extends
+# notes's contract fragment. The FILENAME names the core contract it extends
 # (crm.yaml); gen-composition merges it into build/composition/api/crm.yaml, and
 # that merged file is what the operator manifest, the client types, the mounted
-# routes and the docs read. So this document — not crmdemo.go — is where every
+# routes and the docs read. So this document — not notes.go — is where every
 # operation's risk tier, Passport scope, RBAC object, prose and I/O schemas are
 # declared. The Go files carry the one thing a YAML file cannot: the functions.
 #
 # Paths are written relative to the document's own `servers` url, which already
 # ends in /v1. Core writes /me; an extension writes /ext/<unit>/…. The server
 # puts the base path back when it mounts the route (extension.Verb.ServedPath),
-# so the served route is /v1/ext/crm-demo/… — spelling it here too would publish
+# so the served route is /v1/ext/notes/… — spelling it here too would publish
 # https://host/v1/v1/ext/… to every generated client, and the composer refuses
 # it.
 #
@@ -22,13 +22,13 @@
 # "remove" are three POST verbs on three paths rather than three methods on one.
 overlay: 1.0.0
 info:
-  title: crm-demo
+  title: notes
   version: "1.0.0"
 actions:
-  - target: $.paths['/ext/crm-demo/notes/list']
+  - target: $.paths['/ext/notes/list']
     update:
       post:
-        operationId: crmDemoListNotes
+        operationId: notesList
         summary: List this workspace's demo notes.
         tags: [Extensions]
         # The unit owns records, so its operations gate on an object a role
@@ -38,10 +38,10 @@ actions:
         # calling principal before the handler runs — declared rather than
         # derived, because `scope: read` is a Passport verb class and says
         # nothing about which of the four object verbs this route needs.
-        x-rbac-object: ext_crm_demo_note
+        x-rbac-object: ext_notes_note
         x-rbac-action: read
         x-mcp-tool:
-          verb: demo_list_notes
+          verb: list_notes
           version: 1.0.0
           title: List demo notes
           # 🟢 read: the notepad is read and nothing is changed, so there is
@@ -74,26 +74,81 @@ actions:
                     notes:
                       type: array
                       items:
+                        # The same object the add operation returns, member for
+                        # member. Restated rather than $ref'd: a fragment is
+                        # merged into the core document by gen-composition, and
+                        # a component this unit invented would have to be
+                        # namespaced into the core's #/components — which is
+                        # the core contract's namespace, not a unit's. Two
+                        # copies that must be reconciled by hand is the cost;
+                        # a unit writing into the core's component space is
+                        # what it buys out of.
                         type: object
                         additionalProperties: false
-                        required: [id, body, created_at]
+                        required: [id, kind, body, created_at]
                         properties:
                           id: { type: string, format: uuid }
+                          # A real enum, and the third place the same pair is
+                          # written: the column's CHECK (0001) refuses a third
+                          # value, noteKind refuses one in Go, and this is what
+                          # a generated client and a model are told. Declaring
+                          # it a bare string would publish "some string" for a
+                          # field with exactly two possible values, and every
+                          # client would then carry its own guess at the set.
+                          kind:
+                            type: string
+                            enum: [note, heartbeat]
+                            description: >-
+                              Which of the two things that write this notepad
+                              wrote the row: `note` for one a person or an
+                              agent added, `heartbeat` for one the scheduled
+                              tick wrote.
                           body: { type: string }
+                          # NESTED, and OMITTED ENTIRELY for a row with no
+                          # author — which is every heartbeat row, because a
+                          # scheduled tick has no person behind it. Hence
+                          # absent from `required` and typed with 'null' too:
+                          # a client must handle "no author" and is told so by
+                          # the schema rather than by discovering it.
+                          #
+                          # The author is stamped from the invocation's caller
+                          # and cannot be supplied — the add operation's
+                          # request schema takes `body` and nothing else.
+                          author:
+                            type: [object, 'null']
+                            additionalProperties: false
+                            required: [user_id, is_agent]
+                            description: >-
+                              Who wrote the note. Absent when nobody did — the
+                              scheduled heartbeat's rows have no author.
+                            properties:
+                              user_id:
+                                type: string
+                                format: uuid
+                                description: >-
+                                  The user the note is attributed to. For a
+                                  note an agent wrote this is the human whose
+                                  authority it acted on, not the agent.
+                              is_agent:
+                                type: boolean
+                                description: >-
+                                  True when an agent or a connector wrote the
+                                  note on that user's behalf rather than the
+                                  person writing it directly.
                           created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 
-  - target: $.paths['/ext/crm-demo/notes/add']
+  - target: $.paths['/ext/notes/add']
     update:
       post:
-        operationId: crmDemoAddNote
+        operationId: notesAdd
         summary: Add one note to the demo notepad.
         tags: [Extensions]
-        x-rbac-object: ext_crm_demo_note
+        x-rbac-object: ext_notes_note
         x-rbac-action: create
         x-mcp-tool:
-          verb: demo_add_note
+          verb: add_note
           version: 1.0.0
           title: Add a demo note
           # 🟢 write: the row lands in the unit's own table, inside the calling
@@ -102,9 +157,10 @@ actions:
           scope: write
           description: >-
             Write one note into this workspace's Demo Notepad and return it with
-            the id it was stored under. It touches only the extension's own
-            notepad table, never a person, company or deal, and nothing it
-            writes leaves the workspace.
+            the id it was stored under. The note is attributed to whoever is
+            making the call — there is no way to write one as somebody else. It
+            touches only the extension's own notepad table, never a person,
+            company or deal, and nothing it writes leaves the workspace.
         requestBody:
           required: true
           content:
@@ -113,6 +169,11 @@ actions:
                 type: object
                 additionalProperties: false
                 required: [body]
+                # `body` AND NOTHING ELSE, and the absence of an author member
+                # is deliberate rather than an omission to be filled in later.
+                # Authorship is taken from the invocation's caller; a field
+                # here would be a field every caller could forge, and this unit
+                # is the fragment other units are copied from.
                 properties:
                   body: { type: string, minLength: 1, maxLength: 500 }
         responses:
@@ -121,26 +182,64 @@ actions:
             content:
               application/json:
                 schema:
+                  # The same note object the list returns; see the note there
+                  # on why the shape is written twice rather than $ref'd.
                   type: object
                   additionalProperties: false
-                  required: [id, body, created_at]
+                  required: [id, kind, body, created_at]
                   properties:
                     id: { type: string, format: uuid }
+                    # Always `note` on this route — the tick is the only thing
+                    # that writes the other value — but declared with the full
+                    # set anyway, because the field means the same thing in
+                    # both responses and a client parses one type for it.
+                    kind:
+                      type: string
+                      enum: [note, heartbeat]
+                      description: >-
+                        Which of the two things that write this notepad wrote
+                        the row. Always `note` here.
                     body: { type: string }
+                    # PRESENT on this route in practice, since a served
+                    # operation always has a caller behind it — but typed
+                    # exactly as the list types it, so one client model covers
+                    # both and nothing has to know which route a note came
+                    # from.
+                    author:
+                      type: [object, 'null']
+                      additionalProperties: false
+                      required: [user_id, is_agent]
+                      description: >-
+                        Who wrote the note, taken from the caller making this
+                        request and never from the request body.
+                      properties:
+                        user_id:
+                          type: string
+                          format: uuid
+                          description: >-
+                            The user the note is attributed to. For a note an
+                            agent wrote this is the human whose authority it
+                            acted on, not the agent.
+                        is_agent:
+                          type: boolean
+                          description: >-
+                            True when an agent or a connector wrote the note on
+                            that user's behalf rather than the person writing
+                            it directly.
                     created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 
-  - target: $.paths['/ext/crm-demo/notes/remove']
+  - target: $.paths['/ext/notes/remove']
     update:
       post:
-        operationId: crmDemoRemoveNote
+        operationId: notesRemove
         summary: Remove one note from the demo notepad.
         tags: [Extensions]
-        x-rbac-object: ext_crm_demo_note
+        x-rbac-object: ext_notes_note
         x-rbac-action: delete
         x-mcp-tool:
-          verb: demo_remove_note
+          verb: remove_note
           version: 1.0.0
           title: Remove a demo note
           tier: auto_execute
@@ -181,18 +280,18 @@ actions:
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 
-  - target: $.paths['/ext/crm-demo/signing-key']
+  - target: $.paths['/ext/notes/signing-key']
     update:
       post:
-        operationId: crmDemoStoreSigningKey
+        operationId: notesStoreSigningKey
         summary: Store this workspace's demo signing key.
         tags: [Extensions]
-        # A SECOND object, not ext_crm_demo_note. A role that may add a note has
+        # A SECOND object, not ext_notes_note. A role that may add a note has
         # no business rotating the installation's credential, and one object for
         # both would make that a single grant. Nothing requires an RBAC object to
         # be a table — the object is what a role document grants, and this unit
         # holds two governable things.
-        x-rbac-object: ext_crm_demo_signing_key
+        x-rbac-object: ext_notes_signing_key
         # UPDATE, not create. There is exactly ONE signing key per workspace: the
         # slot always exists conceptually and this operation SETS it, first store
         # and rotation alike. `create` would be the wrong grant twice over — it
@@ -206,7 +305,7 @@ actions:
         # the REST and the agent path. Found by the UAT re-run (R1).
         x-rbac-action: update
         x-mcp-tool:
-          verb: demo_store_signing_key
+          verb: store_signing_key
           version: 1.0.0
           title: Store the demo signing key
           tier: auto_execute
@@ -241,20 +340,20 @@ actions:
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 
-  - target: $.paths['/ext/crm-demo/signing-key/status']
+  - target: $.paths['/ext/notes/signing-key/status']
     update:
       post:
-        operationId: crmDemoSigningKeyStatus
+        operationId: notesSigningKeyStatus
         summary: Report whether a demo signing key is stored.
         tags: [Extensions]
         # Same object as the store, read verb: whether the installation holds a
         # credential is a fact about the credential, so it is gated by the thing
         # it is a fact about rather than left ungated because it is only a
         # boolean.
-        x-rbac-object: ext_crm_demo_signing_key
+        x-rbac-object: ext_notes_signing_key
         x-rbac-action: read
         x-mcp-tool:
-          verb: demo_signing_key_status
+          verb: signing_key_status
           version: 1.0.0
           title: Demo signing key status
           tier: auto_execute
@@ -285,10 +384,10 @@ actions:
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 
-  - target: $.paths['/ext/crm-demo/signature']
+  - target: $.paths['/ext/notes/signature']
     update:
       post:
-        operationId: crmDemoSignPayload
+        operationId: notesSignPayload
         summary: HMAC-sign a payload with the stored demo signing key.
         tags: [Extensions]
         # READ, and the honest caveat is that the four-verb vocabulary has no
@@ -298,10 +397,10 @@ actions:
         # spelled `read` on one object. Split them only when a role genuinely
         # needs one without the other; declaring a second object to express a
         # distinction nobody grants would be governance theatre.
-        x-rbac-object: ext_crm_demo_signing_key
+        x-rbac-object: ext_notes_signing_key
         x-rbac-action: read
         x-mcp-tool:
-          verb: demo_sign_payload
+          verb: sign_payload
           version: 1.0.0
           title: Sign a demo payload
           # 🟢 read: the payload is signed and discarded. Nothing is stored,

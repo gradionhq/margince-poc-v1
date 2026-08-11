@@ -17,10 +17,10 @@ package main
 // The integration lane hands every package a clone of the shared margince_test
 // template, and since cmd/migrate began applying the composed set (Task 8) that
 // template carries ext.ext_<name>_* for every enabled unit that ships a
-// migrations layer — crm-demo's ext_crm_demo_note today. A clone of it is
+// migrations layer — notes's ext_notes_note today. A clone of it is
 // therefore precisely the database the gate is documented not to run on, and
 // the tests saw it: the isolation acceptance test refused a correct migration,
-// and the FOREIGN TABLE / MATERIALIZED VIEW refusals fired on crm-demo's table
+// and the FOREIGN TABLE / MATERIALIZED VIEW refusals fired on notes's table
 // instead of on the relation the test had planted, so they asserted a message
 // about the wrong object. Task 8's review predicted exactly this ("the clone
 // always starts empty invariant becomes violable once a unit ships migrations")

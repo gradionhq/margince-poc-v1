@@ -61,7 +61,7 @@ func TestNamespaceFor(t *testing.T) {
 		wantErr string
 	}{
 		{unit: "foo-1", want: "ext_foo_1"},
-		{unit: "crm-demo", want: "ext_crm_demo"},
+		{unit: "notes", want: "ext_notes"},
 		{unit: "yogi", want: "ext_yogi"},
 		// The refusals all come from the ONE published name rule; this
 		// function adds none of its own, so these pin that it validates

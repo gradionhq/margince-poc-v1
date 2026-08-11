@@ -123,7 +123,7 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// original posture (enqueue anyway, let the child fail loudly at the
 	// authority derivation) and the reason is the combination, not either half:
 	// nothing in the product creates an agent seat yet (#656), and a unit ships
-	// enabled at whatever cadence it declares — crm-demo's is 60s. Enqueueing
+	// enabled at whatever cadence it declares — notes's is 60s. Enqueueing
 	// meant every fresh installation ran a job that failed three times a minute
 	// per workspace forever, filling the worker log and river_job with
 	// discarded rows, for a condition that is not a fault: the installation is
@@ -311,7 +311,7 @@ func (w *extJobWorkspaceWorker) deriveAuthority(ctx context.Context, args extJob
 //     here puts it back on the path every other worker's failure takes.
 func (w *extJobWorkspaceWorker) tick(ctx context.Context) (err error) {
 	pool, vault := boundExtensionRuntime()
-	rt := runtimeFor(ctx, string(w.decl.Unit), pool, vault)
+	rt := jobRuntimeFor(ctx, string(w.decl.Unit), pool, vault)
 	defer rt.release()
 	defer func() {
 		if r := recover(); r != nil {

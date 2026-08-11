@@ -51,18 +51,30 @@ func TestOneUnitMayClaimTheSameKeyInEveryLocale(t *testing.T) {
 // is not a capability this tier grants.
 func TestMergeUnitLocalesRefusesAKeyOutsideTheUnitNamespace(t *testing.T) {
 	_, err := mergeUnitLocales([]unitLocale{
-		{Unit: "crm-demo", Locale: "en", Keys: map[string]string{"nav.people": "Hijacked"}},
+		{Unit: "notes", Locale: "en", Keys: map[string]string{"nav.people": "Hijacked"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "outside its namespace") {
 		t.Fatalf("err = %v, want the namespace refusal", err)
 	}
 }
 
+// The prefix is a unit's whole claim on the flat copy namespace, so it has to
+// be a function of the WHOLE name. `crm-demo` is kept as the hyphen-bearing
+// case now that the reference unit (`notes`) has none, and the foo-1/foo1 and
+// a-b-c/ab-c/abc rows are the collisions themselves: two prefixes that were
+// once one would have let one unit's strings answer to the other's keys, with
+// nothing failing to compile because copy keys are strings.
 func TestLocaleKeyPrefixIsDerivedFromTheUnitName(t *testing.T) {
 	for unit, want := range map[string]string{
 		"crm-demo": "extCrmDemo.",
 		"de":       "extDe.",
 		"yogi":     "extYogi.",
+		"notes":    "extNotes.",
+		"a-b-c":    "extABC.",
+		"ab-c":     "extAbC.",
+		"abc":      "extAbc.",
+		"foo-1":    "extFoo_1.",
+		"foo1":     "extFoo1.",
 	} {
 		if got := localeKeyPrefix(unit); got != want {
 			t.Errorf("localeKeyPrefix(%q) = %q, want %q", unit, got, want)
@@ -72,13 +84,13 @@ func TestLocaleKeyPrefixIsDerivedFromTheUnitName(t *testing.T) {
 
 func TestMergeUnitLocalesAcceptsNamespacedKeys(t *testing.T) {
 	merged, err := mergeUnitLocales([]unitLocale{
-		{Unit: "crm-demo", Locale: "en", Keys: map[string]string{"extCrmDemo.title": "Notes"}},
-		{Unit: "crm-demo", Locale: "de", Keys: map[string]string{"extCrmDemo.title": "Notizen"}},
+		{Unit: "notes", Locale: "en", Keys: map[string]string{"extNotes.title": "Notes"}},
+		{Unit: "notes", Locale: "de", Keys: map[string]string{"extNotes.title": "Notizen"}},
 	})
 	if err != nil {
 		t.Fatalf("namespaced keys were refused: %v", err)
 	}
-	if merged["de"]["extCrmDemo.title"] != "Notizen" {
+	if merged["de"]["extNotes.title"] != "Notizen" {
 		t.Fatalf("merged = %#v", merged)
 	}
 }

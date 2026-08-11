@@ -6,4 +6,4 @@
 -- dropped each piece separately would be four statements that can disagree
 -- with the up migration rather than one that cannot.
 
-DROP TABLE IF EXISTS ext.ext_crm_demo_note;
+DROP TABLE IF EXISTS ext.ext_notes_note;

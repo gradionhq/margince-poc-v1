@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # SPDX-FileCopyrightText: 2026 Gradion
 #
-# crm-demo's scheduled job, declared in the contract the core job kinds live in
+# notes's scheduled job, declared in the contract the core job kinds live in
 # (jobs.yaml). gen-composition merges it into build/composition/api/jobs.yaml
 # and reads the pair back out of the MERGED document, so what the worker
 # registers and what this file says cannot disagree.
@@ -19,10 +19,10 @@
 # rather than allocating one from a directory.
 overlay: 1.0.0
 info:
-  title: crm-demo
+  title: notes
   version: "1.0.0"
 actions:
-  - target: $.kinds['ext_crm_demo_heartbeat']
+  - target: $.kinds['ext_notes_heartbeat']
     update:
       job: heartbeat
       role: dispatcher
@@ -38,7 +38,7 @@ actions:
       tier: auto_execute
       scope: write
 
-  - target: $.kinds['ext_crm_demo_heartbeat_ws']
+  - target: $.kinds['ext_notes_heartbeat_ws']
     update:
       job: heartbeat
       role: workspace
