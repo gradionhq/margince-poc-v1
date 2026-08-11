@@ -197,7 +197,7 @@ func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 	t.Helper()
 	var id string
 	err := conn.QueryRow(context.Background(),
-		`INSERT INTO workspace (name, slug, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`,
+		`INSERT INTO workspace (slug) VALUES ($1) RETURNING id`,
 		slug).Scan(&id)
 	if err != nil {
 		t.Fatalf("seeding workspace %s: %v", slug, err)

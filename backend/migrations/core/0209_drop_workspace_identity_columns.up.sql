@@ -38,16 +38,28 @@ ON CONFLICT (key) DO NOTHING;
 -- several live workspaces, where no single row can speak for the installation.
 -- An operator resolves that down to one (ADR-0061 §3) and runs this again.
 DO $$
-DECLARE missing text;
+DECLARE missing text; live int;
 BEGIN
-  IF EXISTS (SELECT 1 FROM workspace WHERE archived_at IS NULL) THEN
+  SELECT count(*) INTO live FROM workspace WHERE archived_at IS NULL;
+  IF live > 0 THEN
     SELECT string_agg(k, ', ') INTO missing
       FROM unnest(ARRAY['installation.name','installation.timezone','installation.base_currency']) AS k
      WHERE NOT EXISTS (SELECT 1 FROM setting WHERE setting.key = k);
     IF missing IS NOT NULL THEN
       RAISE EXCEPTION
-        'workspace identity would be lost: % has no stored setting, and this migration drops the column holding it. '
+        'installation identity would be lost: % has no stored setting, and this migration drops the column holding it. '
         'Resolve the installation down to exactly one live workspace (ADR-0061 §3) and re-run.', missing;
+    END IF;
+    -- Presence is not enough. With several live workspaces the settings speak
+    -- for ONE installation while the others keep rows — deals and invoices
+    -- carrying an fx_rate_to_base frozen against a base about to stop
+    -- existing anywhere. The API already refuses to serve that state
+    -- (ErrMultipleWorkspaces); this refuses to make it unrecoverable.
+    IF live > 1 THEN
+      RAISE EXCEPTION
+        '% live workspaces: the installation settings can only speak for one of them, and dropping these '
+        'columns would leave the others'' rows priced against a base nothing records. '
+        'Resolve the installation down to exactly one live workspace (ADR-0061 §3) and re-run.', live;
     END IF;
   END IF;
 END $$;

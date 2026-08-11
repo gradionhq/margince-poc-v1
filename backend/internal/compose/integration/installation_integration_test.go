@@ -119,15 +119,8 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 		t.Fatalf("starter_automations=%d booking_pages=%d, want both 0 (toggled off)", automations, bookingPages)
 	}
 
-	// The organization carries the configured currency; the admin signs in
-	// through the normal login.
-	var currency string
-	if err := e.Owner.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE name = 'Configured Org'`).Scan(&currency); err != nil {
-		t.Fatal(err)
-	}
-	if currency != "USD" {
-		t.Fatalf("base_currency = %q, want the configured USD", currency)
-	}
+	// The configured currency is asserted with the other two settings below —
+	// they are one act of bootstrap and one place to read it back.
 	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ops@configured.test", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {

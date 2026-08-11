@@ -99,14 +99,26 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var mode, name, currency, timezone string
+	var mode string
 	var incumbent *string
 	var after time.Time
 	if err := owner.QueryRow(ctx, `
-		SELECT x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
+		SELECT x_sor_mode, x_incumbent, updated_at
 		  FROM workspace WHERE id = $1`, ws).
-		Scan(&mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
+		Scan(&mode, &incumbent, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
+	}
+	// The installation's identity is settings rows now (0209), and this is
+	// still the claim under test: a reset wipes the DATA, not the
+	// installation. platform/settings.ResetConfig spares these three, so they
+	// must read back exactly as bootstrap wrote them.
+	var name, currency, timezone string
+	if err := owner.QueryRow(ctx, `
+		SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.timezone'), '')`).
+		Scan(&name, &currency, &timezone); err != nil {
+		t.Fatalf("reading the installation's identity back: %v", err)
 	}
 	if mode != "native" {
 		t.Errorf("x_sor_mode = %q, want native", mode)
@@ -363,7 +375,7 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 
 	var nameBefore string
 	if err := owner.QueryRow(ctx,
-		`SELECT name FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
+		`SELECT slug FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
 		t.Fatalf("reading the workspace: %v", err)
 	}
 
@@ -406,10 +418,10 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 	var mode string
 	var nameAfter string
 	if err := owner.QueryRow(ctx,
-		`SELECT x_sor_mode, name FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
+		`SELECT x_sor_mode, slug FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
 		t.Fatalf("the rollback did not restore the fork columns: %v", err)
 	}
 	if nameAfter != nameBefore {
-		t.Errorf("name = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
+		t.Errorf("slug = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
 	}
 }

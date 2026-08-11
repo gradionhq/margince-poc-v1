@@ -15266,7 +15266,7 @@ components:
         workspace_name:
           type: string
           description: >
-            The installation's organization name (workspace.name). Shown as the
+            The installation's organization name (the installation.name setting). Shown as the
             typed-confirmation target of the non-production "Reset data" action —
             the exact string that endpoint validates.
         non_production:

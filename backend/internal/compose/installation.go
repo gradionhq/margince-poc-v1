@@ -78,13 +78,6 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 // file's optional `seeds` section — an omitted key seeds the built-in
 // default, so a minimal configuration behaves exactly like the
 // historical bootstrap.
-// seedInstallationSettings writes the installation's own settings rows at
-// bootstrap (ADR-0090 §8): consumed exactly once, so a restart never overwrites
-// a value a human has since changed.
-//
-// The values are read back from the workspace row this same transaction just
-// created, rather than re-derived from the configuration. That is deliberate:
-
 func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
 	return func(ctx context.Context, tx pgx.Tx) error {
 		if err := seedPipeline(ctx, tx, seeds.Pipeline, dealsH); err != nil {

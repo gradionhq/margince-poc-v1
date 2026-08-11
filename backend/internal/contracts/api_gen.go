@@ -12269,7 +12269,7 @@ type MeResponse struct {
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
 
-	// WorkspaceName The installation's organization name (workspace.name). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
 	WorkspaceName string `json:"workspace_name"`
 }
 

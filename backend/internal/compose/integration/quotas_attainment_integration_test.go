@@ -419,25 +419,16 @@ func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
 
 // The base currency comes from the installation SETTING.
 //
-// This is the only assertion in the suite that can tell the two apart. Every
-// other test seeds both to EUR, so it passes just as well against a reader
-// that never left the column — which is exactly the trap ADR-0091 phase 4
-// sets while the two copies coexist: the migration looks done and nothing
-// fails. Here the column stays EUR and the setting says USD, so a reader on
-// the old source labels the answer EUR and this test fails.
-//
-// The workspace column is written directly rather than through the settings
-// surface: that surface writes BOTH copies in one transaction (identity's
-// transitional mirror), which is precisely the agreement being broken here.
+// Every other test in this suite runs on the seeded EUR, so this one moves the
+// setting to USD: an attainment still labelled EUR is one that never read it.
+// The setting is written by raw SQL rather than through the settings surface,
+// which would take an update gate this fixture has no reason to hold.
 func TestQuotaAttainmentConvertsAgainstTheInstallationSetting(t *testing.T) {
 	e := Setup(t)
 	store := attainmentStore(e)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
 
 	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
-	// The fixture is only meaningful while the two copies disagree. Once
-	// phase 4 drops the column this guard stops finding it and the test
-	// becomes an ordinary assertion about the setting, which is the point.
 
 	// EUR→USD on file, so a target in EUR has a rate into the new base. The
 	// suite's seedRollupFxRate helper hardcodes to_currency = 'EUR', which is

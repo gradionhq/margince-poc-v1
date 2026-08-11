@@ -491,10 +491,8 @@ func (e *forecastEnv) forecastStatus(ctx context.Context, body string) int {
 // the response body: an unresolvable zone is a Postgres fault, which httperr
 // masks to an opaque 500 exactly as it should. So the fixture holds everything
 // constant and moves only the setting: the same report that answered 200
-// stops answering once the SETTING names a zone Postgres cannot resolve. It
-// was written while workspace.timezone held a second copy and the flip was the
-// only way to tell the two readers apart; 0209 dropped that column, and the
-// flip still earns its place as the proof that the zone is consulted at all.
+// stops answering once the SETTING names a zone Postgres cannot resolve, which
+// is the proof that the zone is consulted at all.
 func TestTheForecastBucketsInTheZoneTheSettingNames(t *testing.T) {
 	e := setupForecast(t)
 	// A commit deal WITH a close date, because the zone sits inside a CASE

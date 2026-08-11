@@ -3,13 +3,13 @@
 
 package identity
 
-// The workspace row has two halves. Bootstrap writes the installation's
-// IDENTITY from the deployment configuration file — name, slug, base
-// currency, timezone (installation.go) — and every other column on the row is
-// CONFIGURATION: it arrives at the default its migration declared and is
-// changed later through a settings surface. ResetWorkspaceConfig below
-// restores the second half to those defaults. The first half is what a data
-// reset must not touch, because the installation itself survives the reset.
+// The workspace row is CONFIGURATION now: its identity — name, base currency,
+// timezone — moved into `setting` (ADR-0090/A135) and the columns were dropped
+// (0209), leaving the slug bootstrap derives and columns that arrive at the
+// default their migration declared and are changed later through a settings
+// surface. ResetWorkspaceConfig below restores those defaults. What a data
+// reset must not touch lives in `setting`, where platform/settings.ResetConfig
+// draws the same line: the installation itself survives the reset.
 
 import (
 	"context"
