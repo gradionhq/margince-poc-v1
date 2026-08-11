@@ -251,7 +251,7 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 		benchExec(t, owner, spec.tier, sql, args...)
 	}
 
-	exec(`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Bench', 'bench', 'EUR')`, ws)
+	exec(`INSERT INTO workspace (id, slug) VALUES ($1, 'bench')`, ws)
 
 	// Every ~97th person carries the FTS token the canonical search
 	// query hits, so the query does real ranking work over a real

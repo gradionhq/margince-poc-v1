@@ -60,7 +60,7 @@ func setupPassports(t *testing.T) *passportsEnv {
 
 	e := &passportsEnv{WS: ids.NewV7(), alice: ids.NewV7(), bob: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Passports', 'passports', 'EUR')`, e.WS); err != nil {
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'passports')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
 	for i, user := range []ids.UUID{e.alice, e.bob} {

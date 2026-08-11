@@ -198,7 +198,19 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		}
 
 		id = Identity{UserID: account.UserID, WorkspaceID: wsID, Email: email, DisplayName: account.DisplayName, SeatType: account.SeatType}
-		if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&id.WorkspaceName); err != nil {
+		// The setting row read directly, not through platform/settings: this
+		// runs BEFORE a principal exists, and that package's readers take the
+		// installation_settings object gate, which has no actor to judge. The
+		// name is the installation's own label, not tenant data.
+		//
+		// coalesced, and to the empty string rather than an error: this is a
+		// display label on a login that has ALREADY succeeded. An installation
+		// with no stored name is a misconfiguration, and failing here would
+		// answer correct credentials with a 500 while wrong ones still got
+		// 401 — telling an attacker which passwords are right.
+		if err := tx.QueryRow(ctx,
+			`SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = $1), '')`, Name.Key(),
+		).Scan(&id.WorkspaceName); err != nil {
 			return err
 		}
 		var loadErr error
@@ -246,16 +258,16 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 		var sessionID ids.UUID
 		var userID ids.UserID
 		err := tx.QueryRow(ctx,
-			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id, w.name
+			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id,
+			        coalesce((SELECT value #>> '{}' FROM setting WHERE key = $2), '')
 			 FROM session s
 			 JOIN app_user u ON u.id = s.user_id
-			 JOIN workspace w ON w.id = s.workspace_id
 			 WHERE s.token_hash = $1
 			   AND s.revoked_at IS NULL
 			   AND now() < s.idle_expires_at
 			   AND now() < s.expires_at
 			   AND u.status = 'active' AND u.archived_at IS NULL`,
-			tokenHash).Scan(&sessionID, &userID, &id.Email, &id.DisplayName, &id.SeatType, &id.WorkspaceID, &id.WorkspaceName)
+			tokenHash, Name.Key()).Scan(&sessionID, &userID, &id.Email, &id.DisplayName, &id.SeatType, &id.WorkspaceID, &id.WorkspaceName)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}

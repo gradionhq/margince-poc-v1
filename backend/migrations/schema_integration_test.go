@@ -208,13 +208,28 @@ func TestAttachmentScanStatusBackfill(t *testing.T) {
 	}
 }
 
+// seedWorkspace inserts a workspace at WHATEVER schema version the caller has
+// migrated to. The replay suites apply core only as far as some past release,
+// where name and base_currency are still NOT NULL columns; the head suites run
+// after 0211 dropped them. One helper serves both, so it asks the catalog
+// which shape it is talking to rather than assuming the newest.
 func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 	t.Helper()
+	ctx := context.Background()
+	var preDrop bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			 WHERE table_schema = 'public' AND table_name = 'workspace' AND column_name = 'name')`,
+	).Scan(&preDrop); err != nil {
+		t.Fatalf("reading the workspace shape: %v", err)
+	}
+	stmt := `INSERT INTO workspace (slug) VALUES ($1) RETURNING id`
+	if preDrop {
+		stmt = `INSERT INTO workspace (slug, name, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`
+	}
 	var id string
-	err := conn.QueryRow(context.Background(),
-		`INSERT INTO workspace (name, slug, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`,
-		slug).Scan(&id)
-	if err != nil {
+	if err := conn.QueryRow(ctx, stmt, slug).Scan(&id); err != nil {
 		t.Fatalf("seeding workspace %s: %v", slug, err)
 	}
 	return id
@@ -679,5 +694,29 @@ func assertSignal(t *testing.T, conn *pgx.Conn, id, wantVisibility string, wantO
 	}
 	if archived != wantArchived {
 		t.Errorf("%s archived = %v, want %v", what, archived, wantArchived)
+	}
+}
+
+// archiveAllButOne leaves exactly one live workspace, which is what an
+// installation IS (ADR-0061 §3).
+//
+// The replay suites plant several workspaces to model several historical
+// installations in one database. That shape stops upgrading cleanly at 0211:
+// the installation's identity moved into `setting`, 0191 only backfills it
+// where a single live workspace can speak for the install, and 0211 refuses to
+// drop the columns while a live workspace holds identity nothing stored. The
+// fixtures cannot pre-seed those rows either — `setting` does not exist yet at
+// the legacy version they start from.
+//
+// So they do what the migration tells a real operator to do. The roles under
+// test are per-workspace rows and survive archival, and the RBAC backfills
+// loop over every workspace regardless of it, so nothing the replay asserts
+// moves.
+func archiveAllButOne(t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(context.Background(), `
+		UPDATE workspace SET archived_at = now()
+		 WHERE id <> (SELECT id FROM workspace ORDER BY created_at, id LIMIT 1)`); err != nil {
+		t.Fatalf("reducing the fixture to one live workspace: %v", err)
 	}
 }

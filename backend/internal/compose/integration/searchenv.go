@@ -73,7 +73,7 @@ func SetupSearch(t *testing.T) *SearchEnv {
 		Owner: owner, WS: ids.NewV7(),
 		Rep1: ids.NewV7(), Rep3: ids.NewV7(), Team1: ids.NewV7(), Team2: ids.NewV7(),
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Search', 'search', 'EUR')`, e.WS); err != nil {
+	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, slug) VALUES ($1, 'search')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
 	for i, u := range []ids.UUID{e.Rep1, e.Rep3} {

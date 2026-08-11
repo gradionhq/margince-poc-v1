@@ -63,7 +63,7 @@ func setupLeadConsent(t *testing.T) *leadConsentEnv {
 	}
 	e.leadEmail = "lena-" + e.lead.String() + "@warm.example"
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'LeadConsent', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "lc-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

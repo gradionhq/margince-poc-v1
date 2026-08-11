@@ -78,7 +78,7 @@ func seedSecondWorkspace(t *testing.T, owner *pgx.Conn) (ids.UUID, context.Conte
 	t.Helper()
 	ws, user := ids.NewV7(), ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Tenant B', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "tenant-b-"+ws.String()[:8]); err != nil {
 		t.Fatal(err)
 	}

@@ -138,7 +138,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 	// slug and collide on workspace_slug_unique.
 	slug := "capture-disconnect-" + wsUUID.String()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Capture Disconnect', $2, 'USD')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		wsUUID, slug); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}

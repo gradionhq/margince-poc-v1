@@ -119,6 +119,7 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	}
 
 	workspaces := seedInstallations(t, conn, installs)
+	archiveAllButOne(t, conn)
 
 	// Upgrade it to head — core AND custom, because two backfills live in the
 	// fork-owned namespace and an assertion that modelled the split would be

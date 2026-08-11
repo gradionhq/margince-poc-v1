@@ -35,7 +35,7 @@ func bootstrapRawCaptureWorkspace(t *testing.T) context.Context {
 	wsUUID := ids.NewV7()
 	slug := "raw-capture-" + wsUUID.String()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Raw Capture', $2, 'USD')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		wsUUID, slug); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}

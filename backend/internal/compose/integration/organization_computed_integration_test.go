@@ -175,7 +175,7 @@ func seedComputedFieldsWorkspaceB(t *testing.T, owner *pgx.Conn) (ws ids.UUID, c
 	t.Helper()
 	ws, user := ids.NewV7(), ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Tenant B Computed', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "computed-b-"+ws.String()[:8]); err != nil {
 		t.Fatal(err)
 	}

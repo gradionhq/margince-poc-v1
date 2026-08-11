@@ -5,13 +5,12 @@
 
 package integration
 
-// The installation's identity — name, base currency, timezone — comes from the
-// SETTING rows, not from the workspace columns (ADR-0091 phase 4, issue #521).
+// The installation's identity — name, base currency, timezone — is what these
+// readers resolve (ADR-0090/A135).
 //
-// While both copies exist, every other test in this tree seeds them to the
-// same value — so reverting the readers to the column leaves those suites
-// green and the migration only LOOKS done. These tests set the two copies to
-// disagree, which is the one fixture that can tell the readers apart.
+// Each test moves its setting OFF the value every other suite seeds, so no
+// assertion can pass by coincidence: a reader that never consulted the setting
+// answers with the seeded value and fails.
 
 import (
 	"strings"
@@ -22,23 +21,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// baseCurrencyOnUSD points the setting at USD while the workspace column
-// stays EUR, and puts a EUR→USD rate on the sheet. The disagreement is the
-// test: a reader still on the column sees base EUR.
+// baseCurrencyOnUSD points the installation at USD — every other suite seeds
+// EUR — and puts a EUR→USD rate on the sheet to convert with.
 func baseCurrencyOnUSD(t *testing.T, e *Env) {
 	t.Helper()
 	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND base_currency = 'EUR'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.base_currency is not EUR")
-	}
 	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
 		VALUES ($1, 'EUR', 'USD', '1.1000000000', CURRENT_DATE - 1)`, e.WS)
 }
 
-// Closing a EUR deal freezes the EUR→USD rate. This is the assertion that
-// separates the two readers: against the column the deal's own currency WOULD
-// equal the base, and freezeFx short-circuits to the identity rate 1 without
-// consulting the sheet at all.
+// Closing a EUR deal freezes the EUR→USD rate. The identity rate 1 is what a
+// close computes when the deal's currency EQUALS the base, so a rate of 1 here
+// means the close read a base of EUR — the seeded value, not the one set.
 func TestClosingADealFreezesAgainstTheSettingsBaseCurrency(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, won := DealFixture(t, e)
@@ -69,8 +63,7 @@ func TestClosingADealFreezesAgainstTheSettingsBaseCurrency(t *testing.T) {
 	}
 }
 
-// The fx sheet is listed against the base the SETTING names, so a rate priced
-// into the retiring column's currency is not on it.
+// The fx sheet is listed against the base the installation names.
 func TestTheFxSheetListsRatesIntoTheSettingsBaseCurrency(t *testing.T) {
 	e := Setup(t)
 	admin := e.Admin()
@@ -81,16 +74,14 @@ func TestTheFxSheetListsRatesIntoTheSettingsBaseCurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	if base != "USD" {
-		t.Errorf("BaseCurrency() = %q, want USD — the fx screen is still reading the column", base)
+		t.Errorf("BaseCurrency() = %q, want USD — the fx screen did not read the setting", base)
 	}
 }
 
 // The offer's issuer snapshot names the installation from the SETTING.
 //
-// The column keeps the harness's "Authz" while the setting says otherwise, so
-// a reader still on the column records the wrong issuer on a document that
-// goes to a buyer — and, because the snapshot is frozen at send, records it
-// permanently.
+// The snapshot is frozen at send, so an issuer read from anywhere but the
+// setting is recorded permanently on a document that goes to a buyer.
 func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
@@ -98,9 +89,6 @@ func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 	// the installation_settings read the issuer name now goes through.
 	ctx := e.As(e.Rep1, nil, offerRenderDeskPerms)
 	e.WsExec(t, `UPDATE setting SET value = '"Margince Live"'::jsonb WHERE key = 'installation.name'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND name = 'Authz'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.name is not Authz")
-	}
 
 	d, err := e.Deals.CreateDeal(ctx, deals.CreateDealInput{
 		Name: "Issuer", PipelineID: pipeline, StageID: open, Source: "manual",
@@ -116,7 +104,7 @@ func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 	if n := e.WsCount(t, `SELECT count(*) FROM offer
 		WHERE id = $1 AND issuer_snapshot->>'workspace_name' = 'Margince Live'`,
 		ids.UUID(offer.Id)); n != 1 {
-		t.Error("the frozen issuer name is not the setting's — the snapshot read workspace.name")
+		t.Error("the frozen issuer name is not the setting's")
 	}
 }
 
@@ -125,19 +113,15 @@ func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 // The assertion turns on the zone STRING rather than on a date, deliberately.
 // Any two real zones agree about the date for part of every day, so a
 // date-based fixture would pass or fail by the hour the suite happened to run
-// — the flakiness T11 rules out. Here the setting names a zone Postgres cannot
-// resolve (written by raw SQL, which is how it gets past the validator that
-// guards the real write path) while the column keeps a valid UTC. A reader on
-// the column still succeeds; only a reader on the setting fails, and the
-// failure names the zone it tried.
+// — the flakiness T11 rules out. So the setting names a zone Postgres cannot
+// resolve, written by raw SQL because that is how it gets past the validator
+// guarding the real write path. Only a reader that actually consults the
+// setting fails, and the failure names the zone it tried.
 func TestTodayIsComputedInTheZoneTheSettingNames(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
 	ctx := e.Admin()
 	e.WsExec(t, `UPDATE setting SET value = '"Margince/Nowhere"'::jsonb WHERE key = 'installation.timezone'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND timezone = 'UTC'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.timezone is not UTC")
-	}
 
 	closeOn := time.Now().UTC().AddDate(0, 0, 30)
 	if _, err := e.Deals.CreateDeal(ctx, deals.CreateDealInput{

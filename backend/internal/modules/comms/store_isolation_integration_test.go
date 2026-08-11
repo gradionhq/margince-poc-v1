@@ -27,7 +27,7 @@ func (e *storeEnv) foreignWorkspaceCtx(t *testing.T) context.Context {
 	t.Helper()
 	other := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'CommsOther', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		other, "comms-other-"+other.String()); err != nil {
 		t.Fatal(err)
 	}

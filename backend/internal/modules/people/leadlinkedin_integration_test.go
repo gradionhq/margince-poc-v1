@@ -56,7 +56,7 @@ func setupLeadLinkedIn(t *testing.T) *linkedinEnv {
 
 	e := &linkedinEnv{owner: owner, ws: ids.NewV7(), rep1: ids.NewV7(), rep2: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'LinkedIn', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "li-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestFindLeadByLinkedInURLHidesWhatTheCallerCannotRead(t *testing.T) {
 
 	// A same-URL lead in ANOTHER workspace never crosses the boundary.
 	foreignWS := ids.NewV7()
-	e.exec(t, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Foreign', $2, 'EUR')`,
+	e.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		foreignWS, "li-f-"+foreignWS.String())
 	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, linkedin_url, status, source, captured_by)
 		 VALUES ($1, $2, 'Foreign Twin', $3, 'new', 'manual', 'human:x')`,

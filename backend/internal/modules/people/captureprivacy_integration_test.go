@@ -69,7 +69,7 @@ func setupCapturePrivacy(t *testing.T) *privacyEnv {
 		owner: ids.NewV7(), teammate: ids.NewV7(), admin: ids.NewV7(),
 	}
 	if _, err := conn.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Capture privacy', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "cp-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

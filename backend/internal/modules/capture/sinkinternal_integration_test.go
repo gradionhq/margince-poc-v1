@@ -40,7 +40,7 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 	wsUUID := ids.NewV7()
 	slug := "internal-mail-" + wsUUID.String()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Internal Mail', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		wsUUID, slug); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}

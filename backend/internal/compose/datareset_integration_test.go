@@ -563,7 +563,7 @@ func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
 	// the admin context is not bound to — which is precisely what RLS refuses.
 	owner := resetOwnerConn(ctx, t)
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		theirs, "other-tenant-"+theirs.String()[:8]); err != nil {
 		t.Fatalf("seeding the co-tenant workspace: %v", err)
 	}
