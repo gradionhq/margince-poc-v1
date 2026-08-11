@@ -65,7 +65,7 @@ func (e *rateEnv) seedWorkspace(ctx context.Context, t *testing.T) (ids.UUID, co
 	t.Helper()
 	ws := ids.NewV7()
 	if _, err := e.owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'RatePricing', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "rp-"+ws.String()); err != nil {
 		t.Fatal(err)
 	}

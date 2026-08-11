@@ -198,7 +198,13 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		}
 
 		id = Identity{UserID: account.UserID, WorkspaceID: wsID, Email: email, DisplayName: account.DisplayName, SeatType: account.SeatType}
-		if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&id.WorkspaceName); err != nil {
+		// The setting row read directly, not through platform/settings: this
+		// runs BEFORE a principal exists, and that package's readers take the
+		// installation_settings object gate, which has no actor to judge. The
+		// name is the installation's own label, not tenant data.
+		if err := tx.QueryRow(ctx,
+			`SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'`,
+		).Scan(&id.WorkspaceName); err != nil {
 			return err
 		}
 		var loadErr error
@@ -246,10 +252,10 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 		var sessionID ids.UUID
 		var userID ids.UserID
 		err := tx.QueryRow(ctx,
-			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id, w.name
+			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id,
+			        (SELECT value #>> '{}' FROM setting WHERE key = 'installation.name')
 			 FROM session s
 			 JOIN app_user u ON u.id = s.user_id
-			 JOIN workspace w ON w.id = s.workspace_id
 			 WHERE s.token_hash = $1
 			   AND s.revoked_at IS NULL
 			   AND now() < s.idle_expires_at

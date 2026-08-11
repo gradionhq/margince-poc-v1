@@ -6,12 +6,15 @@
 package integration
 
 // The installation's identity — name, base currency, timezone — comes from the
-// SETTING rows, not from the workspace columns (ADR-0091 phase 4, issue #521).
+// SETTING rows (ADR-0090/A135).
 //
-// While both copies exist, every other test in this tree seeds them to the
-// same value — so reverting the readers to the column leaves those suites
-// green and the migration only LOOKS done. These tests set the two copies to
-// disagree, which is the one fixture that can tell the readers apart.
+// These tests were written while the workspace columns still held a second
+// copy, and they moved the two apart because that was the only fixture that
+// could tell the readers apart. 0209 dropped the columns, so the divergence
+// they staged is no longer expressible — what survives is the half that still
+// says something: the settings row drives the answer, and each test moves it
+// off the value every other suite seeds so the assertion cannot pass by
+// accident.
 
 import (
 	"strings"
@@ -28,9 +31,6 @@ import (
 func baseCurrencyOnUSD(t *testing.T, e *Env) {
 	t.Helper()
 	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND base_currency = 'EUR'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.base_currency is not EUR")
-	}
 	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
 		VALUES ($1, 'EUR', 'USD', '1.1000000000', CURRENT_DATE - 1)`, e.WS)
 }
@@ -98,9 +98,6 @@ func TestAnOfferSnapshotNamesTheInstallationFromTheSetting(t *testing.T) {
 	// the installation_settings read the issuer name now goes through.
 	ctx := e.As(e.Rep1, nil, offerRenderDeskPerms)
 	e.WsExec(t, `UPDATE setting SET value = '"Margince Live"'::jsonb WHERE key = 'installation.name'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND name = 'Authz'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.name is not Authz")
-	}
 
 	d, err := e.Deals.CreateDeal(ctx, deals.CreateDealInput{
 		Name: "Issuer", PipelineID: pipeline, StageID: open, Source: "manual",
@@ -135,9 +132,6 @@ func TestTodayIsComputedInTheZoneTheSettingNames(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	ctx := e.Admin()
 	e.WsExec(t, `UPDATE setting SET value = '"Margince/Nowhere"'::jsonb WHERE key = 'installation.timezone'`)
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND timezone = 'UTC'`, e.WS); n != 1 {
-		t.Fatal("the fixture needs the two copies to DISAGREE; workspace.timezone is not UTC")
-	}
 
 	closeOn := time.Now().UTC().AddDate(0, 0, 30)
 	if _, err := e.Deals.CreateDeal(ctx, deals.CreateDealInput{

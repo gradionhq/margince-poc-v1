@@ -368,7 +368,7 @@ func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferI
 	t.Helper()
 	ws, user := ids.NewV7(), ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Tenant B Render', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "render-b-"+ws.String()[:8]); err != nil {
 		t.Fatal(err)
 	}

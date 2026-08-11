@@ -216,7 +216,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	ctx := context.Background()
 	ws := ids.NewV7()
 	if _, err := f.e.Owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Clean Rebuild', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "clean-rebuild-"+ws.String()); err != nil {
 		t.Fatalf("seeding the clean workspace: %v", err)
 	}

@@ -202,7 +202,7 @@ func TestSecondActiveWorkspaceTurnsTheSurfaceUnavailable(t *testing.T) {
 	// cached singleton) must answer 503 on every request — an operator
 	// condition, never an auth failure.
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Rogue Second', 'rogue-second', 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'rogue-second')`,
 		ids.NewV7()); err != nil {
 		t.Fatal(err)
 	}

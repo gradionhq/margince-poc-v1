@@ -417,7 +417,7 @@ func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
 	}
 }
 
-// The base currency comes from the SETTING, not from workspace.base_currency.
+// The base currency comes from the installation SETTING.
 //
 // This is the only assertion in the suite that can tell the two apart. Every
 // other test seeds both to EUR, so it passes just as well against a reader
@@ -429,7 +429,7 @@ func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
 // The workspace column is written directly rather than through the settings
 // surface: that surface writes BOTH copies in one transaction (identity's
 // transitional mirror), which is precisely the agreement being broken here.
-func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testing.T) {
+func TestQuotaAttainmentConvertsAgainstTheInstallationSetting(t *testing.T) {
 	e := Setup(t)
 	store := attainmentStore(e)
 	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
@@ -438,9 +438,6 @@ func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testin
 	// The fixture is only meaningful while the two copies disagree. Once
 	// phase 4 drops the column this guard stops finding it and the test
 	// becomes an ordinary assertion about the setting, which is the point.
-	if n := e.WsCount(t, `SELECT count(*) FROM workspace WHERE id = $1 AND base_currency = 'EUR'`, e.WS); n != 1 {
-		t.Fatalf("the fixture needs the two copies to DISAGREE; workspace.base_currency is not EUR")
-	}
 
 	// EUR→USD on file, so a target in EUR has a rate into the new base. The
 	// suite's seedRollupFxRate helper hardcodes to_currency = 'EUR', which is
@@ -460,7 +457,7 @@ func TestQuotaAttainmentTakesItsBaseCurrencyFromTheSettingNotTheColumn(t *testin
 		t.Fatalf("attainment with the setting on USD: %v", err)
 	}
 	if att.Currency != "USD" {
-		t.Errorf("attainment currency = %q, want USD — the reader is still on workspace.base_currency", att.Currency)
+		t.Errorf("attainment currency = %q, want USD — the setting is not what the conversion used", att.Currency)
 	}
 	if att.TargetMinor != 1100000 {
 		t.Errorf("target = %d, want 1100000 (10,000.00 EUR @ 1.1 into the USD base)", att.TargetMinor)

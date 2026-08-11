@@ -13,11 +13,10 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // frozenRateTables are every table holding an `fx_rate_to_base` — the column
@@ -100,24 +99,24 @@ func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
 // ratesPricedAgainstBase counts the sheet rows converting into the base the
 // workspace currently holds, and returns that base so the reason can name it.
 //
-// It reads workspace.base_currency rather than the setting row, and NOT
-// because the setting row is unwritten at this point — it holds the outgoing
-// value too, since the freeze probe runs before the update. The reason is the
-// FIRST write: on an installation that has never stored the setting there is
-// no row to read, and the refusing read (settings.RequireTx) would fail the
-// probe rather than answer "nothing is priced yet". The column always has a
-// value, so it can answer for the base being replaced in both cases.
-//
-// This is why the probe is not part of the sweep that moved the other readers
-// (issue #521): it needs the reading that tolerates an unset setting.
+// It reads the setting row directly rather than through platform/settings,
+// and NO ROW is a real answer here rather than a failure. This runs inside the
+// settings write's own transaction, and on the FIRST write there is nothing
+// stored yet — the refusing read would fail the probe where the honest answer
+// is "no base has been set, so nothing can be priced against it". An absent
+// row therefore yields zero and an empty base, which is what lets that first
+// write through.
 func ratesPricedAgainstBase(ctx context.Context, tx pgx.Tx) (int, string, error) {
 	var base string
 	var priced int
-	if err := tx.QueryRow(ctx, `
-		SELECT w.base_currency,
-		       (SELECT count(*) FROM fx_rate WHERE to_currency = w.base_currency)
-		  FROM workspace w WHERE w.id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&base, &priced); err != nil {
+	err := tx.QueryRow(ctx, `
+		SELECT s.value #>> '{}',
+		       (SELECT count(*) FROM fx_rate WHERE to_currency = s.value #>> '{}')
+		  FROM setting s WHERE s.key = 'installation.base_currency'`).Scan(&base, &priced)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", nil
+	}
+	if err != nil {
 		return 0, "", fmt.Errorf("counting rates priced against the current base: %w", err)
 	}
 	return priced, base, nil

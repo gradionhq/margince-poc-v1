@@ -378,7 +378,7 @@ func TestVoiceProfileIsInvisibleAcrossTenants(t *testing.T) {
 	ctx := context.Background()
 	wsB, userB := ids.NewV7(), ids.NewV7()
 	if _, err := e.Owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Voice Two', 'voice-two', 'EUR')`, wsB); err != nil {
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'voice-two')`, wsB); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(ctx,

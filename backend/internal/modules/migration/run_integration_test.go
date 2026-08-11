@@ -46,7 +46,7 @@ func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (co
 
 	ws := ids.NewV7()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Migration', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "migration-"+ws.String()); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}

@@ -93,7 +93,7 @@ func (e *sendEnv) seedNeighbourWorkspace(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Neighbour', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		id, "neighbour-"+id.String()); err != nil {
 		t.Fatalf("seeding the neighbouring workspace: %v", err)
 	}

@@ -29,7 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
-	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -85,38 +84,9 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 //
 // The values are read back from the workspace row this same transaction just
 // created, rather than re-derived from the configuration. That is deliberate:
-// identity applies its own defaults when the config omits a currency or zone,
-// and deriving them a second time here would duplicate that defaulting and
-// drift from it. It also makes this path identical to 0191's backfill, so an
-// installation bootstrapped after the migration and one migrated into it hold
-// the same values by construction.
-func seedInstallationSettings(ctx context.Context, tx pgx.Tx) error {
-	var name, zone, currency string
-	if err := tx.QueryRow(ctx,
-		`SELECT name, timezone, rtrim(base_currency) FROM workspace WHERE archived_at IS NULL`,
-	).Scan(&name, &zone, &currency); err != nil {
-		return fmt.Errorf("compose: reading the new organization for its settings: %w", err)
-	}
-	for _, seed := range []struct {
-		entry *settings.Entry[string]
-		value string
-	}{
-		{identity.Name, name},
-		{identity.Timezone, zone},
-		{identity.BaseCurrency, currency},
-	} {
-		if err := settings.SeedValue(ctx, tx, seed.entry, seed.value); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
 	return func(ctx context.Context, tx pgx.Tx) error {
-		if err := seedInstallationSettings(ctx, tx); err != nil {
-			return err
-		}
 		if err := seedPipeline(ctx, tx, seeds.Pipeline, dealsH); err != nil {
 			return err
 		}

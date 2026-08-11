@@ -318,7 +318,7 @@ func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *test
 	foreignWS, foreignOrg := ids.NewV7(), ids.NewV7()
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Foreign', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		foreignWS, "foreign-"+foreignWS.String()); err != nil {
 		t.Fatal(err)
 	}

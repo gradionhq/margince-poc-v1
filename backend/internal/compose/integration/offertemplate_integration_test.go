@@ -427,7 +427,7 @@ func TestOfferTemplateRLS_TenantIsolation(t *testing.T) {
 
 	wsB := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Template Tenant B', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		wsB, "template-b-"+wsB.String()[:8]); err != nil {
 		t.Fatal(err)
 	}

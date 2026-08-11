@@ -18,7 +18,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -108,34 +107,22 @@ func (s *InstallationSettingsStore) baseCurrencyLock(ctx context.Context) (bool,
 // refused for a caller who may not write rather than answered from the read
 // gate alone.
 //
-// Every field commits in ONE transaction, together with a mirror write onto
-// the `workspace` columns. The mirror is TRANSITIONAL and load-bearing until
-// it goes. What still reads the columns directly, and so still depends on it:
-// the forecast's slipped-category dimension (compose/report.go), the brief
-// ranker's revenue factor (compose/briefs), the reset confirmation's name
-// (compose/datareset.go), the session read that names the installation before
-// any principal exists to gate a settings read (identity/service.go),
-// bootstrap's own backfill (compose/installation.go), and the base-currency
-// freeze probe below. Everything else has moved (issue #521). Without
-// it, this surface would report a base currency that nothing computes in —
-// changing it would move the number on this screen and leave every roll-up on
-// the old basis, which is worse than not offering the control. The mirror
-// retires with the columns, once those readers move (issue #521).
+// Every field commits in ONE transaction, and the settings rows are now the
+// only copy: the mirror onto the `workspace` columns retired with the columns
+// themselves in 0209, which is what #521 existed to make possible. A change
+// here moves the value everything computes in, because there is no longer a
+// second place for it to disagree.
 func (s *InstallationSettingsStore) UpdateInstallation(ctx context.Context, name, zone, currency *string) (InstallationSettings, error) {
 	if err := auth.Require(ctx, installationSettingsObject, principal.ActionUpdate); err != nil {
 		return InstallationSettings{}, err
 	}
-	// The mirror statement is a full literal per field rather than a built
-	// column name: nothing here is caller-supplied, and spelling it out keeps
-	// the table-ownership gate able to read the target out of the SQL.
 	patch := []struct {
-		entry  *settings.Entry[string]
-		value  *string
-		mirror string
+		entry *settings.Entry[string]
+		value *string
 	}{
-		{Name, name, `UPDATE workspace SET name = $1 WHERE id = $2`},
-		{Timezone, zone, `UPDATE workspace SET timezone = $1 WHERE id = $2`},
-		{BaseCurrency, currency, `UPDATE workspace SET base_currency = $1 WHERE id = $2`},
+		{Name, name},
+		{Timezone, zone},
+		{BaseCurrency, currency},
 	}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		for _, w := range patch {
@@ -148,12 +135,6 @@ func (s *InstallationSettingsStore) UpdateInstallation(ctx context.Context, name
 			}
 			if err := s.settings.SetRawTx(ctx, tx, w.entry.Key(), raw); err != nil {
 				return err
-			}
-			// The mirror, in the same transaction as the setting it copies:
-			// the two can never disagree, which is the only property that
-			// makes keeping both tolerable.
-			if _, err := tx.Exec(ctx, w.mirror, *w.value, storekit.MustWorkspace(ctx)); err != nil {
-				return fmt.Errorf("identity: mirroring %s onto the workspace row: %w", w.entry.Key(), err)
 			}
 		}
 		return nil
