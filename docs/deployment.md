@@ -91,10 +91,9 @@ api refuses to boot on that gate without it. Remove the `mcp` block to keep the
 connector off; the code default is off, so an absent block exposes nothing.
 
 Your `margince.yaml`'s `password_file` **must point to where the entrypoint writes
-`MARGINCE_ADMIN_PASSWORD`** — by default `secrets/admin-password` (i.e.
-`/app/secrets/admin-password`, the api's working dir is `/app`). Set that value in
-your config, or override the write path with `MARGINCE_ADMIN_PASSWORD_FILE` so the
-two agree. (The example config's default differs, so change it to match.)
+`MARGINCE_ADMIN_PASSWORD`** — `secrets/admin-password` (i.e.
+`/app/secrets/admin-password`; the api's working dir is `/app`). Set that value in
+your config. (The example config's default differs, so change it to match.)
 
 ## Routing
 

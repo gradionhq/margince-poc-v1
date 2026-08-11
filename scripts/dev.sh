@@ -90,6 +90,22 @@ app_prefix="${APP_DSN%/*}"
 dev_owner_url="${owner_prefix}/${db}"
 dev_app_url="${app_prefix}/${db}"
 
+# Publish the owner DSN under the name cmd/migrate reads, so a bare
+# `margince-migrate up` — or `go run ./cmd/migrate up` — works here exactly as it
+# does in a container, against whichever database THIS stack is using rather than
+# the base one. Both callers used to pass --dsn explicitly (the Makefile from
+# OWNER_DSN, the container entrypoint from MARGINCE_OWNER_DSN), so the env default
+# was never exercised locally, and for a while it pointed at MARGINCE_DSN — the
+# app role, which holds no DDL rights. A default nothing runs is a default nobody
+# checks.
+#
+# Deliberately NOT equal to the app DSN. margince_owner is the compose Postgres's
+# POSTGRES_USER, a superuser, and FORCE row-level security does not reach a
+# superuser: point the api at this and RLS silently stops applying in dev while
+# still applying in production, which is the one divergence this stack exists to
+# avoid. The api keeps connecting as margince_app.
+export MARGINCE_OWNER_DSN="$dev_owner_url"
+
 # psql is NOT a host requirement (hosts need Go + Docker only): every ad-hoc
 # SQL statement runs inside the compose postgres container, the same way
 # `make db-init` applies scripts/db-init.sql.

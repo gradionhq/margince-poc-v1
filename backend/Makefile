@@ -4,7 +4,12 @@ GO        ?= go
 PG_PORT   ?= 55432
 REDIS_PORT?= 56379
 DB_NAME   ?= margince
-OWNER_DSN ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME)
+# MARGINCE_OWNER_DSN wins when it is set — `make dev` exports it for the database
+# that stack is actually using, so `make migrate` under a DEV_SLUG migrates that
+# one rather than the base name. It is the same variable cmd/migrate reads as its
+# --dsn default, so the flag here and the env default can never name different
+# databases.
+OWNER_DSN ?= $(or $(MARGINCE_OWNER_DSN),postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME))
 APP_DSN   ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(DB_NAME)
 
 # The integration lane runs on its OWN `_test`-suffixed namespace on the shared
