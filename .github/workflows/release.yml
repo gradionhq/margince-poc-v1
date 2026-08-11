@@ -177,7 +177,24 @@ jobs:
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |
           set -euo pipefail
-          docker buildx bake --push --metadata-file bake-metadata.json
+          # The registry's replicated deployment can briefly deny a blob one
+          # replica just wrote when the manifest PUT lands on the other
+          # ("blob unknown to registry"). A re-push is idempotent and runs
+          # from cache in seconds, and by then every replica sees the links,
+          # so retry a bounded number of times — and loudly, because on a
+          # healthy registry the first attempt is the only one.
+          attempts=3
+          for attempt in $(seq 1 "$attempts"); do
+            if docker buildx bake --push --metadata-file bake-metadata.json; then
+              break
+            fi
+            if [ "$attempt" -eq "$attempts" ]; then
+              echo "image push failed $attempts times; this is beyond the registry's replica-coherence lag — investigate the registry" >&2
+              exit 1
+            fi
+            echo "push attempt $attempt rejected by a stale replica read; retrying once the caches settle" >&2
+            sleep 20
+          done
           images=()
           for role in api web worker; do
             digest="$(jq -er --arg role "$role" '.[$role]."containerimage.digest"' bake-metadata.json)"
