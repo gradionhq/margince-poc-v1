@@ -1,9 +1,8 @@
 name: Release
 
-# Draft a margince-constellation release for every build that lands on main
-# (and on test, where the flow is exercised against the constellation
-# deployment at test.margince.com before it is trusted on the mainline). The
-# release lives in the constellation dist service, not on GitHub.
+# Draft a margince-constellation release for every build that lands on main.
+# The release lives in the constellation dist service at test.margince.com,
+# not on GitHub.
 #
 # The flow, in order: draft the release versioned <year>.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
@@ -29,7 +28,7 @@ name: Release
 # no push range, so it falls back to the parent commit (HEAD~1..HEAD).
 on:
   push:
-    branches: [main, test]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -75,6 +74,10 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      # The SBOM pipeline pins its SPDX validator to linux/amd64 (its
+      # dependency wheel hashes resolve for that platform), which this arm64
+      # runner can only execute emulated.
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       # Fresh SBOMs at the release commit, through the full pinned pipeline
       # (generate, normalize, supplement, parity, validate). The dist service
       # verifies that the SBOMs attest the bytes of every file the patch

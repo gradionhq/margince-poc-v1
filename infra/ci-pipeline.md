@@ -248,10 +248,9 @@ Wiring details:
   the `license gate` job in `ci.yml` (above), so each event path runs the policy
   exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
-- **`release.yml`** — on every push to `main` (and to `test`, where the flow is
-  exercised against the constellation deployment at test.margince.com), cuts
-  a margince-constellation release versioned `<year>.<build>` in the dist
-  service — not a GitHub release: the release-management CLI cuts the
+- **`release.yml`** — on every push to `main`, cuts a margince-constellation
+  release versioned `<year>.<build>` in the dist service of the constellation
+  deployment at test.margince.com — not a GitHub release: the release-management CLI cuts the
   incremental patch over the push's range and uploads it with `draft-release`
   together with the three source-tree SBOMs regenerated at the release commit
   (`make sbom` — the dist service verifies the SBOMs attest every file the
