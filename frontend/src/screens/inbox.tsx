@@ -15,6 +15,7 @@ import {
 import {
   Badge,
   Button,
+  Card,
   Field,
   Modal,
   SectionHeader,
@@ -439,12 +440,13 @@ export function useApprovalTokenSink(): {
     <TokenOnceModal token={token} onClose={() => setToken(null)} />
   );
   const decidedNote = alreadyDecided ? (
-    <div
-      className="card card-inset"
+    <Card
+      as="div"
+      inset
       style={{
-        marginTop: 12,
+        marginTop: "var(--space-3)",
         display: "flex",
-        gap: 8,
+        gap: "var(--space-2)",
         alignItems: "center",
       }}
     >
@@ -454,7 +456,7 @@ export function useApprovalTokenSink(): {
       <Button small onClick={() => setAlreadyDecided(false)}>
         {t("inbox.dismiss")}
       </Button>
-    </div>
+    </Card>
   ) : null;
   return { onApproved, onAlreadyDecided, tokenModal, decidedNote };
 }

@@ -3,7 +3,7 @@ import { Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, SectionHeader } from "../design-system/atoms";
+import { Button, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-import.css";
@@ -169,11 +169,11 @@ export function LinkedInImportCard() {
   const importer = useImportConnections();
 
   return (
-    <section className="card li-import">
-      <SectionHeader
-        title={t("linkedinImport.title")}
-        sub={t("linkedinImport.sub")}
-      />
+    <Card
+      className="li-import"
+      title={t("linkedinImport.title")}
+      sub={t("linkedinImport.sub")}
+    >
       <p className="co-muted li-import-explainer">
         {t("linkedinImport.explainer")}
       </p>
@@ -219,7 +219,7 @@ export function LinkedInImportCard() {
         </p>
       )}
       {importer.isSuccess && <ImportResult summary={importer.data} />}
-    </section>
+    </Card>
   );
 }
 

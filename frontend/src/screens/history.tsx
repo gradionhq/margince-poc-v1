@@ -7,7 +7,12 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
-import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
+import {
+  Button,
+  Card,
+  EmptyState,
+  SegmentedControl,
+} from "../design-system/atoms";
 import type { TimelineEntry } from "../design-system/composed";
 import {
   EvidenceChip,
@@ -155,9 +160,9 @@ export function RecordHistory({
   }
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <Card style={{ marginBottom: "var(--space-4)" }}>
       <QueryStates query={query}>{body}</QueryStates>
-    </section>
+    </Card>
   );
 }
 
@@ -364,7 +369,7 @@ export function FieldHistoryTimeline({
   };
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <Card style={{ marginBottom: "var(--space-4)" }}>
       <div
         style={{
           display: "flex",
@@ -404,7 +409,7 @@ export function FieldHistoryTimeline({
         )}
       </div>
       <QueryStates query={query}>{body}</QueryStates>
-    </section>
+    </Card>
   );
 }
 

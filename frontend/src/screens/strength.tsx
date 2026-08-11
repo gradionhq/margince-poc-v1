@@ -4,12 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  EmptyState,
-  SectionHeader,
-  Skeleton,
-} from "../design-system/atoms";
+import { Badge, Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -84,8 +79,10 @@ export function StrengthCard({
   });
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("strength.title")} />
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("strength.title")}
+    >
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -99,7 +96,7 @@ export function StrengthCard({
       {!overlay && query.isSuccess && (
         <StrengthBody strength={query.data} locale={locale} />
       )}
-    </section>
+    </Card>
   );
 }
 

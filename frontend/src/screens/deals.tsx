@@ -20,10 +20,10 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   EmptyState,
   Modal,
-  SectionHeader,
   SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
@@ -1440,8 +1440,10 @@ function DealApprovals({
     return null;
   }
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("deal.pendingApprovals")} />
+    <Card
+      title={t("deal.pendingApprovals")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {approvals.map((approval) => (
         <div
           key={approval.id}
@@ -1474,7 +1476,7 @@ function DealApprovals({
           </div>
         </div>
       ))}
-    </section>
+    </Card>
   );
 }
 
@@ -1496,20 +1498,21 @@ function OffersPanel({
   const overlay = useSorMode() === "overlay";
   if (overlay) {
     return (
-      <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-        <SectionHeader title={t("deal.offers")} />
+      <Card title={t("deal.offers")} style={{ marginBottom: "var(--space-4)" }}>
         <OverlayUnavailable />
-      </section>
+      </Card>
     );
   }
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <div className="list-head">
-        <SectionHeader title={t("deal.offers")} />
+    <Card
+      title={t("deal.offers")}
+      actions={
         <Button small disabled={creating} onClick={onCreate}>
           {t("deal.newOffer")}
         </Button>
-      </div>
+      }
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {offers &&
         (offers.length > 0 ? (
           <DataTable
@@ -1546,7 +1549,7 @@ function OffersPanel({
         ) : (
           <EmptyState>{t("deal.offersEmpty")}</EmptyState>
         ))}
-    </section>
+    </Card>
   );
 }
 
@@ -1618,15 +1621,19 @@ function DealOverviewPane({
           overlay show the honest unavailable state (never any cached native
           rows), matching the timeline and offers panels. */}
       {overlay ? (
-        <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-          <SectionHeader title={t("deal.stakeholders")} />
+        <Card
+          title={t("deal.stakeholders")}
+          style={{ marginBottom: "var(--space-4)" }}
+        >
           <OverlayUnavailable />
-        </section>
+        </Card>
       ) : (
         stakeholders &&
         stakeholders.length > 0 && (
-          <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-            <SectionHeader title={t("deal.stakeholders")} />
+          <Card
+            title={t("deal.stakeholders")}
+            style={{ marginBottom: "var(--space-4)" }}
+          >
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {stakeholders.map((stakeholder) => (
                 <Badge key={stakeholder.id}>
@@ -1636,7 +1643,7 @@ function DealOverviewPane({
                 </Badge>
               ))}
             </div>
-          </section>
+          </Card>
         )
       )}
       <OffersPanel

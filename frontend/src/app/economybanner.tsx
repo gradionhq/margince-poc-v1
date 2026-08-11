@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import { Badge, Button } from "../design-system/atoms";
+import { Badge, Button, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { bandTone } from "../screens/aiusage";
 import { throwProblem } from "../screens/common";
@@ -52,9 +52,10 @@ export function EconomyBanner() {
     return null;
   }
   return (
-    <div
+    <Card
+      as="div"
+      inset
       role="status"
-      className="card card-inset"
       style={{
         borderRadius: 0,
         display: "flex",
@@ -77,6 +78,6 @@ export function EconomyBanner() {
       >
         ×
       </Button>
-    </div>
+    </Card>
   );
 }

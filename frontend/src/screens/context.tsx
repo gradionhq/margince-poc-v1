@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
-import { EmptyState, SectionHeader } from "../design-system/atoms";
+import { Card, EmptyState } from "../design-system/atoms";
 import { EvidenceChip, toEvidence } from "../design-system/trust";
 import { useT } from "../i18n";
 import {
@@ -58,16 +58,14 @@ export function RecordContextPanel({
 
   if (overlay) {
     return (
-      <section className="card record-context">
-        <SectionHeader title={t("context.title")} />
+      <Card className="record-context" title={t("context.title")}>
         <OverlayUnavailable />
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="card record-context">
-      <SectionHeader title={t("context.title")} />
+    <Card className="record-context" title={t("context.title")}>
       <QueryGate query={query as QueryLike<ContextResponse>}>
         {(data) =>
           (data.sections ?? []).length === 0 ? (
@@ -122,6 +120,6 @@ export function RecordContextPanel({
           )
         }
       </QueryGate>
-    </section>
+    </Card>
   );
 }

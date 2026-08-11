@@ -6,6 +6,7 @@ import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
+  Card,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
@@ -127,9 +128,10 @@ function AutomationForm({
   );
 
   return (
-    <form
-      className="card card-inset"
-      style={{ marginTop: 10 }}
+    <Card
+      as="form"
+      inset
+      style={{ marginTop: "var(--space-3)" }}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit(name.trim() || entry.name, paramsFromValues(fields, values));
@@ -178,7 +180,7 @@ function AutomationForm({
           {t("deals.cancel")}
         </Button>
       </div>
-    </form>
+    </Card>
   );
 }
 
@@ -477,8 +479,11 @@ export function AutomationsScreen() {
         </p>
       )}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <section className="card" style={{ flex: "1 1 260px", minWidth: 240 }}>
-          <SectionHeader title={t("auto.catalog")} sub={t("auto.catalogSub")} />
+        <Card
+          style={{ flex: "1 1 260px", minWidth: 240 }}
+          title={t("auto.catalog")}
+          sub={t("auto.catalogSub")}
+        >
           <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
             {(page) => (
               <ul
@@ -552,9 +557,11 @@ export function AutomationsScreen() {
               {problemMessageOf(create.error, t)}
             </p>
           )}
-        </section>
-        <section className="card" style={{ flex: "2 1 320px", minWidth: 280 }}>
-          <SectionHeader title={t("auto.instances")} />
+        </Card>
+        <Card
+          style={{ flex: "2 1 320px", minWidth: 280 }}
+          title={t("auto.instances")}
+        >
           <QueryGate query={instances} empty={(page) => page.data.length === 0}>
             {(page) => (
               <ul style={{ listStyle: "none" }}>
@@ -571,7 +578,7 @@ export function AutomationsScreen() {
               </ul>
             )}
           </QueryGate>
-        </section>
+        </Card>
       </div>
     </div>
   );

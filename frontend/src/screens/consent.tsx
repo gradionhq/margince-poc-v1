@@ -5,8 +5,8 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
-  SectionHeader,
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
@@ -119,7 +119,7 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
     b.occurred_at.localeCompare(a.occurred_at),
   );
   return (
-    <div className="card card-inset consent-proof-log">
+    <Card as="div" inset className="consent-proof-log">
       <ul className="timeline">
         {ordered.map((event) => (
           <li key={event.id}>
@@ -142,7 +142,7 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
           </li>
         ))}
       </ul>
-    </div>
+    </Card>
   );
 }
 
@@ -364,16 +364,13 @@ export function ConsentSection({ personId }: Readonly<{ personId: string }>) {
   }
 
   return (
-    <section
-      className="card"
+    <Card
       style={{ marginBottom: "var(--space-4)" }}
-      aria-label={t("person.consent")}
+      ariaLabel={t("person.consent")}
+      title={t("person.consent")}
+      sub={t("consent.defaultDeny")}
     >
-      <SectionHeader
-        title={t("person.consent")}
-        sub={t("consent.defaultDeny")}
-      />
       <QueryStates query={consentQuery}>{body}</QueryStates>
-    </section>
+    </Card>
   );
 }

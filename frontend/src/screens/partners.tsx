@@ -8,6 +8,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import {
   Button,
+  Card,
   EmptyState,
   Field,
   SectionHeader,
@@ -401,9 +402,9 @@ function PartnerDetail({
   }
 
   return (
-    <section className="card">
-      <div className="list-head">
-        <SectionHeader title={t("tab.partner")} />
+    <Card
+      title={t("tab.partner")}
+      actions={
         <Button
           small
           onClick={() => setEditing(true)}
@@ -411,7 +412,8 @@ function PartnerDetail({
         >
           {t("record.edit")}
         </Button>
-      </div>
+      }
+    >
       <dl className="detail-grid">
         {partner.partner_role && (
           <>
@@ -442,7 +444,7 @@ function PartnerDetail({
           </>
         )}
       </dl>
-    </section>
+    </Card>
   );
 }
 
@@ -474,8 +476,7 @@ export function PartnerTab({
             onSaved={invalidateAfterSave}
           />
         ) : (
-          <section className="card">
-            <SectionHeader title={t("tab.partner")} />
+          <Card title={t("tab.partner")}>
             <EmptyState>{t("partner.none")}</EmptyState>
             <div style={{ marginTop: 16 }}>
               <SectionHeader title={t("partner.setup")} />
@@ -485,7 +486,7 @@ export function PartnerTab({
                 onSaved={invalidateAfterSave}
               />
             </div>
-          </section>
+          </Card>
         )
       }
     </QueryGate>

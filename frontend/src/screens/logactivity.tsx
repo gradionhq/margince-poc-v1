@@ -4,9 +4,9 @@ import { api } from "../api/client";
 import type { EntityKind } from "../app/entity";
 import {
   Button,
+  Card,
   Field,
   Modal,
-  SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -194,10 +194,9 @@ export function LogActivity({
     return null;
   }
   return (
-    <section className="card card-stack">
-      <SectionHeader title={t("log.title")} sub={t("log.sub")} />
+    <Card className="card-stack" title={t("log.title")} sub={t("log.sub")}>
       <LogActivityForm entityType={entityType} entityId={entityId} />
-    </section>
+    </Card>
   );
 }
 
