@@ -92,6 +92,13 @@ and no upload surface exists yet.
 1536×1024 and by clicking every button; the visual baselines the plan called
 for are not written.
 
+**The sender declares which consent class applies (#867).** ADR-0098 makes
+`business_correspondence` and `transactional` non-consent classes, and the
+purpose key is caller-supplied in the send body with nothing binding the
+declared class to the message's actual nature. Before the ADR that was harmless
+— every class still needed a grant. It now needs a spec call, not a unilateral
+code change; the options are in the issue.
+
 ## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
 
 **Found from an unrelated PR's red integration shard, and it has a date on it.**
