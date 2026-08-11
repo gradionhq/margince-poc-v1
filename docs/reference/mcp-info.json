@@ -14,7 +14,13 @@
     "resource_catalog_bytes": 3108,
     "approx_wire_tokens_total": 27028,
     "largest_tool_bytes": 4151,
-    "largest_tool": "run_report"
+    "largest_tool": "run_report",
+    "tool_catalog_composition": {
+      "description_bytes": 28224,
+      "input_schema_bytes": 23668,
+      "output_schema_bytes": 45049,
+      "description_plus_input_schema_bytes": 51892
+    }
   },
   "tools": {
     "_meta": {
