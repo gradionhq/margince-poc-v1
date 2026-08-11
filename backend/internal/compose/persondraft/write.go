@@ -43,6 +43,7 @@ Do NOT write a sign-off or a sender name. The composer adds the sender's own; a 
 Say one thing and ask for one thing. Three short paragraphs at most.
 The claims are things this contact said. Answer one of them if it helps; never quote it back at them as something they are on record as saying.
 A claim marked "overdue" is something WE said we would do by a date that has passed. If there is one, it is the reason this message is being written: lead with it, say what is happening with it, and do not open on anything else while it is outstanding. Do not apologise at length and do not promise a new date the summary did not give you.
+The "due" field is a machine timestamp for you to read, never text to copy. Never write a date in that form to the recipient; if the timing is worth saying at all, say it the way a person would.
 Where the shared rules let you either write around a missing detail or ask for it, prefer writing around it here: this message opens with an ask of its own, and a second question dilutes it.
 The reasoning array is where an explanation of the draft goes. It is the ONLY place; the body carries none.
 Each reasoning entry names ONE input you actually used, in the reader's words, short enough to read as a chip ("pricing concern", "asked about onboarding"). Give entity_type and entity_id when the input was a record the summary identified; omit both when it was the caller's own intent.

@@ -127,10 +127,18 @@ func deterministicOpener(in Input) string {
 // matters.
 var openingClaimKinds = []string{"open_question", "objection", "priority"}
 
-// commitmentKind is the claim kind that records something one side said they
-// would do. Only OUR overdue ones open a draft; the rest of the ranking is
-// about what THEY said.
-const commitmentKind = "commitment"
+// ourCommitment is the claim kind recording something WE said we would do.
+//
+// Derived from the contract enum rather than spelled as a literal, which is not
+// a style point here: this rule first shipped keyed on "commitment", a kind the
+// contract never emits, so the branch could not fire on any real record and the
+// test that "proved" it fabricated the same missing kind.
+//
+// Their commitments are deliberately excluded. "You said you would send the
+// signed order" is a real fact and a different message from "we owe you the
+// scope document" - chasing them is not what this rule is for, and the prompt
+// beside it says the overdue item is ours.
+var ourCommitment = string(crmcontracts.CommitmentOurs)
 
 // leadClaim picks the claim the opener refers to: the first one of the
 // highest-ranked kind present. The 360 hands claims over newest-first, so
@@ -139,7 +147,7 @@ func leadClaim(in Input) (ClaimIn, bool) {
 	// An overdue promise outranks every kind below: it is the only one the
 	// recipient is owed, and the newest is the one most likely to still matter.
 	for _, claim := range in.Claims {
-		if claim.Kind == commitmentKind && claim.Overdue {
+		if claim.Kind == ourCommitment && claim.Overdue {
 			return claim, true
 		}
 	}
@@ -159,7 +167,7 @@ func leadClaim(in Input) (ClaimIn, bool) {
 // the same way would put "you objected to" in a message about a preference.
 func claimOpener(claim ClaimIn, lines draftfloor.Substance) string {
 	switch claim.Kind {
-	case commitmentKind:
+	case ourCommitment:
 		return draftfloor.Fill(lines.Commitment, claim.Body)
 	case "open_question":
 		return draftfloor.Fill(lines.OpenQuestion, claim.Body)

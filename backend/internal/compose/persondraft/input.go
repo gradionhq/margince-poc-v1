@@ -313,7 +313,12 @@ func foldClaims(in *Input, view crmcontracts.Person360, now time.Time) {
 	if view.Claims == nil {
 		return
 	}
-	for _, claim := range *view.Claims {
+	// An overdue promise of ours is why this message is being written, and the
+	// claims arrive newest-first — so on a busy record the longest-overdue one,
+	// which is the one that most needs saying, falls outside the window. It is
+	// hoisted BEFORE the cap rather than ranked after it.
+	claims := hoistOverdueOurs(*view.Claims, now)
+	for _, claim := range claims {
 		if len(in.Claims) == draftInputClaims {
 			break
 		}
@@ -328,10 +333,55 @@ func foldClaims(in *Input, view crmcontracts.Person360, now time.Time) {
 		}
 		if claim.DueAt != nil {
 			folded.Due = claim.DueAt.UTC().Format(time.RFC3339)
-			folded.Overdue = claim.DueAt.Before(now)
+			folded.Overdue = isOverdueOurs(claim, now)
 		}
 		in.Claims = append(in.Claims, folded)
 	}
+}
+
+// isOverdueOurs reports whether this claim is a promise WE made, still open,
+// and past its date.
+//
+// All three conditions, because each alone is a different sentence. A
+// commitment of THEIRS past its date is a fact about them and a different
+// message from one we owe; a DONE commitment past its date was kept, and
+// resurrecting it in front of the customer is worse than not mentioning it at
+// all; and a promise still within its date is not a reason to write today.
+//
+// A due date exactly equal to now is not yet overdue. The boundary favours the
+// side that says less.
+func isOverdueOurs(claim crmcontracts.ConversationClaim, now time.Time) bool {
+	if claim.Kind != crmcontracts.CommitmentOurs {
+		return false
+	}
+	if claim.Status != crmcontracts.ConversationClaimStatusOpen {
+		return false
+	}
+	return claim.DueAt != nil && claim.DueAt.Before(now)
+}
+
+// hoistOverdueOurs moves our overdue promises to the front, keeping every other
+// claim in the order the store returned them.
+//
+// Stable, so the newest-first ordering the rest of the ranking depends on
+// survives underneath. Only the hoist is a reordering; nothing is dropped, and
+// a record with no overdue promise of ours comes back exactly as it went in.
+func hoistOverdueOurs(claims []crmcontracts.ConversationClaim, now time.Time) []crmcontracts.ConversationClaim {
+	out := make([]crmcontracts.ConversationClaim, 0, len(claims))
+	for _, claim := range claims {
+		if isOverdueOurs(claim, now) {
+			out = append(out, claim)
+		}
+	}
+	if len(out) == 0 {
+		return claims
+	}
+	for _, claim := range claims {
+		if !isOverdueOurs(claim, now) {
+			out = append(out, claim)
+		}
+	}
+	return out
 }
 
 func foldRecent(in *Input, view crmcontracts.Person360) {
