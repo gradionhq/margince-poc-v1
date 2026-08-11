@@ -40,7 +40,6 @@ output. A required job skipped this way still counts as passing.
 | `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
-| `docker` | root `Dockerfile.*`, `.dockerignore`, `docker-bake.hcl` | the three image builds |
 | `deps` | `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |
 
 Consequences:
@@ -52,6 +51,11 @@ Consequences:
   pattern because the action ORs its patterns: a separate `!infra/**/*.md`
   entry would match every path outside `infra/` and fire the filter on
   everything.
+- A **Dockerfile-only PR** (root `Dockerfile.*`, `.dockerignore`,
+  `docker-bake.hcl`) also matches no scope. The role images are built, pushed
+  and digest-pinned into the release by `release.yml` on every push to `main`
+  — that build is the gate now, so an image break surfaces in the release run
+  rather than the merge gate.
 - A **backend-only PR** skips the frontend + UAT lanes; a **frontend-only PR**
   skips the Go build/gate + the integration lane — except for
   `frontend/src/mcp-apps/forbidden.json`, which is authored under `frontend/`
@@ -84,7 +88,6 @@ changes ──┬─> deterministic-gates ──> craftsmanship
           ├─> license gate  (PR-only, `deps` scope)                 │  │
           ├─> frontend ──> uat                                      │  │
           ├─> live-boot                                             │  │
-          ├─> docker-image (×3: api, web, worker) ─> docker-images  │  │
           v                                                         v  v
  deterministic-gates + integration + extension-reference + frontend ──> sonarcloud
   dco  (PR-only, independent)
@@ -171,8 +174,6 @@ third-party actions it calls, which would otherwise ride in unread.
 | `frontend` | `make frontend-check` (biome + vitest + tsc + Vite build) + a Storybook catalog build (stories must compile & register). Emits `fe-coverage` (lcov) |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
 | `live-boot` | The README quickstart run literally: compose up → migrate → api → `seed-dev` → `verify-boot`. Keeps the API-driven seed and the boot proof honest — the integration shards never boot the api or run the seed script, so those would rot invisibly without this job |
-| `docker image (api\|web\|worker)` | `docker build` of the root Dockerfiles, which only downstream deploy tooling otherwise consumes. Without it a `FROM` bump or stage restructure matches no other classifier scope — every meaningful job skips and the PR looks green — which matters doubly now that Renovate auto-merges green dependency PRs, `dockerfile` manager included |
-| `docker images (api + web + worker)` | The fan-in — and the required check. A path-skipped matrix job reports one check run under its **unexpanded** name, so the leg names can't be required contexts; this static-named job asserts every build leg succeeded (same shape as the `integration` fan-in: it must run and fail, not skip, when a leg fails) |
 | `sonarcloud` | The CI-based scan (below) |
 
 ## Coverage → SonarCloud
@@ -207,7 +208,7 @@ Wiring details:
   pushes).
 - `persist-credentials: false` on the checkouts of the jobs that execute
   PR-authored code (the `integration` shards, unit-coverage pass and fan-in,
-  `live-boot`, `frontend`, `uat`, the `docker image` builds) — so a
+  `live-boot`, `frontend`, `uat`) — so a
   malicious PR running `make test-integration` / `make frontend-e2e` can't read
   the persisted `GITHUB_TOKEN`. The diff-scoped gate jobs
   (`deterministic-gates`, `craftsmanship`, `craft-residue`) keep the token on
