@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 1 — a draft is now written in the language of the correspondence, knows what time it is, knows who is sending it, and stops inventing a history. Two spec PRs land first (margince-foundation #1272 the correspondence envelope + DRAFT-AC-E-1..7, #1273 the shared-core layering + E-8/E-9 + AIEVAL-32/33), then five code PRs: `shared/kernel/textlang` + `convstate` (#916), `draftfloor` with all four no-model producers ported onto one band×language table (#918), `identity.ActorIdentity` + its ratified RBAC waiver (#919), `compose/draftrules` — the shared prompt block that fixes the reported "Romina introduced me to Marek" defect, since there is no referral data to ground on and forbidding the inference is the cure (#922), and the person/account certification sites ADR-0074 requires now that both prompts changed (#926). Filed as fast-track-debt: #915 (an English signature footer can still outvote a short German reply), #921 (the recorded cert outputs need a paid re-record; the staleness gate warns rather than fails), #934 (the person page's "Ask for context" button renders enabled and is inert), #935 (the composer never calls the person draft endpoint), #936 (the warm-intro drafter has no UI). Waves 2 and 3 — the shared `draftcore` engine, the one Person360 fold, voice on the composers, and widened grounding — are not started.
 - Shipped 2026-08-11: bootstrap writes the installation's Agent Runner seat (`is_agent`, no password, no role assignment) and core `0216` backfills the installations that predate it, so a scheduled extension job has an initiator and actually runs on a fresh install (#656). The seat is an identity and not an authority: the one path that could have handed it a credential — the admin-issued set-password link — now refuses it. Left out deliberately: the admin members screen lists the seat with a role selector and a set-password button the API now refuses; its presentation is filed as a follow-up.
 - Shipped 2026-08-11 (batman, follow-up): a same-kind consumer-mail re-add stays on the create grant, so a rep retrying a lost response gets the existing entry instead of a 403 (PR #888, found by the Codex review of #872). Open upstream: spec capture.md CAP-PARAM-5 predates the workspace consumer-mail surface entirely (still says baseline + margince.yaml, no UI) — reconcile in the spec repo.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
@@ -81,10 +82,12 @@ arm exists, computed at send time from the timeline. `inquiry`, `in_person` and
 flag. The behaviour under-allows rather than over-allows, so it is safe and
 incomplete.
 
-**No model lane is wired to any of it.** The person brief, the person draft and
-the meeting brief all render their deterministic floor and say so in
-`generated_by`. `WithPersonDraft` exists for the api role; the other two need
-the same treatment.
+**The person brief and the meeting brief have no model lane wired.** Both render
+their deterministic floor and say so in `generated_by`. The person DRAFT does
+have one — `cmd/api/modelwiring.go` binds `WithPersonDraft(modelPath.DraftReply)`
+— so a person-page draft is model-written wherever a model is configured. The
+distinction matters: a stale reading of this line has already led a reviewer to
+assess the drafting work as lower-risk than it was.
 
 **No research provider is registered**, which is the supported configuration
 (ADR-0096 D4): the drawer answers "no data provider yet connected" and writes
