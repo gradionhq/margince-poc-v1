@@ -1,0 +1,185 @@
+/* Extension access layout — the composed-unit inventory and its role × CRUD
+   matrices. Structure only; every colour reads a design token (ds-purity gate)
+   and every gap reads the --space-* scale (ds-spacing gate). */
+
+.ext-units {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ext-unit + .ext-unit {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: var(--space-4);
+}
+
+.ext-unit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ext-unit-name {
+  font-size: var(--fs-lead);
+  font-weight: 600;
+  margin: 0;
+  color: var(--textPrimary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The link to the unit's own page, and the sentence that stands in for it when
+   this build of the SPA has no page to link to. Both sit on the same line under
+   the unit heading, so the block reads the same either way. */
+.ext-unit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.ext-unit-nopage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.ext-brings {
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Term above definition rather than beside it: at 390px a two-column
+   definition list forces the chip row narrower than a single object name. */
+.ext-brings-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ext-brings-term {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--textSecondary);
+}
+
+.ext-brings-def {
+  margin: 0;
+  min-width: 0;
+}
+
+.ext-none {
+  color: var(--textSecondary);
+}
+
+.ext-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.ext-chip {
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgHover);
+  color: var(--textContent);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-meta);
+  overflow-wrap: anywhere;
+}
+
+/* The verb on a route chip. It is not decoration: one entry per operation
+   means a path can appear twice, and the method is the only thing that tells a
+   DELETE from the GET beside it. */
+.ext-method {
+  font-weight: 600;
+  color: var(--textPrimary);
+  margin-right: var(--space-1);
+}
+
+.ext-route-path {
+  color: var(--textContent);
+}
+
+.ext-object {
+  margin-top: var(--space-3);
+}
+
+/* The matrix is five columns wide at minimum; on a 390px viewport it scrolls
+   inside its own box rather than pushing the page sideways (the §3.8 no
+   horizontal page scroll rule). The region holds the checkboxes themselves, so
+   it is reachable by keyboard without a tabindex of its own. */
+.ext-matrix-wrap {
+  overflow-x: auto;
+}
+
+.ext-matrix {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.ext-matrix-caption {
+  text-align: left;
+  color: var(--textSecondary);
+  padding-bottom: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.ext-matrix th,
+.ext-matrix td {
+  border-bottom: 1px solid var(--borderSubtle);
+  padding: var(--space-2);
+  text-align: left;
+  font-size: var(--fs-sm);
+}
+
+.ext-matrix thead th {
+  color: var(--textSecondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ext-matrix tbody th {
+  font-weight: 500;
+  color: var(--textPrimary);
+  white-space: nowrap;
+}
+
+.ext-role-name {
+  display: block;
+}
+
+.ext-role-note {
+  display: block;
+  color: var(--textSecondary);
+}
+
+/* The tick's label is screen-reader-only, so the cell's clickable area is the
+   box itself — give it the whole cell to stand in. */
+.ext-cell {
+  display: inline-flex;
+  margin: 0;
+}
+
+.ext-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  color: var(--warn);
+}
+
+.ext-note {
+  color: var(--textSecondary);
+  margin: var(--space-2) 0 0;
+}

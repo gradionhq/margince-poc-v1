@@ -18,19 +18,20 @@ import (
 // New returns the unit's declaration (the constructor
 // contract the generated composition calls). It exercises both kinds the
 // manifest reader distinguishes: a jurisdiction pack (passive policy, no
-// manifest entry) and a governed agent tool (a 🟡 risk-tier request
-// that DOES appear in manifest.generated.json).
+// manifest entry) and a governed agent tool (a 🟡 risk-tier request that DOES
+// appear in manifest.generated.json).
+//
+// There is no Tools entry, and that is the point. hello_ping is declared in
+// api/crm.yaml and nothing here carries behavior for it, so it is a
+// CONTRACT-ONLY governed request: it reaches the manifest and the merged
+// contract, and the composed surface serves nothing. A Tools entry with a nil
+// Handle would declare the same inertness a second time, in the one place that
+// exists to say what the unit can actually run.
 func New() extension.Extension {
 	return extension.Extension{
 		Name:          "crm-hello",
 		Version:       "0.1.0",
 		Jurisdictions: []jurisdiction.Pack{pack{}},
-		Tools: []extension.Tool{{
-			Name:           "hello_ping",
-			Version:        "1.0.0",
-			Tier:           extension.TierConfirmationRequired,
-			RequestedScope: extension.ScopeRead,
-		}},
 	}
 }
 

@@ -33,16 +33,29 @@ func scannableGoFile(name string) bool {
 	return !strings.HasSuffix(name, "_test.go")
 }
 
-func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error) {
+func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb, jobDecls []extension.JobDeclaration) ([]byte, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
+	// ParseComments, because one of the declarations this reader has to judge
+	// lives in a comment: //go:embed binds a pattern to the var beneath it, and
+	// the Migrations field is checked against exactly that binding.
+	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
 	if len(pkgs) != 1 {
 		return nil, fmt.Errorf("extensions/%s: the unit root must hold exactly one package, found %d", u.Name, len(pkgs))
 	}
-	r := &unitReader{fset: fset, vocab: vocab}
+	if err := rejectLiveInitializers(pkgs, fset); err != nil {
+		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
+	}
+	r := &unitReader{
+		fset:            fset,
+		vocab:           vocab,
+		verbs:           verbs,
+		jobs:            jobDecls,
+		hasMigrations:   u.HasMigrations,
+		migrationEmbeds: migrationEmbedVars(pkgs),
+	}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
@@ -96,6 +109,115 @@ func encodeUnitManifest(m unitManifest) ([]byte, error) {
 type unitReader struct {
 	fset  *token.FileSet
 	vocab map[string]string
+	// verbs are the operations this unit's contract fragments declare, read
+	// from the MERGED contract before the AST is walked. The reader needs them
+	// to join behavior to declaration (joinToolsToContract) and to build the
+	// manifest's risk tiers, which are contract-derived, not AST-derived.
+	verbs []declaredVerb
+	// jobs are the scheduled jobs this unit's jobs.yaml fragment declares,
+	// read from the MERGED contract for the same reason verbs are: the join
+	// between behavior and declaration, and the manifest's job risk tiers.
+	jobs []extension.JobDeclaration
+	// hasMigrations is whether the unit ships a migrations/ layer, read from
+	// the tree rather than from the AST — the other half of the join the
+	// Migrations field has to satisfy.
+	hasMigrations bool
+	// migrationEmbeds are the package-level vars whose //go:embed directive
+	// names the migrations layer, by name. The Migrations field must be one of
+	// them; see readExtensionField.
+	migrationEmbeds map[string]bool
+	// sawMigrations records that the literal set Migrations at all, so an
+	// absent field on a unit that ships SQL is caught after the walk.
+	sawMigrations bool
+}
+
+// migrationEmbedVars collects the package-level vars whose //go:embed
+// directive names the migrations layer.
+//
+// The directive is read from a doc comment because that is where the go:embed
+// contract puts it: the compiler binds the pattern to the var immediately
+// below it, so the same association read here is the one that holds at build
+// time. It is read from TWO places, because go/ast puts it in two:
+// `var (\n //go:embed migrations\n sql embed.FS\n)` hangs it on the SPEC,
+// and the ungrouped `//go:embed migrations\nvar sql embed.FS` hangs it on the
+// DECL. Reading only the second rejected the grouped form, which is ordinary
+// valid Go.
+//
+// The decl's own doc is consulted only for an UNGROUPED declaration. A comment
+// above `var (` binds to no spec in Go, so treating it as one would accept a
+// directive the compiler ignores — and mark every var in the group.
+func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
+	embeds := map[string]bool{}
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			for _, decl := range f.Decls {
+				d, ok := decl.(*ast.GenDecl)
+				if !ok || d.Tok != token.VAR {
+					continue
+				}
+				grouped := d.Lparen.IsValid()
+				for _, spec := range d.Specs {
+					v, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					if !embedsMigrations(v.Doc) && (grouped || !embedsMigrations(d.Doc)) {
+						continue
+					}
+					for _, name := range v.Names {
+						embeds[name.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return embeds
+}
+
+// embedsMigrations reports whether a doc comment carries a //go:embed
+// directive covering the migrations layer.
+//
+// It is stricter about the DIRECTIVE and looser about the PATTERN than the
+// obvious prefix test, and both directions are the compiler's rule rather than
+// a preference:
+//
+//   - The separator is a single ASCII SPACE, not "whitespace". The compiler
+//     recognizes the directive by `text == "go:embed"` or the exact prefix
+//     `"go:embed "` (cmd/compile/internal/noder), so BOTH
+//     `//go:embedmigrations` and a tab-separated `//go:embed\tmigrations` are
+//     ordinary comments: the FS beneath either stays EMPTY and the unit's
+//     migrations are silently never applied. That is precisely the defect this
+//     gate exists to catch, and accepting a separator the compiler does not
+//     would let an empty embed.FS satisfy Migrations — the unit boots against a
+//     database where its tables were never created.
+//   - A pattern may be a quoted Go string literal, so `//go:embed "migrations"`
+//     is valid and embeds the same directory. Comparing the raw token refused
+//     it for a spelling difference.
+func embedsMigrations(doc *ast.CommentGroup) bool {
+	if doc == nil {
+		return false
+	}
+	for _, c := range doc.List {
+		// The trailing space is part of the prefix ON PURPOSE — it is the
+		// compiler's own separator, and matching anything looser accepts a
+		// comment the compiler ignores.
+		rest, ok := strings.CutPrefix(c.Text, "//go:embed ")
+		if !ok {
+			continue
+		}
+		for _, pattern := range strings.Fields(rest) {
+			if unquoted, err := strconv.Unquote(pattern); err == nil {
+				pattern = unquoted
+			}
+			// `all:` is the only prefix go:embed defines, and it changes which
+			// files inside the directory are taken, not which directory.
+			pattern = strings.TrimPrefix(pattern, "all:")
+			if first, _, _ := strings.Cut(pattern, "/"); first == migrationsLayer {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManifest, error) {
@@ -107,11 +229,22 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 	if !ok || !isSelector(lit.Type, importAlias(file, extensionPkgPath), "Extension") {
 		return unitManifest{}, r.errAt(expr, "New must return an extension.Extension literal")
 	}
-	m := unitManifest{Schema: 1, RiskTiers: []riskTierRequest{}}
+	tiers, err := toolRequests(r.verbs)
+	if err != nil {
+		return unitManifest{}, err
+	}
+	jobTiers, err := jobRequests(r.jobs)
+	if err != nil {
+		return unitManifest{}, err
+	}
+	m := unitManifest{Schema: 1, RiskTiers: append(tiers, jobTiers...)}
 	for _, elt := range lit.Elts {
 		if err := r.readExtensionField(elt, file, &m); err != nil {
 			return unitManifest{}, err
 		}
+	}
+	if r.hasMigrations && !r.sawMigrations {
+		return unitManifest{}, r.errPos(lit, "the unit ships %s/ but New() declares no Migrations field — the directory is validated and gated, and applied by nothing; embed it and name it here", migrationsLayer)
 	}
 	// Validate identity through the published grammar the boot preflight
 	// runs, so gen-time acceptance cannot diverge from boot-time: an empty,
@@ -125,6 +258,12 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 		return unitManifest{}, r.errPos(lit, "%v", err)
 	}
 	sort.Slice(m.RiskTiers, func(i, j int) bool { return m.RiskTiers[i].ID < m.RiskTiers[j].ID })
+	sort.Slice(m.Secrets, func(i, j int) bool {
+		if m.Secrets[i].Key != m.Secrets[j].Key {
+			return m.Secrets[i].Key < m.Secrets[j].Key
+		}
+		return m.Secrets[i].Scope < m.Secrets[j].Scope
+	})
 	return m, nil
 }
 
@@ -144,15 +283,59 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	case "Version":
 		m.Version, err = r.stringLit(kv.Value, "Version")
 	case "Tools":
-		var tiers []riskTierRequest
-		tiers, err = r.readTools(kv.Value, file)
+		// The manifest's risk tiers are already set, from the merged contract.
+		// What the Go slice contributes is the join: behavior for a verb the
+		// contract does not declare is a defect, reported at its own line.
+		var tools []declaredTool
+		tools, err = r.readTools(kv.Value, file)
 		if err == nil {
-			m.RiskTiers = append(m.RiskTiers, tiers...)
+			err = r.joinToolsToContract(served(tools), r.verbs)
+		}
+	case "Jobs":
+		// Symmetric with Tools: the manifest's job risk tiers are already set,
+		// from the merged contract. What the Go slice contributes is the join —
+		// behavior for a job the contract does not declare is a defect,
+		// reported at its own line.
+		var declared []declaredTool
+		declared, err = r.readJobs(kv.Value, file)
+		if err == nil {
+			err = r.joinJobsToContract(served(declared), r.jobs)
 		}
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
 		// operator resolves, so it contributes no manifest entry.
+	case "Migrations":
+		// It contributes no MANIFEST entry, for the same reason a jurisdiction
+		// pack does not: what an operator resolves are risk tiers and secret
+		// requests, and a schema is neither. But the field is not unchecked,
+		// because it is the ONLY thing that connects the SQL on disk to the SQL
+		// that runs. collectUnitTables reads extensions/<unit>/migrations/ and
+		// extmigrategate applies it as the restricted ext_<name> role; both
+		// address the DIRECTORY. cmd/migrate applies this FIELD. A unit that
+		// ships a validated, gated migrations/ tree and leaves the field unset,
+		// or points it at some other embedded FS, passes every one of those
+		// checks and then boots against a database where its tables were never
+		// created — and the first symptom is a handler answering `relation
+		// does not exist` in production.
+		//
+		// So the field must name a package-level var whose //go:embed directive
+		// covers that directory. That is a shape check, not a proof: the var
+		// could embed migrations/ AND more, and an fs.FS assembled at runtime
+		// is outside what a static reader can follow at all. What it does close
+		// is the whole population of accidents — the unset field, the typo, the
+		// var that embeds a different layer.
+		r.sawMigrations = true
+		name, ok := kv.Value.(*ast.Ident)
+		if !ok || !r.migrationEmbeds[name.Name] {
+			err = r.errAt(kv.Value, "Migrations must name a package-level var whose //go:embed directive covers %s/ — the field is what cmd/migrate applies, so one pointing anywhere else leaves the unit's tables uncreated at boot", migrationsLayer)
+		}
+	case "Secrets":
+		var secrets []secretsRequest
+		secrets, err = r.readSecrets(kv.Value, file)
+		if err == nil {
+			m.Secrets = append(m.Secrets, secrets...)
+		}
 	default:
 		// Fail closed: a field this generator does not recognize could be a
 		// future governed capability, and a manifest that silently omitted
@@ -160,157 +343,6 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		err = r.errAt(kv, "Extension field %s is not derivable by this generator — teach the manifest reader before declaring it", key.Name)
 	}
 	return err
-}
-
-func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]riskTierRequest, error) {
-	lit, ok := expr.(*ast.CompositeLit)
-	if !ok {
-		return nil, r.errAt(expr, "Tools must be a slice literal")
-	}
-	ext := importAlias(file, extensionPkgPath)
-	tiers := make([]riskTierRequest, 0, len(lit.Elts))
-	seen := map[string]bool{}
-	for _, elt := range lit.Elts {
-		c, err := r.readTool(elt, ext)
-		if err != nil {
-			return nil, err
-		}
-		if seen[c.ID] {
-			return nil, r.errAt(elt, "governed operation %s declared twice", c.ID)
-		}
-		seen[c.ID] = true
-		tiers = append(tiers, c)
-	}
-	return tiers, nil
-}
-
-func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error) {
-	lit, ok := elt.(*ast.CompositeLit)
-	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
-		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
-	}
-	var name, title, description, version, tier, scope string
-	var served bool
-	for _, e := range lit.Elts {
-		kv, ok := e.(*ast.KeyValueExpr)
-		if !ok {
-			return riskTierRequest{}, r.errAt(e, "Tool fields must be keyed")
-		}
-		key, ok := kv.Key.(*ast.Ident)
-		if !ok {
-			return riskTierRequest{}, r.errAt(kv.Key, "Tool fields must be keyed by name")
-		}
-		var err error
-		switch key.Name {
-		case "Name":
-			name, err = r.stringLit(kv.Value, "Tool.Name")
-		case "Title":
-			// Read to be VALIDATED, not to be recorded: a display string
-			// grants nothing, so it stays out of the descriptor and its
-			// digest — but the core registry refuses a blank one at boot, and
-			// this is where a unit author is told so at the declaration.
-			title, err = r.stringLit(kv.Value, "Tool.Title")
-		case "Description":
-			// Read to be VALIDATED, like the title: selection prose grants
-			// nothing and stays out of the descriptor and its digest, but the
-			// composition refuses a SERVED tool without one, and this is where a
-			// unit author is told so — at the declaration, in their own source.
-			description, err = r.stringLit(kv.Value, "Tool.Description")
-		case "Version":
-			version, err = r.stringLit(kv.Value, "Tool.Version")
-		case "Tier":
-			tier, err = r.constValue(kv.Value, ext)
-		case "RequestedScope":
-			scope, err = r.constValue(kv.Value, ext)
-		case "Handle":
-			// Behavior is not a static declaration and never reaches the
-			// manifest. Whether one is SERVED is read anyway, because that is
-			// what separates a tool owing a description from an inert manifest
-			// request that does not. A declared `Handle: nil` is inert — it is
-			// how the seam spells "declare it, serve nothing", and the runtime
-			// adapter skips exactly that — so the field's presence is not the
-			// question; its value being non-nil is. See isStaticallyNil for the
-			// spellings that count as nil.
-			served = !isStaticallyNil(kv.Value)
-		case "InputSchema", "OutputSchema":
-			// Client-facing I/O docs — recognized and skipped. The manifest
-			// records the governance descriptor, not the advertised schemas.
-		default:
-			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
-		}
-		if err != nil {
-			return riskTierRequest{}, err
-		}
-	}
-	// The composition refuses a served tool with no description, because a
-	// verb is all a model would have to choose it by. That refusal is a boot
-	// failure in whatever process composes the unit; raised here it is a line
-	// and a column in the unit's own source, which is where it can be fixed.
-	if served && strings.TrimSpace(description) == "" {
-		return riskTierRequest{}, r.errAt(lit,
-			"tool %q serves a handler but declares no Description — the text a model selects it by", name)
-	}
-	return r.toolRequest(lit, declaredTool{
-		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
-	})
-}
-
-// isStaticallyNil reports whether an expression is nil at the declaration —
-// which is how a Tools entry says "declare it, serve nothing", and what the
-// runtime adapter skips on.
-//
-// Two spellings, because both reach the adapter as the same nil function value:
-// the bare `nil`, and a conversion of it (`extension.ToolHandler(nil)`), which a
-// unit author writes when the surrounding literal needs the type to be obvious.
-// Anything else — a function name, a literal, a call — is a handler this reader
-// must treat as served, since it cannot evaluate it to find out otherwise.
-func isStaticallyNil(expr ast.Expr) bool {
-	switch e := expr.(type) {
-	case *ast.Ident:
-		return e.Name == "nil"
-	case *ast.CallExpr:
-		// A conversion has exactly one argument; a call with one argument that
-		// is nil is indistinguishable from one syntactically, and reading it as
-		// inert is the conservative half — it asks for a description less
-		// often, and the composition still refuses a served tool without one.
-		return len(e.Args) == 1 && isStaticallyNil(e.Args[0])
-	case *ast.ParenExpr:
-		return isStaticallyNil(e.X)
-	}
-	return false
-}
-
-// declaredTool is one Tools entry as the source states it, before the
-// published grammar has passed judgement on it.
-type declaredTool struct{ name, title, description, version, tier, scope string }
-
-// toolRequest validates the declared tool through its published grammar
-// (the same Validate the boot preflight runs, raised here at the
-// declaration's position) and assembles its descriptor. A tool requires
-// one scope; the descriptor carries it as its (single-element) scope set,
-// the general shape shared across governed kinds. Version and Title are not
-// part of the descriptor: resolutions bind to the digest, never to a version
-// string, and never to a label.
-func (r *unitReader) toolRequest(at ast.Node, d declaredTool) (riskTierRequest, error) {
-	declared := extension.Tool{
-		Name: d.name, Title: d.title, Description: d.description, Version: d.version,
-		Tier: extension.Tier(d.tier), RequestedScope: extension.Scope(d.scope),
-	}
-	if err := declared.Validate(); err != nil {
-		return riskTierRequest{}, r.errPos(at, "%v", err)
-	}
-	c := riskTierRequest{
-		ID:        "tool/" + d.name,
-		Operation: opAgentToolInvoke,
-		Scopes:    []string{d.scope},
-		Tier:      d.tier,
-	}
-	digest, err := descriptorDigest(c)
-	if err != nil {
-		return riskTierRequest{}, err
-	}
-	c.Digest = digest
-	return c, nil
 }
 
 // constValue resolves a published constant (extension.X) through the

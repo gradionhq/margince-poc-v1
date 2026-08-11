@@ -121,7 +121,16 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// behind requireMetricsToken rather than left open beside them.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
+	// What is NOT checked here, said at the line where it would go: whether the
+	// composed units' MIGRATIONS were applied. A composed binary against a
+	// not-yet-migrated database becomes ready and publishes routes and jobs that
+	// fail with undefined-table errors — the ordinary rolling-deploy window.
+	// AssertRuntimeRole beside it is the pattern such a check would follow; the
+	// reason it is not here is that the runtime role holds no grant on the
+	// schema_migrations_ext_* tables, so adding the check means widening what
+	// margince_app may read. Tracked as issue #658.
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping,
+		func(ctx context.Context) error { return AssertRuntimeRole(ctx, pool) })...))
 	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
@@ -133,8 +142,15 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// router: each resolves its own token/slug → tenant, throttles, and
 	// binds a confined system principal. The preference edge wraps the
 	// booking edge — each passes a non-matching path straight through.
+	// The composed extension routes sit INSIDE this chain, wrapping the
+	// generated router: an extension operation is an authenticated,
+	// workspace-scoped call like any other /v1 route, and mounting it on the
+	// operational mux instead would win the longest-pattern match against
+	// "/v1/" and serve without a session. See extensionEdge.
 	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
+		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(
+			extensionEdge(srv, log)(api),
+		),
 	)
 	// publicPreferencesPrefix is named here twice on purpose: it is where
 	// the edge reads the capability token OUT of the path, and where the
@@ -232,5 +248,58 @@ func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
 func WithMetricsToken(token string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.metricsToken = token
+	}
+}
+
+// extensionEdge builds the composed extension router and returns it as an edge
+// around the generated /v1 surface: a request matching a declared extension
+// route is served by that router, and everything else falls straight through.
+//
+// The fall-through is a "/" pattern on the extension mux, not a lookup-then-
+// dispatch: ServeMux already resolves longest-pattern-wins, so registering next
+// as the catch-all makes it decide, and a method mismatch on a declared route
+// still produces its own 405 instead of leaking into the core router as a 404.
+//
+// A boot with no declared operations (the vanilla tree) returns next
+// unchanged — no mux, no allocation, and no route that could shadow a core one.
+// A registry that is not wired yet returns next too, because a route that
+// answered "no registry" would be worse than a 404: it would tell a client the
+// operation exists and is broken, when what is true is that this ROLE does not
+// serve it.
+func extensionEdge(srv Server, log *slog.Logger) func(http.Handler) http.Handler {
+	verbs := ComposedVerbs()
+	if len(verbs) == 0 || srv.toolRegistry == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		mux := http.NewServeMux()
+		mux.Handle("/", next)
+		// composedServedVerbs is this boot's SERVED set, keyed by (unit, tool) —
+		// the verbs a unit shipped a Handle for, attributed to the unit that
+		// shipped them. A declared verb outside it is mounted and answers 501
+		// rather than reaching a registry that never heard of it, or worse
+		// reaching another unit's handler; see MountExtensionRoutes.
+		routes, err := MountExtensionRoutes(mux, verbs, composedServedVerbs(), srv.toolRegistry.Invoke)
+		if err != nil {
+			// A composed set that reached here invalid means RegisterExtensions
+			// accepted something this mounting cannot serve, which is a wiring
+			// defect in the composition rather than a runtime condition — and
+			// serving the core surface with the extension routes silently
+			// missing would publish a contract nothing honours. Same posture as
+			// the composition's other boot-time refusals: fail loudly.
+			panic("compose: mounting the composed extension routes: " + err.Error())
+		}
+		implemented := 0
+		for _, route := range routes {
+			if route.Implemented {
+				implemented++
+			}
+		}
+		// Both counts, because their difference is the contract-only set — the
+		// operations this installation publishes and answers 501 for. An
+		// operator seeing a 501 in the access log should find the number here
+		// rather than reading it as a fault.
+		log.Info("extensions: routes mounted", "routes", len(routes), "implemented", implemented)
+		return mux
 	}
 }

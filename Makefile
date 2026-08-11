@@ -1,13 +1,18 @@
 # Thin delegator: the real Makefile lives in backend/ (the Go module root).
 # `make check` is the merge gate; `make dev` boots everything.
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
-# which not every backend machine has; CI runs both.
+# which not every backend machine has; CI runs both. Since ADR-0069's composed
+# SPA lane the dependency runs BOTH ways: `make check-fe` also needs a Go
+# toolchain, because the composed registry the frontend typechecks against is
+# produced by gen-composition and nothing else can produce it. A machine that
+# runs the full gate needs both toolchains; `make frontend-check` alone is still
+# the node-only lane.
 
 # Overridable exactly as in backend/Makefile, so a pinned toolchain reaches the
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -130,7 +135,7 @@ build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
 ## if the frontend deps are missing rather than skipping — a set-up worktree has
 ## run `make install`, which installs them. The CI frontend job runs this too.
-check-fe:
+check-fe: fe-typecheck-composed
 	@[ -d frontend/node_modules ] || { echo "check-fe: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
 	$(MAKE) frontend-check
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
@@ -182,7 +187,6 @@ space-tokens:
 ## design-system/select.tsx, which is the ONE select this product renders.
 native-controls:
 	frontend/scripts/check-native-controls.sh
-
 ## seed-dev — create/refresh the demo workspace (demo-workspace,
 ## admin@demo.test / demo-password-123) through the public API, then seed
 ## demo FX rates (SQL — fx_rate has no API). Stack must be running
@@ -236,6 +240,25 @@ fe-install:
 ## app build). A scope-aware per-task gate for FE-only work.
 fe-typecheck:
 	cd frontend && pnpm install --frozen-lockfile && pnpm exec tsc -b
+
+## fe-typecheck-composed — the COMPOSED frontend lane (ADR-0069): typecheck the
+## same sources against the generated registry under build/composition/frontend/
+## instead of the committed empty-tree stub. The TypeScript mirror of building
+## the backend under GOWORK=build/composition/go.work — one program, two
+## registries, both proven to compile.
+##
+## It composes FIRST rather than assuming a composition is on disk, and then
+## refuses to run if the generated file is still absent. A lane that skipped
+## the generation step and fell back to the vanilla alias would typecheck a
+## registry nobody composed and report it as the composed one — the same
+## "gate that quietly checks nothing" the CI workflow's own comments warn
+## about. Part of `make check-fe`, so the merge gate covers both lanes.
+fe-typecheck-composed: composition
+	@[ -f build/composition/frontend/extensions.gen.ts ] || { echo "fe-typecheck-composed: build/composition/frontend/extensions.gen.ts is missing after 'make composition' — the composed frontend lane has nothing to typecheck against" >&2; exit 1; }
+	@[ -f build/composition/api/crm.yaml ] || { echo "fe-typecheck-composed: build/composition/api/crm.yaml is missing after 'make composition' — the composed lane has no merged contract to type the client against" >&2; exit 1; }
+	cd frontend && pnpm install --frozen-lockfile && pnpm gen:composed-types
+	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
+	cd frontend && pnpm exec tsc -p tsconfig.composed.json
 
 ## frontend-e2e — the screen-acceptance harness (AC-<screen>-N + axe WCAG AA
 ## + perceived perf budgets) against the built app over the seed mock.
@@ -365,6 +388,23 @@ rls-store-path:
 ## internal/shared/ports/jurisdiction). Comments citing a statute are allowed.
 no-jurisdiction:
 	@./scripts/check-no-jurisdiction.sh
+
+## check-ext-migrations — the extension migration gate (ADR-0069): apply every
+## enabled unit's migrations as its restricted ext_<name> role against a
+## throwaway clone and assert the resulting catalog against the allowlist. The
+## one gate in the tier that is the DATABASE refusing rather than a scanner
+## reading. No-ops (and touches no database) while no unit ships a
+## migrations/ layer.
+##
+## NOT part of check-backend, deliberately. It needs a Postgres cluster from the
+## first unit that ships a migrations/ layer, and check-backend is the fastest
+## merge gate and container-free: arming it there would put a compose-stack
+## start on every backend PR forever, to buy locality once. It runs on the
+## INTEGRATION lane instead (.github/workflows/ci.yml, the `integration` job),
+## which is already the slow, cluster-bearing path. Run it by name locally —
+## `make check-ext-migrations` — after `make db-up`.
+check-ext-migrations:
+	@./scripts/check-ext-migrations.sh
 
 ## pkg-freeze — published-surface freeze gate (ADR-0069 §3, EXT-P3): apidiff
 ## on every backend/pkg package vs the merge target (origin/$GITHUB_BASE_REF

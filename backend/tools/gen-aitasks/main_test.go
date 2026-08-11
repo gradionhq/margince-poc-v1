@@ -275,6 +275,187 @@ tasks:
 	}
 }
 
+// mergeSafetyBase is a minimal-but-valid contract the merge-safety tests
+// append a defect to. Each of them asks one question: can a second
+// declaration of something reach this generator without being seen?
+const mergeSafetyBase = `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [{name: only, kind: one_shot}]
+`
+
+// TestAITasksRejectsDuplicateKey pins the property a merged contract rests
+// on: a key declared twice is refused, never last-write-wins. An extension
+// fragment that re-declared a core task would otherwise silently override
+// its routing ladder — and whichever copy survived would be the one nobody
+// reviewed.
+//
+// yaml.v3 already refuses duplicate mapping keys (its decoder's uniqueKeys
+// default), at every depth and irrespective of KnownFields. That makes this
+// test a pin on a third-party default rather than on our own code, which is
+// exactly why it is worth having: the property is load-bearing here and
+// currently owned by nothing in this repo.
+func TestAITasksRejectsDuplicateKey(t *testing.T) {
+	for name, raw := range map[string]string{
+		"a task declared twice": mergeSafetyBase + `  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+`,
+		"a top-level block declared twice": mergeSafetyBase + "tiers: [alpha]\n",
+		"a field declared twice": `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+`,
+		"a duplicate key inside a site mapping": `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites:
+      - name: only
+        name: other
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseContract([]byte(raw))
+			if err == nil {
+				t.Fatal("parseContract accepted a duplicate key")
+			}
+			if !strings.Contains(err.Error(), "already defined") {
+				t.Fatalf("error %q does not report the duplicate", err)
+			}
+		})
+	}
+}
+
+// TestAITasksRejectsSecondDocument refuses a `---` and anything after it.
+// Only the first document is decoded, but the fingerprint tasks_gen.go
+// carries (TaskContractHash) is the sha256 of the whole FILE — so tasks
+// after a separator would be hashed as if they governed routing while
+// reaching no table at all, and every downstream drift gate compares one
+// generated half against the other rather than against the file.
+func TestAITasksRejectsSecondDocument(t *testing.T) {
+	raw := mergeSafetyBase + `---
+tiers: [beta]
+tasks:
+  smuggled:
+    ladder: [beta]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+`
+	c, err := parseContract([]byte(raw))
+	if err == nil {
+		t.Fatalf("parseContract accepted a second document; the smuggled task reached neither table (tasks = %v)", c.sortedTaskNames())
+	}
+	if !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Fatalf("error %q does not explain the second-document refusal", err)
+	}
+
+	// Malformed bytes after the separator are refused too, and reported as
+	// what they are. Treating an unreadable tail as "no second document"
+	// would let a truncated or corrupted file through on the strength of
+	// its first half.
+	t.Run("an unreadable tail is reported, not swallowed", func(t *testing.T) {
+		_, err := parseContract([]byte(mergeSafetyBase + "---\n*undefined_anchor\n"))
+		if err == nil || !strings.Contains(err.Error(), "reading past the first document") {
+			t.Fatalf("err = %v, want the read failure to surface", err)
+		}
+	})
+}
+
+// TestAITasksRejectsUnknownField closes the hole KnownFields(true) alone
+// does not: yaml.Node.Decode builds its own decoder and does NOT inherit
+// the outer decoder's KnownFields setting, so every block with a custom
+// UnmarshalYAML is a gap in the strictness parseContract thinks it has. A
+// typo there is not a missing declaration but a DIFFERENT one — `kinds:
+// agent_loop` on a site leaves Kind at the one_shot default, which is the
+// opposite certification posture.
+func TestAITasksRejectsUnknownField(t *testing.T) {
+	cases := map[string]struct {
+		raw   string
+		field string
+	}{
+		"top level": {raw: mergeSafetyBase + "unexpected: 1\n", field: "unexpected"},
+		"inside a site mapping": {raw: `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [{name: only, kinds: agent_loop}]
+`, field: "kinds"},
+		"inside a company_context mapping": {raw: `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+    company_context: {scopes: [identity], token_budget: 300, conditionals: true}
+`, field: "conditionals"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseContract([]byte(tc.raw))
+			if err == nil {
+				t.Fatalf("parseContract silently dropped the unknown field %q", tc.field)
+			}
+			if !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("error %q does not name the unknown field %q", err, tc.field)
+			}
+		})
+	}
+}
+
+// The strict read must not cost the shorthand spellings the contract
+// actually uses: a bare site name, and `company_context: none`. Both reach
+// their custom unmarshaller as SCALAR nodes, which never touch the mapping
+// decoder — this pins that the strictness was added on the mapping arm only.
+func TestStrictDecodingKeepsTheScalarShorthands(t *testing.T) {
+	raw := `tiers: [alpha]
+degrade_to: {alpha: alpha}
+tasks:
+  foo:
+    ladder: [alpha]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [bare]
+    company_context: none
+`
+	c, err := parseContract([]byte(raw))
+	if err != nil {
+		t.Fatalf("a shorthand spelling was refused: %v", err)
+	}
+	site := c.Tasks["foo"].Sites[0]
+	if site.Name != "bare" || site.Kind != kindOneShot {
+		t.Fatalf("site = %+v, want the bare name defaulted to %s", site, kindOneShot)
+	}
+	if cc := c.Tasks["foo"].CompanyContext; cc == nil || len(cc.Scopes) != 0 {
+		t.Fatalf("company_context = %+v, want the empty policy", cc)
+	}
+}
+
 // The coherent spellings must keep parsing: a scoped policy with a budget, the
 // conditional variant, and the `none` scalar every task without context uses.
 func TestValidateAcceptsEveryCoherentCompanyContextPolicy(t *testing.T) {

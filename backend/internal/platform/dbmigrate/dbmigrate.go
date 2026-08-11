@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // suffixUp / suffixDown name the two halves of a reversible migration pair.
@@ -184,11 +186,40 @@ func Down(ctx context.Context, conn *pgx.Conn, ns Namespace, n int) (reverted in
 	return reverted, nil
 }
 
+// NamespaceFor maps an extension unit name onto its migration namespace:
+// `foo-1` → `ext_foo_1`, tracked in `schema_migrations_ext_foo_1`. An
+// extension's migrations are a fourth ownership domain alongside the three in
+// this package's doc comment, and this is the only place the unit-name →
+// namespace mapping is spelled for them.
+//
+// It derives through extension.Name.Namespace rather than restating the
+// mapping so that the tracking table an extension's migrations record into
+// can never drift from the table prefix and role name the same unit owns —
+// they are one namespace, not three conventions that happen to agree.
+func NamespaceFor(unit string) (string, error) {
+	ns, err := extension.Name(unit).Namespace()
+	if err != nil {
+		return "", fmt.Errorf("pgmigrate: %w", err)
+	}
+	return ns, nil
+}
+
 func trackingTable(ctx context.Context, conn *pgx.Conn, namespace string) (string, error) {
-	for _, r := range namespace {
-		if (r < 'a' || r > 'z') && r != '_' {
-			return "", fmt.Errorf("pgmigrate: namespace %q: want lower-case letters", namespace)
+	// Digits are admitted because an extension namespace carries them
+	// (`ext_foo_1`); the set stays exactly what an unquoted SQL identifier
+	// holds, since the namespace is interpolated into the statement below and
+	// cannot be a parameter.
+	for i, r := range namespace {
+		digit := r >= '0' && r <= '9'
+		if (r < 'a' || r > 'z') && r != '_' && !digit {
+			return "", fmt.Errorf("pgmigrate: namespace %q: want lower-case letters, digits and underscores", namespace)
 		}
+		if digit && i == 0 {
+			return "", fmt.Errorf("pgmigrate: namespace %q: an identifier cannot start with a digit", namespace)
+		}
+	}
+	if namespace == "" {
+		return "", fmt.Errorf("pgmigrate: empty namespace: it keys the tracking table")
 	}
 	table := "schema_migrations_" + namespace
 	_, err := conn.Exec(ctx, fmt.Sprintf(

@@ -89,7 +89,7 @@ func (s *siteDef) UnmarshalYAML(node *yaml.Node) error {
 		Name string `yaml:"name"`
 		Kind string `yaml:"kind"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("site: %w", err)
 	}
 	s.Name, s.Kind = raw.Name, raw.Kind
@@ -124,7 +124,7 @@ func (p *companyContextDef) UnmarshalYAML(node *yaml.Node) error {
 		TokenBudget int      `yaml:"token_budget"`
 		Conditional bool     `yaml:"conditional"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("company_context: %w", err)
 	}
 	p.Scopes, p.TokenBudget, p.Conditional = raw.Scopes, raw.TokenBudget, raw.Conditional
@@ -231,13 +231,19 @@ const (
 const goConstBlockStart = "const (\n"
 
 // parseContract decodes and validates ai-tasks.yaml. Unknown keys are
-// errors: a typo'd field would otherwise silently drop routing policy.
+// errors: a typo'd field would otherwise silently drop routing policy. The
+// two merge-safety rules that KnownFields alone does not buy — strictness
+// inside the custom unmarshallers, and refusing anything after a second
+// `---` — live in strictdecode.go and are wired here.
 func parseContract(raw []byte) (contract, error) {
 	var c contract
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
 		return contract{}, fmt.Errorf("parsing contract: %w", err)
+	}
+	if err := rejectSecondDocument(dec); err != nil {
+		return contract{}, err
 	}
 	if err := c.validate(); err != nil {
 		return contract{}, err

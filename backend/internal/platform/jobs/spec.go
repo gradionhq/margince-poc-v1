@@ -84,8 +84,9 @@ func (u FanOutUnit) ArgsKey() string {
 // that true of this function rather than only of the file it reads.
 func FanOutUnits() map[string]FanOutUnit {
 	units := map[string]FanOutUnit{}
-	for _, kind := range slices.Sorted(maps.Keys(specs)) {
-		if spec := specs[kind]; spec.FanOutTo != "" {
+	table := allSpecs()
+	for _, kind := range slices.Sorted(maps.Keys(table)) {
+		if spec := table[kind]; spec.FanOutTo != "" {
 			units[spec.FanOutTo] = spec.FanOutUnit
 		}
 	}
@@ -282,7 +283,13 @@ func (s Spec) clone() Spec {
 func SpecFor(kind string) (Spec, bool) {
 	s, ok := specs[kind]
 	if !ok {
-		return Spec{}, false
+		// The composed table second, and only on a miss: the core kinds are the
+		// hot path (every fan-out insert asks) and the composed one is empty on
+		// a vanilla process, so a lookup that consulted both unconditionally
+		// would take a lock on every insert to answer nothing.
+		if s, ok = composedSpecFor(kind); !ok {
+			return Spec{}, false
+		}
 	}
 	return s.clone(), true
 }
@@ -291,8 +298,9 @@ func SpecFor(kind string) (Spec, bool) {
 // report or a metric family walks the same sequence on every process.
 func Declared() iter.Seq2[string, Spec] {
 	return func(yield func(string, Spec) bool) {
-		for _, kind := range slices.Sorted(maps.Keys(specs)) {
-			if !yield(kind, specs[kind].clone()) {
+		table := allSpecs()
+		for _, kind := range slices.Sorted(maps.Keys(table)) {
+			if !yield(kind, table[kind].clone()) {
 				return
 			}
 		}
@@ -318,7 +326,7 @@ func DeclaredQueues() map[string]int {
 func MustBeTotal(kinds []string) error {
 	var missing []string
 	for _, k := range kinds {
-		if _, ok := specs[k]; !ok {
+		if _, ok := SpecFor(k); !ok {
 			missing = append(missing, k)
 		}
 	}

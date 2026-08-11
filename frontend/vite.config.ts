@@ -1,7 +1,35 @@
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { serveMcpApps } from "./scripts/vite-inline-views";
+
+// The composition alias — the runtime half of the two-lane type story whose
+// compile-time half is tsconfig.app.json / tsconfig.composed.json.
+//
+// Default (vanilla): the committed empty-tree registry under src/composition,
+// so a fresh clone builds and `pnpm dev` runs with no generator having been
+// invoked. Composed: MARGINCE_COMPOSITION_FRONTEND names the generated
+// directory, exactly as GOWORK names the generated workspace for the Go lane.
+const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
+const composedComposition = process.env.MARGINCE_COMPOSITION_FRONTEND;
+const compositionDir = composedComposition
+  ? resolve(composedComposition)
+  : join(frontendRoot, "src", "composition");
+// Fail LOUDLY when a lane asks for the composed registry and the generation
+// step did not run. Falling back to the vanilla stub would build a bundle that
+// silently routes no extension at all — the failure would surface as a missing
+// screen in a deployed image, long after the build that caused it went green.
+if (
+  composedComposition &&
+  !existsSync(join(compositionDir, "extensions.gen.ts"))
+) {
+  throw new Error(
+    `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no extensions.gen.ts — run 'make -C backend composition' before building the composed frontend lane`,
+  );
+}
 
 // The frontend talks only to the /v1 contract surface (architecture/01:
 // frontend depends on the generated contract, never Go internals). In dev,
@@ -22,7 +50,20 @@ export default defineConfig({
   // module scripts and /@vite/client, which the api's admission check refuses by
   // name — so both views would be permanently unadvertised in every dev stack.
   plugins: [react(), tailwindcss(), serveMcpApps()],
+  resolve: {
+    alias: {
+      "@composition/extensions": join(compositionDir, "extensions.gen.ts"),
+    },
+  },
   server: {
+    // build/composition/ sits OUTSIDE the Vite root (frontend/), and Vite's
+    // dev server refuses to serve a file it cannot prove is inside the
+    // workspace. Listing the resolved directory keeps `pnpm dev` working in
+    // the composed lane; in the vanilla lane it names src/composition, which
+    // was already allowed, so the entry is inert rather than a widening.
+    fs: {
+      allow: [frontendRoot, compositionDir],
+    },
     // Everything the api owns is reachable through this origin, so
     // `curl localhost:8080/v1/...` and the operational probes keep working
     // against the port a human already has open — the app's port IS the

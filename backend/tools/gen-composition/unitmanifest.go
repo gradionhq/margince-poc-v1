@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // unitManifestFile is the per-unit generated manifest: what
@@ -29,6 +31,14 @@ const unitManifestFile = "manifest.generated.json"
 // grammar can never impersonate a tool invocation.
 const opAgentToolInvoke = "agent.tool.invoke"
 
+// kindAgentTool is the CAPABILITY KIND the descriptor records. It is not a
+// restatement of Operation: the operation says what running the capability
+// does, the kind says which seam registers it — and a second kind arrives with
+// the scheduled-job seam, whose operation will also be an invocation. Keeping
+// them separate in the digest means an operator resolution recorded for a tool
+// cannot carry to a job that happens to share every other field.
+const kindAgentTool = "agent_tool"
+
 const extensionPkgPath = "github.com/gradionhq/margince/backend/pkg/extension"
 
 // unitManifest is one extension's manifest.generated.json: identity plus
@@ -42,32 +52,86 @@ type unitManifest struct {
 	Name      string            `json:"name"`
 	Version   string            `json:"version"`
 	RiskTiers []riskTierRequest `json:"risk_tiers"`
+
+	// Secrets are the secret keys the unit declares (see
+	// extension.SecretsRequest) — inert data an operator resolves, never a
+	// live capability. omitempty rather than mirroring RiskTiers' bare "[]":
+	// nothing declares Secrets yet, and every manifest already committed to
+	// the tree predates this field, so an unconditional key would rewrite
+	// every one of them for a field they do not use.
+	Secrets []secretsRequest `json:"secrets,omitempty"`
 }
 
-// riskTierRequest is one governed operation and the risk tier it
-// requests, carrying its security descriptor: id, operation,
-// requested scopes and requested tier are what operator resolutions bind to,
-// through Digest over exactly those four. The scopes are sorted so the
-// digest does not depend on declaration order.
+// secretsRequest is one declared secret key and scope (see
+// extension.SecretsRequest), sorted by key then scope so the encoding does
+// not depend on declaration order.
+type secretsRequest struct {
+	Key   string `json:"key"`
+	Scope string `json:"scope"`
+}
+
+// riskTierRequest is one governed operation and the risk tier it requests,
+// carrying its security descriptor. Every field but Digest is IN the digest,
+// and the set is wider than it was when a capability was an AST literal in a
+// unit's Go file, because a contract-declared capability has more that can
+// change without changing its name:
+//
+//   - Unit — the declaring extension. Two units may legitimately serve
+//     different verbs; a resolution for one must never read as a resolution
+//     for the other's.
+//   - Kind — which seam registers it (see kindAgentTool).
+//   - Contract — the source identity: the base contract the fragment extended.
+//     The same operation id under a different contract is a different
+//     published thing.
+//   - Operation — what invoking it does.
+//   - OperationID, Route, Method — the published HTTP surface. A verb that
+//     keeps its name while moving to another route, or gaining a method, is a
+//     new promise to every client.
+//   - Scopes, Tier — the authority requested. These are the two an operator is
+//     actually deciding about.
+//   - FragmentHash — everything else in the declaration: the request and
+//     response schemas, and the prose a model selects the tool by. None of it
+//     grants authority, and all of it changes what a model will do with the
+//     authority granted, so a resolution recorded against the old text should
+//     not carry silently to new text.
+//
+// The scopes are sorted (one element today) so the digest does not depend on
+// declaration order.
 type riskTierRequest struct {
-	ID        string   `json:"id"`
-	Operation string   `json:"operation"`
-	Scopes    []string `json:"scopes"`
-	Tier      string   `json:"tier"`
-	Digest    string   `json:"digest"`
+	ID           string   `json:"id"`
+	Unit         string   `json:"unit"`
+	Kind         string   `json:"kind"`
+	Contract     string   `json:"contract"`
+	Operation    string   `json:"operation"`
+	OperationID  string   `json:"operation_id"`
+	Route        string   `json:"route"`
+	Method       string   `json:"method"`
+	Scopes       []string `json:"scopes"`
+	Tier         string   `json:"tier"`
+	FragmentHash string   `json:"fragment_hash"`
+	Digest       string   `json:"digest"`
 }
 
-// descriptor is the canonical form the capability digest covers — id,
-// operation, scopes, tier, nothing else: the kind-specific
-// context around it may change and carry forward, but a change to any of
-// these four re-opens operator resolution.
+// descriptorDigest hashes the canonical form of everything the descriptor
+// records. It re-encodes through an explicit anonymous struct rather than
+// marshalling riskTierRequest itself, so that adding a field to the JSON shape
+// is a deliberate decision about whether it belongs in the digest — a
+// `json:"-"` on Digest would have made every future field digest-covered by
+// default, which is the wrong default for a presentational one.
 func descriptorDigest(c riskTierRequest) (string, error) {
 	canonical, err := json.Marshal(struct {
-		ID        string   `json:"id"`
-		Operation string   `json:"operation"`
-		Scopes    []string `json:"scopes"`
-		Tier      string   `json:"tier"`
-	}{c.ID, c.Operation, c.Scopes, c.Tier})
+		ID           string   `json:"id"`
+		Unit         string   `json:"unit"`
+		Kind         string   `json:"kind"`
+		Contract     string   `json:"contract"`
+		Operation    string   `json:"operation"`
+		OperationID  string   `json:"operation_id"`
+		Route        string   `json:"route"`
+		Method       string   `json:"method"`
+		Scopes       []string `json:"scopes"`
+		Tier         string   `json:"tier"`
+		FragmentHash string   `json:"fragment_hash"`
+	}{c.ID, c.Unit, c.Kind, c.Contract, c.Operation, c.OperationID, c.Route, c.Method, c.Scopes, c.Tier, c.FragmentHash})
 	if err != nil {
 		return "", err
 	}
@@ -77,13 +141,15 @@ func descriptorDigest(c riskTierRequest) (string, error) {
 // generateUnitManifests derives and writes every enabled unit's manifest.
 // The write is skipped when the content is current, so the lane-frequent
 // `make composition` never churns source-tree mtimes.
-func generateUnitManifests(root string, units []extensionUnit) error {
+func generateUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
 	vocab, err := publishedVocabulary(root)
 	if err != nil {
 		return err
 	}
+	byUnit := verbsByUnit(verbs)
+	jobsByUnit := jobDeclarationsByUnit(jobDecls)
 	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab)
+		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
 		if err != nil {
 			return err
 		}
@@ -135,18 +201,30 @@ func writeFileAtomic(dir, path string, content []byte) error {
 	return os.Rename(tmpName, path)
 }
 
+// jobDeclarationsByUnit groups the composed job declarations by declaring
+// unit, so each manifest derivation sees its own and no other's.
+func jobDeclarationsByUnit(decls []extension.JobDeclaration) map[string][]extension.JobDeclaration {
+	byUnit := map[string][]extension.JobDeclaration{}
+	for _, d := range decls {
+		byUnit[string(d.Unit)] = append(byUnit[string(d.Unit)], d)
+	}
+	return byUnit
+}
+
 // verifyUnitManifests re-derives every unit's manifest and requires the
 // file next to the unit to be byte-identical — a hand edit, a stale
 // derivation, or a foreign encoder fails here even when the semantic
 // content agrees (the composition.json input row only pins the digest;
 // THIS is the gate that ties the digest back to the declaration).
-func verifyUnitManifests(root string, units []extensionUnit) error {
+func verifyUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
 	vocab, err := publishedVocabulary(root)
 	if err != nil {
 		return err
 	}
+	byUnit := verbsByUnit(verbs)
+	jobsByUnit := jobDeclarationsByUnit(jobDecls)
 	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab)
+		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
 		if err != nil {
 			return err
 		}
@@ -229,3 +307,15 @@ func addStringConsts(names []*ast.Ident, values []ast.Expr, vocab map[string]str
 // compiling or running it — so the reader accepts only LITERAL values; a
 // computed one is a positioned error, never a silent gap in what review
 // sees.
+
+// verbsByUnit groups the composed verb set by declaring unit, preserving the
+// order extensionVerbs produced — which is what keeps a manifest's risk-tier
+// list stable across regenerations.
+func verbsByUnit(verbs []declaredVerb) map[string][]declaredVerb {
+	byUnit := make(map[string][]declaredVerb)
+	for _, d := range verbs {
+		unit := string(d.verb.Unit)
+		byUnit[unit] = append(byUnit[unit], d)
+	}
+	return byUnit
+}

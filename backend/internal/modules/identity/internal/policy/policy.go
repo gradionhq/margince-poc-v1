@@ -11,6 +11,7 @@ package policy
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 
@@ -244,18 +245,58 @@ func MustDefaultJSON(roleKey string) []byte {
 	return raw
 }
 
-// Parse validates one role.permissions document. It rejects unknown
-// objects and invalid row_scope tokens rather than ignoring them
-// (B-EP03.1 schema-validity requirement).
+// Parse reads one STORED role.permissions document.
+//
+// It rejects a malformed document and an invalid row_scope, and it DROPS an
+// object outside the grantable vocabulary — logged, never fatal. The asymmetry
+// is the point, and it was learned the hard way.
+//
+// A row_scope this code cannot read is a question with no safe answer: the
+// value decides how far the grants below it reach, and neither guessing nor
+// defaulting is honest. An unknown OBJECT is different — dropping it grants
+// nothing, which is the strictest possible reading, and the only reading that
+// cannot be exploited.
+//
+// Rejecting the whole document was the earlier behaviour, and it made the
+// vocabulary — which is a property of the COMPILED-IN code plus whichever
+// extensions this process happens to compose — a precondition for reading
+// STORED DATA that outlives both. Removing an extension therefore did not
+// degrade its screen: it took the whole installation's authentication down,
+// because `crmauth` fails the login when any of the user's roles will not
+// parse. Every user in a workspace whose role still carried
+// `ext_<unit>_<object>` was locked out, with no endpoint and no migration to
+// clear it — found by the Task 14 UAT, on the removal leg the tier's own
+// guarantee requires an operator to perform.
+//
+// Data outlives the code that gave it meaning. That is not a special case for
+// extensions; it is what a stored document IS.
+//
+// What is NOT given up: a typo'd object still grants nothing, so the
+// motivating case for strictness — "a typo must not read as a bug in the role"
+// — is answered by the log line rather than by refusing to authenticate. When
+// a role-editing endpoint lands (`/roles` CRUD is deferred), that WRITE path is
+// where an unknown object must be refused: refusing input a human just typed
+// costs them a correction, while refusing stored data costs them their session.
 func Parse(raw []byte) (Document, error) {
 	var doc Document
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return Document{}, fmt.Errorf("policy: malformed permissions document: %w", err)
 	}
 	for object := range doc.Objects {
-		if !IsCoreObject(object) {
-			return Document{}, fmt.Errorf("policy: unknown object %q in permissions document", object)
+		// The GRANTABLE vocabulary, not the core one: a composed extension
+		// registers its ext_<unit>_<object> names at boot (composable.go).
+		if IsGrantableObject(object) {
+			continue
 		}
+		// Deleted from the parsed document, so the grant cannot reach
+		// principal.Permissions by any later path. Mutating the map while
+		// ranging it is defined in Go for the entry being visited.
+		delete(doc.Objects, object)
+		slog.Default().Warn("policy: dropping a grant on an object this installation does not know",
+			"object", object,
+			"why", "the object is neither a core object nor one a composed extension registered at boot; "+
+				"most likely its unit was removed, or the name is a typo. The grant is ignored — it "+
+				"authorizes nothing — and the rest of the document still applies.")
 	}
 	switch doc.RowScope {
 	case principal.RowScopeOwn, principal.RowScopeTeam, principal.RowScopeAll:
@@ -272,9 +313,22 @@ func Parse(raw []byte) (Document, error) {
 // set: grants union (any role allowing an action allows it), row scope
 // widens to the maximum any role holds. Zero roles yield zero grants.
 func Merge(byRole map[string]Document) principal.Permissions {
+	extensionObjects := RegisteredObjects()
 	merged := principal.Permissions{
-		Objects:  make(map[string]principal.ObjectGrant, len(coreObjects)),
+		Objects:  make(map[string]principal.ObjectGrant, len(coreObjects)+len(extensionObjects)),
 		RowScope: principal.RowScopeOwn,
+	}
+	// Every registered extension object is SEEDED at the zero grant, before any
+	// role document is read. The seeded core role documents list all thirty core
+	// objects, so /me's snapshot has always been the complete vocabulary with
+	// the holder's grants filled in — a client can tell "you hold nothing on
+	// this" from "no such object". An extension object arrives after those
+	// documents were seeded, so without this it would be absent from the
+	// snapshot for every principal who was not explicitly granted it, and the
+	// unit's screen could not tell the two apart. A union follows below: a role
+	// that DOES grant the object widens the zero, never the reverse.
+	for _, object := range extensionObjects {
+		merged.Objects[object] = principal.ObjectGrant{}
 	}
 	for _, key := range slices.Sorted(maps.Keys(byRole)) {
 		doc := byRole[key]

@@ -214,7 +214,7 @@ export function ReportsScreen() {
 
   if (segment === "quotas") {
     return (
-      <div className="wrap narrow">
+      <div className="wrap">
         {header}
         <QuotasView />
       </div>
@@ -223,7 +223,7 @@ export function ReportsScreen() {
 
   if (overlay) {
     return (
-      <div className="wrap narrow">
+      <div className="wrap">
         {header}
         <OverlayUnavailable />
       </div>
@@ -231,7 +231,7 @@ export function ReportsScreen() {
   }
 
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       {header}
       <QueryGate query={reportQuery}>
         {(report_) => {

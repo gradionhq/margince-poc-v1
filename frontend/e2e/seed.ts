@@ -790,6 +790,51 @@ export async function mockApi(
     if (path === "/people/p-anna") {
       return json(anna);
     }
+    // The person record page's ONE composite read (PO-EXT-3). Its `person` is
+    // required by the contract, so a body without one is not a thin response —
+    // it is a response the page cannot render, which is what the page did here
+    // until this handler existed.
+    //
+    // In overlay mode the mirror holds none of the sections folded from natively
+    // captured interactions, so they are NAMED as withheld rather than answered
+    // empty: "you cannot see this here" and "there is none" are different facts.
+    if (method === "GET" && /^\/people\/[^/]+\/360$/.test(path)) {
+      return json({
+        as_of: "2026-06-20T09:00:00Z",
+        person: anna,
+        last_inbound_at:
+          sorMode === "overlay" ? undefined : "2026-06-18T08:00:00Z",
+        last_outbound_at:
+          sorMode === "overlay" ? undefined : "2026-06-19T08:00:00Z",
+        sections_omitted:
+          sorMode === "overlay"
+            ? [
+                "activities",
+                "strength",
+                "network",
+                "next_steps",
+                "moments",
+                "claims",
+                "conversation_memory",
+                "relationship_changes",
+                "since_last_visit",
+                "last_touch",
+                "commercial",
+              ]
+            : [],
+      });
+    }
+    if (method === "GET" && /^\/people\/[^/]+\/brief$/.test(path)) {
+      return json({
+        person_id: "p-anna",
+        generated_at: "2026-06-20T09:00:00Z",
+        generated_by: { kind: "agent", agent: "brief" },
+        sentences: [],
+      });
+    }
+    if (method === "GET" && /^\/people\/[^/]+\/consent\/guard$/.test(path)) {
+      return json({ entries: [] });
+    }
     if (path === "/people/p-anna/consent" && method === "GET") {
       return json({ state: [], events: [] });
     }

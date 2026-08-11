@@ -18,7 +18,7 @@ export function AskAiScreen() {
   });
 
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <SectionHeader title={t("nav.ai")} sub={t("ai.sub")} />
       {query && (
         <div className="card" style={{ marginBottom: 14 }}>

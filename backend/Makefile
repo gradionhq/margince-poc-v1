@@ -104,8 +104,20 @@ test-extensions: composition ## Every enabled extension's own test lane (each un
 build: composition ## Compile every package (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) build ./...
 
-vet: composition ## Run go vet over every package (composed workspace)
+vet: composition ## Run go vet over every package, untagged AND -tags integration (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) vet ./...
+	# The INTEGRATION lane, type-checked. `make check` otherwise never compiles
+	# a single //go:build integration file — build, vet, lint and test all run
+	# untagged — while internal/compose alone holds hundreds of them. A helper
+	# renamed, a signature changed, or a name that collides with one declared in
+	# a tagged file compiles clean untagged and fails only when somebody runs
+	# `make test-it`, which the merge gate does not. That is how a duplicate
+	# declaration reached a green check-q during this branch.
+	#
+	# vet, not test: type-checking the tagged lane needs no database, no Docker
+	# and no fixtures, so it costs seconds and belongs in the always-on gate.
+	# RUNNING those tests is the integration lane's job and stays there.
+	$(GOWORK_COMPOSED) $(GO) vet -tags integration ./...
 
 test: composition ## Unit tests (the root fitness tests run uncached)
 	$(GOWORK_COMPOSED) $(GO) test ./...
@@ -194,14 +206,18 @@ ai-probe: composition ## Probe one AI task site against real input (free except 
 	$(LOAD_ENV_LOCAL) $(GOWORK_COMPOSED) $(GO) run ./cmd/worker aitask $(ARGS) \
 	  --corpus $(CURDIR)/internal/compose/aicert/corpus --work-dir $(CURDIR)/../.tmp/aitask
 
-test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
-	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
+# Composed for the same reason as migrate: build_template shells out to
+# cmd/migrate, and a template built from the vanilla stub carries no
+# extension tables — every clone taken from it would then fail (or, worse,
+# skip) the extension half of the integration lane.
+test-db-up: composition ## (Re)build the migrated margince_test template the parallel lane clones from
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
 
 test-it: composition ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
 	@$(GOWORK_COMPOSED) bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
 
 test-integration-serial: composition ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
-	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
 	@log=$$(mktemp); st=$$(mktemp); \
 	{ $(GOWORK_COMPOSED) $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \
@@ -283,7 +299,29 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # resolves their dependencies. Generated files are committed and drift-gated,
 # so a generator whose own build inputs move with the caller's environment
 # turns a clean checkout into a red gate on somebody else's machine.
+#
+# gen is two-phase, and the ORDER is the contract between them.
+#
+# Phase 1 is gen-composition. It merges every enabled unit's api/ fragments
+# into build/composition/api/ — the EFFECTIVE contracts for this
+# installation. It used to run last, which was safe only while nothing read
+# its output; the composed contracts are inputs now, so a generator that ran
+# before them would compile the vanilla surface into a composed build and
+# look correct, because a stale build/composition/ from the previous run is
+# already on disk. Running it first is what makes that impossible.
+#
+# gen-composition itself reads only committed files (the base contracts, the
+# unit trees, go.work, the composition stub), so it has no dependency back on
+# phase 2 and works from a deleted build/composition/.
+#
+# Phase 2 are the committed, drift-gated generators. They read the BASE
+# contracts on purpose: their outputs are checked in and must be identical on
+# every installation. The composed lane's own artifacts are emitted into
+# build/composition/ beside the merged contracts (frontend/extensions.gen.ts
+# today, the composed client types and docs as their slices land) — the same
+# split Task 11's tsconfig alias makes for TypeScript.
 gen: mcp-apps-vocab ## Regenerate everything derived from the contract
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
@@ -292,7 +330,6 @@ gen: mcp-apps-vocab ## Regenerate everything derived from the contract
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
 		-out-specs internal/platform/jobs/specs_gen.go \
 		-out-kinds internal/compose/jobkinds_gen.go
-	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	# gen regenerates the committed per-unit manifests too (via composition);
@@ -380,8 +417,14 @@ seed-reset: ## Wipe the demo workspace (scripts/seed-reset.sql); make seed-dev r
 seed-dev-db: ## Apply the dev DB seed for API-less demo data (scripts/seed-dev.sql); run after seed-dev
 	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/seed-dev.sql
 
-migrate: ## Apply core + custom migrations (owner DSN)
-	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
+# The COMPOSED workspace is load-bearing here, not tidiness: cmd/migrate
+# applies the enabled units' migrations from the composed extension set, and
+# a bare `go run` resolves the committed vanilla stub instead — which returns
+# no extensions, applies zero extension migrations, exits 0 and prints
+# "schema is at head". Every extension lane would then be green over a
+# database that has none of their tables.
+migrate: composition ## Apply core + custom + composed extension migrations (owner DSN)
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
 
 infra-down: ## Stop the dev stack but KEEP the data volumes (clean also drops them)
 	$(COMPOSE) down --remove-orphans
@@ -392,8 +435,8 @@ clean: ## Tear down the dev stack, containers and data volumes
 
 migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
 
-migrate-down: ## Roll back the last migration(s): make migrate-down [STEPS=n]
-	$(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
+migrate-down: composition ## Roll back the last migration(s): make migrate-down [STEPS=n]
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
 
 run: composition ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
 	$(GOWORK_COMPOSED) $(GO) run ./cmd/api --dsn "$(APP_DSN)"

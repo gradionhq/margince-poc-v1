@@ -1,0 +1,262 @@
+/* ===== the account block at the foot of the sidebar =====
+   Every rule is scoped to `.rail`: this block belongs to the sidebar's ground
+   and its geometry (the 64px collapsed rail, the padded expanded one) is what
+   the anchoring below is measured against. */
+
+.rail .account {
+  position: relative;
+  /* The block is the last flex item of a column that grows; without this it
+     would shrink under the navigation above it on a short viewport. */
+  flex: none;
+}
+
+/* The trigger is a ROW, not an avatar button: it reads as the person it belongs
+   to, so it prints who is signed in and says — with the chevron — that there is
+   more behind it. */
+.rail .account .user {
+  display: flex;
+  align-items: center;
+  gap: 9px; /* ds:ignore matches .navitem's icon-to-label gap so the rows align */
+  width: 100%;
+  min-width: 0;
+  padding: 6px; /* ds:ignore optical inset that keeps the 28px avatar on the nav rows' left edge */
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--textPrimary);
+  font-family: var(--f-body);
+  text-align: left;
+  cursor: pointer;
+}
+.rail .account .user:hover {
+  background: var(--bgHover);
+}
+.rail .account .user:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rail .acctavatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+}
+/* Two lines in a box that is narrower than either of them can be: both clip
+   themselves, and `min-width: 0` is what lets them — a flex item's floor is its
+   content width until it is told otherwise, and without it the row grows instead
+   of the text ellipsing. */
+.rail .acctwho {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px; /* ds:ignore two stacked lines of one block, not separated content */
+}
+.rail .acctwho b,
+.rail .acctmail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail .acctwho b {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
+}
+.rail .acctmail {
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}
+.rail .acctchev {
+  flex: none;
+  color: var(--textMeta);
+}
+
+/* Collapsed there is one thing to show and 64px to show it in: the avatar,
+   centred in a target that still measures the 44px the rail's own rows keep
+   (WDS-NAV-1). The name, the address and the chevron are not rendered — the
+   sentence they carry reaches a screen reader through the clipped line instead
+   (account.tsx), which is absolutely positioned and therefore needs this row as
+   its containing block. */
+.rail .account.collapsed .user {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+/* ===== the menu =====
+   One rule for the popover and the language submenu nested in it, not a copy
+   each: they open a few pixels apart, where two different chromes read as a
+   mistake rather than as two components. */
+.rail .accountmenu,
+.rail .accountmenu .localelist {
+  position: absolute;
+  min-width: 188px;
+  /* The floor above sets the comfortable width; this keeps it a floor rather than
+     a promise the viewport cannot keep. A narrow phone at 200% zoom leaves less
+     room than 188px plus the rail's own gutter, and the menu is anchored to an
+     edge, so growing past the viewport clips it on the other side. */
+  max-width: calc(100vw - 2 * var(--space-2));
+  display: flex;
+  flex-direction: column;
+  padding: 5px; /* ds:ignore popover inset carried over from the menu it replaces */
+  gap: 1px; /* ds:ignore menu rows read as one list, not as spaced blocks */
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  z-index: 60;
+}
+/* Upward, out of the trigger: the block sits at the foot of the rail, so a menu
+   dropped under it would open off the bottom of the viewport.
+   The expanded rail clips horizontally (`overflow-x: hidden`), so the menu takes
+   the rail's own content width rather than a width of its own — anything wider
+   would be cut off rather than overhang. */
+.rail .accountmenu {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  top: auto;
+  /* The menu comes OUT OF the trigger rather than appearing above it: the
+     transform origin is the control that opened it, so the growth reads as one
+     movement instead of a panel switching on. Short (0.14s) because this is
+     chrome — a menu you have to wait for is a menu that feels slow — and on the
+     shell's own curve, so it belongs to the same choreography as the sidebar
+     collapse rather than carrying a second easing vocabulary.
+     Transform and opacity only: both composite, so it cannot cost a frame.
+     The fallback repeats `.app`'s curve because the rail is also rendered
+     outside the shell (the component workbench), and an unresolved custom
+     property in a shorthand invalidates the whole declaration — which would
+     silently drop the animation there rather than degrade it. */
+  animation: accountmenu-rise 0.14s
+    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  transform-origin: bottom center;
+}
+/* Collapsed the rail is 64px and opts out of clipping, so the menu pops out
+   BESIDE it and brings its own width — 220px, the comfortable reading measure
+   the expanded rail happens to give it. Its bottom edge lines up with the
+   trigger's, which is what makes it read as belonging to that row. */
+.rail .account.collapsed .accountmenu {
+  left: calc(100% + 8px);
+  right: auto;
+  bottom: 0;
+  width: 220px;
+  transform-origin: bottom left;
+}
+@keyframes accountmenu-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* The end state, immediately — a menu that renders nothing under reduced motion
+   is broken, not accessible. */
+@media (prefers-reduced-motion: reduce) {
+  .rail .accountmenu,
+  .rail .accountmenu .localelist {
+    animation: none;
+  }
+}
+.rail .accountmenu a,
+.rail .accountmenu button {
+  display: flex;
+  align-items: center;
+  gap: 9px; /* ds:ignore the menu row's own optics, unchanged from the menu it replaces */
+  padding: 7px 9px; /* ds:ignore the menu row's own optics, unchanged from the menu it replaces */
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--textContent);
+  font-family: var(--f-body);
+  font-size: var(--fs-sm);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+/* The language rows carry a tick for the current locale, pushed to the far
+   end so the names stay left-aligned with each other. */
+.rail .accountmenu .localelist button {
+  justify-content: space-between;
+}
+.rail .accountmenu a:hover,
+.rail .accountmenu button:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.rail .accountmenu button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.rail .accountmenu a:focus-visible,
+.rail .accountmenu button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The groups: the account surfaces, then the two preferences, then the way out.
+   An <hr> rather than a border on the first row of a group — it is a separator,
+   and a screen reader is told so. */
+.rail .accountmenu hr {
+  height: 1px;
+  border: 0;
+  margin: var(--space-1) 0;
+  background: var(--borderSubtle);
+}
+/* The language control is a ROW of this menu rather than a control beside it: its
+   own wrapper is a flex item of the popover's column, and the trigger fills it so
+   it lines up with the settings rows, Theme and Sign out. Everything else it
+   needs — the row chrome, the hover, the focus ring — it already inherits from
+   the rules above, because the trigger is a button inside `.accountmenu`. */
+.rail .accountmenu .localemenu {
+  /* A column, so the list the row expands sits UNDER that row rather than
+     beside it — the wrapper is a flex parent and a row direction would have
+     laid the two out side by side in a 235px menu. */
+  display: flex;
+  flex-direction: column;
+}
+.rail .accountmenu .localelist {
+  /* IN the menu, not beside it. A flyout anchored past the menu's right edge is
+     cut off by the sidebar, which clips horizontally so the expand animation
+     cannot flash a scrollbar across the navigation — and at 64px there is no
+     room to fly out into either. Opening in flow costs the menu some height,
+     which it has: it grows upward, away from the foot it is anchored to. */
+  position: static;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  margin-top: var(--space-1);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  animation: none;
+}
+/* The nested list reads as nested: one rule down its left edge, rather than a
+   second popover chrome inside the popover it already sits in. */
+.rail .accountmenu .localelist {
+  margin-left: var(--space-4);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--borderSubtle);
+}
+/* A preference row states the setting on the left and what it is currently set to
+   on the right; the accessible name carries what clicking does. */
+.rail .accountmenu .menuvalue {
+  margin-left: auto;
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+}

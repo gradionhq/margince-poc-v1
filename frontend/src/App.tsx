@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { EXTENSION_SCREEN, findExtension } from "./app/extensions";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -13,7 +14,7 @@ import {
 } from "./app/palette";
 import { navigate } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
-import { EmptyState } from "./design-system/atoms";
+import { Card, EmptyState, SectionHeader } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
 import {
@@ -66,8 +67,10 @@ function safeDecode(value: string): string {
 
 function PendingScreen() {
   const t = useT();
+  // Railed like every other screen it stands in for — an unknown hash, a half
+  // addressed record — so it takes the same content column they do.
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <EmptyState>{t("screen.pending")}</EmptyState>
     </div>
   );
@@ -93,6 +96,44 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
     <ShareScreen recordType={id} recordId={id2} />
   ) : (
     <PendingScreen />
+  );
+}
+
+// #/ext/<unit> (ADR-0069) — the composed extension tier's one route into the
+// SPA. The registry is generated per installation, so this arm is the SAME
+// code in the vanilla tree, where every unit name misses and the honest
+// not-found card renders; that lane is the default one and must never crash or
+// paint a blank frame. Split out for the same complexity-budget reason as
+// DealsRoute above.
+//
+// A unit ships no TSX: extensions/<name>/frontend/ is an unbuilt capability
+// layer that gen-composition's scan refuses on sight, and lifting that would
+// mean bundling unit-authored code into the SPA. So what the app can honestly
+// say about a unit is the contract-derived descriptor set — the operations the
+// unit's fragments published — which is what this route renders.
+function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
+  const t = useT();
+  const unit = findExtension(name);
+  if (!unit) {
+    return (
+      <div className="wrap narrow">
+        <EmptyState>{t("ext.notFound", { name: name ?? "" })}</EmptyState>
+      </div>
+    );
+  }
+  return (
+    <div className="wrap narrow">
+      <SectionHeader title={unit.name} sub={t("ext.operations")} />
+      <Card>
+        <ul>
+          {unit.verbs.map((verb) => (
+            <li key={verb.operationId}>
+              {verb.title} — {verb.method} {verb.route}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
   );
 }
 
@@ -168,6 +209,8 @@ function ScreenView({
       return <ShareRoute id={id} id2={id2} />;
     case "search":
       return <SearchScreen q={id ? safeDecode(id) : ""} />;
+    case EXTENSION_SCREEN:
+      return <ExtensionRoute name={id} />;
     default:
       return <PendingScreen />;
   }
@@ -379,8 +422,12 @@ function RaillessFrame({ children }: Readonly<{ children: ReactNode }>) {
 
 function AuthSplash() {
   const t = useT();
+  // A plain column. It used to borrow onboarding's `.ob-top`, which is that
+  // flow's sticky blurred header — so the splash drew a bar with a bottom
+  // border across a screen that has no header, and took that class's
+  // horizontal padding on top of the column's own.
   return (
-    <div className="wrap narrow ob-top">
+    <div className="wrap narrow">
       <EmptyState>{t("auth.checking")}</EmptyState>
     </div>
   );

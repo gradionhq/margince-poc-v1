@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -134,9 +133,20 @@ func oneOffChildOpts(childKind string) *river.InsertOpts {
 }
 
 // fanOutChildren is every kind some dispatcher DECLARES it fans out to —
-// api/jobs.yaml's fans_out_to, read as the registry it is. Computed once
-// because a per-connection dispatcher consults it once per insert.
-var fanOutChildren = sync.OnceValue(func() map[string]struct{} {
+// fans_out_to, read as the registry it is, over BOTH halves of the declaration
+// table (jobs.Declared covers the compiled core kinds and this installation's
+// composed extension kinds).
+//
+// Recomputed per call rather than memoised. It used to be a sync.OnceValue,
+// which was correct while the table was compiled and therefore fixed at link
+// time; it is not correct now that an installation's composed kinds are
+// declared at BOOT. A memoised answer is whatever the table held at the first
+// insert of the process, so a fan-out that happened to run before
+// jobs.RegisterComposed would cache the core set and then PANIC on every
+// extension child forever after — a boot-ordering bug that would look like a
+// bad kind. The cost it buys back is one map build over a few dozen specs per
+// dispatched insert, which is beside a database round trip.
+func fanOutChildren() map[string]struct{} {
 	children := map[string]struct{}{}
 	for _, spec := range jobs.Declared() {
 		if spec.FanOutTo != "" {
@@ -144,7 +154,7 @@ var fanOutChildren = sync.OnceValue(func() map[string]struct{} {
 		}
 	}
 	return children
-})
+}
 
 // fanOutChildSpec answers the declaration for a kind a dispatcher may fan out
 // to, and refuses one no dispatcher declares. Both refusals are programming

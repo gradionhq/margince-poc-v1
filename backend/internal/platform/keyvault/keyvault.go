@@ -27,8 +27,17 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// Querier is the one database verb GetOn needs: a single-row read. Both
+// pgx.Tx and *pgxpool.Conn satisfy it, so a caller hands over whatever it
+// already holds without this package taking a view on which.
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // ErrNotFound reports that no secret resolves for the given (workspace, ref)
 // pair — either nothing was ever stored, it was deleted, or the ref belongs
@@ -53,6 +62,24 @@ type Vault interface {
 	// if nothing is stored, it was deleted, or ref belongs to another
 	// workspace.
 	Get(ctx context.Context, ws ids.WorkspaceID, ref Ref) ([]byte, error)
+
+	// GetOn is Get through a querier the caller already holds — its open
+	// transaction, or a connection it checked out.
+	//
+	// It exists because Get takes a connection of its own, and a caller
+	// resolving a ref INSIDE a transaction therefore needs two at once. With
+	// both coming from one pool that is not a cost, it is a deadlock: once as
+	// many such calls are in flight as the pool is wide, every one of them
+	// holds a connection and waits for a connection, and none of them can be
+	// the one to give theirs up. The reader (extsecrets) cannot simply move the
+	// resolve outside its transaction — the row it read is held under FOR SHARE
+	// precisely so a concurrent rotation cannot destroy the material between
+	// the two reads, which is what lets an absent blob be reported as
+	// corruption rather than as a race.
+	//
+	// A provider that stores nothing in this database ignores the querier and
+	// answers exactly as Get does.
+	GetOn(ctx context.Context, q Querier, ws ids.WorkspaceID, ref Ref) ([]byte, error)
 
 	// Delete removes the secret ref addresses under ws. It is idempotent:
 	// deleting an absent ref (or a ref from another workspace) is not an

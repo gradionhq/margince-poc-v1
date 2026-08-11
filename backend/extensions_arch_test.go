@@ -203,12 +203,13 @@ func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
 // would be a second composition entry point slipping in unnoticed) —
 // and `required` marks the mains that MUST wire it: a role silently
 // dropping the import would serve without the enabled extensions.
-// migrate is permitted but not yet required — it joins when the
-// extension migration namespace lands (ADR-0069 §9).
+// migrate is required too: the extension migration namespace has landed
+// (ADR-0069 §9), so a migrate that drops the import applies ZERO
+// extension migrations while still reporting "schema is at head".
 var compositionWiringFiles = map[string]bool{
 	"cmd/api/main.go":     true,
 	"cmd/worker/main.go":  true,
-	"cmd/migrate/main.go": false,
+	"cmd/migrate/main.go": true,
 }
 
 // TestCompositionWiredOnlyFromCmd: the backend imports the composed

@@ -86,7 +86,11 @@ async function signIn(page: Page) {
  */
 async function openCompany(page: Page, orgId: string) {
   await page.goto(`/#/companies/${orgId}`, { waitUntil: "networkidle" });
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  // The RECORD's own identity block. On a record route the shell's page head
+  // shows only the trail back and no heading, and that trail renders from the
+  // router before any company read returns — so anchoring there would say the
+  // page is settled while every card below it is still empty.
+  await expect(page.locator(".record-head h1")).toBeVisible();
 }
 
 /** The vertical position of a region, for order assertions. */
@@ -265,9 +269,11 @@ test.describe("company record — the mockup's visual weight", () => {
 
   test("the account's name leads the page", async ({ page }) => {
     // ~40px in both mockups. It is the largest text on the record and the
-    // first thing a reader lands on.
+    // first thing a reader lands on. Measured on the record header's own
+    // heading: it is the page's h1, and the page head above it carries the
+    // trail back at a deliberately quiet 13px.
     expect(
-      await px(page.locator("h1").first(), "font-size"),
+      await px(page.locator(".record-head h1"), "font-size"),
     ).toBeGreaterThanOrEqual(30);
   });
 

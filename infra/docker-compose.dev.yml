@@ -20,16 +20,39 @@ services:
     # pgvector ships inside the Postgres image: the search module's hybrid
     # retrieval needs the extension available at migrate time.
     image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-    # The lock table, sized for the integration lane rather than for one app.
-    # Postgres pre-allocates max_locks_per_transaction * max_connections slots at
-    # boot and shares them across every backend, and the lane's reset takes one
-    # per relation — every table AND every index — inside a single transaction,
-    # on up to INTEGRATION_JOBS databases at once. At the default 64 that pool is
-    # exhausted well before max_connections is, and the failure is
-    # `out of shared memory (SQLSTATE 53200)` in whichever package happened to
-    # ask next. Slots are a few hundred bytes each, so this costs single-digit
-    # megabytes and buys the lane its concurrency back.
-    command: ["postgres", "-c", "max_locks_per_transaction=512"]
+    # max_locks_per_transaction sizes the CLUSTER-WIDE lock table, not a
+    # per-transaction budget: the instance gets
+    # max_locks_per_transaction × (max_connections + max_prepared_transactions)
+    # heavyweight lock slots, shared by every backend, fixed at startup. A
+    # transaction that cannot get a slot does not queue — it fails outright with
+    # `out of shared memory (SQLSTATE 53200)`.
+    #
+    # The integration lane's demand is not incidental, it is the lane's shape.
+    # scripts/test-integration-parallel.sh runs INTEGRATION_JOBS packages at
+    # once (16 in CI), each against its own clone of THIS instance, and each
+    # resets between tests by emptying every table in public + ext inside ONE
+    # transaction — deliberately one, so a reset is atomic (see
+    # backend/internal/platform/testdb/reset.go). A lock is taken per RELATION,
+    # every table AND every index, so a ~620-table schema costs well over a
+    # thousand, and an atomic whole-schema reset cannot cost less. Against the
+    # stock default's 64 × 100 = 6,400 slots the lane is simply over budget, and
+    # the shortfall is what made three unrelated suites fail on 53200 in one CI
+    # shard.
+    #
+    # 512 × 100 = 51,200 slots, so schema growth and a higher INTEGRATION_JOBS do
+    # not immediately re-cross it. Slots are a few hundred bytes each: this costs
+    # single-digit megabytes of shared memory reserved at boot.
+    #
+    # This is headroom, NOT the fix. The fix is that no single transaction holds
+    # the whole schema: EnsureSchema's `DROP SCHEMA public CASCADE` was one
+    # 4,999-lock statement — 78% of the stock instance in one go, so two callers
+    # could never coexist — and reset.go now takes it apart into bounded steps.
+    # Raise this ceiling to paper over a new whole-schema transaction and the
+    # next twenty tables will re-cross it.
+    command:
+      - postgres
+      - -c
+      - max_locks_per_transaction=512
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev

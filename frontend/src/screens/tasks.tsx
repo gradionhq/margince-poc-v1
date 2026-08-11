@@ -257,7 +257,7 @@ export function TasksScreen() {
 
   if (overlay) {
     return (
-      <div className="wrap narrow">
+      <div className="wrap">
         <div className="list-head">
           <SectionHeader title={t("nav.tasks")} />
         </div>
@@ -267,7 +267,7 @@ export function TasksScreen() {
   }
 
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.tasks")} />
         <NewRecordButton

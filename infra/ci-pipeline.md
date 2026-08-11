@@ -32,7 +32,7 @@ output. A required job skipped this way still counts as passing.
 | Scope | Paths | Gates |
 |---|---|---|
 | `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
-| `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types) | frontend lane, UAT |
+| `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `docker` | root `Dockerfile.*`, `.dockerignore` | the three image builds |
 | `deps` | `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |

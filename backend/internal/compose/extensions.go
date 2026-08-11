@@ -5,7 +5,10 @@ package compose
 
 import (
 	"fmt"
+	"slices"
+	"sync"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -20,8 +23,11 @@ import (
 // registered extension never serves. This is also where the manifest
 // emission and the approval filtering slot in: both
 // operate on the declared set before anything is applied.
-func RegisterExtensions(exts []extension.Extension) error {
+func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobDecls []extension.JobDeclaration) error {
 	if err := validateExtensionSet(exts); err != nil {
+		return err
+	}
+	if err := validateVerbSet(verbs); err != nil {
 		return err
 	}
 	// Do every fallible step before applying anything, so the whole
@@ -29,7 +35,19 @@ func RegisterExtensions(exts []extension.Extension) error {
 	// tools to the core seam can (in principle — preflightTools already
 	// precludes it, but this stays fail-closed) fail, and it must not fail
 	// with a jurisdiction pack already half-applied.
-	tools, err := buildExtensionTools(exts)
+	tools, err := buildExtensionTools(exts, verbs)
+	if err != nil {
+		return err
+	}
+	rbacObjects, err := extensionRbacObjects(verbs)
+	if err != nil {
+		return err
+	}
+	// Still the validate phase: joining a unit's Go job behavior to its
+	// contract-declared kinds can refuse the set (an undeclared job, a
+	// confirm-first tier, an outbound scope), and it must do so before a
+	// jurisdiction pack is applied.
+	composedSet, err := buildExtensionJobs(exts, jobDecls)
 	if err != nil {
 		return err
 	}
@@ -38,8 +56,85 @@ func RegisterExtensions(exts []extension.Extension) error {
 			jurisdiction.Register(p)
 		}
 	}
+	// After the jurisdiction packs, and still in the apply phase: the RBAC
+	// vocabulary is validate-then-apply inside RegisterRbacObjects itself (a set
+	// with one bad name registers none), so it cannot half-widen what a role
+	// document may grant. It is the one apply step that can still return an
+	// error, which is why it is LAST — a failure here leaves the packs applied
+	// and the boot aborting, and an aborting boot serves nothing either way.
+	if err := RegisterRbacObjects(rbacObjects); err != nil {
+		return err
+	}
+	// The composed job kinds join the declaration table before any runner is
+	// built, because everything the runner then asks about them — the wall
+	// clock Govern hands River, the queue a fan-out child lands on, the
+	// attempt cap, the totality check that refuses an undeclared kind — is
+	// answered by jobs.SpecFor. Registering the workers first would mean
+	// registering them under the zero Spec, which is River's silent minute.
+	if err := jobs.RegisterComposed(composedJobSpecs(composedSet)); err != nil {
+		return err
+	}
+	setComposedJobs(composedSet)
 	setComposedTools(tools)
+	setComposedVerbs(verbs)
+	setComposedExtensions(exts)
 	return nil
+}
+
+// composedExtensions holds this boot's declared unit set, written once by
+// RegisterExtensions before any surface serves. Same shape and same reason as
+// composedVerbs: the mutex guards the write-then-read ORDERING across the
+// boot/serve boundary, not concurrent registrations.
+//
+// It exists because the operator inventory (/v1/extensions, handlers_extensions.go)
+// needs the units THEMSELVES — a name and a version — and every other composed
+// accessor holds something derived from them. Recording the set here rather than
+// having the handler re-derive it is what keeps the answer equal to what the boot
+// reconciliation actually validated: a second source could describe a unit that is
+// not serving.
+var composedExtensions struct {
+	mu   sync.RWMutex
+	exts []extension.Extension
+}
+
+func setComposedExtensions(exts []extension.Extension) {
+	composedExtensions.mu.Lock()
+	defer composedExtensions.mu.Unlock()
+	composedExtensions.exts = exts
+}
+
+// ComposedExtensions returns this boot's declared extension units. Exported for
+// the same reason ComposedVerbs is: the surface that reads it is assembled after
+// RegisterExtensions has run.
+func ComposedExtensions() []extension.Extension {
+	composedExtensions.mu.RLock()
+	defer composedExtensions.mu.RUnlock()
+	return slices.Clone(composedExtensions.exts)
+}
+
+// composedVerbs holds the contract-declared operation set of this boot, written
+// once by RegisterExtensions before any surface serves. The route mounting reads
+// it, and so does the parity sweep that holds declaration and registration
+// equal. Same shape and same reason as composedTools: the mutex guards the
+// read/write ORDERING, not concurrent registrations.
+var composedVerbs struct {
+	mu    sync.RWMutex
+	verbs []extension.Verb
+}
+
+func setComposedVerbs(verbs []extension.Verb) {
+	composedVerbs.mu.Lock()
+	defer composedVerbs.mu.Unlock()
+	composedVerbs.verbs = verbs
+}
+
+// ComposedVerbs returns this boot's declared extension operations. Exported
+// because the composition root mounts their routes from it (routes.go) after the
+// Server is assembled, which is later than RegisterExtensions.
+func ComposedVerbs() []extension.Verb {
+	composedVerbs.mu.RLock()
+	defer composedVerbs.mu.RUnlock()
+	return slices.Clone(composedVerbs.verbs)
 }
 
 // validateExtensionSet preflights every unit and every capability —
@@ -66,6 +161,78 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightTools(e); err != nil {
 			return err
 		}
+		if err := preflightSecrets(e); err != nil {
+			return err
+		}
+		if err := preflightJobs(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateVerbSet refuses two operations that would mount the same route.
+//
+// It is in the VALIDATE phase because of what happens if it is not checked at
+// all: each verb is individually well-formed, so registration succeeds, the
+// jurisdiction packs and the RBAC vocabulary apply — and then route assembly
+// hands http.ServeMux the same "METHOD /path" pattern twice, which panics. The
+// boot dies either way; the difference is whether it dies having already
+// changed the registries, which is the one property validate-then-apply is
+// here to hold.
+//
+// The pattern is Method + ServedPath, which is exactly what the mux is keyed
+// on. Two units cannot reach this state through the generator — the contract
+// merge refuses a second overlay on one path — so this is the fail-closed
+// boundary for a composed set that arrived some other way.
+func validateVerbSet(verbs []extension.Verb) error {
+	seen := make(map[string]extension.Verb, len(verbs))
+	for _, v := range verbs {
+		pattern := v.Method + " " + v.ServedPath()
+		if prev, dup := seen[pattern]; dup {
+			return fmt.Errorf("compose: %s is declared by both %s/%s and %s/%s — one route is served by one operation, and mounting it twice panics the router",
+				pattern, prev.Unit, prev.OperationID, v.Unit, v.OperationID)
+		}
+		seen[pattern] = v
+	}
+	return nil
+}
+
+// preflightSecrets validates one unit's declared secret keys through the
+// same published SecretsRequest.Validate the manifest generator runs, and
+// rejects the same (key, scope) declared twice — two entries for one secret
+// would show an operator a duplicate to resolve that resolves to one thing.
+// The same key in BOTH scopes is legitimate: they are independent namespaces
+// (extension.Secrets), so a unit may hold an installation credential and a
+// per-member one under one name.
+func preflightSecrets(e extension.Extension) error {
+	seen := make(map[extension.SecretsRequest]bool, len(e.Secrets))
+	for _, req := range e.Secrets {
+		if err := req.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[req] {
+			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
+		}
+		seen[req] = true
+	}
+	return nil
+}
+
+// preflightJobs validates one unit's scheduled jobs through the same published
+// Job.Validate the manifest generator runs, and rejects a job name declared
+// twice within the unit — the same fail-closed boundary preflightTools holds,
+// for a declaration that reached the composed set outside the generator path.
+func preflightJobs(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Jobs))
+	for _, job := range e.Jobs {
+		if err := job.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[job.Name] {
+			return fmt.Errorf("compose: extension %q declares job %q twice", e.Name, job.Name)
+		}
+		seen[job.Name] = true
 	}
 	return nil
 }

@@ -11123,6 +11123,33 @@ type CompanySiteReadSuggestedChange struct {
 // CompanySiteReadSuggestedChangeField defines model for CompanySiteReadSuggestedChange.Field.
 type CompanySiteReadSuggestedChangeField string
 
+// ComposedExtension One enabled extension unit and what it contributes to this binary.
+type ComposedExtension struct {
+	// Jobs The scheduled jobs this boot actually RUNS for the unit — a job the unit declared with no handler ticks nothing and is deliberately absent, because an operator reading this list is asking what runs, not what was written down. Sorted.
+	Jobs []string `json:"jobs"`
+
+	// Name The unit name — its `extensions/<name>` directory, and the namespace token in `ext_<name>_…` objects and `/ext/<name>/…` routes. This is what joins an entry here to a grant in `Role.objects`.
+	Name string `json:"name"`
+
+	// RbacObjects The `ext_<name>_<object>` names this unit's operations gate on, registered into the vocabulary at boot — exactly the objects `setRoleObjectGrant` will accept for this unit. Sorted, and empty for a unit that owns no records (the common case).
+	RbacObjects []string `json:"rbac_objects"`
+
+	// Routes The unit's published operations, one entry per method+path pair. Sorted by path then method. A bare path would under-report the surface — one path serving GET and DELETE is two capabilities to an operator auditing what a unit can do, and collapsing them hides the destructive one behind the harmless one.
+	Routes []ComposedExtensionRoute `json:"routes"`
+
+	// Version The unit's own declared version. It carries NO authority (ADR-0069 §7): operator decisions bind to manifest digests, never to this string. Display only.
+	Version string `json:"version"`
+}
+
+// ComposedExtensionRoute One published extension operation.
+type ComposedExtensionRoute struct {
+	// Method The HTTP method, upper-case.
+	Method string `json:"method"`
+
+	// Path The path AS THE CONTRACT SPELLS IT — `/ext/<unit>/…`, relative to the server url that already ends in `/v1`, so it is the spelling a reader can find by opening the published document rather than the path the router mounts.
+	Path string `json:"path"`
+}
+
 // ComputedField S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
 // database-computed value, never a runtime-authored expression. `computable: false` +
 // `reason` is the honest floor for a field with no backend data model yet — the row is
@@ -12301,6 +12328,11 @@ type EnrichmentProposal struct {
 
 // EnrichmentProposalStatus Always staged — accept via the approval inbox.
 type EnrichmentProposalStatus string
+
+// ExtensionDirectory The composed extension set, sorted by name. Not paginated, for the same reason `RoleDirectory` is not: the set is fixed at build time and small by construction.
+type ExtensionDirectory struct {
+	Extensions []ComposedExtension `json:"extensions"`
+}
 
 // ExtractedField One attempted grounded field from the staged AI-extraction read (RD-T10).
 type ExtractedField struct {
@@ -16268,6 +16300,29 @@ type RequestAccessResponse struct {
 	Requested bool `json:"requested"`
 }
 
+// Role One role as `role.permissions` stores it. This is a ROLE's document, not a principal's — unlike `Authorization.objects` nothing here is merged, because the thing being edited is the single role.
+type Role struct {
+	// IsSystem True for a role the workspace bootstrap seeded and the RBAC migrations top up. It is NOT an immutability flag — a system role's grants are editable through `setRoleObjectGrant`, which is what makes granting an extension object possible at all on an installation that never defined a custom role. A client may surface it as "shipped with the product", never as "read-only".
+	IsSystem bool `json:"is_system"`
+
+	// Key The stable key a role assignment and every refusal names (`admin`, `rep`, …). Unique per workspace, and the path segment `setRoleObjectGrant` addresses.
+	Key string `json:"key"`
+
+	// Name The operator-facing label. Display only — nothing resolves a role by it.
+	Name string `json:"name"`
+
+	// Objects This role's grants, keyed by RBAC object name, verbatim from the stored document. An ABSENT key means the role grants nothing on that object — the same denial an all-false grant expresses, so a client must render a missing key as "no access" rather than as unknown. May carry names outside `RbacObject` and outside any enabled extension; see `listRoles`.
+	Objects map[string]RbacObjectGrant `json:"objects"`
+
+	// Version The row's optimistic-concurrency version (`RowVersion` semantics, data-model §1.3a). Spelled inline rather than as a `$ref` because this one is REQUIRED and a `$ref` renders optional in the generated clients: the editor must always have a version to echo in `If-Match`, and an optional one would let a client omit the guard by accident rather than by decision.
+	Version int64 `json:"version"`
+}
+
+// RoleDirectory Every role this workspace defines. Not paginated and deliberately not: the set is bounded by what an operator created (five seeded, plus a handful at most), the editor needs all of it to render, and a cursor over it would be ceremony over a complete answer.
+type RoleDirectory struct {
+	Roles []Role `json:"roles"`
+}
+
 // RowVersion Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 // Echoed back as the `version` field on every mutable entity. To make a write conditional,
 // send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
@@ -16503,6 +16558,14 @@ type SetProjectStakeholderRequest struct {
 
 // SetProjectStakeholderRequestRole The deal-stakeholder vocabulary plus the delivery roles a body of work running past close needs.
 type SetProjectStakeholderRequestRole string
+
+// SetRoleObjectGrantRequest The role's new CRUD on the addressed object. All four verbs are REQUIRED: this is a replacement of one object's grant, not a sparse patch, so an omitted verb would have to mean either "leave it" or "revoke it" and the two are indistinguishable on the wire. Sending all four false is the supported way to revoke a grant entirely.
+type SetRoleObjectGrantRequest struct {
+	Create bool `json:"create"`
+	Delete bool `json:"delete"`
+	Read   bool `json:"read"`
+	Update bool `json:"update"`
+}
 
 // Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
 // company-level and consent-gated by construction — the only mandatory attribution is
@@ -20288,6 +20351,16 @@ type ExplainReportParams struct {
 	Agg *[]string `form:"agg,omitempty" json:"agg,omitempty"`
 }
 
+// SetRoleObjectGrantParams defines parameters for SetRoleObjectGrant.
+type SetRoleObjectGrantParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // SearchParams defines parameters for Search.
 type SearchParams struct {
 	// Q The search query.
@@ -21161,6 +21234,9 @@ type UpdateRelationshipJSONRequestBody = UpdateRelationshipRequest
 
 // RunReportJSONRequestBody defines body for RunReport for application/json ContentType.
 type RunReportJSONRequestBody = RunReportRequest
+
+// SetRoleObjectGrantJSONRequestBody defines body for SetRoleObjectGrant for application/json ContentType.
+type SetRoleObjectGrantJSONRequestBody = SetRoleObjectGrantRequest
 
 // CreateSignalJSONRequestBody defines body for CreateSignal for application/json ContentType.
 type CreateSignalJSONRequestBody = CreateSignalRequest
@@ -27374,6 +27450,9 @@ type ServerInterface interface {
 	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 	// (POST /exports)
 	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
+	// List the composed extension units and what each contributes. Admin-only, human-only, read-only.
+	// (GET /extensions)
+	ListExtensions(w http.ResponseWriter, r *http.Request)
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
@@ -27854,6 +27933,12 @@ type ServerInterface interface {
 	// "Explain This Number" — resolve a derivation handle to its definition + source rows.
 	// (GET /reports/{report}/derivation)
 	ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams)
+	// List the workspace's roles with their object grants. Admin-only, human-only.
+	// (GET /roles)
+	ListRoles(w http.ResponseWriter, r *http.Request)
+	// Set one role's CRUD grant on one RBAC object. Admin-only, human-only.
+	// (PATCH /roles/{key}/objects/{object})
+	SetRoleObjectGrant(w http.ResponseWriter, r *http.Request, key string, object string, params SetRoleObjectGrantParams)
 	// Cross-object search (people, orgs, deals, activities, leads).
 	// (GET /search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
@@ -28736,6 +28821,12 @@ func (_ Unimplemented) EmbedReindexStatus(w http.ResponseWriter, r *http.Request
 // Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 // (POST /exports)
 func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the composed extension units and what each contributes. Admin-only, human-only, read-only.
+// (GET /extensions)
+func (_ Unimplemented) ListExtensions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29696,6 +29787,18 @@ func (_ Unimplemented) RunReport(w http.ResponseWriter, r *http.Request, report 
 // "Explain This Number" — resolve a derivation handle to its definition + source rows.
 // (GET /reports/{report}/derivation)
 func (_ Unimplemented) ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's roles with their object grants. Admin-only, human-only.
+// (GET /roles)
+func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set one role's CRUD grant on one RBAC object. Admin-only, human-only.
+// (PATCH /roles/{key}/objects/{object})
+func (_ Unimplemented) SetRoleObjectGrant(w http.ResponseWriter, r *http.Request, key string, object string, params SetRoleObjectGrantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35003,6 +35106,26 @@ func (siw *ServerInterfaceWrapper) CreateFilteredExport(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateFilteredExport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExtensions operation middleware
+func (siw *ServerInterfaceWrapper) ListExtensions(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExtensions(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -42760,6 +42883,91 @@ func (siw *ServerInterfaceWrapper) ExplainReport(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRoleObjectGrant operation middleware
+func (siw *ServerInterfaceWrapper) SetRoleObjectGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", chi.URLParam(r, "key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "object" -------------
+	var object string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "object", chi.URLParam(r, "object"), &object, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "object", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetRoleObjectGrantParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRoleObjectGrant(w, r, key, object, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Search operation middleware
 func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
 
@@ -46031,6 +46239,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/extensions", wrapper.ListExtensions)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
 	})
 	r.Group(func(r chi.Router) {
@@ -46509,6 +46720,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/reports/{report}/derivation", wrapper.ExplainReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/roles/{key}/objects/{object}", wrapper.SetRoleObjectGrant)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/search", wrapper.Search)

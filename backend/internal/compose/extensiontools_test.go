@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -42,23 +43,69 @@ func (fullSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatTyp
 // refused; every unit tool here is declared to exercise something else.
 const unitToolDescription = "A stand-in unit tool, described so the composition has something to serve."
 
+// unitVerb is the CONTRACT half of a unit tool under test — what the unit's
+// api/ fragment declares and gen-composition re-emits into the composition as a
+// literal. After the narrowing, every governance field these tests used to
+// spell inside an extension.Tool literal is spelled here instead, because that
+// is where a unit author now spells it.
+func unitVerb(unit, tool string, tier extension.Tier, scope extension.Scope) extension.Verb {
+	v := unitVerbBare(unit, tool, tier, scope)
+	// A MUTATING declaration always carries an RBAC object now — Verb.Validate
+	// refuses one that does not (a governed write nobody can withhold was R1).
+	// Filling it HERE rather than at thirty call sites keeps each test's subject
+	// its own; the refusal itself is pinned in pkg/extension's Validate tests,
+	// and a test that needs the objectless shape uses unitVerbBare.
+	if scope == extension.ScopeWrite || scope == extension.ScopeDraft {
+		v.RbacObject = extension.NamespacePrefix + strings.ReplaceAll(unit, "-", "_") + "_record"
+		v.RbacAction = extension.RbacUpdate
+	}
+	return v
+}
+
+// unitVerbBare is the same declaration with NO RBAC pair, whatever the scope —
+// for the tests whose subject is the refusal itself.
+func unitVerbBare(unit, tool string, tier extension.Tier, scope extension.Scope) extension.Verb {
+	return extension.Verb{
+		Unit:           extension.Name(unit),
+		Contract:       "crm.yaml",
+		OperationID:    tool + "Op",
+		Route:          "/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
+		Method:         http.MethodPost,
+		Tool:           tool,
+		Description:    unitToolDescription,
+		Version:        "1.0.0",
+		Tier:           tier,
+		RequestedScope: scope,
+	}
+}
+
+// servedHandle is a handler that returns nothing; the tests using it are about
+// the DECLARATION being accepted or refused, never about behavior.
+func servedHandle(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 	exts := []extension.Extension{{
 		Name:    "demo",
 		Version: "1.0.0",
 		Tools: []extension.Tool{
 			{
-				Name: "served", Description: unitToolDescription, Version: "1.0.0",
-				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-				InputSchema: json.RawMessage(`{"type":"object"}`),
-				Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				Name: "served",
+				Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 					return json.RawMessage(`{"ok":true}`), nil
 				},
 			},
-			{Name: "inert", Description: unitToolDescription, Version: "1.0.0", Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite},
 		},
 	}}
-	tools, err := buildExtensionTools(exts)
+	servedVerb := unitVerb("demo", "served", extension.TierAutoExecute, extension.ScopeRead)
+	servedVerb.InputSchema = json.RawMessage(`{"type":"object"}`)
+	// "inert" is declared by the contract and by NOTHING in Go — the shape a
+	// contract-only governed request takes now that a Tool is {Name, Handle}.
+	tools, err := buildExtensionTools(exts, []extension.Verb{
+		servedVerb,
+		unitVerb("demo", "inert", extension.TierConfirmationRequired, extension.ScopeWrite),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,12 +135,8 @@ func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 	_, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
-		Tools: []extension.Tool{{
-			Name: "archive", Description: unitToolDescription, Version: "1.0.0",
-			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
-		}},
-	}})
+		Tools: []extension.Tool{{Name: "archive", Handle: servedHandle}},
+	}}, []extension.Verb{unitVerb("demo", "archive", extension.TierConfirmationRequired, extension.ScopeWrite)})
 	if err == nil || !strings.Contains(err.Error(), "confirmation-required tool is not yet supported") {
 		t.Fatalf("err = %v, want the served-🟡 rejection", err)
 	}
@@ -104,14 +147,13 @@ func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 // wiring conflict. It must fail while building the set — before any
 // jurisdiction is applied — not surface later as a Register panic.
 func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
-	served := extension.Tool{
-		Name: "quote", Description: unitToolDescription, Version: "1.0.0",
-		Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-		Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
-	}
+	served := extension.Tool{Name: "quote", Handle: servedHandle}
 	_, err := buildExtensionTools([]extension.Extension{
 		{Name: "unit-a", Version: "1.0.0", Tools: []extension.Tool{served}},
 		{Name: "unit-b", Version: "1.0.0", Tools: []extension.Tool{served}},
+	}, []extension.Verb{
+		unitVerb("unit-a", "quote", extension.TierAutoExecute, extension.ScopeRead),
+		unitVerb("unit-b", "quote", extension.TierAutoExecute, extension.ScopeRead),
 	})
 	if err == nil || !strings.Contains(err.Error(), "both serve a tool named") {
 		t.Fatalf("err = %v, want the cross-unit served-name collision", err)
@@ -134,12 +176,8 @@ func TestBuildExtensionToolsRejectsAServedEgressTool(t *testing.T) {
 		t.Run(string(scope), func(t *testing.T) {
 			_, err := buildExtensionTools([]extension.Extension{{
 				Name: "demo", Version: "1.0.0",
-				Tools: []extension.Tool{{
-					Name: outboundVerbs[scope], Version: "1.0.0",
-					Tier: extension.TierAutoExecute, RequestedScope: scope,
-					Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
-				}},
-			}})
+				Tools: []extension.Tool{{Name: outboundVerbs[scope], Handle: servedHandle}},
+			}}, []extension.Verb{unitVerb("demo", outboundVerbs[scope], extension.TierAutoExecute, scope)})
 			if err == nil || !strings.Contains(err.Error(), "outbound") {
 				t.Fatalf("err = %v, want the served-egress rejection", err)
 			}
@@ -152,12 +190,8 @@ func TestBuildExtensionToolsRejectsAServedEgressTool(t *testing.T) {
 func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
-		Tools: []extension.Tool{{
-			Name: "count_things", Description: unitToolDescription, Version: "1.0.0",
-			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
-		}},
-	}})
+		Tools: []extension.Tool{{Name: "count_things", Handle: servedHandle}},
+	}}, []extension.Verb{unitVerb("demo", "count_things", extension.TierAutoExecute, extension.ScopeRead)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,14 +206,12 @@ func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 // undescribed tool would put it in the same listing as thirty core tools that
 // each say what they are for, with nothing to choose it on.
 func TestBuildExtensionToolsRejectsAServedToolWithNoDescription(t *testing.T) {
+	undescribed := unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)
+	undescribed.Description = ""
 	_, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
-		Tools: []extension.Tool{{
-			Name: "give_quote", Version: "1.0.0",
-			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
-		}},
-	}})
+		Tools: []extension.Tool{{Name: "give_quote", Handle: servedHandle}},
+	}}, []extension.Verb{undescribed})
 	if err == nil || !strings.Contains(err.Error(), "declares no Description") {
 		t.Fatalf("err = %v, want the undescribed-served-tool rejection", err)
 	}
@@ -190,13 +222,11 @@ func TestBuildExtensionToolsRejectsAServedToolWithNoDescription(t *testing.T) {
 // would make an operator-visible governance request fail over documentation
 // nobody would read.
 func TestBuildExtensionToolsAcceptsAnUndescribedInertTool(t *testing.T) {
+	undescribed := unitVerb("demo", "inert", extension.TierConfirmationRequired, extension.ScopeWrite)
+	undescribed.Description = ""
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
-		Tools: []extension.Tool{{
-			Name: "inert", Version: "1.0.0",
-			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
-		}},
-	}})
+	}}, []extension.Verb{undescribed})
 	if err != nil {
 		t.Fatalf("an undescribed inert tool must still declare: %v", err)
 	}
@@ -210,21 +240,15 @@ func TestBuildExtensionToolsAcceptsAnUndescribedInertTool(t *testing.T) {
 // verb rather than registering a title-less spec (which the core registry
 // refuses outright).
 func TestBuildExtensionToolsCarriesTheTitleAndFallsBackToTheVerb(t *testing.T) {
-	handle := func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }
+	titled := unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)
+	titled.Title = "Quote of the day"
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{
-			{
-				Name: "give_quote", Title: "Quote of the day", Description: unitToolDescription,
-				Version: "1.0.0",
-				Tier:    extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
-			},
-			{
-				Name: "count_things", Description: unitToolDescription, Version: "1.0.0",
-				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
-			},
+			{Name: "give_quote", Handle: servedHandle},
+			{Name: "count_things", Handle: servedHandle},
 		},
-	}})
+	}}, []extension.Verb{titled, unitVerb("demo", "count_things", extension.TierAutoExecute, extension.ScopeRead)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,13 +268,12 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 		Name:    "demo",
 		Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
-			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			Name: "give_quote",
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"quote":"it ain't over"}`), nil
 			},
 		}},
-	}})
+	}}, []extension.Verb{unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,19 +304,74 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 	}
 }
 
+// TestAComposedToolAdvertisesItsResultInsideTheEnvelope: the registered spec's
+// outputSchema describes the SEALED result, not the unit's bare payload.
+//
+// The two have to agree or tools/call quietly loses structuredContent: the
+// dispatcher checks a result against the schema the registry advertises, the
+// result is the envelope, and a schema describing only `{"quote": …}` would
+// never match it — so every extension tool call would answer with the text
+// block alone and log a server defect, while tools/list told a model the answer
+// would be the bare payload.
+//
+// It agrees today because a unit's contract declares its PAYLOAD schema, and
+// Registry.Register wraps every registered spec's output in the envelope
+// (agents.envelopedSpec) — an extension tool takes exactly the same path a core
+// tool does. This test is what keeps that true: the wrapping is invisible from
+// this side of the seam, and gen-composition emitting the payload schema is
+// correct precisely BECAUSE the registry wraps it afterwards.
+func TestAComposedToolAdvertisesItsResultInsideTheEnvelope(t *testing.T) {
+	// The payload schema a unit's contract declares for its 200 response —
+	// gen-composition emits exactly this as the tool's OutputSchema.
+	quoting := unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)
+	quoting.OutputSchema = json.RawMessage(`{"type":"object","additionalProperties":false,"required":["quote"],"properties":{"quote":{"type":"string"}}}`)
+	tools, err := buildExtensionTools([]extension.Extension{{
+		Name:    "demo",
+		Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "give_quote",
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
+				return json.RawMessage(`{"quote":"it ain't over"}`), nil
+			},
+		}},
+	}}, []extension.Verb{quoting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+	for _, tool := range tools {
+		r.Register(tool)
+	}
+	spec, ok := r.Spec("give_quote")
+	if !ok {
+		t.Fatal("the composed tool did not register")
+	}
+	var advertised struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(spec.OutputSchema, &advertised); err != nil {
+		t.Fatalf("the advertised output schema is not an object schema: %v (%s)", err, spec.OutputSchema)
+	}
+	for _, field := range []string{"data", "schema_version", "trace_id", "warnings"} {
+		if _, present := advertised.Properties[field]; !present {
+			t.Errorf("the advertised output schema declares no %q — it describes the payload, not the sealed result a call actually returns:\n%s",
+				field, spec.OutputSchema)
+		}
+	}
+}
+
 // TestComposedReadToolRequiresTheScope: admission is real — the same tool
 // is refused when the principal lacks the requested scope.
 func TestComposedReadToolRequiresTheScope(t *testing.T) {
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
-			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			Name: "give_quote",
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{}`), nil
 			},
 		}},
-	}})
+	}}, []extension.Verb{unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)})
 	if err != nil {
 		t.Fatal(err)
 	}
