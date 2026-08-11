@@ -94,6 +94,10 @@ jobs:
               # backend gate, so editing one cannot invalidate a gate result —
               # and each proves itself when it runs.
               - '.github/workflows/ci.yml'
+              # The composite actions ci.yml calls. go-build-cache decides what
+              # every Go job restores, so an edit to it changes what the gates
+              # compile — the same claim on this scope that ci.yml itself has.
+              - '.github/actions/**'
               - 'AGENTS.md'
               - 'sonar-project.properties'
             frontend:
@@ -158,6 +162,15 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # The shared Go build cache (see .github/actions/go-build-cache): this job
+      # compiles the untagged tree twice over — `go build ./...` plus the unit
+      # test binaries — and is the natural writer of the `plain` flavour every
+      # other untagged Go job reads.
+      - name: Restore the Go build cache
+        id: go-cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
       # Cache the compiled gate binaries. `make tools` compiles golangci-lint,
       # go-arch-lint, govulncheck, and oasdiff from source into ~/go/bin — ~75s
       # that setup-go's module/build cache does not cover (it caches ~/go/pkg/mod
@@ -221,6 +234,20 @@ jobs:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
         run: make check-backend
+      # Refresh the shared cache from main only. On a PR this step does not run,
+      # so the twelve shards and this job never race to write the same key and a
+      # PR can never poison what the next PR restores. `!cancelled()` rather than
+      # success(): a red lint or a failed test still compiled the tree, and those
+      # artifacts are exactly as reusable as a green run's.
+      - name: Refresh the shared build cache
+        if: >-
+          !cancelled()
+          && github.event_name == 'push'
+          && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.key }}
 
   # The composed-build lane (ADR-0069): materialize the walking-skeleton
   # reference extension into extensions/, compose, and run the backend
@@ -252,6 +279,13 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # Reads the `plain` flavour: this lane builds the untagged tree twice (once
+      # with extensions/ emptied, once composed), so it is the biggest single
+      # beneficiary after the shards.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
       # working-directory: . on the root-level steps — the workflow default
       # (backend) would resolve fixtures/ and extensions/ under backend/.
       #
@@ -413,6 +447,17 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # The `integration` flavour: a shard compiles ~26 of the 31 tagged packages
+      # with `-tags=integration -cover -coverpkg=./...`, and because the slice is
+      # per-TEST rather than per-package, EVERY shard compiles nearly the whole
+      # lane. Sharding therefore divides the test execution twelve ways and
+      # multiplies the compile by twelve — which is affordable off a warm cache
+      # and was the dominant cost of this job off a cold one.
+      - name: Restore the Go build cache
+        id: go-cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: integration
       # The same compose stack dev machines use (infra/docker-compose.dev.yml:
       # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
       # for the cluster-level margince_app role — migration 0015 GRANTs to it,
@@ -440,6 +485,20 @@ jobs:
           path: ${{ runner.temp }}/shard-out
           if-no-files-found: error
           retention-days: 1
+      # ONE shard refreshes the `integration` flavour, and only from main. Every
+      # shard compiles substantially the same set, so a second writer would add
+      # nothing but a race for the same key — and twelve runners each uploading a
+      # ~550 MB cache would evict the entry they were meant to seed.
+      - name: Refresh the shared build cache
+        if: >-
+          !cancelled()
+          && matrix.shard == 1
+          && github.event_name == 'push'
+          && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.key }}
 
   # Unit coverage for SonarCloud. The shards run only the integration-tagged
   # packages, but the unit-only packages need a `-cover` pass of their own —
@@ -470,6 +529,13 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # The `plain` flavour, not `integration`: this pass is untagged. Coverage
+      # instrumentation means its own package builds miss, but the dependency
+      # builds underneath — the bulk of a cold compile — hit.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
       - name: Unit tests with binary coverage
         run: |
           mkdir -p "$RUNNER_TEMP/covdata-unit"
@@ -608,6 +674,12 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # govulncheck type-checks and builds every package to trace reachability,
+      # so it pays the same cold compile the merge gate does.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
       - run: make vuln
 
   # CI-based SonarCloud scan. Unlike Automatic Analysis, the scanner reads the
@@ -728,6 +800,11 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      # This lane compiles the composition generator and then `go run`s cmd/api.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
       - name: Boot the dev stack and migrate
         run: make db-up && make migrate
       # The deployment configuration (A107/ADR-0061): the api bootstraps the
