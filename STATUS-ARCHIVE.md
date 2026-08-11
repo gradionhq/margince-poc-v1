@@ -21,6 +21,39 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-11 — the cheapest integration run is the one that never starts (PR #816)
+
+The entry above spends itself on making the lane faster. This one is about not
+running it. Editing `infra/ci-pipeline.md` — the file that *documents* the change
+classifier — booted twelve Postgres shards, because the `backend` scope matched
+`infra/**` and `.github/workflows/**` whole. A gate input earns its place by being
+able to change what a gate **does**; prose that merely describes one does not. So
+both scopes now name `infra/**/!(*.md)`, and the workflow glob names
+`.github/workflows/ci.yml` rather than every workflow.
+
+**The negation footgun, since the obvious spelling is wrong.** paths-filter ORs
+its patterns, so a `!infra/**/*.md` list entry matches every path *outside*
+`infra/` and fires the filter on everything — the opposite of the intent, failing
+open. Each cut is therefore one positive extglob. The behaviour was checked
+against picomatch (the matcher the action uses) before pushing, and the merged
+run confirmed it on live CI: two changed files, `ci.yml` matched, the `.md` did
+not.
+
+**What the narrowing nearly broke.** `make check-image-pins` reads the whole
+workflow directory but reached CI only through `make check-backend`, inside the
+`backend`-gated job. Narrowed, it would have skipped on exactly the PR that
+unpins an action in `sbom.yml` or `patch.yml` — and Renovate, which bumps `uses:`
+across all three workflows, auto-merges on green. It moved to `secret-scan`,
+which runs on every non-draft change for the same reason its two existing gates
+do: supply-chain surface is not a scope. No new check name, so branch protection
+was untouched. This is the same shape as the `docker images` fan-in, and worth
+remembering as a class: **narrowing a scope silently disarms every whole-tree
+gate that was riding inside it.** Grep for what a job actually reads before
+cutting what triggers it.
+
+A PR that edits `ci.yml` still runs the full backend lane, by design — a change
+to the merge gate that the merge gate never exercised is not a saving.
+
 ## 2026-08-10 — the MCP App views move to `frontend/` (#742, PR #793)
 
 The two `ui://` views left `go:embed` and became a frontend build target. The api

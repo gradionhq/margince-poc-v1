@@ -432,6 +432,12 @@ the last split bought ~9% and the next would buy less. What is left sits in the
 ~35s between the longest package and the lane's wall time, and in the suites
 below.
 
+The other lever is not running the lane at all. PR #816 narrowed the change
+classifier so a docs edit under `infra/` and a change to a workflow other than
+`ci.yml` no longer trigger it; the narrative, including the whole-tree gate that
+narrowing nearly disarmed, is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
+
 - **#779** — the periodic-dispatch suites wait ~28s in 12 tests on River's real
   clock, the largest single concentration of real waiting. River can stub the
   clock; the issue says why that is not a one-liner and which suite must stay on
