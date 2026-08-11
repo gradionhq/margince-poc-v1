@@ -133,6 +133,14 @@ func TestConsumerMailCreateGrantAddsButNeverRewrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a create-only seat adding a missed provider: %v", err)
 	}
+	// The contract promises an idempotent re-add answers the existing entry —
+	// a create-only seat retrying a lost response must get it back, not a 403
+	// for "updating" a row it just created.
+	if again, err := store.Add(repCtx, "kleinpost.example", capture.FreemailKindExtra); err != nil {
+		t.Fatalf("a create-only seat re-adding the same entry: %v", err)
+	} else if again.ID != added.ID {
+		t.Errorf("re-add answered entry %s, want the existing %s", again.ID, added.ID)
+	}
 	if _, err := store.Add(repCtx, "realfirm.example", capture.FreemailKindNever); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("a create-only seat carving a fresh domain out of the baseline = %v, want permission denied", err)
 	}

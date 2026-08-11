@@ -35,6 +35,7 @@ output. A required job skipped this way still counts as passing.
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `docker` | root `Dockerfile.*`, `.dockerignore` | the three image builds |
+| `deps` | `go.work[.sum]`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |
 
 Consequences:
 
@@ -74,6 +75,7 @@ changes ──┬─> deterministic-gates ──> craftsmanship
           ├─> integration-unit-coverage ────┘                          │
           ├─> extension-reference ──────────────────────────────────┐  │
           ├─> vuln                                                  │  │
+          ├─> license gate  (PR-only, `deps` scope)                 │  │
           ├─> frontend ──> uat                                      │  │
           ├─> live-boot                                             │  │
           ├─> docker-image (×3: api, web, worker) ─> docker-images  │  │
@@ -159,6 +161,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
 | `vuln` | `make vuln` (govulncheck over all packages) |
+| `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. PR-only — on `main` the same gate runs inside `sbom.yml`, where it is the precondition for signing, so each path runs it exactly once |
 | `frontend` | `make frontend-check` (biome + vitest + tsc + Vite build) + a Storybook catalog build (stories must compile & register). Emits `fe-coverage` (lcov) |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
 | `live-boot` | The README quickstart run literally: compose up → migrate → api → `seed-dev` → `verify-boot`. Keeps the API-driven seed and the boot proof honest — the integration shards never boot the api or run the seed script, so those would rot invisibly without this job |
@@ -210,12 +213,17 @@ Wiring details:
 
 `ci.yml` is the merge gate. Two workflows sit beside it, deliberately outside it:
 
-- **`sbom.yml`** — regenerates and license-gates the source-tree SBOMs whenever a
-  dependency set or the SBOM pipeline itself changes, and signs `main`'s from a
-  separate job that is the sole holder of `id-token: write`. Signing is isolated
-  from all PR-controlled code because a keyless signature lands permanently in a
-  public transparency log and cannot be retracted, so a PR preview must never
-  produce one. Not a required check; the mechanics are in
+- **`sbom.yml`** — **no `pull_request` trigger**, so its automatic path is `main`
+  (a manual dispatch still runs the `sbom` job on any ref; only `sign` is guarded
+  to `main`). Regenerates the source-tree SBOMs whenever a
+  dependency set or the SBOM pipeline itself changes, license-gates them, and signs
+  them from a separate job that is the sole holder of `id-token: write`. Signing is
+  isolated from all PR-controlled code because a keyless signature lands permanently
+  in a public transparency log and cannot be retracted, so a PR preview must never
+  produce one — and the license gate stays on this path because `sign`'s `needs:
+  sbom` is what keeps a policy-failing SBOM from reaching it. The PR-side gate is
+  the `license gate` job in `ci.yml` (above), so each event path runs the policy
+  exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
 - **`patch.yml`** — on every push to `main`, runs the release-management CLI over
   the push's range and uploads the incremental patch as a short-retention
