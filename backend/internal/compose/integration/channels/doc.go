@@ -11,9 +11,9 @@
 //
 // It is a suite package split out of internal/compose/integration so the lane
 // has another scheduling slot: one package is one slot, and the parent is large
-// enough to be the lane's long pole by itself. Measured, these suites are 14.8s
-// of the parent's 160s. It rides the parent's exported fixtures and apptest's,
-// and owns its own connector stubs, seeding and assertions.
+// enough to be the lane's long pole by itself. It rides the parent's exported
+// fixtures and apptest's, and owns its own connector stubs, seeding and
+// assertions.
 //
 // The boundary is where the fixtures fall, not where the names suggest. Three
 // neighbours that read as if they belong here stay in the parent, each for the

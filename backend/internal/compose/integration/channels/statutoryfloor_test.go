@@ -30,17 +30,32 @@ func init() {
 // cannot be: an absent floor makes the destructive path succeed, so a suite that
 // asserts the shield would go green for the opposite of the intended reason.
 // This asserts the registration itself, where a failure names its own cause.
+//
+// It asserts THIS pack and the span the suites were written against, not merely
+// that some pack declares a correspondence class. A different pack satisfying the
+// weaker check would let this pass while the floor the erasure assertions depend
+// on is absent or shortened — the same false green by another route.
 func TestTheStatutoryFloorIsArmedForThisBinary(t *testing.T) {
+	want := integration.GoBDFloorPack{}
 	for _, pack := range jurisdiction.Applicable() {
-		retention := pack.Retention()
-		if retention == nil {
+		if pack.Code() != want.Code() {
 			continue
 		}
-		for _, class := range retention.Classes() {
-			if class.Name == jurisdiction.CommercialCorrespondence {
-				return
-			}
+		retention := pack.Retention()
+		if retention == nil {
+			t.Fatalf("pack %q is registered but declares no retention", pack.Code())
 		}
+		for _, class := range retention.Classes() {
+			if class.Name != jurisdiction.CommercialCorrespondence {
+				continue
+			}
+			if class.Keep.Years != 6 || class.Anchor != jurisdiction.AnchorCalendarYearEnd {
+				t.Fatalf("the correspondence floor is %+v, want six years anchored to calendar-year end — the erasure suites here are written against that span",
+					class)
+			}
+			return
+		}
+		t.Fatalf("pack %q declares no commercial-correspondence class", pack.Code())
 	}
-	t.Fatal("no pack in this binary declares a commercial-correspondence floor — the erasure suites here would pass by proving nothing")
+	t.Fatalf("pack %q is not registered in this binary — the erasure suites here would pass by proving nothing", want.Code())
 }
