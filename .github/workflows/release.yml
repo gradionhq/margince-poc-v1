@@ -167,7 +167,7 @@ jobs:
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       - name: Log in to the constellation registry
         env:
-          PUBLISHER_TOKEN: ${{ secrets.MARGINCE_REGISTRYAUTH_PUBLISHER_TOKEN }}
+          PUBLISHER_TOKEN: ${{ secrets.MARGINCE_AUTH_PUBLISHER_TOKEN }}
         run: echo "$PUBLISHER_TOKEN" | docker login registry.test.margince.com -u _publisher --password-stdin
       - name: Bake and push the images, add them to the draft
         env:
