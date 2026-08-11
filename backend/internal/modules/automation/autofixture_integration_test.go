@@ -60,7 +60,7 @@ func setupAutomationDB(t *testing.T) *autoFixture {
 	// The database is already migrated (`make migrate`, the integration
 	// lane's precondition); each run seeds its own workspace, keyed by
 	// the workspace id so reruns never collide on the slug uniques.
-	fx.exec(t, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Runs', $2, 'EUR')`, fx.ws, "runs-"+fx.ws.String())
+	fx.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`, fx.ws, "runs-"+fx.ws.String())
 	fx.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep1')`, fx.rep1, fx.ws, "rep1-"+fx.rep1.String()+"@runs.test")
 	fx.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep2')`, fx.rep2, fx.ws, "rep2-"+fx.rep2.String()+"@runs.test")
 

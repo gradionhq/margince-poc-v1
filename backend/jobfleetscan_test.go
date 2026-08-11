@@ -81,10 +81,6 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 		2,
 		"the dispatch enumerations: the live fleet every pass on behalf of an active tenant fans out over, and the archived-inclusive one BOTH retention passes need — GDPR retention and idempotency claim retention — because archiving a workspace does not un-store the data inside it. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
 	},
-	"internal/compose/installation.go": {
-		1,
-		"bootstrap seed (ADR-0090 §8): reads back the organization row this same transaction just created, to seed the installation settings from it rather than re-deriving identity's own defaulting. Not a fleet read — the transaction holds exactly one workspace by construction, it runs on the boot path with no job and no args to take a workspace from, and ADR-0061 §3 refuses to start when a second exists",
-	},
 	"internal/modules/identity/installation.go": {
 		1,
 		"boot path: resolves the singleton organization and refuses to serve when a second exists (ADR-0061 §3) — it IS the workspace authority, not a consumer of it",

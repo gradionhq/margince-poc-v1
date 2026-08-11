@@ -13,11 +13,10 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // frozenRateTables are every table holding an `fx_rate_to_base` — the column
@@ -38,7 +37,18 @@ import (
 // quietly widening the hole.
 var frozenRateTables = []string{"deal", "offer", "finance_invoice"}
 
-// BaseCurrencyFrozen reports whether the installation's base currency has
+// BaseCurrencyFreeze binds the probe to the settings key that HOLDS the base
+// currency. The key is injected rather than spelled here because deals may not
+// import the module that owns the entry (ADR-0054), and a literal copy would
+// go on pointing at the old name the day that entry is renamed — silently
+// answering "nothing is priced" for a setting that no longer exists.
+func BaseCurrencyFreeze(settingKey string) func(context.Context, pgx.Tx) (bool, string, error) {
+	return func(ctx context.Context, tx pgx.Tx) (bool, string, error) {
+		return baseCurrencyFrozen(ctx, tx, settingKey)
+	}
+}
+
+// baseCurrencyFrozen reports whether the installation's base currency has
 // stopped being changeable, and says why.
 //
 // TWO THINGS STOP IT, and they differ in whether anyone can undo them.
@@ -57,7 +67,7 @@ var frozenRateTables = []string{"deal", "offer", "finance_invoice"}
 //
 // Runs inside the caller's write transaction, so the answer cannot go stale
 // between the check and the write it guards.
-func BaseCurrencyFrozen(ctx context.Context, tx pgx.Tx) (bool, string, error) {
+func baseCurrencyFrozen(ctx context.Context, tx pgx.Tx, settingKey string) (bool, string, error) {
 	converted, err := frozenRateCount(ctx, tx)
 	if err != nil {
 		return false, "", err
@@ -68,7 +78,7 @@ func BaseCurrencyFrozen(ctx context.Context, tx pgx.Tx) (bool, string, error) {
 				"against it, so changing the base would re-mean every roll-up built on them",
 			converted), nil
 	}
-	priced, base, err := ratesPricedAgainstBase(ctx, tx)
+	priced, base, err := ratesPricedAgainstBase(ctx, tx, settingKey)
 	if err != nil {
 		return false, "", err
 	}
@@ -98,27 +108,42 @@ func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
 }
 
 // ratesPricedAgainstBase counts the sheet rows converting into the base the
-// workspace currently holds, and returns that base so the reason can name it.
+// installation currently holds, and returns that base so the reason can name
+// it.
 //
-// It reads workspace.base_currency rather than the setting row, and NOT
-// because the setting row is unwritten at this point — it holds the outgoing
-// value too, since the freeze probe runs before the update. The reason is the
-// FIRST write: on an installation that has never stored the setting there is
-// no row to read, and the refusing read (settings.RequireTx) would fail the
-// probe rather than answer "nothing is priced yet". The column always has a
-// value, so it can answer for the base being replaced in both cases.
+// It reads the setting row directly rather than through platform/settings
+// because it runs INSIDE the settings write's own transaction, before the new
+// value is stored — the gated readers are for callers asking what the value
+// is, and this is the write asking what it is about to replace.
 //
-// This is why the probe is not part of the sweep that moved the other readers
-// (issue #521): it needs the reading that tolerates an unset setting.
-func ratesPricedAgainstBase(ctx context.Context, tx pgx.Tx) (int, string, error) {
-	var base string
+// An absent row does NOT mean "nothing is priced". Bootstrap seeds the row and
+// 0209 refuses to drop the columns without it, so the state is residual — but
+// where it does occur, a rate sheet can still be sitting there priced into
+// whatever the base used to be, and answering "not frozen" would let it be
+// restated out from under exactly the rows ADR-0085 §7 protects. So the sheet
+// is counted either way, and a sheet with rows in it freezes the base whether
+// or not the base itself can still be named.
+func ratesPricedAgainstBase(ctx context.Context, tx pgx.Tx, settingKey string) (int, string, error) {
+	var base *string
+	if err := tx.QueryRow(ctx,
+		`SELECT value #>> '{}' FROM setting WHERE key = $1`, settingKey,
+	).Scan(&base); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", fmt.Errorf("reading the installation's current base currency: %w", err)
+	}
+	if base == nil {
+		// No base to compare against, so every rate on the sheet counts: the
+		// question "is anything priced against the outgoing base" cannot be
+		// answered more narrowly, and the safe answer is the conservative one.
+		var priced int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM fx_rate`).Scan(&priced); err != nil {
+			return 0, "", fmt.Errorf("counting rates on the sheet: %w", err)
+		}
+		return priced, "the base it was set to", nil
+	}
 	var priced int
-	if err := tx.QueryRow(ctx, `
-		SELECT w.base_currency,
-		       (SELECT count(*) FROM fx_rate WHERE to_currency = w.base_currency)
-		  FROM workspace w WHERE w.id = $1`,
-		storekit.MustWorkspace(ctx)).Scan(&base, &priced); err != nil {
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM fx_rate WHERE to_currency = $1`, *base).Scan(&priced); err != nil {
 		return 0, "", fmt.Errorf("counting rates priced against the current base: %w", err)
 	}
-	return priced, base, nil
+	return priced, *base, nil
 }

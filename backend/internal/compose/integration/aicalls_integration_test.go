@@ -157,7 +157,7 @@ func TestAiCallIsInvisibleAcrossTenants(t *testing.T) {
 
 	workspaceB := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'AI Two', 'ai-two', 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'ai-two')`,
 		workspaceB); err != nil {
 		t.Fatalf("seed second workspace: %v", err)
 	}

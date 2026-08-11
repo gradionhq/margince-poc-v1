@@ -528,7 +528,7 @@ func TestQuotaRLS_TenantIsolation(t *testing.T) {
 	// Tenant B, full quota authority — RLS, not RBAC, is what walls it off.
 	wsB := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Quota Tenant B', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		wsB, "quota-b-"+wsB.String()[:8]); err != nil {
 		t.Fatal(err)
 	}

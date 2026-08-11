@@ -90,7 +90,7 @@ func setupStore(t *testing.T) *storeEnv {
 		clockValue: time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC),
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Comms', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "comms-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

@@ -3,13 +3,13 @@
 
 package identity
 
-// The workspace row has two halves. Bootstrap writes the installation's
-// IDENTITY from the deployment configuration file — name, slug, base
-// currency, timezone (installation.go) — and every other column on the row is
-// CONFIGURATION: it arrives at the default its migration declared and is
-// changed later through a settings surface. ResetWorkspaceConfig below
-// restores the second half to those defaults. The first half is what a data
-// reset must not touch, because the installation itself survives the reset.
+// The workspace row is CONFIGURATION now: its identity — name, base currency,
+// timezone — moved into `setting` (ADR-0090/A135) and the columns were dropped
+// (0209), leaving the slug bootstrap derives and columns that arrive at the
+// default their migration declared and are changed later through a settings
+// surface. ResetWorkspaceConfig below restores those defaults. What a data
+// reset must not touch lives in `setting`, where platform/settings.ResetConfig
+// draws the same line: the installation itself survives the reset.
 
 import (
 	"context"
@@ -21,10 +21,14 @@ import (
 )
 
 // preservedWorkspaceColumns are the workspace columns the restore does not
-// assign: the primary key, the four values bootstrap takes from the deployment
-// configuration, and the row's own lifecycle timestamps. A reset wipes an
-// installation's DATA — it does not re-create the installation, so its name,
-// currency, zone and age outlive it.
+// assign: the primary key, the slug bootstrap derives from the organization
+// name, and the row's own lifecycle timestamps. A reset wipes an
+// installation's DATA — it does not re-create the installation, so its
+// identity and age outlive it.
+//
+// Name, currency and zone are absent because they are no longer columns
+// (0209): they are settings rows, and platform/settings.ResetConfig spares
+// them there for exactly this reason.
 //
 // updated_at is listed for a different reason than the rest. The reset really
 // does write this row, so trg_workspace_updated moves that column, and it
@@ -39,8 +43,8 @@ import (
 // silently escaping the reset, and a column that genuinely belongs to the
 // installation's identity has to be declared here to be spared.
 var preservedWorkspaceColumns = map[string]bool{
-	"id": true, "name": true, "slug": true, "base_currency": true,
-	"timezone": true, "created_at": true, "updated_at": true, "archived_at": true,
+	"id": true, "slug": true,
+	"created_at": true, "updated_at": true, "archived_at": true,
 }
 
 // workspaceConfigColumns lists the workspace columns a reset restores — every

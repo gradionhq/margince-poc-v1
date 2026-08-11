@@ -71,7 +71,7 @@ func setupDSR(t *testing.T) *dsrEnv {
 
 	e := &dsrEnv{owner: owner, ws: ids.NewV7(), user: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'DSR', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "dsr-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

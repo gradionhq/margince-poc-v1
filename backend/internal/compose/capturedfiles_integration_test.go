@@ -43,7 +43,7 @@ func captureWorkspace(t *testing.T) (context.Context, *pgxpool.Pool, string) {
 	ws := ids.NewV7()
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Captured Files', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "captured-files-"+ws.String()); err != nil {
 		t.Fatalf("seed workspace: %v", err)
 	}

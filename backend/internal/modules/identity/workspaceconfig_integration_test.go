@@ -92,6 +92,26 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
 
+	// The installation's identity as it stands BEFORE the reset. Compared
+	// against itself afterwards rather than against configBootstrap, because
+	// `setting` is non-tenant: several fixtures bootstrap into one database
+	// per package run and Seed is ON CONFLICT DO NOTHING, so the rows belong
+	// to whichever installation got there first. Which one that is has nothing
+	// to do with the claim under test — that a reset wipes the DATA and leaves
+	// the installation standing.
+	var nameBefore, currencyBefore, zoneBefore string
+	if err := owner.QueryRow(ctx, `
+		SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.timezone'), '')`).
+		Scan(&nameBefore, &currencyBefore, &zoneBefore); err != nil {
+		t.Fatalf("reading the installation's identity: %v", err)
+	}
+	if nameBefore == "" || currencyBefore == "" || zoneBefore == "" {
+		t.Fatalf("the fixture bootstrapped no identity to preserve: name=%q currency=%q zone=%q",
+			nameBefore, currencyBefore, zoneBefore)
+	}
+
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
 	if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 		return ResetWorkspaceConfig(wsCtx, tx)
@@ -99,14 +119,26 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var mode, name, currency, timezone string
+	var mode string
 	var incumbent *string
 	var after time.Time
 	if err := owner.QueryRow(ctx, `
-		SELECT x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
+		SELECT x_sor_mode, x_incumbent, updated_at
 		  FROM workspace WHERE id = $1`, ws).
-		Scan(&mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
+		Scan(&mode, &incumbent, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
+	}
+	// The installation's identity is settings rows now (0209), and this is
+	// still the claim under test: a reset wipes the DATA, not the
+	// installation. platform/settings.ResetConfig spares these three, so they
+	// must read back exactly as bootstrap wrote them.
+	var name, currency, timezone string
+	if err := owner.QueryRow(ctx, `
+		SELECT coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'), ''),
+		       coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.timezone'), '')`).
+		Scan(&name, &currency, &timezone); err != nil {
+		t.Fatalf("reading the installation's identity back: %v", err)
 	}
 	if mode != "native" {
 		t.Errorf("x_sor_mode = %q, want native", mode)
@@ -114,9 +146,10 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	if incumbent != nil {
 		t.Errorf("x_incumbent = %q, want NULL", *incumbent)
 	}
-	if currency != configBootstrap.BaseCurrency || timezone != configBootstrap.Timezone || name == "" {
-		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q — a reset wipes the data, not the installation",
-			name, currency, timezone)
+	if name != nameBefore || currency != currencyBefore || timezone != zoneBefore {
+		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q, was %q/%q/%q — "+
+			"a reset wipes the data, not the installation",
+			name, currency, timezone, nameBefore, currencyBefore, zoneBefore)
 	}
 
 	// created_at is preserved and updated_at is not, and the difference is the
@@ -363,7 +396,7 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 
 	var nameBefore string
 	if err := owner.QueryRow(ctx,
-		`SELECT name FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
+		`SELECT slug FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
 		t.Fatalf("reading the workspace: %v", err)
 	}
 
@@ -406,10 +439,10 @@ func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
 	var mode string
 	var nameAfter string
 	if err := owner.QueryRow(ctx,
-		`SELECT x_sor_mode, name FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
+		`SELECT x_sor_mode, slug FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
 		t.Fatalf("the rollback did not restore the fork columns: %v", err)
 	}
 	if nameAfter != nameBefore {
-		t.Errorf("name = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
+		t.Errorf("slug = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
 	}
 }

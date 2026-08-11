@@ -329,40 +329,33 @@ still open. `finance_invoice` joined `frozenRateTables` in deals, because an
 invoice freezes its FX rate on issue date and a base-currency change would
 restate money that already moved.
 
-## Open — the settings mirror is a dual-write on ADR-0091's critical path
+## Done — the settings mirror is retired, and the workspace row is next
 
 ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
-the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
-three `installation.*` values — behind a Settings → Installation surface, with
-the base currency freezing once a deal has converted against it (ADR-0085 §7).
+the catalog in typed Go. #521 then moved every reader off the `workspace`
+columns across four slices — quotas and finance (#794), the deals module's
+money reads (#802), name/timezone plus the roll-up and org-360 (#817), and the
+brief ranker, forecast and reset confirmation (#857) — and migration `0209`
+dropped `name`, `base_currency` and `timezone` along with the dual write in
+`UpdateInstallation`.
 
-The read side is most of the way across. Three slices have landed — quotas and
-finance (#794), the deals module's money reads (#802), and the installation's
-name and timezone plus the roll-up and org-360 reads (#817). Each module takes
-the seam as a required constructor value, `identity.{Name,BaseCurrency,Timezone}Of`
-are the only readers, and an unset value REFUSES rather than falling back to a
-default, because a silent default on a money path converts against one currency
-and labels the result another.
+The three reads that used to be documented exceptions moved with the columns
+rather than surviving them. Bootstrap now WRITES the settings from the values
+identity itself resolved, instead of reading its own row back. The session
+lookup and the base-currency freeze probe read the `setting` row directly in
+SQL — both run where `platform/settings`' readers cannot, one before a
+principal exists to gate anything and the other on the first write, when no row
+exists yet and "nothing is priced against a base that was never set" is the
+honest answer.
 
-Two readers are left, and both are SQL-expression rewrites rather than source
-swaps: the forecast's slipped-category dimension (`compose/report.go`) and the
-brief ranker's revenue factor (`compose/briefs/briefrank.go`) each spell the
-value inside a larger query against a `workspace w` join, so they need bind
-positions threaded through their builders and the join re-examined. Three reads
-stay on the column deliberately: bootstrap's own backfill, the session read
-that names the installation before any principal exists to gate a settings
-read, and the base-currency freeze probe, which must tolerate the FIRST write
-where no row exists yet.
+`0209` refuses rather than loses: an installation whose settings rows are
+missing while a live workspace still holds the values fails the migration with
+what to do about it, because dropping the columns would destroy the only copy.
+The one state its repair cannot resolve is several live workspaces, where no
+single row can speak for the installation — an operator resolves that down to
+one (ADR-0061 §3) and re-runs.
 
-`UpdateInstallation` still writes the setting AND mirrors it onto the column in
-one transaction. The mirror retires with those last two readers.
-
-**This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
-phase drops the `workspace` row, so the readers have to move regardless. Doing
-it as its own change gets the dual-write out before the plumbing collapse
-rather than after, and shrinks what phase 4 has to touch. Tracked as **#521**,
-which also covers dropping `capture_auto_enrich`, `name`, `timezone` and
-`base_currency` once nothing reads them.
+What remains of ADR-0091 phase 4 is the rest of the `workspace` row itself.
 
 Also open from the same work: **#551** — the base-currency freeze is atomic
 with its own write but not with the deal transaction that stamps

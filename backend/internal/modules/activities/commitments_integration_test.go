@@ -75,7 +75,7 @@ func setupPromises(t *testing.T) *promiseEnv {
 
 	e := &promiseEnv{owner: owner, ws: ids.NewV7(), rep: ids.NewV7(), other: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Promises', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "promises-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

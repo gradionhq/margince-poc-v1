@@ -313,7 +313,7 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	// A sibling workspace search's own setup does not create — proves the
 	// fleet enumeration (not just the harness's one workspace) is real.
 	ws2 := ids.NewV7()
-	if _, err := e.Owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Search Two', 'search-two', 'EUR')`, ws2); err != nil {
+	if _, err := e.Owner.Exec(ctx, `INSERT INTO workspace (id, slug) VALUES ($1, 'search-two')`, ws2); err != nil {
 		t.Fatalf("seeding the sibling workspace: %v", err)
 	}
 
