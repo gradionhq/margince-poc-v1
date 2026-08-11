@@ -26,7 +26,7 @@ import (
 // audit row gives it nothing to diff.
 func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[string]any, error) {
 	var displayName string
-	var legalName, industry, addressLine1 *string
+	var legalName, industry, addressLine1, description, sizeBand *string
 	// FOR UPDATE, and it is the audit that needs it: the before image and the
 	// apply that follows must describe ONE transaction's work. Read unlocked,
 	// a concurrent update landing between them lands inside this diff, and
@@ -37,9 +37,9 @@ func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 	// the row lock second (see its own doc); a caller that reaches this row
 	// lock without it inverts the pair and deadlocks against a human rename.
 	if err := tx.QueryRow(ctx,
-		`SELECT display_name, legal_name, industry, address_line1
+		`SELECT display_name, legal_name, industry, address_line1, description, size_band
 		   FROM organization WHERE id = $1 FOR UPDATE`,
-		orgID).Scan(&displayName, &legalName, &industry, &addressLine1); err != nil {
+		orgID).Scan(&displayName, &legalName, &industry, &addressLine1, &description, &sizeBand); err != nil {
 		return nil, fmt.Errorf("read organization column images: %w", err)
 	}
 	// Keyed by FIELD, not by column: field history projects per field, and
@@ -47,8 +47,12 @@ func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 	// column name, the account's registered address showed up in history as a
 	// field the profile surface does not have.
 	out := map[string]any{fieldDisplayName: displayName}
+	// size_band has no profile-field twin: the column IS the surface, so its
+	// own name is the field-history key.
 	for column, value := range map[string]*string{
-		fieldLegalName: legalName, fieldIndustry: industry, fieldRegisteredAddress: addressLine1,
+		fieldLegalName: legalName, fieldIndustry: industry,
+		fieldRegisteredAddress: addressLine1, fieldOfferSummary: description,
+		"size_band": sizeBand,
 	} {
 		if value == nil {
 			// An empty column reads as an explicit null in the image, never as
@@ -71,6 +75,8 @@ func emptyColdStartColumnImages() map[string]any {
 		fieldLegalName:         nil,
 		fieldIndustry:          nil,
 		fieldRegisteredAddress: nil,
+		fieldOfferSummary:      nil,
+		"size_band":            nil,
 	}
 }
 

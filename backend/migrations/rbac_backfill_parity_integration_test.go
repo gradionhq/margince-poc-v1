@@ -164,6 +164,7 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	// two must stay aligned — if a future migration drops the guard, jsonb_set
 	// would silently no-op and the object would be missing with nothing failing.
 	seedRole(t, conn, empty, "admin", true, []byte(`{}`))
+	archiveAllButOne(t, conn)
 
 	if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
 		t.Fatalf("re-applying the backfills: %v", err)

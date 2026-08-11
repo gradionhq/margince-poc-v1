@@ -67,7 +67,7 @@ func setupChannelConsent(t *testing.T) *channelConsentEnv {
 	// this suite cannot collide on the identity's uniqueness index.
 	e.account = e.person.String()[:8]
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'ChannelConsent', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		e.ws, "cc-"+e.ws.String()); err != nil {
 		t.Fatal(err)
 	}

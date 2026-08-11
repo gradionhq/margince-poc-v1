@@ -89,7 +89,7 @@ func setupForecast(t *testing.T) *forecastEnv {
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
 		t.Fatalf("seeding the installation settings: %v", err)
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Forecast', 'forecast', 'EUR')`, e.WS); err != nil {
+	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, slug) VALUES ($1, 'forecast')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
 	for email, u := range map[string]ids.UUID{"rep1@forecast.test": e.Rep1, "rep3@forecast.test": e.Rep3} {
@@ -483,8 +483,7 @@ func (e *forecastEnv) forecastStatus(ctx context.Context, body string) int {
 	return rec.Code
 }
 
-// The forecast's "today" comes from the SETTING's zone, not from
-// workspace.timezone (ADR-0091 phase 4, issue #521).
+// The forecast's "today" comes from the installation SETTING's zone.
 //
 // It asserts a FLIP rather than a message. Asserting on a date would be
 // flaky — any two real zones agree about the date for part of every day, so
@@ -492,8 +491,8 @@ func (e *forecastEnv) forecastStatus(ctx context.Context, body string) int {
 // the response body: an unresolvable zone is a Postgres fault, which httperr
 // masks to an opaque 500 exactly as it should. So the fixture holds everything
 // constant and moves only the setting: the same report that answered 200
-// stops answering once the SETTING names a zone Postgres cannot resolve, while
-// workspace.timezone still says UTC. A reader on the column never notices.
+// stops answering once the SETTING names a zone Postgres cannot resolve, which
+// is the proof that the zone is consulted at all.
 func TestTheForecastBucketsInTheZoneTheSettingNames(t *testing.T) {
 	e := setupForecast(t)
 	// A commit deal WITH a close date, because the zone sits inside a CASE
@@ -512,17 +511,8 @@ func TestTheForecastBucketsInTheZoneTheSettingNames(t *testing.T) {
 		`UPDATE setting SET value = '"Margince/Nowhere"'::jsonb WHERE key = 'installation.timezone'`); err != nil {
 		t.Fatal(err)
 	}
-	var column string
-	if err := e.owner.QueryRow(context.Background(),
-		`SELECT timezone FROM workspace WHERE id = $1`, e.WS).Scan(&column); err != nil {
-		t.Fatal(err)
-	}
-	if column != "UTC" {
-		t.Fatalf("the fixture needs the two copies to DISAGREE; workspace.timezone = %q", column)
-	}
-
 	if got := e.forecastStatus(e.Admin(), body); got == http.StatusOK {
 		t.Error("the forecast still answered 200 with an unresolvable zone in the setting; " +
-			"the slipped-category dimension is reading workspace.timezone")
+			"the slipped-category dimension never consulted it")
 	}
 }

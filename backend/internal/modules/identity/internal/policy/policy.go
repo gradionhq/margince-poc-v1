@@ -113,11 +113,11 @@ var (
 // and migrate-in screens are admin surfaces.
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud, crud, readUpdate, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, crud, readOnly, grant{}, readOnly, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -162,8 +162,12 @@ var defaults = map[string]Document{
 			grant{}, // fx_rate — admin/ops-only
 			grant{}, // ai_model_rate — admin/ops-only
 			// capture_settings — everyone reads (a rep sees whether
-			// auto-enrich is on), only admin/ops toggle it.
-			readOnly,
+			// auto-enrich is on), only admin/ops toggle it or carve a
+			// domain back out of the consumer-mail baseline. `create` is
+			// the one write a rep holds: contributing a consumer domain
+			// the shipped baseline missed (CAP-PARAM-5) is everyday
+			// judgment about the mail they read, not workspace config.
+			grant{Create: true, Read: true},
 			// project — the record posture: reps create and work a body
 			// of work, archiving stays manager/admin/ops.
 			grant{Create: true, Read: true, Update: true},
@@ -183,7 +187,7 @@ var defaults = map[string]Document{
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud, crud, readUpdate, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }

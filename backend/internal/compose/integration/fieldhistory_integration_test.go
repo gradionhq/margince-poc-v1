@@ -519,9 +519,14 @@ func TestEnrichmentWritesProjectAsRealColumnDiffs(t *testing.T) {
 		SourceURL: "https://scale.example/impressum",
 		Fields: []people.ColdStartFieldInput{
 			{Field: "legal_name", Value: "Scale Commerce GmbH", EvidenceSnippet: "Scale Commerce GmbH, Berlin", SourceURL: "https://scale.example/impressum", Confidence: 0.9},
-			// Not column-backed: it lands as evidence only, so it must NOT
-			// appear as a field change on the organization row.
+			// Column-backed through a column of a DIFFERENT name: an accepted
+			// offer_summary fills organization.description. It is here because
+			// that pair is where the field-vs-column keying can part company.
 			{Field: "offer_summary", Value: "Managed hosting", EvidenceSnippet: "Managed hosting for e-commerce", SourceURL: "https://scale.example", Confidence: 0.8},
+			// Not column-backed at all: it lives only in
+			// organization_profile_field, so it must NOT appear as a change to
+			// the organization row.
+			{Field: "icp", Value: "Mid-market retailers", EvidenceSnippet: "We serve mid-market retailers", SourceURL: "https://scale.example", Confidence: 0.7},
 		},
 	})
 	if err != nil {
@@ -543,7 +548,7 @@ func TestEnrichmentWritesProjectAsRealColumnDiffs(t *testing.T) {
 			t.Errorf("field history shows %q as a changed field — that is operation metadata, not a column on the record", pseudo)
 		}
 	}
-	if seen["offer_summary"] {
+	if seen["icp"] {
 		t.Error("a profile-field-only value appeared as an organization column change")
 	}
 	// And the positive half: the column the apply actually filled is the one a
@@ -551,5 +556,14 @@ func TestEnrichmentWritesProjectAsRealColumnDiffs(t *testing.T) {
 	// pass just as well if the write had stopped auditing altogether.
 	if !seen["legal_name"] {
 		t.Errorf("legal_name is missing from field history: %v — the apply wrote it, so the record's own change must be what shows", seen)
+	}
+	// offer_summary rides organization.description, and the images are keyed by
+	// FIELD rather than by column on purpose: filed under the column, this
+	// change would reach the reader as `description`, a name the profile
+	// surface does not have — the same complaint registered_address/address_line1
+	// answers one line above it in the image reader. So the field the human
+	// accepted is the field the history must name.
+	if !seen["offer_summary"] {
+		t.Errorf("offer_summary is missing from field history: %v — an accepted offer_summary fills a column, so it is a change the record really made", seen)
 	}
 }

@@ -18,6 +18,8 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
+- Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
 - [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
@@ -327,40 +329,33 @@ still open. `finance_invoice` joined `frozenRateTables` in deals, because an
 invoice freezes its FX rate on issue date and a base-currency change would
 restate money that already moved.
 
-## Open — the settings mirror is a dual-write on ADR-0091's critical path
+## Done — the settings mirror is retired, and the workspace row is next
 
 ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
-the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
-three `installation.*` values — behind a Settings → Installation surface, with
-the base currency freezing once a deal has converted against it (ADR-0085 §7).
+the catalog in typed Go. #521 then moved every reader off the `workspace`
+columns across four slices — quotas and finance (#794), the deals module's
+money reads (#802), name/timezone plus the roll-up and org-360 (#817), and the
+brief ranker, forecast and reset confirmation (#857) — and migration `0209`
+dropped `name`, `base_currency` and `timezone` along with the dual write in
+`UpdateInstallation`.
 
-The read side is most of the way across. Three slices have landed — quotas and
-finance (#794), the deals module's money reads (#802), and the installation's
-name and timezone plus the roll-up and org-360 reads (#817). Each module takes
-the seam as a required constructor value, `identity.{Name,BaseCurrency,Timezone}Of`
-are the only readers, and an unset value REFUSES rather than falling back to a
-default, because a silent default on a money path converts against one currency
-and labels the result another.
+The three reads that used to be documented exceptions moved with the columns
+rather than surviving them. Bootstrap now WRITES the settings from the values
+identity itself resolved, instead of reading its own row back. The session
+lookup and the base-currency freeze probe read the `setting` row directly in
+SQL — both run where `platform/settings`' readers cannot, one before a
+principal exists to gate anything and the other on the first write, when no row
+exists yet and "nothing is priced against a base that was never set" is the
+honest answer.
 
-Two readers are left, and both are SQL-expression rewrites rather than source
-swaps: the forecast's slipped-category dimension (`compose/report.go`) and the
-brief ranker's revenue factor (`compose/briefs/briefrank.go`) each spell the
-value inside a larger query against a `workspace w` join, so they need bind
-positions threaded through their builders and the join re-examined. Three reads
-stay on the column deliberately: bootstrap's own backfill, the session read
-that names the installation before any principal exists to gate a settings
-read, and the base-currency freeze probe, which must tolerate the FIRST write
-where no row exists yet.
+`0209` refuses rather than loses: an installation whose settings rows are
+missing while a live workspace still holds the values fails the migration with
+what to do about it, because dropping the columns would destroy the only copy.
+The one state its repair cannot resolve is several live workspaces, where no
+single row can speak for the installation — an operator resolves that down to
+one (ADR-0061 §3) and re-runs.
 
-`UpdateInstallation` still writes the setting AND mirrors it onto the column in
-one transaction. The mirror retires with those last two readers.
-
-**This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
-phase drops the `workspace` row, so the readers have to move regardless. Doing
-it as its own change gets the dual-write out before the plumbing collapse
-rather than after, and shrinks what phase 4 has to touch. Tracked as **#521**,
-which also covers dropping `capture_auto_enrich`, `name`, `timezone` and
-`base_currency` once nothing reads them.
+What remains of ADR-0091 phase 4 is the rest of the `workspace` row itself.
 
 Also open from the same work: **#551** — the base-currency freeze is atomic
 with its own write but not with the deal transaction that stamps
@@ -499,14 +494,26 @@ pole's slot-wait from 12–16s to **0s** — it now starts at t=0, and no orderi
 change can do better than that. The remaining residue is ~22s, and only the 15s
 of pre-fan-out is plausibly reducible.
 
-The cost of the next slice is fixture entanglement, not the move itself. #859
-took the channel suites out (14.8s) and had to leave four neighbours behind, each
-sharing one preflight fixture with suites that were not moving; two shared helpers
-had to be promoted to importable homes first, and `integration/channels/doc.go`
-records where the boundary fell and why. Reaching the ~80s floor means repeating
-that several times — a programme, not a follow-up. Each slice also subjects every
-MOVED line to the full strict linter (`new-from-merge-base`), which is a real cost
-per PR.
+The cost of a slice is fixture entanglement, not the move itself. #859 took the
+channel suites out (14.8s) and had to leave four neighbours behind, each sharing
+one preflight fixture with suites that were not moving; #866 took the webhook
+suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match).
+Two or three shared helpers per slice have to be promoted to importable homes
+first, and each suite package's `doc.go` records where its boundary fell and why.
+Reaching the ~80s floor means repeating that several times — a programme, not a
+follow-up. Each slice also subjects every MOVED line to the full strict linter
+(`new-from-merge-base`), which is a real cost per PR: #866's promotion alone
+surfaced an unchecked type assertion and a naming violation the un-gated original
+had carried.
+
+**Where the shared fixtures live, since a slice stalls on this.** A fixture keyed
+on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary
+files may not import `apptest` (it imports `compose`, whose white-box tests import
+`integration`, so the cycle closes). Anything else two suite packages need goes in
+`integration/suitefixtures.go`. Nothing in a `_test.go` file is reachable from a
+subpackage at all, which is what strands most helpers. And a helper whose other
+caller is an UNTAGGED file cannot be shared in either place: that file belongs to
+the unit lane, so the two callers are on opposite sides of a build tag.
 
 The other lever is not running the lane at all. PR #816 narrowed the change
 classifier so a docs edit under `infra/` and a change to a workflow other than

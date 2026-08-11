@@ -68,7 +68,7 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 
 	ws := ids.NewV7()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Overlay', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "overlay-"+ws.String()); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}
@@ -271,7 +271,7 @@ func seedUserInOtherWorkspace(t *testing.T, email string) ids.UserID {
 	conn := testOwnerConn(t)
 	other := ids.NewV7()
 	if _, err := conn.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Overlay Other', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		other, "overlay-other-"+other.String()); err != nil {
 		t.Fatalf("seeding the other workspace: %v", err)
 	}

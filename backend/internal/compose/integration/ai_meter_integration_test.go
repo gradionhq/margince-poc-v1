@@ -58,7 +58,7 @@ func meterWorkspace(t *testing.T, ctx context.Context, owner *pgx.Conn, slug str
 	t.Helper()
 	var raw string
 	if err := owner.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`,
+		`INSERT INTO workspace (slug) VALUES ($1) RETURNING id`,
 		slug).Scan(&raw); err != nil {
 		t.Fatalf("workspace insert: %v", err)
 	}

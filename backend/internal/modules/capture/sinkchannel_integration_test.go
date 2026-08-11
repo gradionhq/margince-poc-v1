@@ -67,7 +67,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	ctx := context.Background()
 	ws := ids.NewV7()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Channel Sink', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "channel-sink-"+ws.String()); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}

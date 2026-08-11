@@ -121,7 +121,7 @@ func TestListRunsHidesAbsentAndForeignAutomations(t *testing.T) {
 		t.Fatalf("absent automation → %v, want ErrNotFound", err)
 	}
 	foreignWS := ids.NewV7()
-	fx.exec(t, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'other', 'EUR')`, foreignWS)
+	fx.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, 'other')`, foreignWS)
 	foreignAuto := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
 		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)

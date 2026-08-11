@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package webhooks
 
 // Outbound webhooks (B-E10.13a/b/c + B-E10.15) over the real stack: the
 // CRUD surface through HTTP (secret once, never again; workspace-scoped),
@@ -30,7 +30,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -870,8 +869,8 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 // documented wire contract (or vice versa) is still caught.
 func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 	we := setupWebhooks(t)
-	stages := discoverSeededPipeline(t, we.AppEnv)
-	dealID := exerciseDealToWon(t, we.AppEnv, stages)
+	stages := apptest.DiscoverSeededPipeline(t, we.AppEnv)
+	dealID := apptest.ExerciseDealToWon(t, we.AppEnv, stages)
 
 	data := realEventPayload(t, we, "deal.stage_changed", dealID)
 	schema := publicEventSchema(t, "PublicEventDealStageChanged")
@@ -892,8 +891,8 @@ func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 // level (wireenvelope_test.go covers the pure mapping in isolation).
 func TestPublicEventEnvelopeConformsToPublicSchema(t *testing.T) {
 	we := setupWebhooks(t)
-	stages := discoverSeededPipeline(t, we.AppEnv)
-	dealID := exerciseDealToWon(t, we.AppEnv, stages)
+	stages := apptest.DiscoverSeededPipeline(t, we.AppEnv)
+	dealID := apptest.ExerciseDealToWon(t, we.AppEnv, stages)
 	env := realEventEnvelope(t, we, "deal.stage_changed", dealID)
 
 	rcv := newReceiver(t, http.StatusOK)
@@ -971,7 +970,7 @@ func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) 
 func publicEventSchema(t *testing.T, name string) *openapi3.Schema {
 	t.Helper()
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile(filepath.Join(backendModuleRoot(t), "api", "public-events.yaml"))
+	doc, err := loader.LoadFromFile("../../../../api/public-events.yaml")
 	if err != nil {
 		t.Fatalf("loading api/public-events.yaml: %v", err)
 	}

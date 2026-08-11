@@ -19,18 +19,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
@@ -538,141 +535,6 @@ func runServicesDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people
 		t.Fatalf("dossier = %+v, want the 2 deduped offerings staged as one proposal", done)
 	}
 	return done, svc
-}
-
-func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *testing.T) {
-	e := integration.Setup(t)
-	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	done, svc := runServicesDeepRead(t, e, org)
-
-	// The staged payload carries ONE service row — the higher-confidence
-	// spelling of the shared value_key — plus the product.
-	var proposedChange []byte
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT proposed_change FROM approval WHERE id = $1`, done.ProposalIDs[0]).Scan(&proposedChange)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := people.UnmarshalDeepRead(proposedChange)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(proposal.Facts) != 2 {
-		t.Fatalf("staged facts = %+v, want the deduped service + the product", proposal.Facts)
-	}
-	service := proposal.Facts[0]
-	// The citation gate is binary (no model confidence), so a value_key
-	// duplicate keeps its FIRST spelling — deterministic, page-ordered.
-	if service.Field != "service" || service.ValueKey != "crm rollout" || service.Value != "CRM Rollout — implementation projects" {
-		t.Fatalf("staged service = %+v, want the first-seen spelling under value_key 'crm rollout'", service)
-	}
-
-	// A human has since claimed the service fact; the accept must land the
-	// product beside it and leave the human's row untouched.
-	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key,
-			   evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, 'offering', 'service', 'CRM Rollout (human curated)', 'crm rollout',
-			        'set by hand', '', 1, 'human', $3)`,
-			e.WS, org, "human:"+e.Rep1.String())
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), true, nil); err != nil {
-		t.Fatalf("accept: %v", err)
-	}
-
-	var factRows int
-	var serviceValue, serviceCapturedBy, productValue string
-	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		ctx := context.Background()
-		if err := tx.QueryRow(ctx,
-			`SELECT count(*) FROM organization_fact WHERE organization_id = $1`, org).Scan(&factRows); err != nil {
-			return err
-		}
-		if err := tx.QueryRow(ctx,
-			`SELECT value, captured_by FROM organization_fact
-			 WHERE organization_id = $1 AND field = 'service' AND value_key = 'crm rollout'`,
-			org).Scan(&serviceValue, &serviceCapturedBy); err != nil {
-			return err
-		}
-		return tx.QueryRow(ctx,
-			`SELECT coalesce(max(value), '') FROM organization_fact
-			 WHERE organization_id = $1 AND field = 'product'`, org).Scan(&productValue)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if factRows != 2 {
-		t.Fatalf("%d organization_fact rows after accept, want 2 (the human's service + the landed product)", factRows)
-	}
-	if serviceValue != "CRM Rollout (human curated)" || serviceCapturedBy != "human:"+e.Rep1.String() {
-		t.Fatalf("service row = %q by %q — the accept overwrote a human-claimed fact", serviceValue, serviceCapturedBy)
-	}
-	if productValue != "Margince — our CRM product" {
-		t.Fatalf("product row = %q, want the staged product landed beside the human's row", productValue)
-	}
-}
-
-func TestDeepReadRejectionLandsNothing(t *testing.T) {
-	e := integration.Setup(t)
-	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	done, svc := runServicesDeepRead(t, e, org)
-
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), false, nil); err != nil {
-		t.Fatalf("reject: %v", err)
-	}
-	if n := e.WsCount(t, `SELECT count(*) FROM organization_fact`); n != 0 {
-		t.Fatalf("%d organization_fact rows after a rejection, want 0", n)
-	}
-	if n := e.WsCount(t, `SELECT count(*) FROM organization_profile_field`); n != 0 {
-		t.Fatalf("%d profile-field rows after a rejection, want 0", n)
-	}
-}
-
-// fakeInserter stands in for the insert-only River client so handler
-// tests can count what start enqueues.
-type fakeInserter struct {
-	inserts []river.JobArgs
-	err     error
-}
-
-func (f *fakeInserter) EnqueueTx(_ context.Context, _ pgx.Tx, args river.JobArgs, _ *river.InsertOpts) error {
-	if f.err != nil {
-		return f.err
-	}
-	f.inserts = append(f.inserts, args)
-	return nil
-}
-
-func newDeepReadTestEngine(e *integration.Env, inserter *fakeInserter) *deepReadEngine {
-	return &deepReadEngine{
-		people:  e.People,
-		enqueue: inserter,
-	}
-}
-
-// postDeepRead drives the start handler as the given caller and decodes
-// the 202 handle (or fails the test on any other status when want202).
-func postDeepRead(t *testing.T, e *integration.Env, engine *deepReadEngine, caller ids.UUID, org ids.UUID) (*httptest.ResponseRecorder, crmcontracts.SiteReadStarted) {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/organizations/"+org.String()+"/deep-read", nil).
-		WithContext(e.As(caller, nil, integration.AdminPerms))
-	rec := httptest.NewRecorder()
-	engine.start(rec, req, openapi_types.UUID(org))
-	var started crmcontracts.SiteReadStarted
-	if rec.Code == http.StatusAccepted {
-		if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
-			t.Fatalf("decoding SiteReadStarted: %v", err)
-		}
-	}
-	return rec, started
 }
 
 func TestDeepReadStartQueuesOnceAndAReClickJoinsWithoutASecondInsert(t *testing.T) {

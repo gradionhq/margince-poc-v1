@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -309,5 +310,144 @@ func TestOllamaSizesContextWindowToPromptPlusOutputBudget(t *testing.T) {
 	})
 	if hostile.NumCtx != ollamaMaxContext {
 		t.Fatalf("num_ctx %d for a 4MiB prompt, want the %d cap", hostile.NumCtx, ollamaMaxContext)
+	}
+}
+
+// ollamaEmbedReply is what /api/embed answers, written as the shape the adapter
+// decodes rather than as an untyped map: a fixture that cannot say what field it
+// is filling can drift from the wire it stands for without failing anything.
+type ollamaEmbedReply struct {
+	Embeddings [][]float32 `json:"embeddings"`
+}
+
+// The embed lane sizes its window for the same reason the chat lane does, and
+// for one it does not: a chat request past its window stops generating and says
+// so, while an embedding past its window comes back the right width, computed
+// from the head of the text. Nothing downstream can tell that apart from a whole
+// vector, so these assertions are the only place the difference is visible.
+func TestOllamaSizesTheEmbedWindowToTheLongestInput(t *testing.T) {
+	sent := func(t *testing.T, inputs []string) (map[string]json.RawMessage, ollamaEmbedOptions) {
+		t.Helper()
+		var received []byte
+		client := newOllamaForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received = readBody(t, r.Body)
+			vectors := make([][]float32, len(inputs))
+			for i := range vectors {
+				vectors[i] = []float32{0.1}
+			}
+			if err := json.NewEncoder(w).Encode(ollamaEmbedReply{Embeddings: vectors}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: inputs}); err != nil {
+			t.Fatal(err)
+		}
+		var raw struct {
+			Options map[string]json.RawMessage `json:"options"`
+		}
+		if err := json.Unmarshal(received, &raw); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		encoded, err := json.Marshal(raw.Options)
+		if err != nil {
+			t.Fatalf("re-encode options: %v", err)
+		}
+		var opts ollamaEmbedOptions
+		if err := json.Unmarshal(encoded, &opts); err != nil {
+			t.Fatalf("options not decodable: %v", err)
+		}
+		return raw.Options, opts
+	}
+
+	document := strings.Repeat("Gradion Pte. Ltd. 77 High Street, Singapore. ", 400)
+
+	raw, opts := sent(t, []string{document})
+	if _, present := raw["num_ctx"]; !present {
+		t.Fatalf("num_ctx absent from the embed wire: %v — the model embeds a prefix of whatever exceeds its loaded window", raw)
+	}
+	if floor := len(document) / 4; opts.NumCtx < floor {
+		t.Fatalf("num_ctx %d cannot hold a %d-byte document (~%d tok): the vector is computed from its head",
+			opts.NumCtx, len(document), floor)
+	}
+	if opts.NumCtx%ollamaContextBucket != 0 {
+		t.Fatalf("num_ctx %d is not a bucket multiple — a per-document value reloads the runner, so a reindex pays a model load per record", opts.NumCtx)
+	}
+	if opts.NumCtx < ollamaContextFloor || opts.NumCtx > ollamaMaxContext {
+		t.Fatalf("num_ctx %d outside [%d,%d]", opts.NumCtx, ollamaContextFloor, ollamaMaxContext)
+	}
+
+	// A short input must not come out worse than saying nothing at all.
+	if _, small := sent(t, []string{"hi"}); small.NumCtx != ollamaContextFloor {
+		t.Fatalf("num_ctx %d for a two-byte input, want the %d floor", small.NumCtx, ollamaContextFloor)
+	}
+
+	// The window tracks the input rather than sitting at a constant, which is
+	// what tells a sized call apart from a hard-coded one.
+	_, base := sent(t, []string{document})
+	_, grown := sent(t, []string{strings.Repeat(document, 4)})
+	if grown.NumCtx <= base.NumCtx {
+		t.Fatalf("num_ctx did not grow with the input: %d then %d", base.NumCtx, grown.NumCtx)
+	}
+
+	// Document length is chosen by whoever wrote the record, so the window it can
+	// ask for is capped: past the ceiling the input truncates, rather than a
+	// stored note sizing the host's KV-cache allocation.
+	if _, hostile := sent(t, []string{strings.Repeat("a", 4<<20)}); hostile.NumCtx != ollamaMaxContext {
+		t.Fatalf("num_ctx %d for a 4MiB input, want the %d cap", hostile.NumCtx, ollamaMaxContext)
+	}
+
+	// A batch is sized by its LONGEST member, not by the sum of its members:
+	// num_ctx is the per-sequence window and /api/embed embeds each input on its
+	// own, so summing would ask the runner for an allocation the work never
+	// needs — reaching the ceiling on a batch of ordinary documents.
+	_, batched := sent(t, []string{document, document, document, document})
+	if batched.NumCtx != base.NumCtx {
+		t.Fatalf("num_ctx %d for four copies of a document that alone asks for %d — the batch is being summed rather than measured",
+			batched.NumCtx, base.NumCtx)
+	}
+}
+
+// The warning is the whole of what this adapter can do about an input past the
+// ceiling: it still embeds the prefix, because refusing would strand an
+// oversized record in the index consumer forever. So the fact has to be in a log
+// exactly when it is true — a warning that never fires and one that always fires
+// are equally useless to whoever is chasing thin retrieval results.
+func TestOllamaSaysWhenAnEmbedInputOverrunsTheWindowAndIsSilentWhenItDoesNot(t *testing.T) {
+	embed := func(t *testing.T, input string) string {
+		t.Helper()
+		var logged bytes.Buffer
+		restore := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		t.Cleanup(func() { slog.SetDefault(restore) })
+
+		client := newOllamaForTest(t, func(w http.ResponseWriter, _ *http.Request) {
+			if err := json.NewEncoder(w).Encode(ollamaEmbedReply{Embeddings: [][]float32{{0.1}}}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: []string{input}}); err != nil {
+			t.Fatal(err)
+		}
+		return logged.String()
+	}
+
+	// 4 MiB is ~1M tokens against a 32k ceiling: the vector covers about 3% of it.
+	line := embed(t, strings.Repeat("a", 4<<20))
+	if !strings.Contains(line, "computed from the head of the text") {
+		t.Errorf("a truncated embedding was logged as %q, want the truncation named", line)
+	}
+	// The window saturates at the cap, so it alone cannot tell an input that
+	// slightly overruns from one embedded almost entirely from its opening
+	// sentence. Without the estimate beside it the operator reading this line
+	// knows that something was dropped and nothing about how much.
+	for _, want := range []string{"model=gemma3", "estimated_tokens=1048576", "window_tokens=32768"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the truncation warning does not carry %s: %q", want, line)
+		}
+	}
+	// Exactly at the ceiling the window still holds the input, so there is
+	// nothing to report and a line here would train the reader to ignore it.
+	if line := embed(t, strings.Repeat("a", ollamaMaxContext*4)); strings.Contains(line, "computed from the head of the text") {
+		t.Errorf("an input the window holds was reported as truncated: %q", line)
 	}
 }

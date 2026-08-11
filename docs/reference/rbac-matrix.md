@@ -62,7 +62,7 @@ the workspace but changes none of them.
 | `activity` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `ai_model_rate` | CRU- | ---- | ---- | ---- | CRU- |
 | `automation` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `capture_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |
+| `capture_settings` | CRU- | CR-- | CR-- | -R-- | CRU- |
 | `channel_connection` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `computed_field` | -R-- | -R-- | -R-- | -R-- | -R-- |
 | `custom_field` | CRUD | -R-- | -R-- | -R-- | CRUD |

@@ -251,6 +251,10 @@ func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemI
 	httperr.NotImplemented(w, r, "SnoozeBriefItem")
 }
 
+func (stubs) ListConsumerMailBaseline(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListConsumerMailBaselineParams) {
+	httperr.NotImplemented(w, r, "ListConsumerMailBaseline")
+}
+
 func (stubs) ListConsumerMailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListConsumerMailDomains")
 }

@@ -121,18 +121,18 @@ func demoteToRep(t *testing.T, e *apptest.AppEnv) {
 // createAndCloseQuotaDeal opens a deal owned by ownerID and advances it
 // straight to the seeded pipeline's won stage, so its amount counts
 // toward an owner-quota's attainment.
-func createAndCloseQuotaDeal(t *testing.T, e *apptest.AppEnv, stages seededStages, ownerID string, amountMinor int64, currency string) string {
+func createAndCloseQuotaDeal(t *testing.T, e *apptest.AppEnv, stages apptest.SeededStages, ownerID string, amountMinor int64, currency string) string {
 	t.Helper()
 	var deal apptest.AnyMap
 	status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name": "Quota Attainment Deal", "amount_minor": amountMinor, "currency": currency,
-		"pipeline_id": stages.pipelineID, "stage_id": stages.open, "owner_id": ownerID, "source": "ui",
+		"pipeline_id": stages.PipelineID, "stage_id": stages.Open, "owner_id": ownerID, "source": "ui",
 	}, nil, &deal)
 	if status != http.StatusCreated {
 		t.Fatalf("create quota deal = %d %v", status, deal)
 	}
 	dealID := deal["id"].(string)
-	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.won}, nil, &deal)
+	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.Won}, nil, &deal)
 	if status != http.StatusOK || deal["status"] != "won" {
 		t.Fatalf("advance quota deal to won = %d %v", status, deal)
 	}
@@ -477,7 +477,7 @@ func assertQuotaAttainmentHappy(t *testing.T, e *apptest.AppEnv, ownerID string)
 	}
 	quotaID := quota["id"].(string)
 
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 	dealID := createAndCloseQuotaDeal(t, e, stages, ownerID, 1_500_000, "EUR")
 
 	var att apptest.AnyMap

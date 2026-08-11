@@ -103,7 +103,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	// under workspace A's session (RLS row-scope). Seed workspace B (a
 	// non-tenant row) then its user inside B's GUC.
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'fable-other', 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'fable-other')`,
 		ids.NewV7()); err != nil {
 		t.Fatalf("seeding workspace B: %v", err)
 	}

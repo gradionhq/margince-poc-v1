@@ -3873,11 +3873,14 @@ export interface paths {
         get: operations["listConsumerMailDomains"];
         put?: never;
         /**
-         * Add a consumer-mail domain, or carve one out (admin/ops).
-         * @description Admin/ops-only, human session only — an agent never changes a workspace-wide capture
-         *     posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
-         *     takes one back out and wins over the baseline, which is the only way back in for an
-         *     operator whose real customers mail from a domain the shipped list claims.
+         * Add a consumer-mail domain, or carve one out.
+         * @description Human session only — an agent never changes a workspace-wide capture posture. `kind:
+         *     extra` marks a domain the baseline missed as consumer mail; any seat holding
+         *     `capture_settings:create` (every seeded role but read_only) may contribute a NEW one.
+         *     `kind: never` takes a domain back out of the baseline and wins over it — the only way
+         *     back in for an operator whose real customers mail from a domain the shipped list claims
+         *     — and, like overwriting an existing entry's kind, demands `capture_settings:update`
+         *     (admin/ops).
          *
          *     The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
          *     because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
@@ -3911,6 +3914,30 @@ export interface paths {
          *     already satisfied.
          */
         delete: operations["removeConsumerMailDomain"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/consumer-mail-baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the shipped consumer-mail baseline (CAP-PARAM-5).
+         * @description The vendored consumer-domain dataset the installation ships with, as a searchable read.
+         *     The workspace's own list is only ever a delta against this baseline, so deciding whether
+         *     a domain needs an `extra` entry — or a `never` carve-out — starts here. Answers the
+         *     first 50 alphabetical matches plus the counts; every human role may read it, like the
+         *     rest of the capture posture.
+         */
+        get: operations["listConsumerMailBaseline"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6890,6 +6917,14 @@ export interface components {
         };
         ConsumerMailDomainListResponse: {
             data: components["schemas"]["ConsumerMailDomain"][];
+        };
+        ConsumerMailBaselineResponse: {
+            /** @description The first 50 matching baseline domains, alphabetical. */
+            data: string[];
+            /** @description How many baseline domains matched the filter in total. */
+            matched: number;
+            /** @description The size of the whole shipped baseline. */
+            total: number;
         };
         /**
          * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
@@ -11603,7 +11638,7 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
-            /** @description The installation's organization name (workspace.name). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
+            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
             workspace_name: string;
             /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
             non_production: boolean;
@@ -21636,6 +21671,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listConsumerMailBaseline: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive substring filter. Absent or empty lists from the top. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching slice of the shipped baseline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumerMailBaselineResponse"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

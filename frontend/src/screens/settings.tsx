@@ -13,6 +13,7 @@ import {
   Factory,
   Layers,
   type LucideIcon,
+  Mail,
   Mic,
   Package,
   ScrollText,
@@ -114,11 +115,15 @@ import "./settings.css";
 // every seat does for itself. Listing it under Organization put a per-user
 // task beneath an admin heading. The org-owned card on the tab (webhooks)
 // gates itself per-card, exactly as the AI tab's do.
+// `capture` is the org-group counterpart: the own-email-domain list is
+// workspace-shared capture posture an admin curates, so it lives under
+// Organization rather than beside the per-user mailbox connections.
 const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
   { id: "installation", icon: Building, group: "org" },
+  { id: "capture", icon: Mail, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
@@ -144,6 +149,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <VoiceDnaCard />;
     case "installation":
       return <InstallationSettingsCard />;
+    case "capture":
+      return <OwnDomainsCard />;
     case "company":
       return <CompanyContextCard />;
     case "users":
@@ -182,7 +189,6 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
-          <OwnDomainsCard />
           <ConsumerMailDomainsCard />
           <LinkedInImportCard />
           {/* No review queue here: a match a human must judge is a proposal,
@@ -249,6 +255,9 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // The same call InstallationSettingsCard makes, so the tab and the fields
   // inside it can never disagree about who may edit.
   const canEditInstallation = useCanWrite("installation_settings", "update");
+  // The capture tab carries the own-email-domain list, whose writes gate on
+  // capture_settings:update — the same grant the card's controls ask for.
+  const canEditCapture = useCanWrite("capture_settings", "update");
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
@@ -279,6 +288,7 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // grant under another role could not reach the surface they may use. The
     // tab exists to change these values, so it follows the write grant.
     installation: canEditInstallation,
+    capture: canEditCapture,
   };
 }
 

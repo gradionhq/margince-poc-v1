@@ -111,7 +111,7 @@ func TestSeatDerivedBudget(t *testing.T) {
 	empty := ids.New[ids.WorkspaceKind]()
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Empty', 'empty-budget', 'EUR')`, empty); err != nil {
+		`INSERT INTO workspace (id, slug) VALUES ($1, 'empty-budget')`, empty); err != nil {
 		t.Fatalf("workspace insert: %v", err)
 	}
 	budget, err = NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), empty)

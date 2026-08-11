@@ -103,7 +103,7 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 	ctx := context.Background()
 	workspace := ids.NewV7()
 	if _, err := e.owner.Exec(ctx,
-		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'VoiceSend', $2, 'EUR')`,
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		workspace, "vs-"+workspace.String()); err != nil {
 		t.Fatal(err)
 	}

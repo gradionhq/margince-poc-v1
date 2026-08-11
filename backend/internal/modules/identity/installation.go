@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -170,11 +171,17 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 
 	var wsID ids.WorkspaceID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug, base_currency, timezone) VALUES ($1, $2, $3, $4) RETURNING id`,
-		boot.WorkspaceName, boot.Slug, currency, boot.Timezone).Scan(&wsID); err != nil {
+		`INSERT INTO workspace (slug) VALUES ($1) RETURNING id`, boot.Slug).Scan(&wsID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	// The installation's identity is written HERE, not read back off the row
+	// by a caller: normalize() and the currency default above are the only
+	// place these values are resolved, and a second derivation elsewhere would
+	// drift from them (the columns that used to carry them are gone).
+	if err := seedInstallationIdentity(ctx, tx, boot.WorkspaceName, boot.Timezone, currency); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 
@@ -226,4 +233,24 @@ func slugify(name string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// seedInstallationIdentity writes the three settings rows that ARE the
+// installation's identity (ADR-0090/A135). Seed, not Set: this runs inside
+// bootstrap's own transaction, before any principal exists to gate a settings
+// write, and it is creating the values rather than changing them.
+func seedInstallationIdentity(ctx context.Context, tx pgx.Tx, name, zone, currency string) error {
+	for _, seed := range []struct {
+		entry *settings.Entry[string]
+		value string
+	}{
+		{Name, name},
+		{Timezone, zone},
+		{BaseCurrency, currency},
+	} {
+		if err := settings.SeedValue(ctx, tx, seed.entry, seed.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
