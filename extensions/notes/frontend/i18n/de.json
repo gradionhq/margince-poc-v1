@@ -1,0 +1,23 @@
+{
+  "extNotes.notes.add": "Hinzufügen",
+  "extNotes.notes.addFailed": "Das Hinzufügen der Notiz ist fehlgeschlagen. Ob sie gespeichert wurde, ist offen — prüfen Sie die Liste unten, bevor Sie sie erneut hinzufügen.",
+  "extNotes.notes.bodyLabel": "Neue Notiz",
+  "extNotes.notes.empty": "Noch keine Notizen.",
+  "extNotes.notes.noGrant": "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
+  "extNotes.notes.remove": "Entfernen",
+  "extNotes.notes.removeFailed": "Das Entfernen der Notiz ist fehlgeschlagen. Prüfen Sie die Liste unten.",
+  "extNotes.notes.title": "Notizen",
+  "extNotes.signing.connected": "Verbunden",
+  "extNotes.signing.keyLabel": "Signaturschlüssel",
+  "extNotes.signing.noGrant": "Sie haben keinen Zugriff auf den Signaturschlüssel dieser Erweiterung.",
+  "extNotes.signing.notConnected": "Kein Schlüssel hinterlegt",
+  "extNotes.signing.payloadLabel": "Zu signierende Nutzdaten",
+  "extNotes.signing.sign": "Signieren",
+  "extNotes.signing.signFailed": "Es wurde nichts signiert. Hinterlegen Sie zuerst einen Signaturschlüssel.",
+  "extNotes.signing.store": "Schlüssel hinterlegen",
+  "extNotes.signing.storeFailed": "Das Hinterlegen des Schlüssels ist fehlgeschlagen. Ob er gespeichert wurde, ist offen — prüfen Sie den Status oben, bevor Sie ihn erneut einfügen.",
+  "extNotes.signing.sub": "Vom Schlüsseldienst der Installation verwahrt. Er wird nirgends angezeigt.",
+  "extNotes.signing.title": "Signaturschlüssel",
+  "extNotes.sub": "Die Referenzerweiterung, von Anfang bis Ende.",
+  "extNotes.title": "Demo-Notizblock"
+}

@@ -1,3 +1,4 @@
+import { extensionScreens as composedScreens } from "@composition/screens";
 import {
   type ReactNode,
   useCallback,
@@ -5,7 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { EXTENSION_SCREEN, findExtension } from "./app/extensions";
+import {
+  EXTENSION_SCREEN,
+  type ExtensionScreenRegistry,
+  findExtension,
+} from "./app/extensions";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -106,11 +111,35 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
 // paint a blank frame. Split out for the same complexity-budget reason as
 // DealsRoute above.
 //
-// A unit ships no TSX: extensions/<name>/frontend/ is an unbuilt capability
-// layer that gen-composition's scan refuses on sight, and lifting that would
-// mean bundling unit-authored code into the SPA. So what the app can honestly
-// say about a unit is the contract-derived descriptor set — the operations the
-// unit's fragments published — which is what this route renders.
+// A unit still ships no TSX: extensions/<name>/frontend/ is an unbuilt
+// capability layer that gen-composition's scan refuses on sight, and lifting
+// that would mean bundling unit-authored code into the SPA. So a unit surface
+// comes from one of two CORE-owned places, in this order:
+//
+//   1. A bespoke screen committed under src/screens/ext/ and listed in the
+//      composed screen registry ("@composition/screens"). notes, the
+//      reference extension, is the one such screen today; its file explains
+//      why it lives in core and why only the composed lane compiles it.
+//   2. Otherwise the contract-derived descriptor set — the operations the
+//      unit's fragments published, which is all the app can honestly say about
+//      a unit nobody wrote a screen for (de, yogi, crm-hello).
+//
+// The registry is consulted only AFTER the descriptor resolves, so a screen
+// cannot render for a unit this installation did not compose: an entry for a
+// disabled unit is inert rather than a route into a surface with no server
+// behind it.
+// The generated registry is emitted UNTYPED, and the annotation lands here.
+//
+// That file is written to two locations at different depths — the vanilla stub
+// under src/composition/ and the composed output under build/composition/ —
+// and stubMatchesVanilla requires the two to be byte-identical, so it can carry
+// neither a relative type import (the paths would differ) nor a bare one
+// (nothing resolves from build/composition/). Annotating at the import site
+// costs nothing and moves the check rather than losing it: a unit whose default
+// export is not a component fails HERE, in core, in the composed lane, at the
+// one place both halves of the registry are visible at once.
+const extensionScreens: ExtensionScreenRegistry = composedScreens;
+
 function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
   const t = useT();
   const unit = findExtension(name);
@@ -120,6 +149,10 @@ function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
         <EmptyState>{t("ext.notFound", { name: name ?? "" })}</EmptyState>
       </div>
     );
+  }
+  const Screen = extensionScreens[unit.name];
+  if (Screen) {
+    return <Screen />;
   }
   return (
     <div className="wrap narrow">

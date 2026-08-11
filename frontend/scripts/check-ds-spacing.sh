@@ -71,12 +71,15 @@ untracked() {
 
 # Read-loop rather than mapfile — the CI/dev host ships bash 3.2 (no mapfile),
 # same portability constraint as check-ds-purity.sh.
+# The unit trees join the pathspecs: a unit's screen is shipped UI in the same
+# bundle, and a spacing gate that stopped at frontend/src would hold the core to
+# a scale the extension tier escapes.
 CHANGED_TSX=()
 while IFS= read -r f; do
   [[ -n "$f" ]] && CHANGED_TSX+=("$f")
 done < <(
-  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 2>/dev/null || true
-  untracked 'frontend/src/**/*.tsx' 'frontend/src/*.tsx'
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx' 2>/dev/null || true
+  untracked 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx'
 )
 
 CHANGED_CSS=()
@@ -85,8 +88,8 @@ while IFS= read -r f; do
   [[ "$f" == frontend/src/design-system/* ]] && continue
   CHANGED_CSS+=("$f")
 done < <(
-  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.css' 'frontend/src/*.css' 2>/dev/null || true
-  untracked 'frontend/src/**/*.css' 'frontend/src/*.css'
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css' 2>/dev/null || true
+  untracked 'frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css'
 )
 
 # The added-lines diff for one file, tracked or not. `--no-index` exits non-zero

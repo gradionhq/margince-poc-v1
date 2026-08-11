@@ -28,17 +28,31 @@
     // have to agree with Vite's own alias about how a bare name maps onto a
     // ".gen.ts" file, and two spellings of one rule is how they drift.
     //
-    // TWO artifacts. "extensions" is the registry (a runtime value). "schema"
-    // is the CONTRACT types the typed client is parameterised by: in this lane
-    // it is the committed src/api/schema.d.ts, so `api.GET("/ext/…")` is
-    // correctly a type error — the vanilla installation does not serve that
-    // route. The composed lane points it at the types generated from the
-    // MERGED contract, where it is not.
+    // THREE artifacts, because a unit surface needs all three. "extensions" is
+    // the registry (a runtime value). "schema" is the CONTRACT types the typed
+    // client is parameterised by: in this lane it is the committed
+    // src/api/schema.d.ts, so `api.GET("/ext/…")` is correctly a type error —
+    // the vanilla installation does not serve that route. The composed lane
+    // points it at the types generated from the MERGED contract, where it is
+    // not. "screens" is the unit SCREENS an installation mounts: in this lane
+    // an empty registry, in the composed lane src/screens/ext/. Those screens
+    // call their unit's routes, which exist in `paths` only where the
+    // installation serves them — so they are compiled by the composed lane
+    // alone, and src/screens/ext/ is excluded below rather than failing every
+    // vanilla build on a call it correctly cannot express.
     "paths": {
       "@composition/extensions": ["./src/composition/extensions.gen"],
-      "@composition/schema": ["./src/api/schema"]
+      "@composition/schema": ["./src/api/schema"],
+      "@composition/screens": ["./src/composition/extscreens.gen"],
+      "@composition/copy": ["./src/composition/extlocales.gen"]
     }
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  // src/screens/ext/ is NOT dead code excluded for convenience: it is the
+  // composed lane's program, typechecked by tsconfig.composed.json against the
+  // merged contract, and reached at runtime only through the alias above. An
+  // `exclude` is enough precisely because nothing in this lane imports it —
+  // tsc follows imports past an exclusion, so a stray import here would put it
+  // straight back and fail, which is the outcome we want if one ever appears.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/screens/ext/**"]
 }
