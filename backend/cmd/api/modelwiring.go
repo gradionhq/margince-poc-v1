@@ -114,6 +114,9 @@ func coldStartOptions(modelPath *compose.ModelPath, routingVersion string) []com
 		// The account-started draft rides the same draft_reply lane as the
 		// reply-side one: it is the same task with a different input shape.
 		compose.WithAccountDraft(modelPath.DraftReply),
+		// The person-side draft rides the same lane for the same reason: one
+		// drafting task, a different input shape.
+		compose.WithPersonDraft(modelPath.DraftReply),
 	}
 }
 

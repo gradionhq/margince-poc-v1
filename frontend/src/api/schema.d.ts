@@ -443,6 +443,273 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The standing relationship brief — who this person is commercially, what they care about, what changed.
+         * @description The company brief pattern applied to a person (ADR-0097 D4): a short written brief over
+         *     the same records the 360 serves, cached and reused until its inputs change.
+         *
+         *     **Per viewer, by design.** Assembled by running the reads AS THE CALLER, inside the
+         *     normal gates, so it can only describe records that caller could open themselves. A
+         *     shared brief would either leak scoped deals and activities to a restricted reader or
+         *     degrade to the lowest common scope and tell the record owner less than they can
+         *     already see.
+         *
+         *     **Cached on the INPUTS, not on the record.** The key is a fingerprint over the
+         *     assembled input plus the prompt and model-routing versions — activities and claims
+         *     move without touching the person row, so a key derived from that row would serve a
+         *     brief describing a relationship that no longer exists.
+         *
+         *     Degrades rather than fails: with no model lane or an exhausted budget the brief is a
+         *     deterministic composition occupying the same component, and `generated_by` says which
+         *     wrote it. There is no free-text ask on a person (ADR-0096 D6).
+         */
+        get: operations["getPersonBrief"];
+        put?: never;
+        /**
+         * Regenerate this person's brief, ignoring the cached one.
+         * @description The explicit refresh behind the brief card's "outdated — refresh". It reads and writes
+         *     only the cached brief: no record field changes, and nothing is sent.
+         */
+        post: operations["regeneratePersonBrief"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/draft-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft an email to this person, grounded in their record.
+         * @description The person-side mirror of `POST /organizations/{id}/draft-email`. That one writes to
+         *     an account and has to be told which contact; here the record IS the recipient, so the
+         *     request carries nothing but optional steering.
+         *
+         *     **It changes no record.** No field on the person, no activity, no voice-learning
+         *     signal, and nothing is sent. Sending stays `POST /emails`, with its own consent gate,
+         *     approval token and idempotency key; the absence of those three parameters here is the
+         *     guarantee rather than a convenience.
+         *
+         *     Two things it does write, and both are about the CALL rather than the person: the
+         *     workspace's AI usage meter and the model-call audit row, exactly as every other
+         *     model-backed read on this page does.
+         *
+         *     **Grounded, per viewer.** The draft is written from the caller's own person 360,
+         *     assembled inside the normal gates, so it can only mention records that caller could
+         *     open themselves. What it stands on is what the person page stands on: who they are
+         *     and where they work, the open deal and the money on it, the claims they have made —
+         *     what they asked for, promised, or objected to — and the recent conversation. A
+         *     section the caller has no grant for is absent from the view and therefore absent from
+         *     the draft. Every input but the intent is untrusted text and is fenced.
+         *
+         *     `reasoning` is a SIBLING of the body, never part of it: the composer renders it as the
+         *     "Based on" line and the "Why this draft?" chips, and a body that explained itself
+         *     would be a body the rep has to edit before sending.
+         *
+         *     When no model lane is configured, or the workspace's AI budget is exhausted, the draft
+         *     degrades to a deterministic one rather than failing — `generated_by` says which wrote
+         *     it.
+         *
+         *     Human-only: drafting spends the workspace's model budget on prose for a person to send
+         *     under their own name.
+         */
+        post: operations["draftPersonEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/consent/guard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * May we write to this person right now — per purpose and channel, with the reason.
+         * @description The readable half of the send gate (ADR-0098 D6). It answers `allowed | blocked |
+         *     unknown` per purpose × channel and says WHY in the reader's words, so a composer can
+         *     show the verdict before a word is typed.
+         *
+         *     **The same code answers twice.** This read is computed by the gate the dispatcher runs
+         *     at transmit, so a preview and the check that fires at send cannot drift. The
+         *     transmit-time recheck remains authoritative: state that changed after the drawer
+         *     opened refuses with the newer answer, and this endpoint never grants anything.
+         *
+         *     Two classes are never consent-gated — `business_correspondence` (auto-allowed on a
+         *     recorded qualifying event) and `transactional` — because individual business
+         *     correspondence is not advertising and its lawful basis is Art 6(1)(b)/(f). An
+         *     objection overrides every basis including those, and there is no override toggle.
+         */
+        get: operations["getPersonConsentGuard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record something promised, asked or decided in a captured conversation.
+         * @description The production writer behind the commitments card and the what-matters card
+         *     (ADR-0097 D1). One store, eight kinds: they share a lifecycle — extracted →
+         *     cited → correctable → dismissible — and differ only by kind.
+         *
+         *     **Grounded or refused.** A claim carries the activity it was read from AND the
+         *     verbatim snippet, and a request missing either is refused rather than stored. A
+         *     claim nobody can check against what was actually written is what the whole
+         *     mechanism exists to prevent, so the invariant lives here rather than in the
+         *     caller's discipline.
+         *
+         *     The reader's grant on the cited activity is checked as well as on the person:
+         *     quoting a message the caller cannot open would disclose that it exists.
+         */
+        post: operations["recordConversationClaim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the connected provider what is publicly known about this person.
+         * @description Deep research on a person, through a licensed PROVIDER (ADR-0096 D4). Margince
+         *     never crawls the public web about a natural person on its own authority — there is
+         *     no GDPR-defensible way to do it — so this reads only from a provider that carries
+         *     its own lawful basis, and the company-site crawl machinery deliberately does not
+         *     extend here.
+         *
+         *     **It writes nothing.** A run STAGES: it returns claims and touches no record. The
+         *     record changes only when a human reviews the staged set and posts the ones they
+         *     accept to `.../research/save`.
+         *
+         *     With no provider registered the run answers `not_connected` and stops. That is a
+         *     named state, not an error to retry — retrying changes nothing, and a spinner over
+         *     an absent provider misrepresents what the product is doing.
+         *
+         *     Every claim carries citations a reader can open; one whose source cannot be
+         *     opened is dropped rather than shown.
+         */
+        post: operations["runPersonResearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/research/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save the research claims a human accepted, and only those.
+         * @description The first and only write in the research surface. `captured_by` names the HUMAN
+         *     who accepted the claim, not the provider that proposed it — the provider's URL
+         *     rides the source reference, so the chain from record to document stays intact,
+         *     but the decision was a person's and the record says so.
+         *
+         *     Each saved claim carries its value, the words it was read from, and the document
+         *     they came from. One that lost any of the three is refused rather than stored: a
+         *     fact a reader cannot trace back is exactly what the review step exists to stop.
+         */
+        post: operations["savePersonResearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/moment/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hide this moment for me until its evidence changes.
+         * @description Per-viewer view state, ratified narrowly (ADR-0096 D3): a dismissal is one person's
+         *     screen, not shared truth. It feeds no formula, no moment rule, no brief and no other
+         *     viewer's page.
+         *
+         *     The dismissal is held against the moment's `evidence_fingerprint`, so it RE-ARMS when
+         *     the evidence moves. A dismissal keyed on the moment's path alone would survive the
+         *     world changing underneath it, and the page would stay quiet about the very thing that
+         *     just changed.
+         *
+         *     Correcting a CLAIM is a different act and goes to `POST /ai/feedback`: a correction is
+         *     shared truth, a dismissal is a preference.
+         */
+        post: operations["dismissPersonMoment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people/{id}/graph": {
         parameters: {
             query?: never;
@@ -1745,6 +2012,50 @@ export interface paths {
         head?: never;
         /** Update an activity (e.g. complete a task). */
         patch: operations["updateActivity"];
+        trace?: never;
+    };
+    "/activities/{id}/meeting-brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+         * @description The prep dossier for a meeting, in the fixed eight-section order of ADR-0097 D5.
+         *
+         *     **Assembled fresh on every open.** There is no cache and no regenerate route, which is
+         *     the deliberate difference from the person brief (`GET /people/{id}/brief`): a reader
+         *     opens this in the minutes before walking into a room, and a brief served from a cached
+         *     artifact would describe a state of play a commitment logged an hour ago has already
+         *     moved past. Nothing here is stored, so nothing here can be stale.
+         *
+         *     **Every sentence is cited or dropped.** A sentence whose citations do not resolve to
+         *     records the caller can open is dropped whole rather than shown uncited — the same
+         *     grounding rule the account and person briefs run.
+         *
+         *     Assembled under the CALLER's own scope, from the same gated reads the person page
+         *     serves, so it can only describe records that caller could open themselves. The section
+         *     list is fixed and ordered: `goal` and `commitments` lead because burying the ask is the
+         *     canonical prep failure, and `company_context` is last because it is background. A
+         *     section with nothing to say is ABSENT rather than empty, so a reader never scans a
+         *     heading that turns out to hold nothing.
+         *
+         *     Degrades rather than fails: with no model lane configured the model-written sections are
+         *     a deterministic composition occupying the same place, and `generated_by` says which
+         *     wrote them.
+         */
+        get: operations["getMeetingBrief"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/activities/{id}/relink": {
@@ -8908,12 +9219,20 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments")[];
+            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory")[];
             strength?: components["schemas"]["RelationshipStrength"];
             /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
             relationship_changes?: components["schemas"]["PersonRelationshipChange"][];
-            /** @description Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below. */
-            moments?: components["schemas"]["PersonMoment"][];
+            /** @description The ONE thing this contact needs today, selected server-side by the fixed ladder in `PersonMoment.rule` (ADR-0096 D2). Exactly one primary moment wins: a page that offers five reasons has told the reader to choose, which is the work the ladder exists to do. Deterministic and computed at read from captured data. Absent when the caller lacks a grant the ladder needs, named in `sections_omitted` as `moments`; the quiet success state is a moment of kind `nothing_needed`, not an absence. */
+            moment?: components["schemas"]["PersonMoment"];
+            /** @description The open deal this person sits on, with the money on it and who else is in the room. Absent when the caller has no deal grant (`sections_omitted`: `commercial`); present with `deal` null when they have the grant and there is no open deal — "no open deal" and "you may not see deals" are different facts. */
+            commercial?: components["schemas"]["Person360Commercial"];
+            /** @description The soonest booked meeting with this person, or absent. Read through the person's own activity-link predicate — the org's next-meeting read answers a different question and would name a meeting this person is not in. */
+            next_meeting?: components["schemas"]["Person360NextMeeting"];
+            /** @description What was promised, asked and decided in captured conversations (ADR-0097 D1) — one store behind the commitments card and the what-matters card, which differ only by kind. Every claim carries the activity it was read from and the verbatim snippet, so a reader can check it rather than trust it. */
+            claims?: components["schemas"]["ConversationClaim"][];
+            /** @description Threads and meetings as ENTITIES, condensed — what the conversation was about, not the transport events it was made of (ADR-0097 D3). The Activity tab remains the complete raw ledger; a summary never replaces it and never leaks a withheld activity. */
+            conversation_memory?: components["schemas"]["ConversationMemoryEntry"][];
             /** @description The colleagues who know this contact, warmest first — who to ask. */
             network?: {
                 colleagues: components["schemas"]["PersonNetworkColleague"][];
@@ -8942,6 +9261,359 @@ export interface components {
             /** @description The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`. */
             profile_fields?: components["schemas"]["PersonProfileField"][];
             since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
+        };
+        /**
+         * @description The commercial context around this person: the open deal that matters most, the money
+         *     on it, their recorded seat, and who else is in the room.
+         *
+         *     The role is stored relationship data, never inferred from a job title. A model may
+         *     propose one from an explicit statement, but it stays a 🟡 proposed field change until
+         *     a human confirms it.
+         */
+        Person360Commercial: {
+            /** @description The most relevant open deal, or null when there is none to show. */
+            deal?: components["schemas"]["Person360CommercialDeal"];
+            /** @description This person's recorded buying role on that deal — champion, economic_buyer, blocker, influencer, user by convention. */
+            role?: string | null;
+            /** @description The other stakeholders on the same deal, with their recorded roles. Capped: past a handful this is an org chart, and the question it answers is "who else do I have to convince". Empty means single-threaded, which is itself the finding. */
+            committee: components["schemas"]["Person360CommitteeMember"][];
+        };
+        /** @description One open deal, with the figures a reader needs before a meeting. */
+        Person360CommercialDeal: {
+            /** Format: uuid */
+            deal_id: string;
+            title: string;
+            stage?: string | null;
+            /**
+             * Format: int64
+             * @description The deal value in the currency's MINOR units, as every money field on this API is carried. A renderer divides by the ISO 4217 scale; nothing here pre-rounds.
+             */
+            amount_minor?: number | null;
+            /** @description ISO 4217 code for `amount_minor`. Null exactly when the amount is null. */
+            currency?: string | null;
+            /** Format: date */
+            close_date?: string | null;
+            /** @description The nearest dated thing on this deal — the next step or stage gate, when one is recorded. */
+            next_milestone?: string | null;
+        };
+        /** @description One other person on the same deal, and the seat they hold. */
+        Person360CommitteeMember: {
+            /** Format: uuid */
+            person_id: string;
+            full_name: string;
+            role: string;
+            /** @description Where to stream their portrait, or null — the client draws the deterministic monogram. */
+            photo_url?: string | null;
+        };
+        /**
+         * @description The soonest booked meeting with this person. Absent means either none is booked or the
+         *     caller cannot read meetings — `sections_omitted` is what separates the two.
+         */
+        Person360NextMeeting: {
+            /** Format: uuid */
+            activity_id: string;
+            /** Format: date-time */
+            starts_at: string;
+            subject?: string | null;
+            /** Format: uuid */
+            linked_deal_id?: string | null;
+            /** @description Who is in the room, so the reader knows whether they are single-threaded before they walk in. */
+            participants?: {
+                /** Format: uuid */
+                person_id: string;
+                full_name: string;
+            }[];
+        };
+        /**
+         * @description The eight kinds one extraction mechanism produces (ADR-0097 D1). They share a
+         *     lifecycle — extracted → cited → correctable → dismissible — and differ only here.
+         *
+         *     `commitment_ours` / `commitment_theirs` — a promise, by us or by them.
+         *     `open_question` — an unanswered business question.
+         *     `decision` — an agreed choice, historical memory unless corrected.
+         *     `priority` / `objection` / `success_criterion` / `decision_process` — the
+         *     what-matters rows.
+         *
+         *     `communication_preference` is deliberately absent: observed-style inference is
+         *     dropped from the product.
+         * @enum {string}
+         */
+        ConversationClaimKind: "commitment_ours" | "commitment_theirs" | "open_question" | "decision" | "priority" | "objection" | "success_criterion" | "decision_process";
+        /**
+         * @description One thing said in a captured conversation, with the evidence it was read from.
+         *
+         *     Grounded or absent: `source_activity_id` and `source_quote` are both required, because
+         *     an extractor drops an ungrounded candidate rather than storing it. A human correction
+         *     is final against the machine — a later run may add claims but never overwrites or
+         *     resurrects a corrected one while its evidence fingerprint is unchanged.
+         */
+        ConversationClaim: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["ConversationClaimKind"];
+            /** @description What the claim says, in the reader's language. The verbatim evidence is `source_quote`, beside it. */
+            body: string;
+            /** Format: uuid */
+            source_activity_id: string;
+            /** @description The verbatim excerpt this was read from — never a summary of it, so the reader can check the claim against what was actually written. */
+            source_quote: string;
+            /** @description How to name the source in a chip — the thread subject or the meeting title. */
+            source_label?: string | null;
+            /** Format: date-time */
+            occurred_at?: string | null;
+            /**
+             * @description `open` — the loop is live. `done` — kept or answered. `dismissed` — a human said it was never a claim, and it stays so the next run cannot resurrect it.
+             * @enum {string}
+             */
+            status: "open" | "done" | "dismissed";
+            /** Format: date-time */
+            due_at?: string | null;
+            /** @description Contradictory evidence exists for this claim. The surface shows both sources and asks — newest-wins is not a resolution. */
+            needs_review: boolean;
+            /**
+             * Format: date-time
+             * @description When a human typed over the machine. Set means the claim is theirs, not the extractor's.
+             */
+            corrected_at?: string | null;
+            /**
+             * Format: uuid
+             * @description The task an extracted `commitment_ours` created, so completing either side completes both. Null for every other kind — a reminder about THEIR promise is a rep action, not an auto-task.
+             */
+            task_activity_id?: string | null;
+        };
+        /**
+         * @description One thread or meeting, condensed to what it was about (ADR-0097 D3).
+         *
+         *     The summary is generated lazily on first read and cached, invalidated when the thread
+         *     gains an activity — cost follows usage, and a cold record costs nothing. When no model
+         *     lane exists the deterministic floor (subject + direction + count) occupies the same
+         *     slot, so the card never blanks.
+         */
+        ConversationMemoryEntry: {
+            /** @description The thread key, or the activity id for a meeting or a standalone message that has none. */
+            key: string;
+            /** @enum {string} */
+            channel: "email" | "meeting" | "call" | "note" | "whatsapp" | "telegram";
+            /**
+             * @description Which way the LAST message in the thread went. `internal` for a meeting or note that has no direction.
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "internal";
+            title: string;
+            /** @description One sentence about what the conversation was, not what it contained. */
+            summary: string;
+            generated_by?: components["schemas"]["WrittenBy"];
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description How many captured activities this entry folds, so the reader knows whether it is one message or a long exchange. */
+            activity_count: number;
+            /**
+             * @description The state a reader acts on: `replied`, `unanswered`, `awaiting_them`, or null when the entry carries no such claim. Derived from direction and what followed it.
+             * @enum {string|null}
+             */
+            status?: "replied" | "unanswered" | "awaiting_them" | null;
+            /** Format: uuid */
+            linked_deal_id?: string | null;
+            /**
+             * Format: uuid
+             * @description What "expand to original" opens.
+             */
+            first_activity_id?: string;
+        };
+        /**
+         * @description One claim to record, with the evidence it was read from. Both evidence fields
+         *     are required: a snippet with no source cannot be verified, and a source with no
+         *     snippet cannot be checked against.
+         */
+        RecordConversationClaimRequest: {
+            kind: components["schemas"]["ConversationClaimKind"];
+            /** @description What the claim says, in the reader's language. */
+            body: string;
+            /** Format: uuid */
+            source_activity_id: string;
+            /** @description The verbatim excerpt this was read from — never a summary of it. */
+            source_quote: string;
+            /**
+             * Format: date-time
+             * @description When the commitment is owed, where one is known. Absent on kinds that carry no date.
+             */
+            due_at?: string | null;
+        };
+        /**
+         * @description One staged research run. Nothing here has touched the record: these are claims a
+         *     human is about to accept or dismiss.
+         */
+        PersonResearchRun: {
+            /** Format: uuid */
+            person_id: string;
+            /**
+             * @description `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+             * @enum {string}
+             */
+            state: "not_connected" | "ready";
+            /** @description Who answered. A claim's trustworthiness depends on who said it. */
+            provider_name?: string | null;
+            /** Format: date-time */
+            generated_at: string;
+            /** @description How many documents the provider consulted — a different question from how many claims it made, and a surface showing one as both would overstate the work. */
+            sources_read?: number;
+            claims: components["schemas"]["PersonResearchClaim"][];
+        };
+        PersonResearchClaim: {
+            /** @description The claim's number in the drawer, so a conversation angle can cite "Claim 3". */
+            ordinal: number;
+            body: string;
+            /**
+             * @description `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "unstated";
+            sources: components["schemas"]["PersonResearchSource"][];
+        };
+        PersonResearchSource: {
+            /** @description The source as a reader would name it — a bare URL says nothing about whether to trust it. */
+            label: string;
+            url: string;
+            /** @description The passage the claim was read from, verbatim — what makes "check it" a real action. */
+            quote?: string | null;
+        };
+        SavePersonResearchRequest: {
+            claims: components["schemas"]["SavePersonResearchClaim"][];
+        };
+        /** @description One claim a human accepted, with the evidence that makes it checkable. */
+        SavePersonResearchClaim: {
+            /**
+             * @description Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+             * @enum {string}
+             */
+            field: "title" | "phone" | "role" | "linkedin" | "org_name";
+            value: string;
+            source_quote: string;
+            source_url: string;
+        };
+        /**
+         * @description Which moment to hide, and the evidence it was showing when the reader hid it. Both are
+         *     required: the fingerprint is what lets the moment come back when the evidence moves,
+         *     and a dismissal without one is a permanent silence nobody asked for.
+         */
+        DismissPersonMomentRequest: {
+            claim_key: string;
+            evidence_fingerprint: string;
+        };
+        /**
+         * @description The pre-meeting brief for one booked meeting (ADR-0097 D5), assembled fresh on every
+         *     read from what the CALLER can see.
+         *
+         *     Not cached, unlike `PersonBrief`. The `generated_at` on it is therefore always the
+         *     instant of this read, and there is no fingerprint and no refresh affordance: a brief
+         *     that arrives is by construction current.
+         */
+        MeetingBrief: {
+            /** Format: uuid */
+            activity_id: string;
+            /**
+             * Format: date-time
+             * @description The instant this read assembled the brief. Always now — nothing here is stored.
+             */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /** @description The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other. */
+            sections: components["schemas"]["MeetingBriefSection"][];
+        };
+        /** @description One of the eight fixed sections, with its cited sentences. */
+        MeetingBriefSection: {
+            /**
+             * @description The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+             *     than a free-text heading, so a surface can label, order and collapse them and no
+             *     writer can invent a ninth.
+             *
+             *     `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+             *     `goal` — the single next-step target; it leads because burying the ask is the
+             *     canonical prep failure.
+             *     `attendees` — who is in the room, with the first-timers flagged.
+             *     `commitments` — what was promised, ours and theirs, each with its source and status.
+             *     `deal_state` — where the deal stands: last conversation, objections, open questions.
+             *     `risks` — watch-outs; absent rather than empty when there are none.
+             *     `talking_points` — each tied to a specific captured statement.
+             *     `company_context` — background, collapsed and last.
+             * @enum {string}
+             */
+            kind: "header" | "goal" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
+            /** @description The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description A written brief over one person, assembled from what the READER can see — the company
+         *     brief pattern applied to a relationship (ADR-0097 D4).
+         *
+         *     Per viewer, cached on the assembled input plus the prompt and routing versions, every
+         *     sentence cited, and degrading to a deterministic composition rather than failing when
+         *     no model lane is configured. `generated_by` says which wrote it.
+         */
+        PersonBrief: {
+            /** Format: uuid */
+            person_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /** @description Two to five sentences: who this person is in the current commercial context, what they have explicitly cared about, what recently changed, and the unresolved decision or risk. A sentence whose citations cannot be resolved is dropped whole rather than shown uncited. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description Whether an outbound message to this person is allowed right now, per purpose and
+         *     channel, WITH the reason (ADR-0098 D6).
+         *
+         *     Computed by the same gate the dispatcher runs at transmit time, so the preview a
+         *     composer shows and the check that fires at send cannot drift. The transmit-time
+         *     recheck stays authoritative and refuses with the newer answer when state changed
+         *     after the drawer opened.
+         */
+        PersonConsentGuard: {
+            /** Format: uuid */
+            person_id: string;
+            entries: components["schemas"]["PersonConsentGuardEntry"][];
+        };
+        PersonConsentGuardEntry: {
+            purpose_key: string;
+            purpose_label?: string | null;
+            /**
+             * @description Which gate this purpose answers to (ADR-0098 D1). `business_correspondence` and
+             *     `transactional` are never consent-gated — their lawful basis is Art 6(1)(b)/(f), and
+             *     treating a reply to someone who wrote to us as a consent violation is a frame that is
+             *     legally wrong. `marketing` needs express consent with double-opt-in proof or the
+             *     §7(3) existing-customer flag. `phone_outreach` is specced and dormant.
+             * @enum {string}
+             */
+            purpose_class: "business_correspondence" | "transactional" | "marketing" | "phone_outreach";
+            /** @enum {string} */
+            channel: "email" | "phone";
+            /**
+             * @description `allowed` proceeds. `blocked` refuses and `reason` says why. `unknown` means no decision is recorded — the offered action is to request consent, never a silent grant.
+             * @enum {string}
+             */
+            verdict: "allowed" | "blocked" | "unknown";
+            /** @description The answer in the reader's words — "she wrote to you on 2 May", "opt-out 12 Jul", "no consent recorded". A verdict a rep cannot explain to the person is not usable. */
+            reason: string;
+            /** @description The recorded event that flipped business correspondence to allowed, when one did. */
+            qualifying_event?: components["schemas"]["ConsentQualifyingEvent"];
+        };
+        /**
+         * @description The deterministic event that makes business correspondence lawful (ADR-0098 D2): an
+         *     inbound message, an inquiry they initiated, an active deal with their organization, or
+         *     a recorded in-person exchange. Recording WHICH event and when is what makes the Art
+         *     6(1)(f) balancing accountable rather than merely asserted.
+         */
+        ConsentQualifyingEvent: {
+            /** @enum {string} */
+            kind: "inbound_message" | "inquiry" | "active_deal" | "in_person";
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string|null} */
+            source_entity_type?: "activity" | "deal" | null;
+            /** Format: uuid */
+            source_entity_id?: string | null;
+            /** @description The typed evidence for an `in_person` exchange, where a named human's note IS the record. */
+            note?: string | null;
         };
         /** @description The local graph around one contact — nodes, the edges between them, and the route worth taking. */
         PersonGraph: {
@@ -9026,15 +9698,19 @@ export interface components {
          *     rule, never asserted by a model. That is what lets every one of them carry evidence a
          *     reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
          *     the softer values a later inferred source would need, and nothing produces them yet.
+         *
+         *     `rule` says which rung of the ladder fired, and doubles as the kind a client renders
+         *     its icon and tone from — one field, because a second one tracking it one-to-one is a
+         *     second thing to keep in sync and a way for the two to disagree.
          */
         PersonMoment: {
-            /** @description The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow. */
+            /** @description The stable identity of this moment as a claim — what the moment is ABOUT. Pass it with `evidence_fingerprint` to `POST /people/{id}/moment/dismiss`. */
             claim_key: string;
-            /**
-             * @description `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
-             * @enum {string}
-             */
-            kind: "replied_after_gap" | "unanswered_inbound" | "meeting_ahead" | "task_overdue" | "went_quiet";
+            /** @description A digest of the evidence this moment fired on. The dismissal is held against it, so a dismissed moment RE-ARMS when its evidence moves — the reader dismissed "she went quiet", a reply arrives, and the page must not stay silent about the thing that just changed. Keying a dismissal on the path alone is what gets that wrong. */
+            evidence_fingerprint: string;
+            rule: components["schemas"]["PersonMomentRule"];
+            /** @description The ladder's version. A rule change that would reselect must be visible, not silent. */
+            rule_version?: string;
             /** @description The reason in one line, written from the evidence — never a model's paraphrase of it. */
             headline: string;
             /** @description What makes it timely rather than merely true. A moment that would read the same next month is not a moment. */
@@ -9054,6 +9730,19 @@ export interface components {
             recommended_action: components["schemas"]["PersonMomentAction"];
             secondary_actions?: components["schemas"]["PersonMomentAction"][];
         };
+        /**
+         * @description Which rung of the fixed ladder selected this moment (ADR-0096 D2), in priority order.
+         *     Named in the response so the same evidence cannot render differently across clients.
+         *     Ties break by consequence, then nearest deadline, then most recent evidence, then
+         *     stable id.
+         *
+         *     Two rungs are input-bound and stay dormant rather than being mocked into life:
+         *     `job_change` fires only on a RECORDED employment change, and `public_signal` needs a
+         *     connected data provider. A rule that cannot fire is absent from the page, not an empty
+         *     card.
+         * @enum {string}
+         */
+        PersonMomentRule: "meeting_prep" | "re_engaged" | "job_change" | "overdue_promise" | "gone_quiet" | "role_change" | "public_signal" | "missing_next_step" | "thin_relationship" | "nothing_needed";
         /** @description One thing that actually happened, which the reader can open. */
         PersonMomentEvidence: {
             /** @enum {string} */
@@ -9069,17 +9758,45 @@ export interface components {
             /** Format: date-time */
             observed_at?: string;
         };
-        /** @description What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click. */
+        /**
+         * @description What to do about it: a TYPED descriptor, not a label the client has to interpret.
+         *
+         *     Kind, destination and prefill together mean a client renders only buttons whose path
+         *     exists — the alternative is a page offering an action that 404s on click, which is how
+         *     a moment becomes a lie. The state is honest for the same reason: an action the caller
+         *     cannot take says so instead of failing.
+         */
         PersonMomentAction: {
             /** @enum {string} */
-            kind: "draft_reply" | "schedule_meeting" | "complete_task" | "log_activity" | "open_record";
+            kind: "draft_reply" | "schedule_meeting" | "complete_task" | "log_activity" | "open_record" | "open_meeting_brief" | "open_research" | "ask_colleague";
             label: string;
+            /** @description Where the action goes. Absent for an action that opens no surface of its own. */
+            destination?: components["schemas"]["PersonMomentDestination"];
             /**
              * @description `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
              * @enum {string}
              */
             state: "available" | "will_confirm" | "blocked";
             blocked_reason?: string;
+        };
+        /**
+         * @description The surface an action opens and what it opens with. A destination the server did not
+         *     name is a destination the client must not invent.
+         */
+        PersonMomentDestination: {
+            /**
+             * @description `composer` — the outbound draft drawer. `meeting_brief` — the pre-meeting dossier. `research` — the deep-research drawer. `record` — another record page. `task` — the task sheet.
+             * @enum {string}
+             */
+            surface: "composer" | "meeting_brief" | "research" | "record" | "task";
+            /** @enum {string|null} */
+            entity_type?: "person" | "organization" | "deal" | "activity" | null;
+            /** Format: uuid */
+            entity_id?: string | null;
+            /** @description What the surface opens with — a draft intent, a subject, a task title. Strings only: a prefill is what a human is about to edit, never a structure the client must interpret. */
+            prefill?: {
+                [key: string]: string;
+            };
         };
         /** @description A human's verdict on one derived claim. */
         AIFeedbackInput: {
@@ -14874,6 +15591,241 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getPersonBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The relationship brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    regeneratePersonBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The regenerated brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    draftPersonEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
+                    intent?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The draft, and what it was written from. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountEmailDraft"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonConsentGuard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The effective guard per purpose and channel. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonConsentGuard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordConversationClaim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordConversationClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded claim. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationClaim"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    runPersonResearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The staged run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonResearchRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    savePersonResearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePersonResearchRequest"];
+            };
+        };
+        responses: {
+            /** @description How many claims landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        saved: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dismissPersonMoment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissPersonMomentRequest"];
+            };
+        };
+        responses: {
+            /** @description Dismissed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getPersonGraph: {
         parameters: {
             query?: never;
@@ -17379,6 +18331,33 @@ export interface operations {
                     "application/json": components["schemas"]["Activity"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMeetingBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pre-meeting brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

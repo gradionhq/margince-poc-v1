@@ -2340,6 +2340,51 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	}
 }
 
+// Defines values for ConsentQualifyingEventKind.
+const (
+	ActiveDeal     ConsentQualifyingEventKind = "active_deal"
+	InPerson       ConsentQualifyingEventKind = "in_person"
+	InboundMessage ConsentQualifyingEventKind = "inbound_message"
+	Inquiry        ConsentQualifyingEventKind = "inquiry"
+)
+
+// Valid indicates whether the value is a known member of the ConsentQualifyingEventKind enum.
+func (e ConsentQualifyingEventKind) Valid() bool {
+	switch e {
+	case ActiveDeal:
+		return true
+	case InPerson:
+		return true
+	case InboundMessage:
+		return true
+	case Inquiry:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConsentQualifyingEventSourceEntityType.
+const (
+	ConsentQualifyingEventSourceEntityTypeActivity    ConsentQualifyingEventSourceEntityType = "activity"
+	ConsentQualifyingEventSourceEntityTypeDeal        ConsentQualifyingEventSourceEntityType = "deal"
+	ConsentQualifyingEventSourceEntityTypeLessThannil ConsentQualifyingEventSourceEntityType = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the ConsentQualifyingEventSourceEntityType enum.
+func (e ConsentQualifyingEventSourceEntityType) Valid() bool {
+	switch e {
+	case ConsentQualifyingEventSourceEntityTypeActivity:
+		return true
+	case ConsentQualifyingEventSourceEntityTypeDeal:
+		return true
+	case ConsentQualifyingEventSourceEntityTypeLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConsumerMailDomainKind.
 const (
 	ConsumerMailDomainKindExtra ConsumerMailDomainKind = "extra"
@@ -2385,6 +2430,138 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeProject:
 		return true
 	case ContextEntityRefTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationClaimStatus.
+const (
+	ConversationClaimStatusDismissed ConversationClaimStatus = "dismissed"
+	ConversationClaimStatusDone      ConversationClaimStatus = "done"
+	ConversationClaimStatusOpen      ConversationClaimStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the ConversationClaimStatus enum.
+func (e ConversationClaimStatus) Valid() bool {
+	switch e {
+	case ConversationClaimStatusDismissed:
+		return true
+	case ConversationClaimStatusDone:
+		return true
+	case ConversationClaimStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationClaimKind.
+const (
+	CommitmentOurs   ConversationClaimKind = "commitment_ours"
+	CommitmentTheirs ConversationClaimKind = "commitment_theirs"
+	Decision         ConversationClaimKind = "decision"
+	DecisionProcess  ConversationClaimKind = "decision_process"
+	Objection        ConversationClaimKind = "objection"
+	OpenQuestion     ConversationClaimKind = "open_question"
+	Priority         ConversationClaimKind = "priority"
+	SuccessCriterion ConversationClaimKind = "success_criterion"
+)
+
+// Valid indicates whether the value is a known member of the ConversationClaimKind enum.
+func (e ConversationClaimKind) Valid() bool {
+	switch e {
+	case CommitmentOurs:
+		return true
+	case CommitmentTheirs:
+		return true
+	case Decision:
+		return true
+	case DecisionProcess:
+		return true
+	case Objection:
+		return true
+	case OpenQuestion:
+		return true
+	case Priority:
+		return true
+	case SuccessCriterion:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationMemoryEntryChannel.
+const (
+	ConversationMemoryEntryChannelCall     ConversationMemoryEntryChannel = "call"
+	ConversationMemoryEntryChannelEmail    ConversationMemoryEntryChannel = "email"
+	ConversationMemoryEntryChannelMeeting  ConversationMemoryEntryChannel = "meeting"
+	ConversationMemoryEntryChannelNote     ConversationMemoryEntryChannel = "note"
+	ConversationMemoryEntryChannelTelegram ConversationMemoryEntryChannel = "telegram"
+	ConversationMemoryEntryChannelWhatsapp ConversationMemoryEntryChannel = "whatsapp"
+)
+
+// Valid indicates whether the value is a known member of the ConversationMemoryEntryChannel enum.
+func (e ConversationMemoryEntryChannel) Valid() bool {
+	switch e {
+	case ConversationMemoryEntryChannelCall:
+		return true
+	case ConversationMemoryEntryChannelEmail:
+		return true
+	case ConversationMemoryEntryChannelMeeting:
+		return true
+	case ConversationMemoryEntryChannelNote:
+		return true
+	case ConversationMemoryEntryChannelTelegram:
+		return true
+	case ConversationMemoryEntryChannelWhatsapp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationMemoryEntryDirection.
+const (
+	ConversationMemoryEntryDirectionInbound  ConversationMemoryEntryDirection = "inbound"
+	ConversationMemoryEntryDirectionInternal ConversationMemoryEntryDirection = "internal"
+	ConversationMemoryEntryDirectionOutbound ConversationMemoryEntryDirection = "outbound"
+)
+
+// Valid indicates whether the value is a known member of the ConversationMemoryEntryDirection enum.
+func (e ConversationMemoryEntryDirection) Valid() bool {
+	switch e {
+	case ConversationMemoryEntryDirectionInbound:
+		return true
+	case ConversationMemoryEntryDirectionInternal:
+		return true
+	case ConversationMemoryEntryDirectionOutbound:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationMemoryEntryStatus.
+const (
+	ConversationMemoryEntryStatusAwaitingThem ConversationMemoryEntryStatus = "awaiting_them"
+	ConversationMemoryEntryStatusLessThannil  ConversationMemoryEntryStatus = "<nil>"
+	ConversationMemoryEntryStatusReplied      ConversationMemoryEntryStatus = "replied"
+	ConversationMemoryEntryStatusUnanswered   ConversationMemoryEntryStatus = "unanswered"
+)
+
+// Valid indicates whether the value is a known member of the ConversationMemoryEntryStatus enum.
+func (e ConversationMemoryEntryStatus) Valid() bool {
+	switch e {
+	case ConversationMemoryEntryStatusAwaitingThem:
+		return true
+	case ConversationMemoryEntryStatusLessThannil:
+		return true
+	case ConversationMemoryEntryStatusReplied:
+		return true
+	case ConversationMemoryEntryStatusUnanswered:
 		return true
 	default:
 		return false
@@ -3837,6 +4014,42 @@ func (e MeResponseSystemOfRecordMode) Valid() bool {
 	}
 }
 
+// Defines values for MeetingBriefSectionKind.
+const (
+	MeetingBriefSectionKindAttendees      MeetingBriefSectionKind = "attendees"
+	MeetingBriefSectionKindCommitments    MeetingBriefSectionKind = "commitments"
+	MeetingBriefSectionKindCompanyContext MeetingBriefSectionKind = "company_context"
+	MeetingBriefSectionKindDealState      MeetingBriefSectionKind = "deal_state"
+	MeetingBriefSectionKindGoal           MeetingBriefSectionKind = "goal"
+	MeetingBriefSectionKindHeader         MeetingBriefSectionKind = "header"
+	MeetingBriefSectionKindRisks          MeetingBriefSectionKind = "risks"
+	MeetingBriefSectionKindTalkingPoints  MeetingBriefSectionKind = "talking_points"
+)
+
+// Valid indicates whether the value is a known member of the MeetingBriefSectionKind enum.
+func (e MeetingBriefSectionKind) Valid() bool {
+	switch e {
+	case MeetingBriefSectionKindAttendees:
+		return true
+	case MeetingBriefSectionKindCommitments:
+		return true
+	case MeetingBriefSectionKindCompanyContext:
+		return true
+	case MeetingBriefSectionKindDealState:
+		return true
+	case MeetingBriefSectionKindGoal:
+		return true
+	case MeetingBriefSectionKindHeader:
+		return true
+	case MeetingBriefSectionKindRisks:
+		return true
+	case MeetingBriefSectionKindTalkingPoints:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MorningBriefItemState.
 const (
 	MorningBriefItemStateActed     MorningBriefItemState = "acted"
@@ -4991,19 +5204,19 @@ func (e OrganizationHierarchyRollupScope) Valid() bool {
 
 // Defines values for OrganizationQuestion.
 const (
-	MeetingPrep  OrganizationQuestion = "meeting_prep"
-	WhatsChanged OrganizationQuestion = "whats_changed"
-	WhatsOpen    OrganizationQuestion = "whats_open"
+	OrganizationQuestionMeetingPrep  OrganizationQuestion = "meeting_prep"
+	OrganizationQuestionWhatsChanged OrganizationQuestion = "whats_changed"
+	OrganizationQuestionWhatsOpen    OrganizationQuestion = "whats_open"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationQuestion enum.
 func (e OrganizationQuestion) Valid() bool {
 	switch e {
-	case MeetingPrep:
+	case OrganizationQuestionMeetingPrep:
 		return true
-	case WhatsChanged:
+	case OrganizationQuestionWhatsChanged:
 		return true
-	case WhatsOpen:
+	case OrganizationQuestionWhatsOpen:
 		return true
 	default:
 		return false
@@ -5349,12 +5562,16 @@ func (e PartnerRelationshipStage) Valid() bool {
 // Defines values for Person360SectionsOmitted.
 const (
 	Person360SectionsOmittedActivities          Person360SectionsOmitted = "activities"
+	Person360SectionsOmittedClaims              Person360SectionsOmitted = "claims"
+	Person360SectionsOmittedCommercial          Person360SectionsOmitted = "commercial"
 	Person360SectionsOmittedConsent             Person360SectionsOmitted = "consent"
+	Person360SectionsOmittedConversationMemory  Person360SectionsOmitted = "conversation_memory"
 	Person360SectionsOmittedDealRoles           Person360SectionsOmitted = "deal_roles"
 	Person360SectionsOmittedEmployments         Person360SectionsOmitted = "employments"
 	Person360SectionsOmittedLastTouch           Person360SectionsOmitted = "last_touch"
 	Person360SectionsOmittedMoments             Person360SectionsOmitted = "moments"
 	Person360SectionsOmittedNetwork             Person360SectionsOmitted = "network"
+	Person360SectionsOmittedNextMeeting         Person360SectionsOmitted = "next_meeting"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
 	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
@@ -5367,7 +5584,13 @@ func (e Person360SectionsOmitted) Valid() bool {
 	switch e {
 	case Person360SectionsOmittedActivities:
 		return true
+	case Person360SectionsOmittedClaims:
+		return true
+	case Person360SectionsOmittedCommercial:
+		return true
 	case Person360SectionsOmittedConsent:
+		return true
+	case Person360SectionsOmittedConversationMemory:
 		return true
 	case Person360SectionsOmittedDealRoles:
 		return true
@@ -5379,6 +5602,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 		return true
 	case Person360SectionsOmittedNetwork:
 		return true
+	case Person360SectionsOmittedNextMeeting:
+		return true
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
@@ -5388,6 +5613,69 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedSinceLastVisit:
 		return true
 	case Person360SectionsOmittedStrength:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonConsentGuardEntryChannel.
+const (
+	PersonConsentGuardEntryChannelEmail PersonConsentGuardEntryChannel = "email"
+	PersonConsentGuardEntryChannelPhone PersonConsentGuardEntryChannel = "phone"
+)
+
+// Valid indicates whether the value is a known member of the PersonConsentGuardEntryChannel enum.
+func (e PersonConsentGuardEntryChannel) Valid() bool {
+	switch e {
+	case PersonConsentGuardEntryChannelEmail:
+		return true
+	case PersonConsentGuardEntryChannelPhone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonConsentGuardEntryPurposeClass.
+const (
+	BusinessCorrespondence PersonConsentGuardEntryPurposeClass = "business_correspondence"
+	Marketing              PersonConsentGuardEntryPurposeClass = "marketing"
+	PhoneOutreach          PersonConsentGuardEntryPurposeClass = "phone_outreach"
+	Transactional          PersonConsentGuardEntryPurposeClass = "transactional"
+)
+
+// Valid indicates whether the value is a known member of the PersonConsentGuardEntryPurposeClass enum.
+func (e PersonConsentGuardEntryPurposeClass) Valid() bool {
+	switch e {
+	case BusinessCorrespondence:
+		return true
+	case Marketing:
+		return true
+	case PhoneOutreach:
+		return true
+	case Transactional:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonConsentGuardEntryVerdict.
+const (
+	PersonConsentGuardEntryVerdictAllowed PersonConsentGuardEntryVerdict = "allowed"
+	PersonConsentGuardEntryVerdictBlocked PersonConsentGuardEntryVerdict = "blocked"
+	PersonConsentGuardEntryVerdictUnknown PersonConsentGuardEntryVerdict = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the PersonConsentGuardEntryVerdict enum.
+func (e PersonConsentGuardEntryVerdict) Valid() bool {
+	switch e {
+	case PersonConsentGuardEntryVerdictAllowed:
+		return true
+	case PersonConsentGuardEntryVerdictBlocked:
+		return true
+	case PersonConsentGuardEntryVerdictUnknown:
 		return true
 	default:
 		return false
@@ -5538,52 +5826,34 @@ func (e PersonMomentConfidence) Valid() bool {
 	}
 }
 
-// Defines values for PersonMomentKind.
-const (
-	PersonMomentKindMeetingAhead      PersonMomentKind = "meeting_ahead"
-	PersonMomentKindRepliedAfterGap   PersonMomentKind = "replied_after_gap"
-	PersonMomentKindTaskOverdue       PersonMomentKind = "task_overdue"
-	PersonMomentKindUnansweredInbound PersonMomentKind = "unanswered_inbound"
-	PersonMomentKindWentQuiet         PersonMomentKind = "went_quiet"
-)
-
-// Valid indicates whether the value is a known member of the PersonMomentKind enum.
-func (e PersonMomentKind) Valid() bool {
-	switch e {
-	case PersonMomentKindMeetingAhead:
-		return true
-	case PersonMomentKindRepliedAfterGap:
-		return true
-	case PersonMomentKindTaskOverdue:
-		return true
-	case PersonMomentKindUnansweredInbound:
-		return true
-	case PersonMomentKindWentQuiet:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for PersonMomentActionKind.
 const (
-	PersonMomentActionKindCompleteTask    PersonMomentActionKind = "complete_task"
-	PersonMomentActionKindDraftReply      PersonMomentActionKind = "draft_reply"
-	PersonMomentActionKindLogActivity     PersonMomentActionKind = "log_activity"
-	PersonMomentActionKindOpenRecord      PersonMomentActionKind = "open_record"
-	PersonMomentActionKindScheduleMeeting PersonMomentActionKind = "schedule_meeting"
+	PersonMomentActionKindAskColleague     PersonMomentActionKind = "ask_colleague"
+	PersonMomentActionKindCompleteTask     PersonMomentActionKind = "complete_task"
+	PersonMomentActionKindDraftReply       PersonMomentActionKind = "draft_reply"
+	PersonMomentActionKindLogActivity      PersonMomentActionKind = "log_activity"
+	PersonMomentActionKindOpenMeetingBrief PersonMomentActionKind = "open_meeting_brief"
+	PersonMomentActionKindOpenRecord       PersonMomentActionKind = "open_record"
+	PersonMomentActionKindOpenResearch     PersonMomentActionKind = "open_research"
+	PersonMomentActionKindScheduleMeeting  PersonMomentActionKind = "schedule_meeting"
 )
 
 // Valid indicates whether the value is a known member of the PersonMomentActionKind enum.
 func (e PersonMomentActionKind) Valid() bool {
 	switch e {
+	case PersonMomentActionKindAskColleague:
+		return true
 	case PersonMomentActionKindCompleteTask:
 		return true
 	case PersonMomentActionKindDraftReply:
 		return true
 	case PersonMomentActionKindLogActivity:
 		return true
+	case PersonMomentActionKindOpenMeetingBrief:
+		return true
 	case PersonMomentActionKindOpenRecord:
+		return true
+	case PersonMomentActionKindOpenResearch:
 		return true
 	case PersonMomentActionKindScheduleMeeting:
 		return true
@@ -5613,6 +5883,60 @@ func (e PersonMomentActionState) Valid() bool {
 	}
 }
 
+// Defines values for PersonMomentDestinationEntityType.
+const (
+	PersonMomentDestinationEntityTypeActivity     PersonMomentDestinationEntityType = "activity"
+	PersonMomentDestinationEntityTypeDeal         PersonMomentDestinationEntityType = "deal"
+	PersonMomentDestinationEntityTypeLessThannil  PersonMomentDestinationEntityType = "<nil>"
+	PersonMomentDestinationEntityTypeOrganization PersonMomentDestinationEntityType = "organization"
+	PersonMomentDestinationEntityTypePerson       PersonMomentDestinationEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentDestinationEntityType enum.
+func (e PersonMomentDestinationEntityType) Valid() bool {
+	switch e {
+	case PersonMomentDestinationEntityTypeActivity:
+		return true
+	case PersonMomentDestinationEntityTypeDeal:
+		return true
+	case PersonMomentDestinationEntityTypeLessThannil:
+		return true
+	case PersonMomentDestinationEntityTypeOrganization:
+		return true
+	case PersonMomentDestinationEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentDestinationSurface.
+const (
+	PersonMomentDestinationSurfaceComposer     PersonMomentDestinationSurface = "composer"
+	PersonMomentDestinationSurfaceMeetingBrief PersonMomentDestinationSurface = "meeting_brief"
+	PersonMomentDestinationSurfaceRecord       PersonMomentDestinationSurface = "record"
+	PersonMomentDestinationSurfaceResearch     PersonMomentDestinationSurface = "research"
+	PersonMomentDestinationSurfaceTask         PersonMomentDestinationSurface = "task"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentDestinationSurface enum.
+func (e PersonMomentDestinationSurface) Valid() bool {
+	switch e {
+	case PersonMomentDestinationSurfaceComposer:
+		return true
+	case PersonMomentDestinationSurfaceMeetingBrief:
+		return true
+	case PersonMomentDestinationSurfaceRecord:
+		return true
+	case PersonMomentDestinationSurfaceResearch:
+		return true
+	case PersonMomentDestinationSurfaceTask:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonMomentEvidenceType.
 const (
 	PersonMomentEvidenceTypeActivity           PersonMomentEvidenceType = "activity"
@@ -5628,6 +5952,48 @@ func (e PersonMomentEvidenceType) Valid() bool {
 	case PersonMomentEvidenceTypeRelationshipChange:
 		return true
 	case PersonMomentEvidenceTypeTask:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentRule.
+const (
+	PersonMomentRuleGoneQuiet        PersonMomentRule = "gone_quiet"
+	PersonMomentRuleJobChange        PersonMomentRule = "job_change"
+	PersonMomentRuleMeetingPrep      PersonMomentRule = "meeting_prep"
+	PersonMomentRuleMissingNextStep  PersonMomentRule = "missing_next_step"
+	PersonMomentRuleNothingNeeded    PersonMomentRule = "nothing_needed"
+	PersonMomentRuleOverduePromise   PersonMomentRule = "overdue_promise"
+	PersonMomentRulePublicSignal     PersonMomentRule = "public_signal"
+	PersonMomentRuleReEngaged        PersonMomentRule = "re_engaged"
+	PersonMomentRuleRoleChange       PersonMomentRule = "role_change"
+	PersonMomentRuleThinRelationship PersonMomentRule = "thin_relationship"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentRule enum.
+func (e PersonMomentRule) Valid() bool {
+	switch e {
+	case PersonMomentRuleGoneQuiet:
+		return true
+	case PersonMomentRuleJobChange:
+		return true
+	case PersonMomentRuleMeetingPrep:
+		return true
+	case PersonMomentRuleMissingNextStep:
+		return true
+	case PersonMomentRuleNothingNeeded:
+		return true
+	case PersonMomentRuleOverduePromise:
+		return true
+	case PersonMomentRulePublicSignal:
+		return true
+	case PersonMomentRuleReEngaged:
+		return true
+	case PersonMomentRuleRoleChange:
+		return true
+	case PersonMomentRuleThinRelationship:
 		return true
 	default:
 		return false
@@ -5771,22 +6137,22 @@ func (e PersonRelationshipChangeFromBucket) Valid() bool {
 
 // Defines values for PersonRelationshipChangeKind.
 const (
-	PersonRelationshipChangeKindCooled          PersonRelationshipChangeKind = "cooled"
-	PersonRelationshipChangeKindRepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
-	PersonRelationshipChangeKindWarmed          PersonRelationshipChangeKind = "warmed"
-	PersonRelationshipChangeKindWentQuiet       PersonRelationshipChangeKind = "went_quiet"
+	Cooled          PersonRelationshipChangeKind = "cooled"
+	RepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
+	Warmed          PersonRelationshipChangeKind = "warmed"
+	WentQuiet       PersonRelationshipChangeKind = "went_quiet"
 )
 
 // Valid indicates whether the value is a known member of the PersonRelationshipChangeKind enum.
 func (e PersonRelationshipChangeKind) Valid() bool {
 	switch e {
-	case PersonRelationshipChangeKindCooled:
+	case Cooled:
 		return true
-	case PersonRelationshipChangeKindRepliedAfterGap:
+	case RepliedAfterGap:
 		return true
-	case PersonRelationshipChangeKindWarmed:
+	case Warmed:
 		return true
-	case PersonRelationshipChangeKindWentQuiet:
+	case WentQuiet:
 		return true
 	default:
 		return false
@@ -5811,6 +6177,45 @@ func (e PersonRelationshipChangeToBucket) Valid() bool {
 	case PersonRelationshipChangeToBucketStrong:
 		return true
 	case PersonRelationshipChangeToBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonResearchClaimConfidence.
+const (
+	High     PersonResearchClaimConfidence = "high"
+	Medium   PersonResearchClaimConfidence = "medium"
+	Unstated PersonResearchClaimConfidence = "unstated"
+)
+
+// Valid indicates whether the value is a known member of the PersonResearchClaimConfidence enum.
+func (e PersonResearchClaimConfidence) Valid() bool {
+	switch e {
+	case High:
+		return true
+	case Medium:
+		return true
+	case Unstated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonResearchRunState.
+const (
+	NotConnected PersonResearchRunState = "not_connected"
+	Ready        PersonResearchRunState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the PersonResearchRunState enum.
+func (e PersonResearchRunState) Valid() bool {
+	switch e {
+	case NotConnected:
+		return true
+	case Ready:
 		return true
 	default:
 		return false
@@ -6147,6 +6552,33 @@ func (e RunReportRequestAggregatesFn) Valid() bool {
 	case RunReportRequestAggregatesFnMin:
 		return true
 	case RunReportRequestAggregatesFnSum:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SavePersonResearchClaimField.
+const (
+	SavePersonResearchClaimFieldLinkedin SavePersonResearchClaimField = "linkedin"
+	SavePersonResearchClaimFieldOrgName  SavePersonResearchClaimField = "org_name"
+	SavePersonResearchClaimFieldPhone    SavePersonResearchClaimField = "phone"
+	SavePersonResearchClaimFieldRole     SavePersonResearchClaimField = "role"
+	SavePersonResearchClaimFieldTitle    SavePersonResearchClaimField = "title"
+)
+
+// Valid indicates whether the value is a known member of the SavePersonResearchClaimField enum.
+func (e SavePersonResearchClaimField) Valid() bool {
+	switch e {
+	case SavePersonResearchClaimFieldLinkedin:
+		return true
+	case SavePersonResearchClaimFieldOrgName:
+		return true
+	case SavePersonResearchClaimFieldPhone:
+		return true
+	case SavePersonResearchClaimFieldRole:
+		return true
+	case SavePersonResearchClaimFieldTitle:
 		return true
 	default:
 		return false
@@ -8762,16 +9194,16 @@ func (e ListProjectsParamsPhase) Valid() bool {
 
 // Defines values for UpdatePreferencesJSONBodyChoicesState.
 const (
-	UpdatePreferencesJSONBodyChoicesStateGranted   UpdatePreferencesJSONBodyChoicesState = "granted"
-	UpdatePreferencesJSONBodyChoicesStateWithdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
+	Granted   UpdatePreferencesJSONBodyChoicesState = "granted"
+	Withdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
 )
 
 // Valid indicates whether the value is a known member of the UpdatePreferencesJSONBodyChoicesState enum.
 func (e UpdatePreferencesJSONBodyChoicesState) Valid() bool {
 	switch e {
-	case UpdatePreferencesJSONBodyChoicesStateGranted:
+	case Granted:
 		return true
-	case UpdatePreferencesJSONBodyChoicesStateWithdrawn:
+	case Withdrawn:
 		return true
 	default:
 		return false
@@ -10871,6 +11303,26 @@ type ConsentPurpose struct {
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
 }
 
+// ConsentQualifyingEvent The deterministic event that makes business correspondence lawful (ADR-0098 D2): an
+// inbound message, an inquiry they initiated, an active deal with their organization, or
+// a recorded in-person exchange. Recording WHICH event and when is what makes the Art
+// 6(1)(f) balancing accountable rather than merely asserted.
+type ConsentQualifyingEvent struct {
+	Kind ConsentQualifyingEventKind `json:"kind"`
+
+	// Note The typed evidence for an `in_person` exchange, where a named human's note IS the record.
+	Note             *string                                 `json:"note,omitempty"`
+	OccurredAt       time.Time                               `json:"occurred_at"`
+	SourceEntityId   *openapi_types.UUID                     `json:"source_entity_id,omitempty"`
+	SourceEntityType *ConsentQualifyingEventSourceEntityType `json:"source_entity_type,omitempty"`
+}
+
+// ConsentQualifyingEventKind defines model for ConsentQualifyingEvent.Kind.
+type ConsentQualifyingEventKind string
+
+// ConsentQualifyingEventSourceEntityType defines model for ConsentQualifyingEvent.SourceEntityType.
+type ConsentQualifyingEventSourceEntityType string
+
 // ConsentRequest What the consent screen renders. The client name is resolved from the database, never
 // from the request URL, so no caller can put words on a consent screen. The consent
 // nonce is NOT here: it reaches the screen in the redirect fragment, because the
@@ -10955,6 +11407,113 @@ type ContextSection struct {
 	Items []ContextItem `json:"items"`
 	Name  string        `json:"name"`
 }
+
+// ConversationClaim One thing said in a captured conversation, with the evidence it was read from.
+//
+// Grounded or absent: `source_activity_id` and `source_quote` are both required, because
+// an extractor drops an ungrounded candidate rather than storing it. A human correction
+// is final against the machine — a later run may add claims but never overwrites or
+// resurrects a corrected one while its evidence fingerprint is unchanged.
+type ConversationClaim struct {
+	// Body What the claim says, in the reader's language. The verbatim evidence is `source_quote`, beside it.
+	Body string `json:"body"`
+
+	// CorrectedAt When a human typed over the machine. Set means the claim is theirs, not the extractor's.
+	CorrectedAt *time.Time         `json:"corrected_at,omitempty"`
+	DueAt       *time.Time         `json:"due_at,omitempty"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// Kind The eight kinds one extraction mechanism produces (ADR-0097 D1). They share a
+	// lifecycle — extracted → cited → correctable → dismissible — and differ only here.
+	//
+	// `commitment_ours` / `commitment_theirs` — a promise, by us or by them.
+	// `open_question` — an unanswered business question.
+	// `decision` — an agreed choice, historical memory unless corrected.
+	// `priority` / `objection` / `success_criterion` / `decision_process` — the
+	// what-matters rows.
+	//
+	// `communication_preference` is deliberately absent: observed-style inference is
+	// dropped from the product.
+	Kind ConversationClaimKind `json:"kind"`
+
+	// NeedsReview Contradictory evidence exists for this claim. The surface shows both sources and asks — newest-wins is not a resolution.
+	NeedsReview      bool               `json:"needs_review"`
+	OccurredAt       *time.Time         `json:"occurred_at,omitempty"`
+	SourceActivityId openapi_types.UUID `json:"source_activity_id"`
+
+	// SourceLabel How to name the source in a chip — the thread subject or the meeting title.
+	SourceLabel *string `json:"source_label,omitempty"`
+
+	// SourceQuote The verbatim excerpt this was read from — never a summary of it, so the reader can check the claim against what was actually written.
+	SourceQuote string `json:"source_quote"`
+
+	// Status `open` — the loop is live. `done` — kept or answered. `dismissed` — a human said it was never a claim, and it stays so the next run cannot resurrect it.
+	Status ConversationClaimStatus `json:"status"`
+
+	// TaskActivityId The task an extracted `commitment_ours` created, so completing either side completes both. Null for every other kind — a reminder about THEIR promise is a rep action, not an auto-task.
+	TaskActivityId *openapi_types.UUID `json:"task_activity_id,omitempty"`
+}
+
+// ConversationClaimStatus `open` — the loop is live. `done` — kept or answered. `dismissed` — a human said it was never a claim, and it stays so the next run cannot resurrect it.
+type ConversationClaimStatus string
+
+// ConversationClaimKind The eight kinds one extraction mechanism produces (ADR-0097 D1). They share a
+// lifecycle — extracted → cited → correctable → dismissible — and differ only here.
+//
+// `commitment_ours` / `commitment_theirs` — a promise, by us or by them.
+// `open_question` — an unanswered business question.
+// `decision` — an agreed choice, historical memory unless corrected.
+// `priority` / `objection` / `success_criterion` / `decision_process` — the
+// what-matters rows.
+//
+// `communication_preference` is deliberately absent: observed-style inference is
+// dropped from the product.
+type ConversationClaimKind string
+
+// ConversationMemoryEntry One thread or meeting, condensed to what it was about (ADR-0097 D3).
+//
+// The summary is generated lazily on first read and cached, invalidated when the thread
+// gains an activity — cost follows usage, and a cold record costs nothing. When no model
+// lane exists the deterministic floor (subject + direction + count) occupies the same
+// slot, so the card never blanks.
+type ConversationMemoryEntry struct {
+	// ActivityCount How many captured activities this entry folds, so the reader knows whether it is one message or a long exchange.
+	ActivityCount int                            `json:"activity_count"`
+	Channel       ConversationMemoryEntryChannel `json:"channel"`
+
+	// Direction Which way the LAST message in the thread went. `internal` for a meeting or note that has no direction.
+	Direction ConversationMemoryEntryDirection `json:"direction"`
+
+	// FirstActivityId What "expand to original" opens.
+	FirstActivityId *openapi_types.UUID `json:"first_activity_id,omitempty"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy *WrittenBy `json:"generated_by,omitempty"`
+
+	// Key The thread key, or the activity id for a meeting or a standalone message that has none.
+	Key          string              `json:"key"`
+	LinkedDealId *openapi_types.UUID `json:"linked_deal_id,omitempty"`
+	OccurredAt   time.Time           `json:"occurred_at"`
+
+	// Status The state a reader acts on: `replied`, `unanswered`, `awaiting_them`, or null when the entry carries no such claim. Derived from direction and what followed it.
+	Status *ConversationMemoryEntryStatus `json:"status,omitempty"`
+
+	// Summary One sentence about what the conversation was, not what it contained.
+	Summary string `json:"summary"`
+	Title   string `json:"title"`
+}
+
+// ConversationMemoryEntryChannel defines model for ConversationMemoryEntry.Channel.
+type ConversationMemoryEntryChannel string
+
+// ConversationMemoryEntryDirection Which way the LAST message in the thread went. `internal` for a meeting or note that has no direction.
+type ConversationMemoryEntryDirection string
+
+// ConversationMemoryEntryStatus The state a reader acts on: `replied`, `unanswered`, `awaiting_them`, or null when the entry carries no such claim. Derived from direction and what followed it.
+type ConversationMemoryEntryStatus string
 
 // CreateActivityRequest defines model for CreateActivityRequest.
 type CreateActivityRequest struct {
@@ -11630,6 +12189,14 @@ type DedupeDispositionRequest struct {
 
 // DedupeDispositionRequestDisposition defines model for DedupeDispositionRequest.Disposition.
 type DedupeDispositionRequestDisposition string
+
+// DismissPersonMomentRequest Which moment to hide, and the evidence it was showing when the reader hid it. Both are
+// required: the fingerprint is what lets the moment come back when the evidence moves,
+// and a dismissal without one is a permanent silence nobody asked for.
+type DismissPersonMomentRequest struct {
+	ClaimKey            string `json:"claim_key"`
+	EvidenceFingerprint string `json:"evidence_fingerprint"`
+}
 
 // EmailDraft A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
 type EmailDraft struct {
@@ -12310,6 +12877,64 @@ type MeResponsePassportScopes string
 
 // MeResponseSystemOfRecordMode defines model for MeResponse.SystemOfRecord.Mode.
 type MeResponseSystemOfRecordMode string
+
+// MeetingBrief The pre-meeting brief for one booked meeting (ADR-0097 D5), assembled fresh on every
+// read from what the CALLER can see.
+//
+// Not cached, unlike `PersonBrief`. The `generated_at` on it is therefore always the
+// instant of this read, and there is no fingerprint and no refresh affordance: a brief
+// that arrives is by construction current.
+type MeetingBrief struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// GeneratedAt The instant this read assembled the brief. Always now — nothing here is stored.
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// Sections The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other.
+	Sections []MeetingBriefSection `json:"sections"`
+}
+
+// MeetingBriefSection One of the eight fixed sections, with its cited sentences.
+type MeetingBriefSection struct {
+	// Kind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+	// than a free-text heading, so a surface can label, order and collapse them and no
+	// writer can invent a ninth.
+	//
+	// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+	// `goal` — the single next-step target; it leads because burying the ask is the
+	// canonical prep failure.
+	// `attendees` — who is in the room, with the first-timers flagged.
+	// `commitments` — what was promised, ours and theirs, each with its source and status.
+	// `deal_state` — where the deal stands: last conversation, objections, open questions.
+	// `risks` — watch-outs; absent rather than empty when there are none.
+	// `talking_points` — each tied to a specific captured statement.
+	// `company_context` — background, collapsed and last.
+	Kind MeetingBriefSectionKind `json:"kind"`
+
+	// Sentences The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// MeetingBriefSectionKind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
+// than a free-text heading, so a surface can label, order and collapse them and no
+// writer can invent a ninth.
+//
+// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
+// `goal` — the single next-step target; it leads because burying the ask is the
+// canonical prep failure.
+// `attendees` — who is in the room, with the first-timers flagged.
+// `commitments` — what was promised, ours and theirs, each with its source and status.
+// `deal_state` — where the deal stands: last conversation, objections, open questions.
+// `risks` — watch-outs; absent rather than empty when there are none.
+// `talking_points` — each tied to a specific captured statement.
+// `company_context` — background, collapsed and last.
+type MeetingBriefSectionKind string
 
 // Money Money as integer minor-units + ISO-4217 currency. Never a float.
 type Money struct {
@@ -14431,11 +15056,20 @@ type Person360 struct {
 	// AsOf The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
 	AsOf time.Time `json:"as_of"`
 
+	// Claims What was promised, asked and decided in captured conversations (ADR-0097 D1) — one store behind the commitments card and the what-matters card, which differ only by kind. Every claim carries the activity it was read from and the verbatim snippet, so a reader can check it rather than trust it.
+	Claims *[]ConversationClaim `json:"claims,omitempty"`
+
+	// Commercial The open deal this person sits on, with the money on it and who else is in the room. Absent when the caller has no deal grant (`sections_omitted`: `commercial`); present with `deal` null when they have the grant and there is no open deal — "no open deal" and "you may not see deals" are different facts.
+	Commercial *Person360Commercial `json:"commercial,omitempty"`
+
 	// Consent Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger.
 	Consent *struct {
 		State []PersonConsentState `json:"state"`
 	} `json:"consent,omitempty"`
-	DealRoles *struct {
+
+	// ConversationMemory Threads and meetings as ENTITIES, condensed — what the conversation was about, not the transport events it was made of (ADR-0097 D3). The Activity tab remains the complete raw ledger; a summary never replaces it and never leaks a withheld activity.
+	ConversationMemory *[]ConversationMemoryEntry `json:"conversation_memory,omitempty"`
+	DealRoles          *struct {
 		Data []Person360DealRole `json:"data"`
 		Page PageInfo            `json:"page"`
 	} `json:"deal_roles,omitempty"`
@@ -14450,13 +15084,16 @@ type Person360 struct {
 	// LastOutboundAt When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question.
 	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
 
-	// Moments Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below.
-	Moments *[]PersonMoment `json:"moments,omitempty"`
+	// Moment The ONE thing this contact needs today, selected server-side by the fixed ladder in `PersonMoment.rule` (ADR-0096 D2). Exactly one primary moment wins: a page that offers five reasons has told the reader to choose, which is the work the ladder exists to do. Deterministic and computed at read from captured data. Absent when the caller lacks a grant the ladder needs, named in `sections_omitted` as `moments`; the quiet success state is a moment of kind `nothing_needed`, not an absence.
+	Moment *PersonMoment `json:"moment,omitempty"`
 
 	// Network The colleagues who know this contact, warmest first — who to ask.
 	Network *struct {
 		Colleagues []PersonNetworkColleague `json:"colleagues"`
 	} `json:"network,omitempty"`
+
+	// NextMeeting The soonest booked meeting with this person, or absent. Read through the person's own activity-link predicate — the org's next-meeting read answers a different question and would name a meeting this person is not in.
+	NextMeeting *Person360NextMeeting `json:"next_meeting,omitempty"`
 
 	// NextSteps Open tasks filed against this person.
 	NextSteps *struct {
@@ -14490,6 +15127,49 @@ type Person360 struct {
 // Person360SectionsOmitted defines model for Person360.SectionsOmitted.
 type Person360SectionsOmitted string
 
+// Person360Commercial The commercial context around this person: the open deal that matters most, the money
+// on it, their recorded seat, and who else is in the room.
+//
+// The role is stored relationship data, never inferred from a job title. A model may
+// propose one from an explicit statement, but it stays a 🟡 proposed field change until
+// a human confirms it.
+type Person360Commercial struct {
+	// Committee The other stakeholders on the same deal, with their recorded roles. Capped: past a handful this is an org chart, and the question it answers is "who else do I have to convince". Empty means single-threaded, which is itself the finding.
+	Committee []Person360CommitteeMember `json:"committee"`
+
+	// Deal The most relevant open deal, or null when there is none to show.
+	Deal *Person360CommercialDeal `json:"deal,omitempty"`
+
+	// Role This person's recorded buying role on that deal — champion, economic_buyer, blocker, influencer, user by convention.
+	Role *string `json:"role,omitempty"`
+}
+
+// Person360CommercialDeal One open deal, with the figures a reader needs before a meeting.
+type Person360CommercialDeal struct {
+	// AmountMinor The deal value in the currency's MINOR units, as every money field on this API is carried. A renderer divides by the ISO 4217 scale; nothing here pre-rounds.
+	AmountMinor *int64              `json:"amount_minor,omitempty"`
+	CloseDate   *openapi_types.Date `json:"close_date,omitempty"`
+
+	// Currency ISO 4217 code for `amount_minor`. Null exactly when the amount is null.
+	Currency *string            `json:"currency,omitempty"`
+	DealId   openapi_types.UUID `json:"deal_id"`
+
+	// NextMilestone The nearest dated thing on this deal — the next step or stage gate, when one is recorded.
+	NextMilestone *string `json:"next_milestone,omitempty"`
+	Stage         *string `json:"stage,omitempty"`
+	Title         string  `json:"title"`
+}
+
+// Person360CommitteeMember One other person on the same deal, and the seat they hold.
+type Person360CommitteeMember struct {
+	FullName string             `json:"full_name"`
+	PersonId openapi_types.UUID `json:"person_id"`
+
+	// PhotoUrl Where to stream their portrait, or null — the client draws the deterministic monogram.
+	PhotoUrl *string `json:"photo_url,omitempty"`
+	Role     string  `json:"role"`
+}
+
 // Person360DealRole One stakeholder seat this person holds on a deal.
 type Person360DealRole struct {
 	DealId         openapi_types.UUID `json:"deal_id"`
@@ -14515,6 +15195,21 @@ type Person360Employment struct {
 	StartedAt *time.Time `json:"started_at,omitempty"`
 }
 
+// Person360NextMeeting The soonest booked meeting with this person. Absent means either none is booked or the
+// caller cannot read meetings — `sections_omitted` is what separates the two.
+type Person360NextMeeting struct {
+	ActivityId   openapi_types.UUID  `json:"activity_id"`
+	LinkedDealId *openapi_types.UUID `json:"linked_deal_id,omitempty"`
+
+	// Participants Who is in the room, so the reader knows whether they are single-threaded before they walk in.
+	Participants *[]struct {
+		FullName string             `json:"full_name"`
+		PersonId openapi_types.UUID `json:"person_id"`
+	} `json:"participants,omitempty"`
+	StartsAt time.Time `json:"starts_at"`
+	Subject  *string   `json:"subject,omitempty"`
+}
+
 // Person360SinceLastVisit What changed on this person since the caller last acknowledged seeing them.
 // Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
 type Person360SinceLastVisit struct {
@@ -14522,6 +15217,74 @@ type Person360SinceLastVisit struct {
 	BaselineAt    *time.Time `json:"baseline_at,omitempty"`
 	NewActivities int        `json:"new_activities"`
 }
+
+// PersonBrief A written brief over one person, assembled from what the READER can see — the company
+// brief pattern applied to a relationship (ADR-0097 D4).
+//
+// Per viewer, cached on the assembled input plus the prompt and routing versions, every
+// sentence cited, and degrading to a deterministic composition rather than failing when
+// no model lane is configured. `generated_by` says which wrote it.
+type PersonBrief struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy          `json:"generated_by"`
+	PersonId    openapi_types.UUID `json:"person_id"`
+
+	// Sentences Two to five sentences: who this person is in the current commercial context, what they have explicitly cared about, what recently changed, and the unresolved decision or risk. A sentence whose citations cannot be resolved is dropped whole rather than shown uncited.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// PersonConsentGuard Whether an outbound message to this person is allowed right now, per purpose and
+// channel, WITH the reason (ADR-0098 D6).
+//
+// Computed by the same gate the dispatcher runs at transmit time, so the preview a
+// composer shows and the check that fires at send cannot drift. The transmit-time
+// recheck stays authoritative and refuses with the newer answer when state changed
+// after the drawer opened.
+type PersonConsentGuard struct {
+	Entries  []PersonConsentGuardEntry `json:"entries"`
+	PersonId openapi_types.UUID        `json:"person_id"`
+}
+
+// PersonConsentGuardEntry defines model for PersonConsentGuardEntry.
+type PersonConsentGuardEntry struct {
+	Channel PersonConsentGuardEntryChannel `json:"channel"`
+
+	// PurposeClass Which gate this purpose answers to (ADR-0098 D1). `business_correspondence` and
+	// `transactional` are never consent-gated — their lawful basis is Art 6(1)(b)/(f), and
+	// treating a reply to someone who wrote to us as a consent violation is a frame that is
+	// legally wrong. `marketing` needs express consent with double-opt-in proof or the
+	// §7(3) existing-customer flag. `phone_outreach` is specced and dormant.
+	PurposeClass PersonConsentGuardEntryPurposeClass `json:"purpose_class"`
+	PurposeKey   string                              `json:"purpose_key"`
+	PurposeLabel *string                             `json:"purpose_label,omitempty"`
+
+	// QualifyingEvent The recorded event that flipped business correspondence to allowed, when one did.
+	QualifyingEvent *ConsentQualifyingEvent `json:"qualifying_event,omitempty"`
+
+	// Reason The answer in the reader's words — "she wrote to you on 2 May", "opt-out 12 Jul", "no consent recorded". A verdict a rep cannot explain to the person is not usable.
+	Reason string `json:"reason"`
+
+	// Verdict `allowed` proceeds. `blocked` refuses and `reason` says why. `unknown` means no decision is recorded — the offered action is to request consent, never a silent grant.
+	Verdict PersonConsentGuardEntryVerdict `json:"verdict"`
+}
+
+// PersonConsentGuardEntryChannel defines model for PersonConsentGuardEntry.Channel.
+type PersonConsentGuardEntryChannel string
+
+// PersonConsentGuardEntryPurposeClass Which gate this purpose answers to (ADR-0098 D1). `business_correspondence` and
+// `transactional` are never consent-gated — their lawful basis is Art 6(1)(b)/(f), and
+// treating a reply to someone who wrote to us as a consent violation is a frame that is
+// legally wrong. `marketing` needs express consent with double-opt-in proof or the
+// §7(3) existing-customer flag. `phone_outreach` is specced and dormant.
+type PersonConsentGuardEntryPurposeClass string
+
+// PersonConsentGuardEntryVerdict `allowed` proceeds. `blocked` refuses and `reason` says why. `unknown` means no decision is recorded — the offered action is to request consent, never a silent grant.
+type PersonConsentGuardEntryVerdict string
 
 // PersonConsentState A person's current consent for one purpose.
 type PersonConsentState struct {
@@ -14665,8 +15428,12 @@ type PersonListResponse struct {
 // rule, never asserted by a model. That is what lets every one of them carry evidence a
 // reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
 // the softer values a later inferred source would need, and nothing produces them yet.
+//
+// `rule` says which rung of the ladder fired, and doubles as the kind a client renders
+// its icon and tone from — one field, because a second one tracking it one-to-one is a
+// second thing to keep in sync and a way for the two to disagree.
 type PersonMoment struct {
-	// ClaimKey The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow.
+	// ClaimKey The stable identity of this moment as a claim — what the moment is ABOUT. Pass it with `evidence_fingerprint` to `POST /people/{id}/moment/dismiss`.
 	ClaimKey string `json:"claim_key"`
 
 	// Confidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
@@ -14675,18 +15442,37 @@ type PersonMoment struct {
 	// Evidence What the moment is derived from. Never empty — a reason with no evidence is an opinion.
 	Evidence []PersonMomentEvidence `json:"evidence"`
 
+	// EvidenceFingerprint A digest of the evidence this moment fired on. The dismissal is held against it, so a dismissed moment RE-ARMS when its evidence moves — the reader dismissed "she went quiet", a reply arrives, and the page must not stay silent about the thing that just changed. Keying a dismissal on the path alone is what gets that wrong.
+	EvidenceFingerprint string `json:"evidence_fingerprint"`
+
 	// FreshnessAt When the fact behind this moment happened, so a reader can judge its age themselves.
 	FreshnessAt *time.Time `json:"freshness_at,omitempty"`
 
 	// Headline The reason in one line, written from the evidence — never a model's paraphrase of it.
 	Headline string `json:"headline"`
 
-	// Kind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
-	Kind PersonMomentKind `json:"kind"`
+	// RecommendedAction What to do about it: a TYPED descriptor, not a label the client has to interpret.
+	//
+	// Kind, destination and prefill together mean a client renders only buttons whose path
+	// exists — the alternative is a page offering an action that 404s on click, which is how
+	// a moment becomes a lie. The state is honest for the same reason: an action the caller
+	// cannot take says so instead of failing.
+	RecommendedAction PersonMomentAction `json:"recommended_action"`
 
-	// RecommendedAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
-	RecommendedAction PersonMomentAction    `json:"recommended_action"`
-	SecondaryActions  *[]PersonMomentAction `json:"secondary_actions,omitempty"`
+	// Rule Which rung of the fixed ladder selected this moment (ADR-0096 D2), in priority order.
+	// Named in the response so the same evidence cannot render differently across clients.
+	// Ties break by consequence, then nearest deadline, then most recent evidence, then
+	// stable id.
+	//
+	// Two rungs are input-bound and stay dormant rather than being mocked into life:
+	// `job_change` fires only on a RECORDED employment change, and `public_signal` needs a
+	// connected data provider. A rule that cannot fire is absent from the page, not an empty
+	// card.
+	Rule PersonMomentRule `json:"rule"`
+
+	// RuleVersion The ladder's version. A rule change that would reselect must be visible, not silent.
+	RuleVersion      *string               `json:"rule_version,omitempty"`
+	SecondaryActions *[]PersonMomentAction `json:"secondary_actions,omitempty"`
 
 	// WhyNow What makes it timely rather than merely true. A moment that would read the same next month is not a moment.
 	WhyNow string `json:"why_now"`
@@ -14695,14 +15481,19 @@ type PersonMoment struct {
 // PersonMomentConfidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
 type PersonMomentConfidence string
 
-// PersonMomentKind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
-type PersonMomentKind string
-
-// PersonMomentAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+// PersonMomentAction What to do about it: a TYPED descriptor, not a label the client has to interpret.
+//
+// Kind, destination and prefill together mean a client renders only buttons whose path
+// exists — the alternative is a page offering an action that 404s on click, which is how
+// a moment becomes a lie. The state is honest for the same reason: an action the caller
+// cannot take says so instead of failing.
 type PersonMomentAction struct {
-	BlockedReason *string                `json:"blocked_reason,omitempty"`
-	Kind          PersonMomentActionKind `json:"kind"`
-	Label         string                 `json:"label"`
+	BlockedReason *string `json:"blocked_reason,omitempty"`
+
+	// Destination Where the action goes. Absent for an action that opens no surface of its own.
+	Destination *PersonMomentDestination `json:"destination,omitempty"`
+	Kind        PersonMomentActionKind   `json:"kind"`
+	Label       string                   `json:"label"`
 
 	// State `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
 	State PersonMomentActionState `json:"state"`
@@ -14713,6 +15504,25 @@ type PersonMomentActionKind string
 
 // PersonMomentActionState `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
 type PersonMomentActionState string
+
+// PersonMomentDestination The surface an action opens and what it opens with. A destination the server did not
+// name is a destination the client must not invent.
+type PersonMomentDestination struct {
+	EntityId   *openapi_types.UUID                `json:"entity_id,omitempty"`
+	EntityType *PersonMomentDestinationEntityType `json:"entity_type,omitempty"`
+
+	// Prefill What the surface opens with — a draft intent, a subject, a task title. Strings only: a prefill is what a human is about to edit, never a structure the client must interpret.
+	Prefill *map[string]string `json:"prefill,omitempty"`
+
+	// Surface `composer` — the outbound draft drawer. `meeting_brief` — the pre-meeting dossier. `research` — the deep-research drawer. `record` — another record page. `task` — the task sheet.
+	Surface PersonMomentDestinationSurface `json:"surface"`
+}
+
+// PersonMomentDestinationEntityType defines model for PersonMomentDestination.EntityType.
+type PersonMomentDestinationEntityType string
+
+// PersonMomentDestinationSurface `composer` — the outbound draft drawer. `meeting_brief` — the pre-meeting dossier. `research` — the deep-research drawer. `record` — another record page. `task` — the task sheet.
+type PersonMomentDestinationSurface string
 
 // PersonMomentEvidence One thing that actually happened, which the reader can open.
 type PersonMomentEvidence struct {
@@ -14728,6 +15538,17 @@ type PersonMomentEvidence struct {
 
 // PersonMomentEvidenceType defines model for PersonMomentEvidence.Type.
 type PersonMomentEvidenceType string
+
+// PersonMomentRule Which rung of the fixed ladder selected this moment (ADR-0096 D2), in priority order.
+// Named in the response so the same evidence cannot render differently across clients.
+// Ties break by consequence, then nearest deadline, then most recent evidence, then
+// stable id.
+//
+// Two rungs are input-bound and stay dormant rather than being mocked into life:
+// `job_change` fires only on a RECORDED employment change, and `public_signal` needs a
+// connected data provider. A rule that cannot fire is absent from the page, not an empty
+// card.
+type PersonMomentRule string
 
 // PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
 // a presentation detail: it is who to ask.
@@ -14862,6 +15683,51 @@ type PersonRelationshipChangeKind string
 
 // PersonRelationshipChangeToBucket The band it holds now. Band moves only.
 type PersonRelationshipChangeToBucket string
+
+// PersonResearchClaim defines model for PersonResearchClaim.
+type PersonResearchClaim struct {
+	Body string `json:"body"`
+
+	// Confidence `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+	Confidence PersonResearchClaimConfidence `json:"confidence"`
+
+	// Ordinal The claim's number in the drawer, so a conversation angle can cite "Claim 3".
+	Ordinal int                    `json:"ordinal"`
+	Sources []PersonResearchSource `json:"sources"`
+}
+
+// PersonResearchClaimConfidence `unstated` is what a provider returns when it has no basis for a confidence — distinct from low, which is a judgement.
+type PersonResearchClaimConfidence string
+
+// PersonResearchRun One staged research run. Nothing here has touched the record: these are claims a
+// human is about to accept or dismiss.
+type PersonResearchRun struct {
+	Claims      []PersonResearchClaim `json:"claims"`
+	GeneratedAt time.Time             `json:"generated_at"`
+	PersonId    openapi_types.UUID    `json:"person_id"`
+
+	// ProviderName Who answered. A claim's trustworthiness depends on who said it.
+	ProviderName *string `json:"provider_name,omitempty"`
+
+	// SourcesRead How many documents the provider consulted — a different question from how many claims it made, and a surface showing one as both would overstate the work.
+	SourcesRead *int `json:"sources_read,omitempty"`
+
+	// State `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+	State PersonResearchRunState `json:"state"`
+}
+
+// PersonResearchRunState `not_connected` — no provider is configured, and nothing was asked. `ready` — the provider answered. The two are different facts and a surface must not render an unconfigured installation as a provider that found nothing.
+type PersonResearchRunState string
+
+// PersonResearchSource defines model for PersonResearchSource.
+type PersonResearchSource struct {
+	// Label The source as a reader would name it — a bare URL says nothing about whether to trust it.
+	Label string `json:"label"`
+
+	// Quote The passage the claim was read from, verbatim — what makes "check it" a real action.
+	Quote *string `json:"quote,omitempty"`
+	Url   string  `json:"url"`
+}
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
@@ -15187,6 +16053,34 @@ type RecordConsentRequest struct {
 // RecordConsentRequestNewState defines model for RecordConsentRequest.NewState.
 type RecordConsentRequestNewState string
 
+// RecordConversationClaimRequest One claim to record, with the evidence it was read from. Both evidence fields
+// are required: a snippet with no source cannot be verified, and a source with no
+// snippet cannot be checked against.
+type RecordConversationClaimRequest struct {
+	// Body What the claim says, in the reader's language.
+	Body string `json:"body"`
+
+	// DueAt When the commitment is owed, where one is known. Absent on kinds that carry no date.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
+	// Kind The eight kinds one extraction mechanism produces (ADR-0097 D1). They share a
+	// lifecycle — extracted → cited → correctable → dismissible — and differ only here.
+	//
+	// `commitment_ours` / `commitment_theirs` — a promise, by us or by them.
+	// `open_question` — an unanswered business question.
+	// `decision` — an agreed choice, historical memory unless corrected.
+	// `priority` / `objection` / `success_criterion` / `decision_process` — the
+	// what-matters rows.
+	//
+	// `communication_preference` is deliberately absent: observed-style inference is
+	// dropped from the product.
+	Kind             ConversationClaimKind `json:"kind"`
+	SourceActivityId openapi_types.UUID    `json:"source_activity_id"`
+
+	// SourceQuote The verbatim excerpt this was read from — never a summary of it.
+	SourceQuote string `json:"source_quote"`
+}
+
 // RecordGrant A manual per-record share (A52/ADR-0039) — widens own/team/all base scope for one record.
 type RecordGrant struct {
 	// Access 'write' also satisfies 'read'.
@@ -15459,6 +16353,23 @@ type SaveLinkedInAccountRequest struct {
 
 	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
 	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
+// SavePersonResearchClaim One claim a human accepted, with the evidence that makes it checkable.
+type SavePersonResearchClaim struct {
+	// Field Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+	Field       SavePersonResearchClaimField `json:"field"`
+	SourceQuote string                       `json:"source_quote"`
+	SourceUrl   string                       `json:"source_url"`
+	Value       string                       `json:"value"`
+}
+
+// SavePersonResearchClaimField Which profile field this fills. A closed set, so a claim cannot be stored under a name no reader looks for.
+type SavePersonResearchClaimField string
+
+// SavePersonResearchRequest defines model for SavePersonResearchRequest.
+type SavePersonResearchRequest struct {
+	Claims []SavePersonResearchClaim `json:"claims"`
 }
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
@@ -18831,6 +19742,12 @@ type IssueDoubleOptInJSONBody struct {
 	PurposeId openapi_types.UUID `json:"purpose_id"`
 }
 
+// DraftPersonEmailJSONBody defines parameters for DraftPersonEmail.
+type DraftPersonEmailJSONBody struct {
+	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
+	Intent *string `json:"intent,omitempty"`
+}
+
 // MergePersonJSONBody defines parameters for MergePerson.
 type MergePersonJSONBody struct {
 	// TargetId The surviving person (B). This row (A) is archived.
@@ -20231,14 +21148,26 @@ type CreatePersonJSONRequestBody = CreatePersonRequest
 // UpdatePersonJSONRequestBody defines body for UpdatePerson for application/json ContentType.
 type UpdatePersonJSONRequestBody = UpdatePersonRequest
 
+// RecordConversationClaimJSONRequestBody defines body for RecordConversationClaim for application/json ContentType.
+type RecordConversationClaimJSONRequestBody = RecordConversationClaimRequest
+
 // RecordConsentJSONRequestBody defines body for RecordConsent for application/json ContentType.
 type RecordConsentJSONRequestBody = RecordConsentRequest
 
 // IssueDoubleOptInJSONRequestBody defines body for IssueDoubleOptIn for application/json ContentType.
 type IssueDoubleOptInJSONRequestBody IssueDoubleOptInJSONBody
 
+// DraftPersonEmailJSONRequestBody defines body for DraftPersonEmail for application/json ContentType.
+type DraftPersonEmailJSONRequestBody DraftPersonEmailJSONBody
+
 // MergePersonJSONRequestBody defines body for MergePerson for application/json ContentType.
 type MergePersonJSONRequestBody MergePersonJSONBody
+
+// DismissPersonMomentJSONRequestBody defines body for DismissPersonMoment for application/json ContentType.
+type DismissPersonMomentJSONRequestBody = DismissPersonMomentRequest
+
+// SavePersonResearchJSONRequestBody defines body for SavePersonResearch for application/json ContentType.
+type SavePersonResearchJSONRequestBody = SavePersonResearchRequest
 
 // CreatePipelineJSONRequestBody defines body for CreatePipeline for application/json ContentType.
 type CreatePipelineJSONRequestBody = CreatePipelineRequest
@@ -26167,6 +27096,9 @@ type ServerInterface interface {
 	// Draft a reply/follow-up email for context (the `draft_email` MCP verb).
 	// (POST /activities/{id}/draft-email)
 	DraftEmail(w http.ResponseWriter, r *http.Request, id Id)
+	// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+	// (GET /activities/{id}/meeting-brief)
+	GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id)
 	// Re-associate a captured activity to a chosen deal/entity (idempotent, source-preserving).
 	// (POST /activities/{id}/relink)
 	RelinkActivity(w http.ResponseWriter, r *http.Request, id Id, params RelinkActivityParams)
@@ -26809,6 +27741,15 @@ type ServerInterface interface {
 	// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
 	// (GET /people/{id}/360)
 	GetPerson360(w http.ResponseWriter, r *http.Request, id Id)
+	// The standing relationship brief — who this person is commercially, what they care about, what changed.
+	// (GET /people/{id}/brief)
+	GetPersonBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// Regenerate this person's brief, ignoring the cached one.
+	// (POST /people/{id}/brief)
+	RegeneratePersonBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// Record something promised, asked or decided in a captured conversation.
+	// (POST /people/{id}/claims)
+	RecordConversationClaim(w http.ResponseWriter, r *http.Request, id Id)
 	// Read a person's per-purpose consent state plus the append-only proof log.
 	// (GET /people/{id}/consent)
 	GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id)
@@ -26818,18 +27759,33 @@ type ServerInterface interface {
 	// Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
 	// (POST /people/{id}/consent/double-opt-in)
 	IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id)
+	// May we write to this person right now — per purpose and channel, with the reason.
+	// (GET /people/{id}/consent/guard)
+	GetPersonConsentGuard(w http.ResponseWriter, r *http.Request, id Id)
+	// Draft an email to this person, grounded in their record.
+	// (POST /people/{id}/draft-email)
+	DraftPersonEmail(w http.ResponseWriter, r *http.Request, id Id)
 	// Who around this contact could open a door, and through whom.
 	// (GET /people/{id}/graph)
 	GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
+	// Hide this moment for me until its evidence changes.
+	// (POST /people/{id}/moment/dismiss)
+	DismissPersonMoment(w http.ResponseWriter, r *http.Request, id Id)
 	// Who on our team knows this contact, and how well.
 	// (GET /people/{id}/network)
 	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
 	// (GET /people/{id}/profile-fields)
 	GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id)
+	// Ask the connected provider what is publicly known about this person.
+	// (POST /people/{id}/research)
+	RunPersonResearch(w http.ResponseWriter, r *http.Request, id Id)
+	// Save the research claims a human accepted, and only those.
+	// (POST /people/{id}/research/save)
+	SavePersonResearch(w http.ResponseWriter, r *http.Request, id Id)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -27172,6 +28128,12 @@ func (_ Unimplemented) UpdateActivity(w http.ResponseWriter, r *http.Request, id
 // Draft a reply/follow-up email for context (the `draft_email` MCP verb).
 // (POST /activities/{id}/draft-email)
 func (_ Unimplemented) DraftEmail(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
+// (GET /activities/{id}/meeting-brief)
+func (_ Unimplemented) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -28459,6 +29421,24 @@ func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id I
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The standing relationship brief — who this person is commercially, what they care about, what changed.
+// (GET /people/{id}/brief)
+func (_ Unimplemented) GetPersonBrief(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Regenerate this person's brief, ignoring the cached one.
+// (POST /people/{id}/brief)
+func (_ Unimplemented) RegeneratePersonBrief(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record something promised, asked or decided in a captured conversation.
+// (POST /people/{id}/claims)
+func (_ Unimplemented) RecordConversationClaim(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Read a person's per-purpose consent state plus the append-only proof log.
 // (GET /people/{id}/consent)
 func (_ Unimplemented) GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id) {
@@ -28477,6 +29457,18 @@ func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// May we write to this person right now — per purpose and channel, with the reason.
+// (GET /people/{id}/consent/guard)
+func (_ Unimplemented) GetPersonConsentGuard(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Draft an email to this person, grounded in their record.
+// (POST /people/{id}/draft-email)
+func (_ Unimplemented) DraftPersonEmail(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Who around this contact could open a door, and through whom.
 // (GET /people/{id}/graph)
 func (_ Unimplemented) GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id) {
@@ -28489,6 +29481,12 @@ func (_ Unimplemented) MergePerson(w http.ResponseWriter, r *http.Request, id Id
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Hide this moment for me until its evidence changes.
+// (POST /people/{id}/moment/dismiss)
+func (_ Unimplemented) DismissPersonMoment(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Who on our team knows this contact, and how well.
 // (GET /people/{id}/network)
 func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
@@ -28498,6 +29496,18 @@ func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, 
 // The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
 // (GET /people/{id}/profile-fields)
 func (_ Unimplemented) GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask the connected provider what is publicly known about this person.
+// (POST /people/{id}/research)
+func (_ Unimplemented) RunPersonResearch(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save the research claims a human accepted, and only those.
+// (POST /people/{id}/research/save)
+func (_ Unimplemented) SavePersonResearch(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29493,6 +30503,38 @@ func (siw *ServerInterfaceWrapper) DraftEmail(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DraftEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMeetingBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetMeetingBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMeetingBrief(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -38810,6 +39852,102 @@ func (siw *ServerInterfaceWrapper) GetPerson360(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegeneratePersonBrief operation middleware
+func (siw *ServerInterfaceWrapper) RegeneratePersonBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegeneratePersonBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecordConversationClaim operation middleware
+func (siw *ServerInterfaceWrapper) RecordConversationClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecordConversationClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonConsent operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonConsent(w http.ResponseWriter, r *http.Request) {
 
@@ -38932,6 +40070,72 @@ func (siw *ServerInterfaceWrapper) IssueDoubleOptIn(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonConsentGuard operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonConsentGuard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonConsentGuard(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DraftPersonEmail operation middleware
+func (siw *ServerInterfaceWrapper) DraftPersonEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DraftPersonEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonGraph operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonGraph(w http.ResponseWriter, r *http.Request) {
 
@@ -39041,6 +40245,38 @@ func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// DismissPersonMoment operation middleware
+func (siw *ServerInterfaceWrapper) DismissPersonMoment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DismissPersonMoment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonNetwork operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *http.Request) {
 
@@ -39098,6 +40334,70 @@ func (siw *ServerInterfaceWrapper) GetPersonProfileFields(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPersonProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunPersonResearch operation middleware
+func (siw *ServerInterfaceWrapper) RunPersonResearch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunPersonResearch(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SavePersonResearch operation middleware
+func (siw *ServerInterfaceWrapper) SavePersonResearch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SavePersonResearch(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -44537,6 +45837,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/draft-email", wrapper.DraftEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/meeting-brief", wrapper.GetMeetingBrief)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/relink", wrapper.RelinkActivity)
 	})
 	r.Group(func(r chi.Router) {
@@ -45179,6 +46482,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/people/{id}/360", wrapper.GetPerson360)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/brief", wrapper.GetPersonBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/brief", wrapper.RegeneratePersonBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/claims", wrapper.RecordConversationClaim)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/consent", wrapper.GetPersonConsent)
 	})
 	r.Group(func(r chi.Router) {
@@ -45188,16 +46500,31 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/people/{id}/consent/double-opt-in", wrapper.IssueDoubleOptIn)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/consent/guard", wrapper.GetPersonConsentGuard)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/draft-email", wrapper.DraftPersonEmail)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/graph", wrapper.GetPersonGraph)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/moment/dismiss", wrapper.DismissPersonMoment)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/profile-fields", wrapper.GetPersonProfileFields)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/research", wrapper.RunPersonResearch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/research/save", wrapper.SavePersonResearch)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)

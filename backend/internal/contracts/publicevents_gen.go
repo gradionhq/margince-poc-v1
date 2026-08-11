@@ -21,6 +21,8 @@ const (
 	ColdstartReadBackProposed SubscribableEventType = "coldstart.read_back_proposed"
 	ColdstartRejected         SubscribableEventType = "coldstart.rejected"
 	ConsentChanged            SubscribableEventType = "consent.changed"
+	ConversationClaimCaptured SubscribableEventType = "conversation_claim.captured"
+	ConversationClaimChanged  SubscribableEventType = "conversation_claim.changed"
 	DealArchived              SubscribableEventType = "deal.archived"
 	DealCreated               SubscribableEventType = "deal.created"
 	DealOwnerChanged          SubscribableEventType = "deal.owner_changed"
@@ -106,6 +108,10 @@ func (e SubscribableEventType) Valid() bool {
 	case ColdstartRejected:
 		return true
 	case ConsentChanged:
+		return true
+	case ConversationClaimCaptured:
+		return true
+	case ConversationClaimChanged:
 		return true
 	case DealArchived:
 		return true
@@ -376,6 +382,22 @@ type PublicEventConsentChanged struct {
 
 	// PurposeId The consent purpose this state change applies to.
 	PurposeId openapi_types.UUID `json:"purpose_id"`
+}
+
+// PublicEventConversationClaimCaptured Payload for conversation_claim.captured — something promised, asked or decided in a captured conversation was written to the record (ADR-0097 D1). The entity is the PERSON the claim is about: a subscriber reacting to what a contact said wants the contact, and the claim id rides the payload for the reader that needs the row itself.
+type PublicEventConversationClaimCaptured struct {
+	ClaimId openapi_types.UUID `json:"claim_id"`
+
+	// Kind Which of the eight claim kinds this is — the ConversationClaimKind vocabulary of the CRM contract. Carried as a plain string rather than a second copy of that enum: the two documents generate into one Go package, and a duplicated enum there is two spellings of one vocabulary that can drift apart.
+	Kind string `json:"kind"`
+}
+
+// PublicEventConversationClaimChanged Payload for conversation_claim.changed — a human typed over the machine, or dismissed a claim outright. Published because a correction is SHARED truth, unlike a moment dismissal: a downstream reader holding the old claim needs to know it no longer stands.
+type PublicEventConversationClaimChanged struct {
+	ClaimId openapi_types.UUID `json:"claim_id"`
+
+	// Status The claim's status after the correction — open, done or dismissed. A plain string for the same reason as `kind` above.
+	Status string `json:"status"`
 }
 
 // PublicEventDealArchived Payload for deal.archived — a deal was archived. Carries no data.
@@ -1226,6 +1248,14 @@ func (PublicEventConsentChanged) EventType() string { return "consent.changed" }
 
 func (PublicEventConsentChanged) EntityType() string { return "dynamic" }
 
+func (PublicEventConversationClaimCaptured) EventType() string { return "conversation_claim.captured" }
+
+func (PublicEventConversationClaimCaptured) EntityType() string { return "person" }
+
+func (PublicEventConversationClaimChanged) EventType() string { return "conversation_claim.changed" }
+
+func (PublicEventConversationClaimChanged) EntityType() string { return "person" }
+
 func (PublicEventDealArchived) EventType() string { return "deal.archived" }
 
 func (PublicEventDealArchived) EntityType() string { return "deal" }
@@ -1486,6 +1516,8 @@ var PublicEventVersions = map[string]int{
 	"coldstart.read_back_proposed": 1,
 	"coldstart.rejected":           1,
 	"consent.changed":              1,
+	"conversation_claim.captured":  1,
+	"conversation_claim.changed":   1,
 	"deal.archived":                1,
 	"deal.created":                 1,
 	"deal.owner_changed":           1,

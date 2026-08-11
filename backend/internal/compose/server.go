@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -102,6 +103,10 @@ type Server struct {
 	extensionsHandlers
 	org360Handlers
 	person360Handlers
+	personBriefHandlers
+	meetingBriefHandlers
+	personResearchHandlers
+	personDraftHandlers
 	orgBriefHandlers
 	orgDossierHandlers
 	accountDraftHandlers
@@ -274,6 +279,10 @@ type Server struct {
 	// peopleStore is shared by the 360 and the account brief: the brief reads
 	// the company's curated profile through it, under the caller's own gates.
 	peopleStore *people.Store
+	// person360Svc is the person page's composite read, held for the same
+	// reason org360Svc is: the relationship brief is assembled from THIS gated
+	// read rather than a second one that could drift from what the page shows.
+	person360Svc *person360.Service
 
 	// orgDossierSvc and orgGrowthFitSvc are the company view's other two
 	// generated surfaces. They are held for WithGrowthFit's sake: rebinding one

@@ -77,7 +77,11 @@ var tableOwners = map[string]string{
 	// The channel identity is a resolution key on the person, not connection
 	// state: it answers "which Person is this Telegram user", so it lives with
 	// the one dedupe implementation that resolves them.
-	"person_channel_identity":        "internal/modules/people",
+	"person_channel_identity": "internal/modules/people",
+	// What was promised, asked and decided in captured conversations
+	// (ADR-0097 D1). It lives with people because a claim is an attribute of
+	// the PERSON it is about, written through the same store that owns them.
+	"conversation_claim":             "internal/modules/people",
 	"organization":                   "internal/modules/people",
 	"organization_domain":            "internal/modules/people",
 	"organization_relationship_type": "internal/modules/people",
@@ -136,13 +140,18 @@ var tableOwners = map[string]string{
 	"workspace_signing_key": "internal/modules/approvals",
 	// consent (the DSR case queue and the retention-policy catalog are
 	// consent's; the engines that EXECUTE them live in privacy)
-	"consent_purpose":      "internal/modules/consent",
-	"person_consent":       "internal/modules/consent",
-	"consent_event":        "internal/modules/consent",
-	"consent_doi_token":    "internal/modules/consent",
-	"data_subject_request": "internal/modules/consent",
-	"retention_policy":     "internal/modules/consent",
-	"preference_token":     "internal/modules/consent",
+	"consent_purpose":   "internal/modules/consent",
+	"person_consent":    "internal/modules/consent",
+	"consent_event":     "internal/modules/consent",
+	"consent_doi_token": "internal/modules/consent",
+	// What made business correspondence lawful, and the §7(3) flag: both are
+	// the gate's own evidence (ADR-0098 D2/D4), written where the gate that
+	// relies on them lives.
+	"consent_qualifying_event":       "internal/modules/consent",
+	"consent_existing_customer_flag": "internal/modules/consent",
+	"data_subject_request":           "internal/modules/consent",
+	"retention_policy":               "internal/modules/consent",
+	"preference_token":               "internal/modules/consent",
 	// capture
 	"raw_capture":                  "internal/modules/capture",
 	"capture_connection":           "internal/modules/capture",
@@ -271,6 +280,14 @@ var tableOwners = map[string]string{
 	"org_brief":      "internal/compose/orgbrief",
 	"org_dossier":    "internal/compose/orgdossier",
 	"org_growth_fit": "internal/compose/orgdossier",
+	// The relationship brief's per-user cache — the person-side sibling of
+	// org_brief, and the same ruling for the same reasons.
+	"person_brief": "internal/compose/personbrief",
+	// The reader's own "not this, not now" on the page's one moment, held
+	// against the evidence it fired on so it re-arms when that evidence moves
+	// (ADR-0096 D3). View state: no audit row, no outbox event, no other
+	// viewer's page.
+	"person_moment_dismissal": "internal/compose/person360",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through

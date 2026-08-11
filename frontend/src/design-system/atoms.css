@@ -223,6 +223,47 @@
   box-shadow: var(--shadow-pop);
   padding: var(--space-5);
 }
+/* The WIDE drawer: research and the composer.
+ *
+ * Both are surfaces a rep works IN rather than glances at — a numbered claim
+ * list with its quotes, or a message being written — and at 460px each of
+ * those wraps into a column too narrow to read. The upper bound rises to 30% of
+ * the viewport so the drawer grows with the screen it sits on, and stops at
+ * 560px because past that it stops being a margin and becomes the page.
+ *
+ * Header and footer are STICKY: the close control and the commit button are
+ * the two things a reader must always be able to reach, and a long claim list
+ * would otherwise scroll both of them away. */
+.modal-drawer-wide {
+  width: clamp(360px, 30vw, 560px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.modal-drawer-wide > .drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  background: var(--bgElevated);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.modal-drawer-wide > .drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+.modal-drawer-wide > .drawer-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bgElevated);
+  border-top: 1px solid var(--borderSubtle);
+}
 /* On a phone a dialog is a full-screen sheet (plan §10.3). The 40px inset that
  * frames it on a desktop wastes the only two dimensions a phone is short of,
  * and the evidence drawer and the composer are both content a rep reads and

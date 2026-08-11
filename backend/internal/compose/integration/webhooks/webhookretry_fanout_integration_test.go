@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package webhooks
 
 // The outbound-webhook retry sweep is one job row per live tenant. A workspace
 // whose due-retry scan fails must say so: a sweep that reported success is
@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -149,8 +150,8 @@ func parkDueDeliveryIn(t *testing.T, we *webhookEnv, owner *pgx.Conn, ws ids.UUI
 // pass while doing so.
 func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	we := setupWebhooks(t)
-	owner := OwnerConn(t)
-	healthy := SeedExtraWorkspace(t, owner, "healthy", false)
+	owner := integration.OwnerConn(t)
+	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
 
 	rcv := newReceiver(t, http.StatusInternalServerError) // endpoint is down
 	now := time.Now().UTC()
@@ -202,9 +203,9 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 // on the wire, and the tenant whose scan failed is the only row that fails.
 func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	we := setupWebhooks(t)
-	owner := OwnerConn(t)
-	healthy := SeedExtraWorkspace(t, owner, "healthy", false)
-	archived := SeedExtraWorkspace(t, owner, "archived", true)
+	owner := integration.OwnerConn(t)
+	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
+	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
 
 	rcv := newReceiver(t, http.StatusInternalServerError)
 	now := time.Now().UTC()

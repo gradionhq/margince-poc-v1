@@ -41,14 +41,14 @@ func TestOrganizationAskAnswersFromTheModelAndReportsTheWriter(t *testing.T) {
 	lane := &countingLane{reply: `{"sentences":[{"text":"One open deal, in Discovery.","evidence":[{"entity_type":"deal","entity_id":"` + deal.String() + `"}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
-	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.WhatsOpen)
+	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.OrganizationQuestionWhatsOpen)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
 	if lane.calls != 1 {
 		t.Errorf("model calls = %d, want 1", lane.calls)
 	}
-	if answer.Question != crmcontracts.WhatsOpen {
+	if answer.Question != crmcontracts.OrganizationQuestionWhatsOpen {
 		t.Errorf("question = %q, want the one that was asked", answer.Question)
 	}
 	if answer.GeneratedBy != crmcontracts.Model {
@@ -78,7 +78,7 @@ func TestOrganizationAskFallsBackWhenTheReplyCitesNothingReal(t *testing.T) {
 	lane := &countingLane{reply: `{"sentences":[{"text":"A deal is closing.","evidence":[{"entity_type":"deal","entity_id":"` + ids.NewV7().String() + `"}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
-	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.MeetingPrep)
+	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.OrganizationQuestionMeetingPrep)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestOrganizationAskServesTheFloorWithoutALane(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	svc := briefService(e, nil, "")
 
-	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.MeetingPrep)
+	answer, err := svc.Ask(e.As(e.Rep1, nil, briefReaderPerms), org, crmcontracts.OrganizationQuestionMeetingPrep)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestOrganizationAskHidesAnAccountOutOfRowScope(t *testing.T) {
 
 	teamScoped := briefReaderPerms
 	teamScoped.RowScope = principal.RowScopeTeam
-	_, err := svc.Ask(e.As(e.Rep1, []ids.UUID{e.Team1}, teamScoped), org, crmcontracts.WhatsOpen)
+	_, err := svc.Ask(e.As(e.Rep1, []ids.UUID{e.Team1}, teamScoped), org, crmcontracts.OrganizationQuestionWhatsOpen)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("ask on an out-of-scope account → %v, want ErrNotFound", err)
 	}
@@ -143,7 +143,7 @@ func TestOrganizationAskRefusesAnAgent(t *testing.T) {
 	lane := &countingLane{reply: `{"sentences":[]}`}
 	svc := briefService(e, lane, "routing-1")
 
-	_, err := svc.Ask(AgentWithOrgRead(e), org, crmcontracts.WhatsOpen)
+	_, err := svc.Ask(AgentWithOrgRead(e), org, crmcontracts.OrganizationQuestionWhatsOpen)
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent question → %v, want ErrPermissionDenied", err)
 	}

@@ -12,9 +12,8 @@
 // another scheduling slot. Its suites ride integration.SearchEnv and
 // integration/apptest.AppEnv.
 //
-// overlay_acceptance_seam_test.go deliberately stayed behind. It carries no
-// integration build tag, so it belongs to the unit lane rather than this one, and
-// it owns backendModuleRoot, which a webhooks suite there also reads.
+// overlay_acceptance_seam_test.go deliberately stayed behind: it carries no
+// integration build tag, so it belongs to the unit lane rather than this one.
 //
 // The production overlay module is imported as overlaymod, because inside a
 // package named overlay a bare overlay.X reads as a self-reference.

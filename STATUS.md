@@ -18,6 +18,8 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
+- [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
@@ -49,6 +51,54 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — the person record page V2, and what it still owes (2026-08-11)
+
+The page ships (ADR-0096/0097/0098, concept `person-record-page-v2`): header,
+six-slot strip, seven URL-addressable tabs, the server-selected Today moment,
+the 2×2 grid, conversation memory, the six-card rail, and three wide drawers —
+composer, research, meeting brief. Both overview states render from real data
+and differ because the DATA differs. `scripts/seed-person-page.sh` seeds them
+through the production writers.
+
+What it owes, in the order it matters:
+
+**The extraction task has no writer running (#849).** `conversation_claim` is
+written today only by the demo seed and by research-save. The commitments and
+what-matters cards are therefore as good as the seed, and on a real mailbox
+they render their honest empty state. The three FKs on that table are
+classified `PENDING WRITER` in `migrations/schema_fitness_integration_test.go`
+rather than claimed as gated — replacing those entries is part of landing the
+task, and a stale entry fails the gate, so it cannot be forgotten.
+
+**Qualifying events are derived, not written (#850).** Only the inbound-message
+arm exists, computed at send time from the timeline. `inquiry`, `in_person` and
+`active_deal` have no writer, and an employer change does not reset the §7(3)
+flag. The behaviour under-allows rather than over-allows, so it is safe and
+incomplete.
+
+**No model lane is wired to any of it.** The person brief, the person draft and
+the meeting brief all render their deterministic floor and say so in
+`generated_by`. `WithPersonDraft` exists for the api role; the other two need
+the same treatment.
+
+**No research provider is registered**, which is the supported configuration
+(ADR-0096 D4): the drawer answers "no data provider yet connected" and writes
+nothing. Connecting one is a provider implementation, not a surface change.
+
+**The portrait is a monogram.** ADR-0096 D5 makes human upload the only writer,
+and no upload surface exists yet.
+
+**Playwright has no person-record spec.** The page was verified by hand at
+1536×1024 and by clicking every button; the visual baselines the plan called
+for are not written.
+
+**The sender declares which consent class applies (#867).** ADR-0098 makes
+`business_correspondence` and `transactional` non-consent classes, and the
+purpose key is caller-supplied in the send body with nothing binding the
+declared class to the message's actual nature. Before the ADR that was harmless
+— every class still needed a grant. It now needs a spec call, not a unilateral
+code change; the options are in the issue.
 
 ## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
 
@@ -420,17 +470,62 @@ their refusal probe checks for, under production RLS).
 
 ## Open — the integration lane, what is left
 
-The lane is ~2060 tests over 30 packages, ~192s wall. It was ~300s when this was
-first profiled on 2026-08-06. #524, #539 and #482 are closed; the narrative for
-each is in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md), and the entry for #539 is
-worth reading before optimizing further because it is mostly a record of things
-that did not work.
+The lane is ~2126 tests over 32 packages, **207s wall** — measured 2026-08-11,
+back to back with the 222s it was that morning. It was ~300s when first profiled
+on 2026-08-06. #524, #539 and #482 are closed; the narrative for each is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md), and the entry for #539 is worth reading
+before optimizing further because it is mostly a record of things that did not
+work.
 
-**Do not expect much more from splitting packages.** It was the obvious lever and
-it is spent: the lane's wall clock is no longer bound by its longest package, so
-the last split bought ~9% and the next would buy less. What is left sits in the
-~35s between the longest package and the lane's wall time, and in the suites
-below.
+**Stop guessing where the time goes — the runner says.** Every full run now
+prints its own wall-clock breakdown (#854), so a claim about this lane is
+checkable rather than argued. The current one:
+
+```
+207s total
+  15s   before any package could start (template, constraint scan, enumeration)
+   0s   then ./internal/compose/integration waited for a slot
+ 191s   it occupied a slot, of which 183.6s was its tests
+ 7.4s   provisioning that slot (clone, compile, process start)
+```
+
+**Splitting packages is the only lever left, and it is not spent** — an earlier
+edition of this section said the opposite, before the numbers above existed.
+`compose/integration` is **191s of the 207s wall, 92% of it**, and seven cores
+idle while it finishes. The balanced floor is ~80s (sum of packages ÷ 8 slots),
+so essentially the whole gap between 80s and 207s is that one package.
+
+What IS spent is scheduling. #861 dispatches longest-first, which took the long
+pole's slot-wait from 12–16s to **0s** — it now starts at t=0, and no ordering
+change can do better than that. The remaining residue is ~22s, and only the 15s
+of pre-fan-out is plausibly reducible.
+
+The cost of a slice is fixture entanglement, not the move itself. #859 took the
+channel suites out (14.8s) and had to leave four neighbours behind, each sharing
+one preflight fixture with suites that were not moving; #866 took the webhook
+suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match).
+Two or three shared helpers per slice have to be promoted to importable homes
+first, and each suite package's `doc.go` records where its boundary fell and why.
+Reaching the ~80s floor means repeating that several times — a programme, not a
+follow-up. Each slice also subjects every MOVED line to the full strict linter
+(`new-from-merge-base`), which is a real cost per PR: #866's promotion alone
+surfaced an unchecked type assertion and a naming violation the un-gated original
+had carried.
+
+**Where the shared fixtures live, since a slice stalls on this.** A fixture keyed
+on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary
+files may not import `apptest` (it imports `compose`, whose white-box tests import
+`integration`, so the cycle closes). Anything else two suite packages need goes in
+`integration/suitefixtures.go`. Nothing in a `_test.go` file is reachable from a
+subpackage at all, which is what strands most helpers. And a helper whose other
+caller is an UNTAGGED file cannot be shared in either place: that file belongs to
+the unit lane, so the two callers are on opposite sides of a build tag.
+
+The other lever is not running the lane at all. PR #816 narrowed the change
+classifier so a docs edit under `infra/` and a change to a workflow other than
+`ci.yml` no longer trigger it; the narrative, including the whole-tree gate that
+narrowing nearly disarmed, is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
 
 - **#779** — the periodic-dispatch suites wait ~28s in 12 tests on River's real
   clock, the largest single concentration of real waiting. River can stub the
@@ -443,9 +538,14 @@ below.
   Postgres per case (~44s), which also hides that the property under test is pure.
 - **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
   forbids the mirror case (a unit test opening real infra) but cannot see this one.
-- **#639** — two packages hand-roll the process pool `testdb.Pool` now owns.
+- **#639** — two packages hand-roll the process pool `testdb.Pool` now owns. One
+  of them moved rather than shrank: the pre-boot pool the vault suites need is
+  now `integration/apptest.EarlyPool`, which still calls `database.NewPool`
+  itself. It is one place instead of one per caller, which is where #639 can
+  reach it.
 - **#770** — the telegram-ingress suite leaves a connection checked out past its
-  own cleanup under lane load.
+  own cleanup under lane load. It lives in `integration/channels` since #859, not
+  the parent package.
 
 Three measurement notes, each of which cost a wrong number before it was written
 down. **Restart Postgres between runs** — a fresh container is worth ~25% on its

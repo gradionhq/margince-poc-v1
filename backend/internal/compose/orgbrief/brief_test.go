@@ -533,7 +533,7 @@ func TestTheBriefReadsTheCompanyProfileAndAskDoesNot(t *testing.T) {
 		t.Errorf("the brief request lost the account itself:\n%s", brief)
 	}
 
-	ask := AskRequest(crmcontracts.WhatsOpen, in).Messages[0].Content
+	ask := AskRequest(crmcontracts.OrganizationQuestionWhatsOpen, in).Messages[0].Content
 	if strings.Contains(ask, "Managed hosting for shops") {
 		t.Errorf("Ask carries the approved company prose it should quote instead:\n%s", ask)
 	}
