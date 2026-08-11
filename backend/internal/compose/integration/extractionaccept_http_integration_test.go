@@ -183,12 +183,12 @@ func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
 	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{}}
 	e := apptest.SetupAppWithOptions(t, compose.WithExtractor(fx), compose.WithBlobstore(blobstore.NewMemory()))
 	e.BootstrapWorkspace(t)
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 
 	var deal apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
-		"name": "HTTP Accept Deal", "pipeline_id": stages.pipelineID,
-		"stage_id": stages.open, "source": "ui",
+		"name": "HTTP Accept Deal", "pipeline_id": stages.PipelineID,
+		"stage_id": stages.Open, "source": "ui",
 	}, nil, &deal); status != http.StatusCreated {
 		t.Fatalf("create deal = %d %v", status, deal)
 	}
@@ -236,12 +236,12 @@ func TestAcceptAttachmentExtractionScanGateHTTP(t *testing.T) {
 	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{}}
 	e := apptest.SetupAppWithOptions(t, compose.WithExtractor(fx), compose.WithBlobstore(blobstore.NewMemory()))
 	e.BootstrapWorkspace(t)
-	stages := discoverSeededPipeline(t, e)
+	stages := apptest.DiscoverSeededPipeline(t, e)
 
 	var deal apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
-		"name": "Scan Gate Accept Deal", "pipeline_id": stages.pipelineID,
-		"stage_id": stages.open, "source": "ui",
+		"name": "Scan Gate Accept Deal", "pipeline_id": stages.PipelineID,
+		"stage_id": stages.Open, "source": "ui",
 	}, nil, &deal); status != http.StatusCreated {
 		t.Fatalf("create deal = %d %v", status, deal)
 	}

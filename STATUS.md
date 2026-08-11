@@ -500,14 +500,26 @@ pole's slot-wait from 12–16s to **0s** — it now starts at t=0, and no orderi
 change can do better than that. The remaining residue is ~22s, and only the 15s
 of pre-fan-out is plausibly reducible.
 
-The cost of the next slice is fixture entanglement, not the move itself. #859
-took the channel suites out (14.8s) and had to leave four neighbours behind, each
-sharing one preflight fixture with suites that were not moving; two shared helpers
-had to be promoted to importable homes first, and `integration/channels/doc.go`
-records where the boundary fell and why. Reaching the ~80s floor means repeating
-that several times — a programme, not a follow-up. Each slice also subjects every
-MOVED line to the full strict linter (`new-from-merge-base`), which is a real cost
-per PR.
+The cost of a slice is fixture entanglement, not the move itself. #859 took the
+channel suites out (14.8s) and had to leave four neighbours behind, each sharing
+one preflight fixture with suites that were not moving; #866 took the webhook
+suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match).
+Two or three shared helpers per slice have to be promoted to importable homes
+first, and each suite package's `doc.go` records where its boundary fell and why.
+Reaching the ~80s floor means repeating that several times — a programme, not a
+follow-up. Each slice also subjects every MOVED line to the full strict linter
+(`new-from-merge-base`), which is a real cost per PR: #866's promotion alone
+surfaced an unchecked type assertion and a naming violation the un-gated original
+had carried.
+
+**Where the shared fixtures live, since a slice stalls on this.** A fixture keyed
+on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary
+files may not import `apptest` (it imports `compose`, whose white-box tests import
+`integration`, so the cycle closes). Anything else two suite packages need goes in
+`integration/suitefixtures.go`. Nothing in a `_test.go` file is reachable from a
+subpackage at all, which is what strands most helpers. And a helper whose other
+caller is an UNTAGGED file cannot be shared in either place: that file belongs to
+the unit lane, so the two callers are on opposite sides of a build tag.
 
 The other lever is not running the lane at all. PR #816 narrowed the change
 classifier so a docs edit under `infra/` and a change to a workflow other than
