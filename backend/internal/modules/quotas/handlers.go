@@ -12,10 +12,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -28,8 +28,8 @@ type Handlers struct {
 }
 
 // NewHandlers wires the transport over the RLS-bound app pool.
-func NewHandlers(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) Handlers {
-	return Handlers{store: NewStore(pool, baseCurrency)}
+func NewHandlers(db *database.DB, baseCurrency BaseCurrencyFunc) Handlers {
+	return Handlers{store: NewStore(db, baseCurrency)}
 }
 
 // pageInfo renders the store's keyset page onto the contract's PageInfo
