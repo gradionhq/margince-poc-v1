@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -42,7 +42,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
+check-backend: check-craft-doc check-image-pins ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -326,6 +326,14 @@ test-secret-scan:
 ## because the workflows do; also a CI step, so a pin can't regress.
 check-image-pins:
 	@./scripts/check-image-pins.sh
+
+## ci-doc-parity — every path a workflow filters on is named in the document that
+## documents it. The lists live in two places and nothing held them together;
+## both directions of drift have already happened. Catches the direction with
+## teeth (in the filter, absent from the prose) and says in-source that it does
+## not catch the reverse — see the script for why that trade is deliberate.
+ci-doc-parity:
+	@./scripts/check-ci-doc-parity.sh
 
 ## contract-breaking-check — oasdiff severity gate on backend/api/crm.yaml vs
 ## origin/main: a breaking change (removed op, narrowed type…) fails; additive
