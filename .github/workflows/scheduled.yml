@@ -88,7 +88,13 @@ jobs:
             echo "status=SKIPPED" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          body="$(curl -fsS -u "$SONAR_TOKEN:" \
+          # Bearer header rather than `-u "$TOKEN:"`. The basic-auth spelling is
+          # what Sonar's own docs show, but it trips gitleaks' curl-auth-user rule
+          # — correctly, in the sense that the rule cannot tell a variable from a
+          # literal. Sonar accepts either, so the header avoids arguing for an
+          # allowlist entry, and an allowlist that grows is how a secret scan
+          # starts reporting "no leaks found" over a tree that has one.
+          body="$(curl -fsS -H "Authorization: Bearer $SONAR_TOKEN" \
             "https://sonarcloud.io/api/qualitygates/project_status?projectKey=$PROJECT_KEY&branch=main")"
           status="$(printf '%s' "$body" | jq -r '.projectStatus.status')"
           echo "quality gate on main: $status"
