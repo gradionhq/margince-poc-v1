@@ -5,7 +5,6 @@ package activities
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -14,7 +13,10 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -137,35 +139,94 @@ func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent
 	if err != nil {
 		return DraftResult{}, err
 	}
-	topic := ""
-	if activity.Subject != nil {
-		topic = *activity.Subject
+	answering := DraftContext{
+		Band:     convstate.BandFresh,
+		Threaded: IsMailThread(activity.Kind, activity.Direction),
 	}
-	subject, body := DeterministicEmailDraft(topic, intent)
+	if activity.Subject != nil {
+		answering.Topic = *activity.Subject
+	}
+	if activity.Body != nil {
+		answering.Body = *activity.Body
+	}
+	subject, body := DeterministicEmailDraft(answering, intent)
 	return DraftResult{Subject: subject, Body: body}, nil
 }
 
 // DeterministicEmailDraft is the shared no-model floor for every drafting
 // transport. Compose calls it when the model lane is absent or unavailable,
 // so HTTP, MCP, and automation cannot drift into different fallback text.
-func DeterministicEmailDraft(topic, intent string) (subject, body string) {
-	subject = "Re: follow-up"
+//
+// The prose skeleton comes from the shared floor table rather than from string
+// literals here, so this path writes the same German a model-backed draft would
+// (DRAFT-AC-E-1). answering is the correspondence the draft replies into: its
+// text decides the language, and its shape decides whether there is a thread to
+// reply to at all.
+func DeterministicEmailDraft(answering DraftContext, intent string) (subject, body string) {
+	lang := answering.language()
+	band := answering.Band
+
+	topic := strings.TrimSpace(answering.Topic)
+	subject = draftfloor.Subject(lang, band, topic, answering.Threaded)
+
+	phrases := draftfloor.For(lang, band)
+	lines := []string{phrases.GreetingAnonymous, ""}
+	if phrases.Opener != "" {
+		lines = append(lines, phrases.Opener, "")
+	}
+	// The topic is the only substance this floor has, and dropping it would
+	// leave a draft that says nothing about what it is answering.
 	if topic != "" {
-		subject = "Re: " + topic
+		lines = append(lines, draftfloor.Fill(draftfloor.SubstanceFor(lang).Thread, topic), "")
 	}
-	var b strings.Builder
-	b.WriteString("Hi,\n\nfollowing up on ")
-	if topic != "" {
-		fmt.Fprintf(&b, "%q", topic)
-	} else {
-		b.WriteString("our last conversation")
+	if intent := strings.TrimSpace(intent); intent != "" {
+		lines = append(lines, intent, "")
 	}
-	b.WriteString(".")
-	if strings.TrimSpace(intent) != "" {
-		b.WriteString("\n\n" + strings.TrimSpace(intent))
+	return subject, strings.Join(append(lines, phrases.Ask), "\n")
+}
+
+// DraftContext is what the floor knows about the correspondence it is writing
+// into. Everything is optional: the zero value describes a first message to
+// somebody with no history, which is the honest reading of "we were told
+// nothing".
+type DraftContext struct {
+	// Topic is what the message is about: the subject of the thread being
+	// answered, or a deal name the caller chose. Empty when nothing is known.
+	Topic string
+	// Threaded says the topic is the subject of a real INBOUND MAIL thread
+	// rather than a name the caller picked. Only that earns the reply prefix:
+	// "Re:" on a deal name, or on a meeting somebody titled "Quarterly
+	// review", claims a message that was never written to us.
+	Threaded bool
+	// Body is the text of the message being answered, used to detect the
+	// language of the correspondence. Empty falls back to the topic.
+	Body string
+	// Band is where the correspondence stands. The zero value is BandNone.
+	Band convstate.Band
+}
+
+// IsMailThread reports whether an activity is an inbound mail thread, which is
+// the only thing a reply prefix may be built on.
+//
+// Spelled once rather than at each call site: three callers derive the same
+// flag, and a fourth that guessed would put "Re:" on a meeting title. Kind and
+// direction both, because an email WE sent is not a message to reply to either.
+func IsMailThread(kind crmcontracts.ActivityKind, direction *crmcontracts.ActivityDirection) bool {
+	return kind == crmcontracts.ActivityKindEmail &&
+		direction != nil && *direction == crmcontracts.ActivityDirectionInbound
+}
+
+// language resolves the correspondence language from whatever text there is,
+// preferring the body because a subject line rarely carries enough words to
+// clear the detector's floor.
+func (c DraftContext) language() textlang.Lang {
+	if lang := textlang.Detect(c.Body); lang != textlang.Unknown {
+		return lang
 	}
-	b.WriteString("\n\nBest regards")
-	return subject, b.String()
+	if lang := textlang.Detect(c.Topic); lang != textlang.Unknown {
+		return lang
+	}
+	return draftfloor.DefaultLang
 }
 
 // SendAccountEmail starts a NEW conversation from a record rather than
