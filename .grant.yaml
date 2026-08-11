@@ -48,6 +48,20 @@ ignore-packages:
   - github.com/gradionhq/margince/* # our own Go modules
   - example.margince.dev/* # committed extension stubs (ADR-0069), first-party
   - SonarSource/sonarqube-scan-action # LGPL-3.0-only CI scanner action, runs in CI only, never shipped
+  # Our OWN composite actions. syft catalogs any action.yml it finds, and a
+  # first-party file in this repository carries no license declaration of its
+  # own — it is covered by the repository's, which is not something syft can
+  # see from the action alone. So require-license denies it as "no licenses
+  # found", the same shape as an unlicensed third-party dependency and with
+  # none of the risk: nothing here is fetched, and nothing here ships.
+  #
+  # Wildcarded rather than named per action, deliberately: the alternative is
+  # that adding a composite action reddens the SBOM lane for a reason that has
+  # nothing to do with what the action does. Note this gate did NOT catch
+  # .github/actions/go-build-cache when it landed on main — sbom.yml triggers
+  # only on dependency-set paths, and an action.yml is not one — so the first
+  # PR to touch a go.mod or the Makefile inherits the failure.
+  - ./.github/actions/* # our own composite actions, CI only, never shipped
 
 require-license: true # When true, deny packages with no detected licenses
 require-known-license: true
