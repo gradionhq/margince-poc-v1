@@ -3,16 +3,20 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
-import { Field, SectionHeader, TextInput } from "../design-system/atoms";
+import { Card, Field, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
-// The installation settings card (ADR-0090/A135): the organization's name, the
-// IANA zone every reporting period is computed in, and the ISO-4217 base
+// The installation settings surface (ADR-0090/A135): the organization's name,
+// the IANA zone every reporting period is computed in, and the ISO-4217 base
 // currency every roll-up converts to. Every role reads them — a rep reading
 // amounts benefits from knowing which currency they are in — and only admin/ops
 // may change them, so the fields are disabled rather than hidden for everyone
 // else, the same gating the capture-settings card uses.
+//
+// Two cards: what the organization is called and when its periods start is one
+// subject, and the currency every amount is re-expressed in is another — with a
+// lock rule of its own that needs the room to be explained.
 //
 // The base currency is a fourth state: it stops being changeable once a deal
 // has frozen a conversion rate against it (ADR-0085 §7). The server reports
@@ -68,22 +72,15 @@ function useUpdateInstallationSettings() {
 }
 
 export function InstallationSettingsCard() {
-  const t = useT();
   const canManage = useCanWrite("installation_settings", "update");
   const query = useInstallationSettings();
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader
-        title={t("installationSettings.title")}
-        sub={t("installationSettings.sub")}
-      />
-      <QueryGate query={query}>
-        {(settings) => (
-          <InstallationSettingsForm settings={settings} canManage={canManage} />
-        )}
-      </QueryGate>
-    </section>
+    <QueryGate query={query}>
+      {(settings) => (
+        <InstallationSettingsForm settings={settings} canManage={canManage} />
+      )}
+    </QueryGate>
   );
 }
 
@@ -124,85 +121,108 @@ function InstallationSettingsForm({
   };
 
   return (
+    // ONE form across BOTH cards, and one submit at the end of it. The two
+    // cards edit ONE record through one sparse PATCH, so a save button per card
+    // would promise two independent writes the server does not offer — and the
+    // patch already sends only the fields that changed, which is what keeps a
+    // save from touching a frozen currency nobody edited. The action sits after
+    // the last card, where a reader looks for the control that commits the
+    // fields above it.
     <form
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
-      style={{ display: "grid", gap: "var(--space-3)" }}
     >
-      <Field
-        label={t("installationSettings.name")}
-        hint={t("installationSettings.nameHint")}
+      <Card
+        className="card-stack"
+        title={t("installationSettings.orgTitle")}
+        sub={t("installationSettings.orgSub")}
       >
-        {(control) => (
-          <TextInput
-            {...control}
-            value={draft.name}
-            disabled={!canManage}
-            onChange={(event) =>
-              setDraft({ ...draft, name: event.target.value })
-            }
-          />
-        )}
-      </Field>
-      <Field
-        label={t("installationSettings.timezone")}
-        hint={t("installationSettings.timezoneHint")}
-      >
-        {(control) => (
-          <TextInput
-            {...control}
-            value={draft.timezone}
-            disabled={!canManage}
-            onChange={(event) =>
-              setDraft({ ...draft, timezone: event.target.value })
-            }
-          />
-        )}
-      </Field>
-      <Field
-        label={t("installationSettings.baseCurrency")}
-        hint={
-          settings.base_currency_locked
-            ? (settings.base_currency_locked_reason ??
-              t("installationSettings.baseCurrencyLocked"))
-            : t("installationSettings.baseCurrencyHint")
-        }
-      >
-        {(control) => (
-          <TextInput
-            {...control}
-            value={draft.base_currency}
-            disabled={!canManage || settings.base_currency_locked}
-            onChange={(event) =>
-              setDraft({ ...draft, base_currency: event.target.value })
-            }
-          />
-        )}
-      </Field>
-
-      {update.isError ? (
-        <p role="alert" className="form-error">
-          {update.error instanceof Error
-            ? update.error.message
-            : t("common.error")}
-        </p>
-      ) : null}
-
-      {canManage ? (
-        <div>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={!dirty || update.isPending}
+        <div className="form-stack">
+          <Field
+            label={t("installationSettings.name")}
+            hint={t("installationSettings.nameHint")}
           >
-            {update.isPending
-              ? t("common.saving")
-              : t("installationSettings.save")}
-          </button>
+            {(control) => (
+              <TextInput
+                {...control}
+                value={draft.name}
+                disabled={!canManage}
+                onChange={(event) =>
+                  setDraft({ ...draft, name: event.target.value })
+                }
+              />
+            )}
+          </Field>
+          <Field
+            label={t("installationSettings.timezone")}
+            hint={t("installationSettings.timezoneHint")}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                value={draft.timezone}
+                disabled={!canManage}
+                onChange={(event) =>
+                  setDraft({ ...draft, timezone: event.target.value })
+                }
+              />
+            )}
+          </Field>
         </div>
-      ) : null}
+      </Card>
+
+      <Card
+        className="card-stack"
+        title={t("installationSettings.currencyTitle")}
+        sub={t("installationSettings.currencySub")}
+      >
+        <Field
+          label={t("installationSettings.baseCurrency")}
+          hint={
+            settings.base_currency_locked
+              ? (settings.base_currency_locked_reason ??
+                t("installationSettings.baseCurrencyLocked"))
+              : t("installationSettings.baseCurrencyHint")
+          }
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              value={draft.base_currency}
+              disabled={!canManage || settings.base_currency_locked}
+              onChange={(event) =>
+                setDraft({ ...draft, base_currency: event.target.value })
+              }
+            />
+          )}
+        </Field>
+      </Card>
+
+      <div className="form-stack">
+        {update.isError ? (
+          <p role="alert" className="form-error">
+            {update.error instanceof Error
+              ? update.error.message
+              : t("common.error")}
+          </p>
+        ) : null}
+
+        {canManage ? (
+          <div>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!dirty || update.isPending}
+            >
+              {update.isPending
+                ? t("common.saving")
+                : t("installationSettings.save")}
+            </button>
+          </div>
+        ) : null}
+      </div>
     </form>
   );
 }
