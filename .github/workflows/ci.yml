@@ -701,6 +701,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    defaults:
+      run:
+        # The workflow default is backend/, which exists only after a checkout
+        # this job doesn't need.
+        working-directory: .
     steps:
       - name: No-op — the release build is the image gate
         run: echo "image builds run in release.yml"
