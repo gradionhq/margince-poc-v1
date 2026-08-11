@@ -3484,6 +3484,8 @@ export const vi = {
   "extAccess.action.delete": "Xoá",
   "extAccess.matrixCaption": "Ai được làm gì với {object}",
   "extAccess.cell": "Cho phép {role} {action} {object}",
+  "extAccess.versionSkew":
+    "Người khác đã thay đổi vai trò này trong lúc bạn đang xem, nên thay đổi của bạn không được áp dụng. Các quyền ở trên hiện là bản mới nhất — hãy thực hiện lại nếu bạn vẫn muốn.",
   "extAccess.systemRole": "Vai trò dựng sẵn",
   "extAccess.nobodyReads":
     "Không vai trò nào được đọc {object}, nên mọi thành viên chỉ thấy màn hình trống ở nơi lẽ ra là tiện ích này. Hãy cấp quyền đọc cho ít nhất một vai trò bên dưới.",

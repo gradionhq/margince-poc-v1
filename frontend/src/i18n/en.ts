@@ -3478,6 +3478,8 @@ export const en = {
   "extAccess.action.delete": "Delete",
   "extAccess.matrixCaption": "Who may do what with {object}",
   "extAccess.cell": "Allow {role} to {action} {object}",
+  "extAccess.versionSkew":
+    "Someone else changed this role while you were looking at it, so your change was not applied. The grants above are now the current ones — make the change again if you still want it.",
   "extAccess.systemRole": "Built-in role",
   "extAccess.nobodyReads":
     "No role holds read on {object}, so every member sees an empty screen where this extension should be. Grant read to at least one role below.",

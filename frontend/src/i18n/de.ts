@@ -3494,6 +3494,8 @@ export const de = {
   "extAccess.action.delete": "Löschen",
   "extAccess.matrixCaption": "Wer darf was mit {object}",
   "extAccess.cell": "{role} darf {object} {action}",
+  "extAccess.versionSkew":
+    "Jemand anderes hat diese Rolle geändert, während Sie sie ansahen — Ihre Änderung wurde nicht übernommen. Oben stehen jetzt die aktuellen Berechtigungen; nehmen Sie die Änderung erneut vor, wenn Sie sie weiterhin wollen.",
   "extAccess.systemRole": "Eingebaute Rolle",
   "extAccess.nobodyReads":
     "Keine Rolle darf {object} lesen — jedes Mitglied sieht dort eine leere Seite, wo diese Erweiterung stehen sollte. Vergeben Sie unten mindestens einer Rolle das Leserecht.",

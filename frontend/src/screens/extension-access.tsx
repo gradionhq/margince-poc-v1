@@ -10,6 +10,8 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import {
+  isVersionSkew,
+  ProblemError,
   problemMessageOf,
   QueryGate,
   type QueryLike,
@@ -47,17 +49,33 @@ export type ExtensionRole = Readonly<{
   key: string;
   name: string;
   is_system: boolean;
+  // The RowVersion the read carried. It rides back out as `If-Match` on every
+  // write below, so a grant computed against a stale matrix is refused rather
+  // than applied over another admin's change.
+  version: string;
   // An index signature: an object a role was never granted is ABSENT, not
   // written as an all-false grant, exactly as /me reports its own grants. A
   // missing key therefore has to read as a denial everywhere below.
   objects: Readonly<Record<string, ObjectGrant | undefined>>;
 }>;
 
+// One entry per OPERATION, not per path: the inventory is deduplicated by
+// (path, method) server-side precisely so a DELETE cannot hide behind a GET on
+// the same path. The method is therefore rendered, never collapsed away — an
+// operator reading this screen has to be able to see that a unit's route can
+// delete.
+export type ExtensionRoute = Readonly<{
+  method: string;
+  path: string;
+}>;
+
 export type ExtensionUnit = Readonly<{
   name: string;
   version: string;
   rbac_objects: readonly string[];
-  routes: readonly string[];
+  // Already sorted by path then method, so a path's verbs arrive adjacent and
+  // the chip row needs no ordering of its own.
+  routes: readonly ExtensionRoute[];
   jobs: readonly string[];
 }>;
 
@@ -120,7 +138,10 @@ function useExtensions(enabled: boolean) {
 
 // The PATCH takes the whole grant, not a delta, so the request states the
 // grant the operator is looking at rather than an edit against a version of it
-// the server may no longer hold.
+// the server may no longer hold. `If-Match` carries the version of the role
+// that grant was read from: the contract makes the header optional only because
+// every versioned write here is, and a client that omits it is asking the
+// server to overwrite a row it never looked at.
 function useSetGrant() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -128,6 +149,7 @@ function useSetGrant() {
       roleKey: string;
       object: string;
       grant: ObjectGrant;
+      version: string;
     }): Promise<ExtensionRole> => {
       const response = await fetch(
         apiUrl(
@@ -136,7 +158,10 @@ function useSetGrant() {
         {
           method: "PATCH",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "If-Match": input.version,
+          },
           body: JSON.stringify(input.grant),
         },
       );
@@ -159,7 +184,11 @@ function useSetGrant() {
     // A refused write leaves the checkbox showing the state the server holds
     // (nothing was applied locally), but another admin's concurrent change is
     // the likelier reason for a refusal here — so re-read rather than trust
-    // the snapshot the failure was computed against.
+    // the snapshot the failure was computed against. On a version skew that
+    // re-read is the whole remedy: it repaints the matrix with what the other
+    // admin left, and the message beside it says the tick did not apply. The
+    // write is never replayed against the fresh version — that would apply an
+    // intent the operator formed against grants they had not seen.
     onError: () => {
       void queryClient.invalidateQueries({ queryKey: ROLES_KEY });
     },
@@ -214,6 +243,13 @@ export function ExtensionAccessCard() {
   // reason: an ops seat in the Organization group would otherwise be handed
   // controls that only ever 403. The seat ceiling ANDs on top, because a read
   // seat may read this page and may not write anything on it.
+  //
+  // There is no `useCan` question to ask instead: a `role` RBAC object was
+  // considered and declined, because object RBAC narrows who among PEERS may
+  // touch a record and no such narrowing exists here — nobody but an admin
+  // should hold it, so the grant would be a constant, and an admin who revoked
+  // their own would have no way back. The role check is the ratified answer,
+  // not a stand-in for one.
   const isAdmin = (me.data?.roles ?? []).includes("admin");
   const canMutate = useCanMutate();
   const query = useExtensionAccess(isAdmin);
@@ -285,17 +321,31 @@ function UnitBlock({
         <BringsRow
           icon={<KeyRound aria-hidden size={15} />}
           label={t("extAccess.brings.objects")}
-          items={unit.rbac_objects}
+          items={unit.rbac_objects.map((object) => ({
+            id: object,
+            content: object,
+          }))}
         />
         <BringsRow
           icon={<Route aria-hidden size={15} />}
           label={t("extAccess.brings.routes")}
-          items={unit.routes}
+          // Keyed by method AND path: two operations on one path are two
+          // entries, and keying by path alone would collapse the pair React
+          // has to keep apart — the same collapse the server stopped doing.
+          items={unit.routes.map((route) => ({
+            id: `${route.method} ${route.path}`,
+            content: (
+              <>
+                <span className="ext-method">{route.method}</span>
+                <span className="ext-route-path">{route.path}</span>
+              </>
+            ),
+          }))}
         />
         <BringsRow
           icon={<Timer aria-hidden size={15} />}
           label={t("extAccess.brings.jobs")}
-          items={unit.jobs}
+          items={unit.jobs.map((job) => ({ id: job, content: job }))}
         />
       </dl>
       {unit.rbac_objects.length === 0 ? (
@@ -321,7 +371,10 @@ function BringsRow({
 }: Readonly<{
   icon: ReactNode;
   label: string;
-  items: readonly string[];
+  // A node per chip rather than a string: a route reads as a method and a path,
+  // two pieces with different weight, and the row that lists objects and the
+  // row that lists routes are otherwise the same row.
+  items: readonly { id: string; content: ReactNode }[];
 }>) {
   const t = useT();
   return (
@@ -336,8 +389,8 @@ function BringsRow({
         ) : (
           <ul className="ext-chips">
             {items.map((item) => (
-              <li key={item} className="ext-chip t-mono">
-                {item}
+              <li key={item.id} className="ext-chip t-mono">
+                {item.content}
               </li>
             ))}
           </ul>
@@ -380,6 +433,12 @@ function ObjectMatrix({
 }>) {
   const t = useT();
   const setGrant = useSetGrant();
+  // The same reading of a 409 the record edit form makes, through the same
+  // helper: only a ProblemError carries a server code, so a rejected fetch can
+  // never be mistaken for a concurrent edit.
+  const skew =
+    setGrant.error instanceof ProblemError &&
+    isVersionSkew(setGrant.error.problem);
   // The whole point of the screen: an object no role can read is an extension
   // whose every screen renders "you do not hold access", and that is invisible
   // from anywhere else in the product. Said plainly, next to the toggles that
@@ -427,6 +486,11 @@ function ObjectMatrix({
                             roleKey: role.key,
                             object,
                             grant: { ...grant, [action]: event.target.checked },
+                            // The version of the role THIS tick was read from,
+                            // not a version fetched at write time: that is the
+                            // whole guarantee — the server compares against
+                            // what the operator was looking at.
+                            version: role.version,
                           })
                         }
                         label={
@@ -458,7 +522,14 @@ function ObjectMatrix({
       ) : null}
       {setGrant.isError ? (
         <p role="alert" className="form-error">
-          {problemMessageOf(setGrant.error, t)}
+          {/* A version skew is not a failure to phrase generically: the
+              operator's tick did not apply, someone else's did, and the matrix
+              above has just been repainted with theirs. Saying "couldn't save"
+              there would leave them staring at a grid that silently changed
+              under them. Every other refusal keeps the server's own words. */}
+          {skew
+            ? t("extAccess.versionSkew")
+            : problemMessageOf(setGrant.error, t)}
         </p>
       ) : null}
     </div>

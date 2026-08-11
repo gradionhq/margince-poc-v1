@@ -268,10 +268,14 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     company: organization && (capabilities.data?.read_enabled ?? false),
     users: isOrgAdmin,
     // Extension access sits beside Users for the same reason and on the same
-    // predicate: role permissions are an admin surface the server gates on the
-    // role, not on any RBAC object — the extension objects it edits are
-    // registered at composition time and are not in the contract's object
-    // enum, so there is no grant for the nav to ask about.
+    // predicate: editing role permissions is an admin surface the server gates
+    // on the role, and a `role` RBAC object was considered and DECLINED. Object
+    // RBAC exists to narrow who AMONG PEERS may touch a record, and there is no
+    // such narrowing here — nobody but an admin should ever hold it, so the
+    // grant map would encode a constant. It would also be circular: an admin
+    // who revoked their own grant on `role` could never restore it. The waivers
+    // for ListUsers/ListTeams put identity administration on the same footing
+    // deliberately. So the role IS the predicate here, permanently.
     extensions: isOrgAdmin,
     privacy: isOrgAdmin,
     audit: isOrgAdmin,

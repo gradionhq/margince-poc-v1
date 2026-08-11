@@ -37,7 +37,16 @@ const EXTENSIONS = {
       name: "notes",
       version: "0.3.1",
       rbac_objects: ["ext_notes_note", "ext_notes_signing_key"],
-      routes: ["GET /ext/notes", "POST /ext/notes"],
+      // One entry per OPERATION, sorted by path then method, exactly as the
+      // server composes it: /ext/notes/{id} carries both a GET and a DELETE,
+      // and the destructive verb must survive onto the screen rather than
+      // being deduplicated away behind the read on the same path.
+      routes: [
+        { method: "GET", path: "/ext/notes" },
+        { method: "POST", path: "/ext/notes" },
+        { method: "DELETE", path: "/ext/notes/{id}" },
+        { method: "GET", path: "/ext/notes/{id}" },
+      ],
       jobs: ["ext_notes_digest"],
     },
     {
@@ -58,6 +67,7 @@ const ROLES = {
       key: "admin",
       name: "Admin",
       is_system: true,
+      version: "admin-v1",
       objects: {
         ext_notes_note: {
           read: true,
@@ -71,6 +81,7 @@ const ROLES = {
       key: "rep",
       name: "Rep",
       is_system: true,
+      version: "rep-v1",
       // No key at all for either object: an object a role was never granted is
       // absent from the map, and the matrix has to read that as a denial rather
       // than as an unrestricted grant.
@@ -79,7 +90,14 @@ const ROLES = {
   ],
 };
 
-type Call = { method: string; url: string; body?: unknown };
+type Call = {
+  method: string;
+  url: string;
+  body?: unknown;
+  // Null rather than undefined when the header is absent, so a test can tell
+  // "sent nothing" from "the stub forgot to record it".
+  ifMatch: string | null;
+};
 
 function backend(
   calls: Call[],
@@ -87,8 +105,12 @@ function backend(
     roles?: string[];
     seat?: "full" | "read";
     extensions?: unknown;
-    rolesBody?: unknown;
+    // A function so a test can change what the second read answers — the
+    // concurrent-edit case needs the re-read to bring back someone else's
+    // change, not the body the screen already holds.
+    rolesBody?: unknown | (() => unknown);
     rolesStatus?: number;
+    patch?: { status: number; body: unknown };
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -106,7 +128,11 @@ function backend(
       return jsonResponse(opts.extensions ?? EXTENSIONS);
     }
     if (req.url.endsWith("/v1/roles") && req.method === "GET") {
-      return jsonResponse(opts.rolesBody ?? ROLES, opts.rolesStatus ?? 200);
+      const body =
+        typeof opts.rolesBody === "function"
+          ? (opts.rolesBody as () => unknown)()
+          : (opts.rolesBody ?? ROLES);
+      return jsonResponse(body, opts.rolesStatus ?? 200);
     }
     let body: unknown;
     try {
@@ -114,11 +140,20 @@ function backend(
     } catch {
       body = undefined;
     }
-    calls.push({ method: req.method, url: req.url, body });
+    calls.push({
+      method: req.method,
+      url: req.url,
+      body,
+      ifMatch: req.headers.get("If-Match"),
+    });
+    if (opts.patch) {
+      return jsonResponse(opts.patch.body, opts.patch.status);
+    }
     // The PATCH answers with the WHOLE updated role, which is what the card
     // writes back into its cache — so the stub applies the write to the
     // fixture role rather than returning a canned body that would agree with
-    // the assertion whatever was sent.
+    // the assertion whatever was sent. The version moves on, exactly as a
+    // RowVersion does: the next write from this screen must carry the new one.
     // /v1/roles/{key}/objects/{object}
     const segments = new URL(req.url).pathname.split("/");
     const roleKey = segments[3];
@@ -129,6 +164,7 @@ function backend(
     }
     return jsonResponse({
       ...role,
+      version: `${role.key}-v2`,
       objects: { ...role.objects, [object]: body },
     });
   });
@@ -181,7 +217,6 @@ describe("ExtensionAccessCard", () => {
     expect(screen.getByText("Version 0.3.1")).toBeTruthy();
     // What the unit brings, each family named rather than lumped together.
     expect(screen.getByText("ext_notes_note")).toBeTruthy();
-    expect(screen.getByText("GET /ext/notes")).toBeTruthy();
     expect(screen.getByText("ext_notes_digest")).toBeTruthy();
 
     // The grants, read straight off the fixture: admin reads and creates the
@@ -195,6 +230,32 @@ describe("ExtensionAccessCard", () => {
 
     // A unit that registers nothing says so instead of rendering an empty grid.
     expect(screen.getByText(/registers no permission objects/i)).toBeTruthy();
+  });
+
+  it("shows every route operation with its method, so a DELETE cannot hide behind a GET on the same path", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    // Scoped to the unit: every unit block carries its own Routes row.
+    const unit = screen.getByText("notes").closest("article");
+    if (!(unit instanceof HTMLElement)) {
+      throw new Error("no unit block rendered for notes");
+    }
+    const routes = within(unit)
+      .getByText("Routes")
+      .closest(".ext-brings-row")
+      ?.querySelectorAll("li");
+    expect([...(routes ?? [])].map((item) => item.textContent)).toEqual([
+      "GET/ext/notes",
+      "POST/ext/notes",
+      "DELETE/ext/notes/{id}",
+      "GET/ext/notes/{id}",
+    ]);
+    // The pair that shares a path is TWO chips, and the destructive one is
+    // named — the whole reason the inventory stopped deduplicating by path.
+    expect(screen.getAllByText("/ext/notes/{id}").length).toBe(2);
+    expect(screen.getByText("DELETE")).toBeTruthy();
   });
 
   it("PATCHes the whole grant for the toggled role and object", async () => {
@@ -217,6 +278,11 @@ describe("ExtensionAccessCard", () => {
         update: false,
         delete: false,
       });
+      // And the version of the role the tick was READ from, so a write
+      // computed against a matrix someone else has since changed is refused
+      // rather than applied over them. Optional in the contract, always sent
+      // here.
+      expect(patch?.ifMatch).toBe("rep-v1");
     });
 
     // The server's answer repaints the row — no refetch, no locally invented
@@ -224,6 +290,69 @@ describe("ExtensionAccessCard", () => {
     await waitFor(() =>
       expect(cell("ext_notes_note", "Rep", "Read").checked).toBe(true),
     );
+  });
+
+  it("re-reads and says who changed it when a concurrent edit refuses the write", async () => {
+    // Someone else granted Rep read on the note object between this screen's
+    // read and this write, so the PATCH's If-Match no longer matches: the
+    // server refuses with version_skew and the tick did NOT apply.
+    const calls: Call[] = [];
+    let skewed = false;
+    const ROLES_AFTER = {
+      roles: ROLES.roles.map((role) =>
+        role.key === "rep"
+          ? {
+              ...role,
+              version: "rep-v9",
+              objects: {
+                ext_notes_note: {
+                  read: true,
+                  create: false,
+                  update: false,
+                  delete: false,
+                },
+              },
+            }
+          : role,
+      ),
+    };
+    vi.stubGlobal(
+      "fetch",
+      backend(calls, {
+        rolesBody: () => (skewed ? ROLES_AFTER : ROLES),
+        patch: {
+          status: 409,
+          body: {
+            code: "version_skew",
+            title: "Conflict",
+            detail: "the role changed since it was read",
+          },
+        },
+      }),
+    );
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    skewed = true;
+    await userEvent.click(cell("ext_notes_note", "Rep", "Delete"));
+
+    // The message names the concurrent change rather than reading as a generic
+    // save failure — the point is that the operator's change did not happen.
+    await waitFor(() =>
+      expect(screen.getByText(/Someone else changed this role/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/Couldn't load this view/)).toBeNull();
+
+    // The matrix was re-read, so it now shows the OTHER admin's grant …
+    await waitFor(() =>
+      expect(cell("ext_notes_note", "Rep", "Read").checked).toBe(true),
+    );
+    // … and never the tick this operator made, which the server refused.
+    expect(cell("ext_notes_note", "Rep", "Delete").checked).toBe(false);
+
+    // Exactly one write: a silent replay against the fresh version would apply
+    // an intent formed against grants the operator had not seen.
+    expect(calls.filter((call) => call.method === "PATCH").length).toBe(1);
   });
 
   it("says plainly when no role holds read on an object, and stops saying it once one does", async () => {

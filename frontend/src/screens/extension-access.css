@@ -80,6 +80,19 @@
   overflow-wrap: anywhere;
 }
 
+/* The verb on a route chip. It is not decoration: one entry per operation
+   means a path can appear twice, and the method is the only thing that tells a
+   DELETE from the GET beside it. */
+.ext-method {
+  font-weight: 600;
+  color: var(--textPrimary);
+  margin-right: var(--space-1);
+}
+
+.ext-route-path {
+  color: var(--textContent);
+}
+
 .ext-object {
   margin-top: var(--space-3);
 }
