@@ -45,7 +45,6 @@ jobs:
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
-  #   docker   = the root Dockerfile.* + .dockerignore — gates the image builds
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -56,7 +55,6 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
-      docker: ${{ steps.filter.outputs.docker }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,9 +129,6 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
-            docker:
-              - 'Dockerfile.*'
-              - '.dockerignore'
             # Everything that can change WHICH packages are in the tree, and
             # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
             # is globbed on purpose: a Renovate lockfile-only PR is precisely
@@ -695,65 +690,25 @@ jobs:
           fi
           make check-ext-migrations
 
-  # The root Dockerfiles (api, web, worker) are consumed only by downstream
-  # deploy tooling — no other job builds them, so without this gate a FROM
-  # bump (Renovate's dockerfile manager auto-merges when green) or a stage
-  # restructure would ship untested: the change matches no other classifier
-  # scope, every meaningful job skips, and the PR looks green. The
-  # `docker-images` fan-in below is the required check; a build the deploy
-  # pipeline would reject fails the merge here instead.
-  docker-image:
-    name: docker image (${{ matrix.role }})
-    needs: [changes]
-    if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      # A broken web image must not hide whether api/worker still build.
-      fail-fast: false
-      matrix:
-        # `role`, not `image`: the check-image-pins gate key-anchors every
-        # `image:` in a workflow as a container reference to digest-check.
-        role: [api, web, worker]
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the image
-        # ONE revision for every role, so the api and the web tier can be
-        # compared at run time. github.sha is immutable for this run; a role
-        # that does not declare the ARG simply ignores it.
-        run: docker build --build-arg MARGINCE_BUILD_REVISION=${{ github.sha }} -f Dockerfile.${{ matrix.role }} .
-
-  # The fan-in — the single required "docker images" context. Static-named
-  # because a path-skipped matrix job reports ONE check run under its
-  # unexpanded name ("docker image (${{ matrix.role }})"), so the expanded
-  # leg names can never be required contexts. Same shape as the integration
-  # fan-in: it must RUN and FAIL when a leg fails — `needs` alone would leave
-  # it skipped, and a skipped required check counts as passing.
+  # The three role images are built, pushed and digest-pinned by release.yml
+  # on every push to main; no PR-side job builds them anymore. Branch
+  # protection still requires the "docker images (api + web + worker)"
+  # context, so this no-op posts it — remove the job together with the
+  # required-context entry in the protection settings.
   docker-images:
     name: docker images (api + web + worker)
-    needs: [changes, docker-image]
-    if: >-
-      !cancelled()
-      && needs.changes.outputs.docker == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
     defaults:
       run:
+        # The workflow default is backend/, which exists only after a checkout
+        # this job doesn't need.
         working-directory: .
     steps:
-      - name: Every image built
-        env:
-          BUILD_RESULT: ${{ needs.docker-image.result }}
-        run: |
-          [ "$BUILD_RESULT" = "success" ] || { echo "docker image builds: $BUILD_RESULT"; exit 1; }
+      - name: No-op — the release build is the image gate
+        run: echo "image builds run in release.yml"
 
   vuln:
     name: govulncheck
