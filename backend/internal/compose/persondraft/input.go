@@ -37,6 +37,14 @@ const draftInputActivities = 6
 // it picks is no longer the newest.
 const draftInputClaims = 6
 
+// draftInputSnippetRunes bounds how much of the newest inbound message the
+// draft reads.
+//
+// Enough for the opening of a real business email — a greeting, the reason for
+// writing, and the ask. Past that an email is detail, which a reply asks about
+// rather than repeats, and every rune of it is prompt cost on every draft.
+const draftInputSnippetRunes = 400
+
 // Input is the person, narrowed to what an outbound message can honestly stand
 // on. It is a projection of the caller's own 360 — nothing here re-queries, so
 // anything absent is absent because that caller may not see it.
@@ -152,6 +160,15 @@ type ActIn struct {
 	// differently from one that follows up on what we said, and the direction
 	// is the only thing that tells them apart.
 	Inbound bool `json:"inbound"`
+	// Snippet is the opening of what they actually WROTE, on the newest inbound
+	// message only. A subject line says a message happened; the words say what
+	// it was about, and a draft grounded in subjects alone can only gesture at
+	// a conversation it never read.
+	//
+	// The opening rather than the whole message: an email says why it was sent
+	// in its first lines and spends the rest on detail, and the detail is what
+	// a reply should ask about rather than repeat back.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // FromView folds the caller's 360 into the draft's input.
@@ -339,6 +356,49 @@ func foldClaims(in *Input, view crmcontracts.Person360, now time.Time) {
 	}
 }
 
+// snippetOf is the opening of a message, bounded and tidied.
+//
+// A stored mail body begins with the envelope headers the capture path wrote
+// above it, and those are addresses rather than anything a reply is about. They
+// are dropped, and what remains is cut on a rune boundary so a multi-byte word
+// is not sliced in half.
+func snippetOf(body string) string {
+	text := strings.TrimSpace(stripMailHeaders(body))
+	runes := []rune(text)
+	if len(runes) > draftInputSnippetRunes {
+		return strings.TrimSpace(string(runes[:draftInputSnippetRunes]))
+	}
+	return text
+}
+
+// stripMailHeaders drops a leading From:/To:/Cc: block. It stops at the first
+// line that is not one, so a message beginning with prose is untouched.
+func stripMailHeaders(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if isMailHeaderLine(trimmed) {
+			continue
+		}
+		return strings.Join(lines[i:], "\n")
+	}
+	return body
+}
+
+// isMailHeaderLine reports whether a line is one of the envelope headers the
+// capture path stores above a body.
+func isMailHeaderLine(line string) bool {
+	for _, header := range []string{"From: ", "To: ", "Cc: ", "Bcc: ", "Von: ", "An: "} {
+		if strings.HasPrefix(line, header) {
+			return true
+		}
+	}
+	return false
+}
+
 // isOverdueOurs reports whether this claim is a promise WE made, still open,
 // and past its date.
 //
@@ -388,6 +448,7 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 	if view.Activities == nil {
 		return
 	}
+	readOne := false
 	for _, activity := range view.Activities.Data {
 		if len(in.Recent) == draftInputActivities {
 			break
@@ -400,6 +461,13 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 		}
 		if activity.Subject != nil {
 			folded.Subject = *activity.Subject
+		}
+		// Only the newest INBOUND message, and only once. Our own outbound is
+		// text this side already wrote, and quoting a second inbound message
+		// invites the draft to answer two conversations at once.
+		if folded.Inbound && !readOne && activity.Body != nil {
+			folded.Snippet = snippetOf(*activity.Body)
+			readOne = folded.Snippet != ""
 		}
 		in.Recent = append(in.Recent, folded)
 	}
