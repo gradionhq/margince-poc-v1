@@ -8,7 +8,7 @@ package identity
 // The admin-issued set-password link over a real migrated Postgres: one live
 // token at a time, an audit row and an event that carry no credential, a
 // redemption that actually works on the email-less installation the link exists
-// for, and refusals for a non-admin and a non-active target.
+// for, and refusals for a non-admin, a non-active target, and the agent seat.
 
 import (
 	"context"
@@ -290,5 +290,42 @@ func TestPasswordLinkHandlerRefusesANonActiveMember(t *testing.T) {
 	// admin is told to reactivate rather than to go and change the deployment.
 	if !strings.Contains(rec.Body.String(), "member_not_active") {
 		t.Errorf("refusal body = %s, want the member_not_active code", rec.Body)
+	}
+}
+
+// The agent seat over the wire. That the service refuses it is asserted where
+// the rule lives; this is the half a client meets — a 409 carrying a code it can
+// branch on, rather than the bare "conflict" an unmapped sentinel falls through
+// to. Untested, the status and the code are whatever the mapping happens to say,
+// and an admin who tries to issue a link for the workspace's agent identity is
+// told nothing about why it can never have one.
+func TestPasswordLinkHandlerRefusesTheAgentSeat(t *testing.T) {
+	e := setupRevocationEnv(t, "link-http-agent")
+	h := NewHandlers(e.svc).WithPasswordLinkBase("https://crm.example.test")
+
+	// The seat bootstrap wrote for this workspace, read back rather than
+	// inserted: a hand-made row would prove only that the handler refuses a row
+	// this test invented, which is not the row an admin can reach.
+	var seat ids.UserID
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent`,
+		e.admin.WorkspaceID).Scan(&seat); err != nil {
+		t.Fatalf("reading the workspace's agent seat: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/users/"+seat.String()+"/password-link", nil)
+	h.IssueUserPasswordLink(rec, req.WithContext(withIdentity(e.wsCtx(e.admin), e.admin)),
+		crmcontracts.Id(seat.UUID))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("agent-seat target = %d, want 409: %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "agent_seat_has_no_password") {
+		t.Errorf("refusal body = %s, want the agent_seat_has_no_password code — a client that has to "+
+			"tell this apart from an inactive member would otherwise be matching sentences", rec.Body)
+	}
+	if live := liveTokenCount(t, e, seat); live != 0 {
+		t.Errorf("the refused request left %d live token(s) for the agent seat; a refusal that still "+
+			"mints the credential refuses nothing", live)
 	}
 }
