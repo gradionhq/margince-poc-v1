@@ -119,6 +119,10 @@ jobs:
             base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
           fi
           patch_args=()
+          # The ref name is part of the patch filename; a branch name with a
+          # slash would make it a path into a directory that does not exist
+          # inside the CLI's mount, so flatten the separators.
+          patch_file="${GITHUB_REF_NAME//\//-}-$AFTER.patch"
           if [ -n "$base" ] && ! printf '%s' "$base" | grep -qE '^0+$' \
             && git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
             # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
@@ -136,8 +140,8 @@ jobs:
               -e GIT_CONFIG_KEY_0=safe.directory \
               -e GIT_CONFIG_VALUE_0='*' \
               "$RELEASE_MANAGEMENT_IMAGE" \
-              create-patch -from "$base" -to "$AFTER" -repo . -out "$GITHUB_REF_NAME-$AFTER.patch"
-            patch_args=(-patch "$GITHUB_REF_NAME-$AFTER.patch")
+              create-patch -from "$base" -to "$AFTER" -repo . -out "$patch_file"
+            patch_args=(-patch "$patch_file")
             echo "patched=true" >> "$GITHUB_OUTPUT"
           else
             echo "No ancestor commit to diff from; drafting the release without a patch." >&2
