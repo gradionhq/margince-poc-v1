@@ -13,6 +13,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -253,6 +254,102 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	}
 	if got.Fields["icp"] != "What the human says we sell to" {
 		t.Fatalf("an agent read-back overwrote the human's own value: %q", got.Fields["icp"])
+	}
+}
+
+func TestAcceptedOfferSummaryFillsTheDescriptionColumn(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
+	agent := principal.WithActor(base, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "agent:coldstart",
+		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: integration.AdminPerms,
+	})
+
+	// The header renders organization.description; an accepted offer_summary is
+	// the one-sentence answer, so the apply fills the column (only while empty).
+	orgID, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
+		SourceURL: "https://summarized.example",
+		Fields: []people.ColdStartFieldInput{{
+			Field: "offer_summary", Value: "Revenue operations software for mid-market manufacturers",
+			EvidenceSnippet: "We build RevOps software", SourceURL: "https://summarized.example", Confidence: 0.9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyColdStartProfile: %v", err)
+	}
+
+	readDescription := func() *string {
+		var description *string
+		if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT description FROM organization WHERE id = $1`, orgID).Scan(&description)
+		}); err != nil {
+			t.Fatalf("reading description: %v", err)
+		}
+		return description
+	}
+	got := readDescription()
+	if got == nil || *got != "Revenue operations software for mid-market manufacturers" {
+		t.Fatalf("description after accept = %v, want the accepted offer_summary", got)
+	}
+
+	// A later accept refreshes the evidence row but leaves the standing column
+	// alone — acceptance covers the staged diff, not an overwrite.
+	if _, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
+		SourceURL: "https://summarized.example",
+		Fields: []people.ColdStartFieldInput{{
+			Field: "offer_summary", Value: "A different sentence entirely",
+			EvidenceSnippet: "New copy", SourceURL: "https://summarized.example", Confidence: 0.9,
+		}},
+	}); err != nil {
+		t.Fatalf("second ApplyColdStartProfile: %v", err)
+	}
+	if got := readDescription(); got == nil || *got != "Revenue operations software for mid-market manufacturers" {
+		t.Fatalf("description after re-accept = %v, want the first fill kept", got)
+	}
+}
+
+func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
+	agent := principal.WithActor(base, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "agent:coldstart",
+		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: integration.AdminPerms,
+	})
+
+	// organization_description_length caps the column at 500 (0203). A longer
+	// accepted summary must skip the fill, not abort the whole apply.
+	long := strings.Repeat("Revenue operations software. ", 20)
+	orgID, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
+		SourceURL: "https://longwinded.example",
+		Fields: []people.ColdStartFieldInput{{
+			Field: "offer_summary", Value: long,
+			EvidenceSnippet: "We build RevOps software", SourceURL: "https://longwinded.example", Confidence: 0.9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyColdStartProfile with an overlong summary: %v", err)
+	}
+
+	var description, evidenceValue *string
+	if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(),
+			`SELECT description FROM organization WHERE id = $1`, orgID).Scan(&description); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(),
+			`SELECT value FROM organization_profile_field
+			  WHERE organization_id = $1 AND field = 'offer_summary'`, orgID).Scan(&evidenceValue)
+	}); err != nil {
+		t.Fatalf("reading the apply's result: %v", err)
+	}
+	if description != nil {
+		t.Fatalf("an overlong summary filled description = %q, want NULL", *description)
+	}
+	if evidenceValue == nil || *evidenceValue != long {
+		t.Fatal("the evidence row should still carry the full accepted summary")
 	}
 }
 

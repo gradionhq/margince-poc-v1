@@ -61,6 +61,7 @@ var columnBackedColdStartFields = map[string]string{
 	fieldLegalName:       columnLegalName,
 	"industry":           "industry",
 	"registered_address": "address",
+	fieldOfferSummary:    "description",
 }
 
 // ApplyColdStartProfile executes an ACCEPTED coldstart proposal. A
@@ -265,6 +266,12 @@ var coldStartColumns = map[string]string{
 	// fills line1 only when no structured address exists yet.
 	"address": `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS NULL
 	            AND address_city IS NULL AND address_postal_code IS NULL`,
+	// The length guard mirrors organization_description_length (0203): a
+	// summary the CHECK would reject skips the fill instead of aborting the
+	// whole apply — the evidence row still lands, and the column stays
+	// fillable by a shorter later read.
+	"description": `UPDATE organization SET description = $2
+	            WHERE id = $1 AND description IS NULL AND length($2) <= 500`,
 }
 
 // applyEvidenceFields fills the column-backed fields (only when empty) and
@@ -368,6 +375,9 @@ func writeOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, co
 			WHERE id = $1 AND industry IS DISTINCT FROM $2`,
 		"address": `UPDATE organization SET address_line1 = $2, updated_at = now()
 			WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`,
+		"description": `UPDATE organization SET description = $2, updated_at = now()
+			WHERE id = $1 AND description IS DISTINCT FROM $2
+			AND ($2::text IS NULL OR length($2) <= 500)`,
 	}
 	query, ok := queries[column]
 	if !ok {
