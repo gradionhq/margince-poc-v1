@@ -79,7 +79,8 @@ export function DedupeScreen() {
 
   return (
     <div className="dedupe-screen">
-      <h1>{t("dedupe.title")}</h1>
+      {/* The shell's page head owns this route's h1. */}
+      <h2 className="t-display">{t("dedupe.title")}</h2>
       <p className="t-small">{t("dedupe.intro")}</p>
       {queue.isPending && <p className="t-small">{t("dedupe.loading")}</p>}
       {queue.isError && (

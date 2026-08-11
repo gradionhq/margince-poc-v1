@@ -370,10 +370,19 @@ export function EmptyState({ children }: Readonly<{ children: ReactNode }>) {
 export function SectionHeader({
   title,
   sub,
-}: Readonly<{ title: string; sub?: string }>) {
+  level = 2,
+}: Readonly<{
+  title: string;
+  sub?: string;
+  // A section heading by default. `1` is for the one header on a page that IS
+  // the page's name — a record surface the app shell deliberately yields to,
+  // where this title is the only thing naming the page. Every other header on
+  // that page stays at level 2, so a document never carries two page titles.
+  level?: 1 | 2;
+}>) {
   return (
     <div className="section-header">
-      <h2>{title}</h2>
+      {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
       {sub && <span className="sub">{sub}</span>}
     </div>
   );

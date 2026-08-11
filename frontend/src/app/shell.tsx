@@ -1,15 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  LogOut,
-  Menu,
-  Moon,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
-  Settings,
-  Sun,
-  X,
-} from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -20,15 +10,14 @@ import {
 } from "react";
 import type { components } from "../api/schema";
 import { Logomark } from "../design-system/logomark";
-import { MarginceCoreScene } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useLogout, useMe } from "../screens/common";
 import { useEntityName } from "../screens/entityref";
+import { AccountMenu } from "./account";
+import { AgentStrip } from "./agentpanel";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
-import { LocaleMenu } from "./localemenu";
 import {
   BADGE_SCREENS,
   MOBILE_PRIMARY,
@@ -39,15 +28,20 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
-import { useTheme } from "./theme";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 
-// The app shell: a labeled sidebar that collapses to the canonical 64px rail.
-// Collapsed is the rail WDS-NAV-1 specifies, unchanged — the expanded state is
-// additive, so the spec stays true at 64px rather than being replaced. The top
-// bar shows only what is true for the current state (§2b, the cold-start rule).
+// The app shell: one sidebar against the left edge of the viewport, and the
+// content beside it. Collapsed the sidebar is the canonical 64px rail WDS-NAV-1
+// specifies, unchanged — the labeled state is additive, so the spec stays true
+// at 64px rather than being replaced.
+//
+// The sidebar carries everything that is true for the whole session: where you
+// can go, how you search, and who you are signed in as. The content column
+// carries only what is true for THIS screen — its heading, its actions, and the
+// agent. There is no top bar: a full-width strip of chrome above every screen
+// spent the scarcest space in the layout on things the sidebar already holds.
 
 export type ShellCounts = Partial<Record<string, number>>;
 
@@ -98,77 +92,55 @@ function BrandBlock() {
   );
 }
 
-// The agent panel: the prototype's white card at the sidebar foot — orb, who,
-// then two divided rows.
-//
-// What it may claim is constrained: the runtime knows routing is *configured*,
-// it does not continuously prove a provider is reachable, so absent a real
-// running job the panel states configuration and never liveness. The activity
-// line is example data until a list operation exists behind it (the AI activity
-// list has no handler), and it says so on screen rather than passing as real.
-//
-// The orb is the Core primitive (WDS-CORE-1), the same sphere sign-in and
-// onboarding show — there is one orb in the product, and a CSS lookalike in
-// permanent chrome was a second. It sits here rather than on the hero surfaces
-// only, because the Core now costs what it displays: the loop stops when the
-// panel is off screen or the window is away, and the buffer follows the 32px it
-// is drawn at (margince-core-liquid.tsx).
-//
-// `quiet` is the honest state and not merely the cheapest beat: the panel states
-// that routing is CONFIGURED, and the runtime does not continuously prove a
-// provider is reachable, so the sphere must not look busy. The feed is off — a
-// mote drifting across the rail's card is not atmosphere, it is a moving speck in
-// the navigation.
-function AgentOrb() {
-  return <MarginceCoreScene state="quiet" feed={false} className="agentorb" />;
-}
+// The search row's tooltip shares the collapsed rail's tooltip state with the
+// destinations, and that state is keyed by screen id. Search is not a screen —
+// it opens the palette over the one you are on — so it needs a key of its own
+// that no NAV entry can ever take.
+const SEARCH_TIP_KEY = "rail-search";
 
-function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
+// Search sits directly under the brand, above the destinations: it is how you
+// reach anything the ten rows do not list, so it reads as the first way to
+// move rather than as an eleventh place to go. It is a BUTTON styled as a row
+// and never accepts inline typing (AC-shell-7, one search affordance) — the
+// keyboard shortcut beside it is the same palette this opens.
+function RailSearch({
+  collapsed,
+  tipOpen,
+  onOpenSearch,
+  onTip,
+}: Readonly<{
+  collapsed: boolean;
+  tipOpen: boolean;
+  onOpenSearch: () => void;
+  onTip: (key: string | null) => void;
+}>) {
   const t = useT();
-  if (collapsed) {
-    return (
-      <div className="agentfield collapsed">
-        {/* Collapsed, the orb is the whole panel — and the orb is `aria-hidden`,
-            which WDS-CORE-4 only permits because the surface around it states in
-            text every state it shows. Expanded, the two lines below do that; here
-            there is no room for them, so they are present for a screen reader and
-            clipped for the eye. The `title` is the pointer's version of the same
-            sentence. */}
-        <span
-          className="agentcard"
-          title={`${t("agent.title")} — ${t("agent.configured")}`}
-        >
-          <AgentOrb />
-          <span className="sr-only">
-            {t("agent.title")} — {t("agent.configured")}
-          </span>
-        </span>
-      </div>
-    );
-  }
+  const label = t("shell.search");
   return (
-    <div className="agentfield">
-      <div className="agentcard">
-        <div className="agenthead">
-          <AgentOrb />
-          <span className="agentwho">
-            <b>{t("agent.title")}</b>
-            <span className="agentstate">{t("agent.configured")}</span>
+    <div className="railsearchwrap">
+      <button
+        type="button"
+        className="navitem railsearch"
+        aria-label={label}
+        onClick={onOpenSearch}
+        onMouseEnter={() => onTip(SEARCH_TIP_KEY)}
+        onMouseLeave={() => onTip(null)}
+        onFocus={() => onTip(SEARCH_TIP_KEY)}
+        onBlur={() => onTip(null)}
+      >
+        <Search aria-hidden />
+        <span className="navlabel">{label}</span>
+        {/* The shortcut is a hint, not a second name: aria-label above already
+            says "Search", so a screen reader is not made to spell out ⌘K. */}
+        <kbd className="t-mono" aria-hidden>
+          {paletteHotkeyLabel(navigator.platform)}
+        </kbd>
+        {collapsed && tipOpen && (
+          <span className="navtip" role="tooltip">
+            {label}
           </span>
-        </div>
-        {/* Everything below the rule is example data: the AI activity list has
-            no handler, and routing and spend are not wired into the shell yet.
-            One marker covers the block rather than each line pretending on its
-            own. */}
-        <p className="agentactivity">{t("agent.exampleActivity")}</p>
-        <div className="agentfoot">
-          <span className="agentrouting">{t("agent.exampleRouting")}</span>
-          <b>{t("agent.exampleCost")}</b>
-        </div>
-        <p className="agentfixture">
-          <span className="t-mono">{t("agent.fixture")}</span>
-        </p>
-      </div>
+        )}
+      </button>
     </div>
   );
 }
@@ -178,11 +150,13 @@ export function WorkspaceRail({
   counts,
   collapsed = false,
   onToggle,
+  onOpenSearch,
 }: Readonly<{
   route: Route;
   counts?: ShellCounts;
   collapsed?: boolean;
   onToggle?: () => void;
+  onOpenSearch: () => void;
 }>) {
   const t = useT();
   // Collapsed items are icon-only, so the label needs a tooltip that satisfies
@@ -257,6 +231,12 @@ export function WorkspaceRail({
           </button>
         )}
       </div>
+      <RailSearch
+        collapsed={collapsed}
+        tipOpen={tip === SEARCH_TIP_KEY}
+        onOpenSearch={onOpenSearch}
+        onTip={setTip}
+      />
       {NAV_GROUPS.map((group, index) => (
         <div className="navgroup" key={group.headingKey ?? `group-${index}`}>
           {/* The heading keeps its box in both states — collapsed it hides its
@@ -332,7 +312,17 @@ export function WorkspaceRail({
         <span className="navlabel">{t("shell.more")}</span>
       </button>
       <div className="grow" />
-      <AgentPanel collapsed={collapsed} />
+      {/* Who you are signed in as, at the foot where a dashboard sidebar keeps
+          it — and the menu opens upward from there, so it never covers the
+          destinations you were reading. */}
+      <div className="railfoot">
+        {/* The sheet is the phone's full-width sidebar, so the block prints who
+            is signed in there even when the desktop preference it inherits is
+            the 64px rail — collapsed is about the rail's width, and inside the
+            sheet there is none. (Outside the sheet the foot is hidden at phone
+            width, so this only ever reads as the sidebar's own state.) */}
+        <AccountMenu collapsed={collapsed && !sheetOpen} />
+      </div>
     </nav>
   );
 }
@@ -353,13 +343,15 @@ const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   search: "nav.search",
 };
 
-// The record's name as plain text: unresolved (loading, or a record this
-// principal cannot read) falls back to the id in mono rather than to nothing.
-function CrumbName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
+// The record's name at the end of the trail: unresolved (loading, or a record
+// this principal cannot read) falls back to the id in mono rather than to
+// nothing.
+function RecordName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
   const name = useEntityName(kind, id);
-  return name ? (
-    <b>{name}</b>
-  ) : (
+  if (name) {
+    return <span>{name}</span>;
+  }
+  return (
     <span className="t-mono" title={id}>
       {id}
     </span>
@@ -378,233 +370,59 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : screen;
 }
 
-export function TopBar({
+// The page head: the heading of the screen you are on, and beside it the two
+// things that are true of the whole product rather than of this screen — which
+// system of record is answering, and the agent. It is not a bar: no panel, no
+// border, no shadow, so the heading sits on the same ground as the content
+// under it and the eye reads one column rather than a stack of frames.
+export function PageHead({
   route,
-  onOpenSearch,
   actions,
 }: Readonly<{
   route: Route;
-  onOpenSearch: () => void;
   actions?: ReactNode;
 }>) {
   const t = useT();
-  const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
   const title = resolveTitle(route.screen, navItem?.labelKey, t);
-  const crumbKind = SCREEN_ENTITY[route.screen];
+  // A record kind, and only then: an id segment that names no record is a
+  // screen's own state — the settings tab, for one — and the page is still the
+  // screen. Printing that slug as the page's name gave Settings an h1 reading
+  // "privacy".
+  const recordKind = route.id ? SCREEN_ENTITY[route.screen] : undefined;
 
   return (
-    <header className="topbar">
-      {/* On a record, the SECTION is the link — it goes back to the list — and
-          the record's own name is plain text, because you are already on it.
-          The name resolves through EntityRef's cache and falls back to the raw
-          id in mono when it cannot, rather than showing a blank crumb. */}
-      <span className="crumb">
-        {/* The nav item's own icon, so the bar names the screen the same way the
-            rail does and the two read as one place rather than two labels. */}
-        {navItem && (
-          <navItem.icon size={16} strokeWidth={1.8} aria-hidden="true" />
-        )}
-        {route.id ? (
-          <a href={routeHash({ screen: route.screen })}>{title}</a>
+    <header className="pagehead">
+      <div className="pagetitle">
+        {/* A list, a report, a settings surface: the shell names it, and that
+            name is the page's one h1 — before this the only page-level name was
+            a span in the top bar, so the document had no heading to jump to.
+            A RECORD names itself: its surface prints the identity block, so the
+            head yields and shows the trail that leads here instead. Printing
+            the name twice, once at heading level and once beside the avatar,
+            would leave a screen reader picking between two page titles. */}
+        {recordKind && route.id ? (
+          <p className="pagecrumb">
+            <a className="pageback" href={routeHash({ screen: route.screen })}>
+              {navItem && (
+                <navItem.icon size={14} strokeWidth={1.8} aria-hidden="true" />
+              )}
+              {title}
+            </a>
+            <span aria-hidden="true">/</span>
+            <RecordName kind={recordKind} id={route.id} />
+          </p>
         ) : (
-          <b>{title}</b>
+          <h1 className="t-display">{title}</h1>
         )}
-        {route.id &&
-          (crumbKind ? (
-            <span>
-              {" · "}
-              <CrumbName kind={crumbKind} id={route.id} />
-            </span>
-          ) : (
-            <span> · {route.id}</span>
-          ))}
-      </span>
-      <div className="r">
+      </div>
+      <div className="pageaside">
         {actions}
         <SorModeChip />
-        {/* AC-shell-7: one search affordance. This is a button styled as a
-            field — it opens the palette and never accepts inline typing. */}
-        <button
-          type="button"
-          className="searchbar"
-          aria-label={t("shell.search")}
-          onClick={onOpenSearch}
-        >
-          <Search aria-hidden />
-          <span className="searchhint">{t("shell.searchHint")}</span>
-          <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
-        </button>
-        {/* Language and theme are preferences, not screen actions: they live in
-            the account menu with the rest of what belongs to this person, so the
-            bar carries only search and the one account affordance. */}
-        <AccountMenu logout={logout} />
+        <AgentStrip />
       </div>
     </header>
-  );
-}
-
-// The two preference rows: language, then theme, each naming the setting and
-// stating what it is set to. Both halves of the name are load-bearing — a menu
-// item has to say what activating it does, or the name describes a state rather
-// than a control, and WCAG 2.5.3 (Label in Name) requires the visible label to be
-// part of the name, or a speech-input user who says the word they can read
-// ("Language") activates nothing.
-//
-// Both keep the account menu OPEN: they stop the click from reaching the document
-// listener that dismisses it. Changing a preference is a thing you may want to do
-// twice, or undo immediately, and a menu that closed under you took the theme
-// you just picked out of view along with the control that picked it. Settings and
-// sign-out leave the menu on purpose — they leave the screen.
-function MenuPreferences() {
-  const t = useT();
-  const [theme, toggleTheme] = useTheme();
-  const light = theme === "light";
-  return (
-    <>
-      {/* Language is a menu of its own, not a toggle — three locales ship, and a
-          toggle cannot say where the next click lands. It brings its own list,
-          its own keyboard movement and its own focus handling (localemenu.tsx);
-          what it takes from here is the row's chrome. */}
-      <LocaleMenu className="menurow" />
-      <button
-        type="button"
-        aria-label={`${t("shell.theme")}: ${
-          light ? t("theme.switchToDark") : t("theme.switchToLight")
-        }`}
-        onClick={(event) => {
-          event.stopPropagation();
-          toggleTheme();
-        }}
-      >
-        {light ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}
-        {t("shell.theme")}
-        <span className="menuvalue">
-          {light ? t("theme.light") : t("theme.dark")}
-        </span>
-      </button>
-    </>
-  );
-}
-
-// The avatar owns everything that belongs to this person: the settings surface,
-// their language and theme, and the way out. A menu rather than a row of chrome
-// buttons — the prototype's top bar carries one account affordance, and sign-out
-// beside every screen invites a misclick.
-function AccountMenu({
-  logout,
-}: Readonly<{ logout: ReturnType<typeof useLogout> }>) {
-  const t = useT();
-  const me = useMe();
-  const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-
-  /**
-   * Close, and put focus back where it can be used.
-   *
-   * Dismissing the menu unmounts whatever row was focused, and an unmounted
-   * focus owner leaves the document focused on `<body>` — from there a keyboard
-   * user's next Tab starts at the top of the page, having lost the top bar they
-   * were standing in. The avatar is where they came from, so it is where they go
-   * back to.
-   *
-   * Only when the menu actually HELD focus, which is the difference between
-   * restoring focus and stealing it: an outside click usually lands on something
-   * focusable of its own (a field, a rail link), and pulling focus onto the avatar
-   * after it would undo what the click just did.
-   */
-  const dismiss = useCallback(() => {
-    const held = menu.current?.contains(document.activeElement) ?? false;
-    setOpen(false);
-    if (held) {
-      trigger.current?.focus();
-    }
-  }, []);
-
-  const identity = me.data?.user;
-  const label = identity?.display_name || identity?.email || "";
-  // Initials, or a single letter from the address — never a fabricated name.
-  const initials =
-    label
-      .split(/[\s@._-]+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("") || undefined;
-
-  // Dismissal lives on the document so Escape works from anywhere in the menu
-  // and any outside click closes it — the opening click is deferred past so it
-  // does not close what it just opened.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      // One keystroke closes one layer. The language row opens a submenu inside
-      // this popover, and both dismissals listen on the document, so without this
-      // a single Escape would collapse the submenu AND the menu around it —
-      // leaving the reader two layers away from where they were. The submenu
-      // announces itself through the trigger it expanded; when one is open it owns
-      // Escape, and the second press reaches here.
-      if (
-        menu.current?.querySelector(
-          '[aria-haspopup="menu"][aria-expanded="true"]',
-        )
-      ) {
-        return;
-      }
-      dismiss();
-    };
-    const onClick = () => dismiss();
-    document.addEventListener("keydown", onKey);
-    const timer = window.setTimeout(
-      () => document.addEventListener("click", onClick),
-      0,
-    );
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(timer);
-      document.removeEventListener("click", onClick);
-    };
-  }, [open, dismiss]);
-
-  return (
-    <div className="account">
-      <button
-        type="button"
-        className="user"
-        ref={trigger}
-        aria-label={t("shell.accountAria")}
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        {initials ?? <Settings size={15} aria-hidden />}
-      </button>
-      {open && (
-        <div className="accountmenu" ref={menu}>
-          <a href="#/settings">
-            <Settings size={15} aria-hidden />
-            {t("nav.settings")}
-          </a>
-          <hr />
-          <MenuPreferences />
-          <hr />
-          <button
-            type="button"
-            disabled={logout.isPending}
-            onClick={() => logout.mutate()}
-          >
-            <LogOut size={15} aria-hidden />
-            {t("shell.signOutAria")}
-          </button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -612,12 +430,12 @@ export function Shell({
   children,
   counts,
   onOpenSearch,
-  topBarActions,
+  pageActions,
 }: Readonly<{
   children: ReactNode;
   counts?: ShellCounts;
   onOpenSearch: () => void;
-  topBarActions?: ReactNode;
+  pageActions?: ReactNode;
 }>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
@@ -654,13 +472,10 @@ export function Shell({
         counts={counts}
         collapsed={collapsed}
         onToggle={toggle}
+        onOpenSearch={onOpenSearch}
       />
       <main className="main">
-        <TopBar
-          route={route}
-          onOpenSearch={onOpenSearch}
-          actions={topBarActions}
-        />
+        <PageHead route={route} actions={pageActions} />
         {/* Public, onboarding, and preference routes are intentionally
             railless; these advisories belong only here. */}
         <EconomyBanner />

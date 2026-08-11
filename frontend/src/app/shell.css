@@ -1,13 +1,13 @@
-/* App shell — a labeled sidebar collapsing to the canonical 64px rail, above a
- * floating top bar. The chrome is WHITE, not §2b's deep ink-green field: the
- * founder ruling of 2026-07-23 makes the product surface white, so rail icons
+/* App shell — a labeled sidebar collapsing to the canonical 64px rail, and the
+ * content column beside it. The chrome is WHITE, not §2b's deep ink-green field:
+ * the founder ruling of 2026-07-23 makes the product surface white, so rail icons
  * read as ordinary theme tokens rather than white-alpha on a dark ground. The
- * ink-green field keeps the agent panel and the marketing surfaces. */
+ * ink-green field keeps the marketing surfaces. */
 
-/* The chrome floats: sidebar, top bar and content are inset panels on the matte
- * ground with a ~10px margin between them, the same gesture design.md:139
- * specifies for the field panel. The ground showing through IS the design —
- * nothing here is edge-to-edge except the rail-less surfaces. */
+/* The sidebar is FLUSH to the viewport: full height, square, separated from the
+ * content by a hairline rather than by a gap. A sidebar is the edge of the
+ * application, and an edge that floats as a card reads as a panel someone could
+ * close. Only the content column is inset, and it insets itself. */
 .app {
   /* One duration for the whole collapse choreography, so the column, the icons
      and the labels stay in step. */
@@ -16,8 +16,6 @@
 
   display: grid;
   grid-template-columns: 64px 1fr;
-  gap: var(--shellGap, 10px);
-  padding: var(--shellGap, 10px);
   height: 100vh;
   box-sizing: border-box;
   background: var(--bgPage);
@@ -38,7 +36,7 @@
   }
 }
 .app.railexpanded {
-  grid-template-columns: 250px 1fr;
+  grid-template-columns: 252px 1fr;
 }
 /* The whole collapse choreography — column width, icon size, label width and
    fade — jumps straight to its end state when motion is not wanted. */
@@ -53,20 +51,17 @@
    are deliberately full-bleed — they carry their own chrome. */
 .app.railless {
   grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
 }
 
 .main {
   display: flex;
   flex-direction: column;
-  gap: var(--shellGap, 10px);
   min-width: 0;
   overflow: hidden;
   background: transparent;
 }
 /* The content area is the ground, not a panel: screens float their own cards on
-   it (hairlines, not shadows). Only the sidebar and top bar are chrome panels. */
+   it (hairlines, not shadows). The sidebar is the only chrome panel left. */
 .scroll {
   flex: 1;
   overflow-y: auto;
@@ -85,12 +80,13 @@
      under the content. */
   position: relative;
 }
-/* The shell already insets the content area, so the wrap adds rhythm rather
-   than the full page gutter it needed when the scroll ran edge-to-edge. */
+/* The page gutter. Its left inset matches the page head's, so the heading and
+   the content beneath it start on the same line — the shell no longer insets
+   this column, the column does. */
 .wrap {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 18px 26px 80px;
+  padding: var(--space-1) var(--space-6) var(--space-16);
   width: 100%;
 }
 .wrap.narrow {
@@ -131,14 +127,17 @@
 /* ===== sidebar =====
  * The ground is the matte near-white surface in BOTH states. The collapsed
  * state matches the canonical rail's geometry — 64px, 44px targets, the
- * logomark chip, the active indicator bar — but not its ink-green field: the
- * signature field panel moved to the agent surface at the foot (decision D),
- * and a sidebar that changed colour on collapse would read as two shells. */
+ * logomark chip, the active indicator bar — but not its ink-green field: a
+ * sidebar that changed colour on collapse would read as two shells.
+ *
+ * Top to bottom: brand, search, the ten destinations, then the account block
+ * pinned to the foot. */
 .rail {
   background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
+  /* One hairline, on the side that separates it from the content. No radius and
+     no shadow: the sidebar is not a card floating on the page, it is the page's
+     left edge, and it runs the full height of the viewport. */
+  border-right: 1px solid var(--borderSubtle);
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -162,7 +161,76 @@
    every item sideways in a single frame — the jump. */
 .rail.expanded,
 .rail.collapsed {
-  padding: 10px 8px;
+  padding: var(--space-3) var(--space-2);
+}
+
+/* ===== search: the first row under the brand =====
+ * It shares .navitem's geometry so it lines up with the destinations under it,
+ * and it is a BUTTON, not a field — AC-shell-7 keeps one search affordance in
+ * the product and this is it. */
+.rail .railsearchwrap {
+  display: flex;
+  margin-bottom: var(--space-3);
+}
+.rail .railsearch {
+  width: 100%;
+  /* The hairline is drawn INSIDE the box, not as a border: a border would grow
+     the row by 2px and move its glyph a pixel off the column of icons below,
+     which is the one thing this row must not do. */
+  box-shadow: inset 0 0 0 1px var(--borderSubtle);
+  background: var(--bgPage);
+  font-family: var(--f-body);
+  text-align: left;
+  cursor: pointer;
+}
+.rail .railsearch:hover {
+  background: var(--bgHover);
+  box-shadow: inset 0 0 0 1px var(--borderStrong);
+}
+/* Every focusable row in the sidebar takes the design system's ring (atoms.css
+   spells the same three declarations on .segmented and .link-button). The search
+   row keeps its hairline in the same shadow, because a second box-shadow rule
+   would replace the first rather than add to it. */
+.rail .navitem:focus-visible,
+.rail .railmore:focus-visible,
+.rail .railtoggle:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+.rail .railsearch:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px var(--borderStrong),
+    0 0 0 3px var(--accentLight);
+}
+/* The label is absolutely positioned for the collapse animation, so it does not
+   flow around the shortcut cap — it is held clear of it instead. */
+.rail .railsearch .navlabel {
+  right: 46px;
+}
+.rail .railsearch kbd {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--textMeta);
+  background: var(--bgCard);
+  border: 1px solid var(--borderSubtle);
+  border-radius: 4px;
+  padding: 1px 5px; /* ds:ignore optical inset on a shortcut cap, not rhythm */
+}
+/* Collapsed there is room for the glyph only; the shortcut hint would be a
+   two-character smudge beside an 18px icon. The row keeps its hairline, so
+   search still reads as the input-shaped thing it is at 64px, and it keeps the
+   nav rows' padding so its glyph stays in their column. */
+.rail.collapsed .railsearch kbd {
+  display: none;
+}
+
+/* ===== account block, pinned to the foot ===== */
+.rail .railfoot {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
 }
 
 /* head row: brand block, and the collapse control right-aligned beside it */
@@ -367,11 +435,14 @@
 }
 /* The indicator bar belongs to the collapsed rail, where there is no label to
    carry the active state. Expanded, the tint plus accent text says it without a
-   bar that would clip against the sidebar edge. */
+   bar that would clip against the sidebar edge.
+   It sits INSIDE the rail's gutter rather than on its edge: the sidebar is now
+   flush to the viewport, and a bar hung past the padding would be sliced in
+   half by the window. */
 .rail.collapsed .navitem.active::before {
   content: "";
   position: absolute;
-  left: -8px;
+  left: -4px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
@@ -454,124 +525,6 @@
   min-height: 12px;
 }
 
-/* ===== the signature field panel: a deep ink-green panel inset on the matte
- * ground with a white card inside it (design.md:20, :139). It carries the
- * agent, not the navigation. ===== */
-.rail .agentfield {
-  background: transparent;
-  border-radius: var(--r-md);
-  margin-top: 12px;
-}
-.rail .agentfield.collapsed {
-  margin-top: 12px;
-}
-.rail .agentcard {
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
-  padding: 10px 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.rail .agentfield.collapsed .agentcard {
-  padding: 6px;
-  display: grid;
-  place-items: center;
-  gap: 0;
-  /* Contains the clipped status line the collapsed card carries for a screen
-     reader (`.sr-only` is absolutely positioned): without a positioned ancestor
-     its containing block is the viewport, and a 1px box that escapes its
-     scroller is the same defect this branch fixes on the settings tabs. */
-  position: relative;
-}
-.rail .agenthead {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.rail .agentwho {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.rail .agenthead b {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--textPrimary);
-  line-height: 1.2;
-}
-/* The status dot reads as state, not as confidence — it is deliberately the
-   away/neutral token, not the bright success green. */
-.rail .agentstate::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 5px;
-  border-radius: var(--r-full);
-  background: var(--textMeta);
-  vertical-align: 1px;
-}
-.rail .agentactivity,
-.rail .agentfoot {
-  border-top: 1px solid var(--borderSubtle);
-  padding-top: 7px;
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--textMeta);
-}
-.rail .agentfoot {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.rail .agentrouting {
-  flex: 1;
-  min-width: 0;
-}
-.rail .agentfoot b {
-  color: var(--textPrimary);
-  font-weight: 600;
-  font-size: 11.5px;
-}
-/* The agent panel's orb IS the Core primitive (WDS-CORE-1) — the same sphere the
-   sign-in surface and onboarding show, not a second one built out of gradients.
-   A hand-rolled CSS copy used to sit here to avoid holding a render loop in
-   permanent chrome; the Core now draws only while it is actually on screen and at
-   the resolution it is displayed at, so a 40px orb in the rail costs a fraction of
-   a hero and nothing at all behind a hidden tab (margince-core-liquid.tsx).
-
-   Sizing is through the primitive's own custom properties, which is the one thing
-   WDS-CORE-1 lets a caller do. --coreGlass is deliberately well inside --coreSize:
-   the difference is where the halo and the ground caustic live, and squeezing it
-   clips the light off the sphere. */
-.rail .agentorb {
-  --coreSize: 42px;
-  --coreGlass: 32px;
-  flex: none;
-}
-.rail .agentfield.collapsed .agentorb {
-  --coreSize: 32px;
-  --coreGlass: 25px;
-}
-.rail .agentstate {
-  margin: 0;
-  font-size: 11px;
-  color: var(--textMeta);
-}
-.rail .agentfixture {
-  margin: 0;
-}
-.rail .agentfixture span {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--textMeta);
-}
-
 /* The collapse control sits in the head row beside the brand. It is icon-only,
    so it needs an explicit colour — inheriting left it invisible on the white
    panel. */
@@ -601,276 +554,67 @@
   display: none;
 }
 
-/* ===== top-bar menus: the account avatar and the language control =====
-   One rule for both, not a copy each: they sit side by side in the same row,
-   where two popups a few pixels apart reads as a mistake rather than as two
-   components. */
-.topbar .account,
-.topbar .localemenu {
-  position: relative;
+/* ===== page head =====
+ * The heading of the screen you are on, and beside it what is true of the whole
+ * product: the system-of-record chip and the agent. Deliberately NOT a panel —
+ * no background, no border, no shadow — so the h1 sits on the same ground as
+ * the content under it and the page reads as one column. */
+.pagehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
   flex: none;
+  padding: var(--space-5) var(--space-6) var(--space-3);
 }
-.topbar .accountmenu,
-.topbar .localelist {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  min-width: 188px;
-  /* The floor above sets the comfortable width; this keeps it a floor rather than
-     a promise the viewport cannot keep. A narrow phone at 200% zoom leaves less
-     room than 188px plus the bar's own gutter, and the menu is anchored to its
-     right edge, so growing past the viewport clips it on the LEFT — the side the
-     labels start on. */
-  max-width: calc(100vw - 2 * var(--space-2));
+.pagetitle {
   display: flex;
   flex-direction: column;
-  padding: 5px;
-  gap: 1px;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  box-shadow: var(--shadow-pop);
-  z-index: 60;
-  /* The menu comes OUT OF the avatar rather than appearing beside it: the
-     transform origin is the control that opened it, so the growth reads as one
-     movement instead of a panel switching on. Short (0.14s) because this is
-     chrome — a menu you have to wait for is a menu that feels slow — and on the
-     shell's own curve, so it belongs to the same choreography as the sidebar
-     collapse rather than carrying a second easing vocabulary.
-     Transform and opacity only: both composite, so it cannot cost a frame.
-     The fallback repeats `.app`'s curve because the top bar is also rendered
-     outside the shell (the component workbench), and an unresolved custom
-     property in a shorthand invalidates the whole declaration — which would
-     silently drop the animation there rather than degrade it. */
-  animation: accountmenu-in 0.14s var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1))
-    both;
-  transform-origin: top right;
+  gap: var(--space-1);
+  min-width: 0;
 }
-@keyframes accountmenu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.pagehead h1 {
+  margin: 0;
+  font-family: var(--f-display);
+  line-height: 1.15;
+  /* A record name is user data of unbounded length; it wraps rather than
+     pushing the agent strip off the row. */
+  overflow-wrap: anywhere;
 }
-/* The end state, immediately — a menu that renders nothing under reduced motion
-   is broken, not accessible. */
-@media (prefers-reduced-motion: reduce) {
-  .topbar .accountmenu,
-  .topbar .accountmenu .localelist {
-    animation: none;
-  }
-}
-.topbar .accountmenu a,
-.topbar .accountmenu button,
-.topbar .localelist button {
+/* The trail on a record route, standing where the heading stands on every other
+   one. It is quiet on purpose: the record's own name, at full size, is the next
+   thing down the page. */
+.pagecrumb {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--textContent);
-  font-family: var(--f-body);
-  font-size: 13px;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-/* The language rows carry a tick for the current locale, pushed to the far
-   end so the names stay left-aligned with each other. */
-.topbar .localelist button {
-  justify-content: space-between;
-}
-.topbar .accountmenu a:hover,
-.topbar .accountmenu button:hover,
-.topbar .localelist button:hover {
-  background: var(--bgHover);
-  color: var(--textPrimary);
-}
-.topbar .accountmenu button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.topbar .accountmenu a:focus-visible,
-.topbar .accountmenu button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-/* The groups: the account surface, then the two preferences, then the way out.
-   An <hr> rather than a border on the first row of a group — it is a separator,
-   and a screen reader is told so. */
-.topbar .accountmenu hr {
-  height: 1px;
-  border: 0;
-  margin: var(--space-1) 0;
-  background: var(--borderSubtle);
-}
-/* The language control is a ROW of this menu rather than a control beside it: its
-   own wrapper is a flex item of the popover's column, and the trigger fills it so
-   it lines up with Settings, Theme and Sign out. Everything else it needs — the
-   row chrome, the hover, the focus ring — it already inherits from the rules
-   above, because the trigger is a button inside `.accountmenu`. */
-.topbar .accountmenu .localemenu {
-  display: flex;
-}
-.topbar .accountmenu .menurow {
-  flex: 1;
-}
-/* The list is a SUBMENU here, so it opens beside the account menu. Left of it,
-   because the account menu is itself pinned to the right edge of the bar; and
-   `top: -5px` cancels the popover's own padding so the first language sits level
-   with the row that opened it. Under the row — where the top bar's rule puts it —
-   it would cover Theme and Sign out. */
-.topbar .accountmenu .localelist {
-  right: calc(100% + 6px);
-  top: -5px;
-  /* Same gesture as the account menu's own entry, mirrored: this one grows out of
-     the row on its right edge. */
-  animation: accountmenu-in 0.14s var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1))
-    both;
-  transform-origin: top right;
-}
-/* A preference row states the setting on the left and what it is currently set to
-   on the right; the accessible name carries what clicking does. */
-.topbar .accountmenu .menuvalue {
-  margin-left: auto;
-  color: var(--textMeta);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.topbar {
-  min-height: 60px;
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  background: var(--bgElevated);
-  flex: none;
-  gap: 10px;
-}
-/* The crumb IS the page title: the screen name carries display weight and the
- * record it drills into stays secondary, so a glance at the bar answers "where
- * am I" before anything in the content area is read. */
-/* The crumb IS the page title, and it carries the screen's icon. Weight is
- * reserved for the segment you are actually on: on a record the section is a way
- * back and reads as ordinary text, so bold always means "here". */
-.topbar .crumb {
-  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  margin: 0;
+  min-height: 30px;
   color: var(--textSecondary);
-  font-family: var(--f-display);
-  font-size: 15px;
-  line-height: 1.2;
+  font-size: 13px;
 }
-.topbar .crumb b {
-  color: var(--textPrimary);
-  font-weight: 600;
+.pagecrumb > span[aria-hidden] {
+  color: var(--borderStrong);
 }
-/* A section that is only the route back does not compete with the record it
- * leads away from. */
-/* It is also the way back to its list. Stated once: split across rules, the
- * last weight won and the crumb kept the emphasis this is meant to take off
- * it. */
-.topbar .crumb a {
+/* The way back to the list — quieter still than the record it leads away from,
+   because it names where you were, not where you are. */
+.pageback {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--textMeta);
+  font-size: 12.5px;
   text-decoration: none;
-  font-size: inherit;
-  font-weight: 400;
 }
-.topbar .crumb a:hover {
+.pageback:hover {
   color: var(--textPrimary);
   text-decoration: underline;
 }
-.topbar .r {
-  margin-left: auto;
+.pageaside {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.topbar .iconbtn {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--textMeta);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.topbar .iconbtn:hover {
-  background: var(--bgHover);
-  color: var(--textPrimary);
-}
-.topbar .iconbtn svg {
-  width: 17px;
-  height: 17px;
-}
-/* AC-shell-7: one search affordance. Styled as a field, but it IS a button —
-   it opens the palette and never accepts inline typing. */
-.topbar .searchbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  min-width: 210px;
-  padding: 0 10px;
-  border: 1px solid var(--borderSubtle);
-  border-radius: 9px;
-  background: var(--bgPage);
-  color: var(--textMeta);
-  font-family: var(--f-body);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-.topbar .searchbar:hover {
-  background: var(--bgHover);
-  border-color: var(--borderStrong);
-}
-.topbar .searchbar svg {
-  width: 15px;
-  height: 15px;
+  gap: var(--space-2);
   flex: none;
-}
-.topbar .searchhint {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.topbar .searchbar kbd {
-  font-size: 10.5px;
-  color: var(--textMeta);
-  background: var(--bgCard);
-  border-radius: 4px;
-  padding: 1px 5px;
-  flex: none;
-}
-.topbar .user {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--r-full);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  color: var(--textOnAccentControl);
-  background: var(--accent);
-  flex: none;
-  font-family: var(--f-body);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 /* ===== ⌘K palette ===== */
@@ -1085,9 +829,13 @@
   .rail.expanded .navgroup {
     display: contents;
   }
+  /* The bottom bar carries destinations and nothing else: search, the account
+     block and the group headings all belong to the sidebar, and the sheet below
+     brings the first two back where there is room for them. */
   .rail .navheading,
   .rail .ws,
-  .rail .agentfield,
+  .rail .railsearchwrap,
+  .rail .railfoot,
   .rail .railtoggle,
   .rail .grow,
   .rail .navtip {
@@ -1225,16 +973,34 @@
     justify-content: flex-start;
   }
   .rail.sheetopen .navheading,
-  .rail.sheetopen .navlabel,
-  .rail.sheetopen .agentfield {
+  .rail.sheetopen .navlabel {
     display: initial;
   }
   .rail.sheetopen .navheading {
     display: block;
+    /* The sheet is 600px wide even when the desktop preference it inherits is
+       the 64px rail, so the group names are spelled out here rather than
+       standing in as the collapsed rail's hairline. */
+    color: var(--textMeta);
   }
-  .rail.sheetopen .agentfield {
+  .rail.sheetopen .navheading::after {
+    display: none;
+  }
+  /* Search opens the sheet's own first row, and the account block closes it —
+     the same order the sidebar reads in, so the sheet is the sidebar rather
+     than a second arrangement of it. */
+  .rail.sheetopen .railsearchwrap {
+    display: flex;
+  }
+  .rail.sheetopen .railfoot {
     display: block;
-    margin-top: 12px;
+  }
+  /* The menu drops DOWN here: at the foot of a sheet that is already pinned to
+     the bottom of the viewport, an upward popover would cover the destinations
+     it sits under. */
+  .rail.sheetopen .accountmenu {
+    top: calc(100% + 6px);
+    bottom: auto;
   }
   .rail.sheetopen .navitem,
   .rail.sheetopen.expanded .navitem {
@@ -1281,17 +1047,14 @@
   .app.railless .scroll {
     padding-bottom: 0;
   }
-  .topbar .searchhint {
-    display: none;
-  }
-  .topbar .searchbar {
-    min-width: 0;
-  }
   .wrap {
-    padding: 16px 14px 90px;
+    padding: var(--space-1) var(--space-4) var(--space-16);
   }
-  .topbar {
-    padding: 0 12px;
+  /* The heading keeps the row; the agent strip wraps under it rather than
+     squeezing a record name into a third of the width. */
+  .pagehead {
+    padding: var(--space-4) var(--space-4) var(--space-2);
+    flex-wrap: wrap;
   }
   .askfab-root {
     bottom: 76px;
@@ -1299,9 +1062,9 @@
 }
 
 /* A list screen is one full-height surface: the page itself does not scroll,
- * the table's own body does. It also drops the reading-width inset every other
- * screen wants, so the surface's edges line up with the top bar above it —
- * a table narrower than the bar reads as a panel that failed to fit.
+ * the table's own body does. It also drops the reading-width cap every other
+ * screen wants — a list uses the width it is given — while keeping the page
+ * gutter, so the surface's left edge lines up with the heading above it.
  *
  * Keyed off the wrap CARRYING a surface, not on it being the only child: a
  * toast is a sibling in the markup even though it is fixed and takes no space,
@@ -1312,7 +1075,7 @@
   flex-direction: column;
   height: 100%;
   max-width: none;
-  padding: 0;
+  padding: 0 var(--space-6) var(--space-6);
 }
 /* The surface takes the height rather than its content deciding it. Sized by
  * content, a list that momentarily renders smaller — a board mid-refetch after

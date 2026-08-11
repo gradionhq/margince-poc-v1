@@ -117,8 +117,12 @@ describe("custom-fields route", () => {
         </LocaleProvider>
       </QueryClientProvider>,
     );
+    // The SCREEN's own section header, at level 2. The shell's page head now
+    // titles every route from the router alone, so a level-1 "Custom fields"
+    // would be on screen even if this route rendered nothing — anchoring there
+    // would stop proving that the admin surface mounted.
     expect(
-      await screen.findByRole("heading", { name: "Custom fields" }),
+      await screen.findByRole("heading", { level: 2, name: "Custom fields" }),
     ).toBeTruthy();
   });
 });

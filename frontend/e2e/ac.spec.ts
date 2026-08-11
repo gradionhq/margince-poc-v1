@@ -45,6 +45,22 @@ const CORE_SCREENS = [
   "automations",
 ];
 
+/**
+ * The one account affordance, at the foot of the sidebar.
+ *
+ * Scoped to `.railfoot` rather than found by name alone: WHERE it is is half of
+ * what the restructure promises — the person sits under the destinations, not
+ * in a strip above the page — and a second account control appearing anywhere
+ * else would still satisfy a bare name lookup. The name itself is deliberately
+ * a substring: expanded, the trigger prints who is signed in and carries that
+ * text into its accessible name (WCAG 2.5.3), so it reads "<person> — Konto".
+ */
+function accountTrigger(page: Page) {
+  return page.locator("nav.rail .railfoot").getByRole("button", {
+    name: "Konto",
+  });
+}
+
 // The canonical ten, in order: Home alone, then records / work / intelligence.
 // A72 (ADR-0035 Am.1) promoted Automations into primary nav. Two labels differ
 // from their route ids on purpose — `deals` presents as Pipeline and `inbox` as
@@ -92,6 +108,33 @@ test("AC-shell-2: exactly one rail item is active and tracks the route", async (
   await expect(page.locator("nav.rail a.navitem.active")).toHaveCount(1);
 });
 
+// One page-level heading per railed page, and it names the page. On a list, a
+// report or a settings surface the shell's page head mints it. On a RECORD the
+// record's own identity block IS it, and the head prints the trail back
+// instead — the name at heading level twice would leave a screen reader
+// choosing between two page titles for the same record.
+test("AC-shell-1k: one h1 per railed page, and on a record it is the record's own", async ({
+  page,
+}) => {
+  await page.goto("/#/contacts");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Kontakte");
+
+  await page.goto("/#/contacts/p-anna");
+  const heading = page.getByRole("heading", { level: 1 });
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText("Anna Weber");
+  await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
+  await expect(page.locator(".pagecrumb .pageback")).toHaveText("Kontakte");
+
+  // An id segment that names no record is the screen's own state, never the
+  // page's name: #/settings/privacy is the Settings page, and "privacy" is a
+  // route slug no reader should ever be shown as a title.
+  await page.goto("/#/settings/privacy");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Einstellungen",
+  );
+});
+
 test("AC-shell-3/4/5: ⌘K opens focused+empty, filters, Enter navigates", async ({
   page,
 }) => {
@@ -108,14 +151,22 @@ test("AC-shell-3/4/5: ⌘K opens focused+empty, filters, Enter navigates", async
   await expect(page).toHaveURL(/#\/deals$/);
 });
 
-test("AC-shell-7: the top-bar search affordance opens the palette", async ({
+test("AC-shell-7: the sidebar's search row opens the palette", async ({
   page,
 }) => {
   await page.goto("/#/home");
-  await page.getByRole("button", { name: "Suche" }).click();
+  const rail = page.locator("nav.rail");
+  // One search affordance in the product, and it is the sidebar's first row.
+  // A BUTTON, never a field: the palette owns the query, and a second input
+  // taking one here is exactly what this criterion forbids.
+  await expect(rail.locator("input")).toHaveCount(0);
+  await rail.getByRole("button", { name: "Suche" }).click();
   await expect(
     page.getByRole("textbox", { name: "Befehlspalette" }),
   ).toBeVisible();
+  // And it is not an eleventh destination — the ten links AC-shell-1 counts
+  // are unchanged by search moving into the sidebar.
+  await expect(rail.locator("a.navitem")).toHaveCount(10);
 });
 
 test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", async ({
@@ -134,10 +185,11 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
 }) => {
   await page.goto("/#/home");
   await expect(page.locator('nav.rail a[aria-label="Kontakte"]')).toBeVisible();
-  // The language control is a preference, so it lives in the account menu rather
-  // than in the top bar: reaching it takes opening that menu, and the language
-  // itself is a list of the three shipped locales rather than a toggle.
-  await page.getByRole("button", { name: "Konto" }).click();
+  // The language control is a preference, so it lives in the account menu at
+  // the SIDEBAR FOOT — there is no top bar. Reaching it takes opening that
+  // menu, and the language itself is a list of the three shipped locales
+  // rather than a toggle.
+  await accountTrigger(page).click();
   await page.getByRole("button", { name: "Sprache: Deutsch" }).click();
   await page.getByRole("menuitemradio", { name: "English" }).click();
   await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
@@ -163,10 +215,10 @@ test("features/10 §7: Escape closes the language menu back onto its trigger", a
   page,
 }) => {
   await page.goto("/#/home");
-  // The language row lives in the account menu, so the trigger is reached through
-  // it — and Escape then closes ONE layer: the language list, not the menu around
-  // it, whose own row is where focus has to land.
-  await page.getByRole("button", { name: "Konto" }).click();
+  // The language row lives in the account menu at the sidebar foot, so the
+  // trigger is reached through it — and Escape then closes ONE layer: the
+  // language list, not the menu around it, whose own row is where focus lands.
+  await accountTrigger(page).click();
   const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
   await trigger.click();
   const menu = page.getByRole("menu", { name: "Sprache" });
@@ -180,7 +232,7 @@ test("features/10 §7: Tab closes the language menu and carries on", async ({
   page,
 }) => {
   await page.goto("/#/home");
-  await page.getByRole("button", { name: "Konto" }).click();
+  await accountTrigger(page).click();
   const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
   await trigger.click();
   const menu = page.getByRole("menu", { name: "Sprache" });
@@ -669,9 +721,9 @@ test.describe("B-EP09.23: overlay mode", () => {
     // workspace has none — and "nobody knows them" would be a lie rather than
     // an empty answer.
     await page.goto("/#/contacts/p-anna");
-    await expect(
-      page.getByRole("heading", { name: "Anna Weber" }),
-    ).toBeVisible();
+    // The RECORD's own identity block, which is the page's one h1 — the shell's
+    // page head yields to it on a record route and prints the trail instead.
+    await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
     await expect(page.getByText(unavailable)).toHaveCount(4);
     await expect(page.getByText(errorBox)).toHaveCount(0);
 
@@ -679,9 +731,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     // panel. Coverage joins the interaction projection too, so it is
     // unavailable for the same reason rather than reporting a clean deal.
     await page.goto("/#/deals/d-fleet");
-    await expect(
-      page.getByRole("heading", { name: "Fleet retrofit" }),
-    ).toBeVisible();
+    await expect(page.locator(".record-head h1")).toHaveText("Fleet retrofit");
     await expect(page.getByText(unavailable)).toHaveCount(5);
     await expect(page.getByText(errorBox)).toHaveCount(0);
 
@@ -1013,8 +1063,9 @@ test("PERF-1: record open renders under the 300ms perceived budget", async ({
   await expect(row).toBeVisible();
   const start = Date.now();
   await row.click();
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Anna Weber" }),
-  ).toBeVisible();
+  // The record's own header, not the shell's — the head shows only the trail on
+  // a record route, and it renders from the router before any record read
+  // returns, so waiting on it would measure routing rather than the open.
+  await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
   expect(Date.now() - start).toBeLessThan(300);
 });
