@@ -9,8 +9,11 @@
 # (a local build) it stays empty, which disables the comparison rather than
 # alarming on it.
 
+# The constellation registry namespace the publisher grant admits
+# (registryauth catalog: push on margince/*). The release workflow pushes the
+# baked images here.
 variable "REPO" {
-  default = "ghcr.io/gradionhq/margince-poc-v1"
+  default = "registry.test.margince.com/margince"
 }
 
 variable "VERSION" {
