@@ -229,6 +229,17 @@ var attributionVerbs = []string{"wrote:", "schrieb:", "schrieb ", " wrote "}
 // open with "On" and mention writing much later is prose.
 const attributionMaxRunes = 200
 
+// ownHeaderRunes is how far into the text a "From:"/"Von:" line may sit and
+// still belong to THIS message rather than to a quoted one.
+//
+// A captured email body often begins with its own envelope headers — the
+// capture path stores "From: …\nTo: …\n\n" above the text somebody wrote. Those
+// same words further down the message introduce the thread being quoted. The
+// difference is position: a header block is at the top, and a quoted-message
+// header comes after the reply. Generous enough for a few header lines with
+// long addresses, far short of any real reply.
+const ownHeaderRunes = 400
+
 // replyText narrows the text to the message actually being written, and says
 // how much of what remains is the lead.
 //
@@ -257,7 +268,8 @@ func replyText(runes []rune) (text []rune, lead int) {
 func quoteStart(runes []rune) int {
 	for offset, atLineStart := 0, true; offset < len(runes); offset++ {
 		if atLineStart && !unicode.IsSpace(runes[offset]) {
-			if startsQuote(lineAt(runes, offset)) {
+			line := lineAt(runes, offset)
+			if startsQuote(line) && !isOwnHeader(line, offset) {
 				return offset
 			}
 			atLineStart = false
@@ -266,6 +278,21 @@ func quoteStart(runes []rune) int {
 		atLineStart = atLineStart || runes[offset] == '\n' || runes[offset] == '\r'
 	}
 	return -1
+}
+
+// isOwnHeader reports whether an address header at this offset belongs to the
+// message itself rather than announcing a quoted one.
+//
+// Without this a captured email is cut to nothing: the capture path stores the
+// envelope headers above the body, so the text starts "From: …", the whole
+// message reads as quoted, and the language of a German thread resolves to
+// Unknown — which is exactly how a German thread produced an English draft.
+func isOwnHeader(line []rune, offset int) bool {
+	if offset >= ownHeaderRunes {
+		return false
+	}
+	text := string(line)
+	return strings.HasPrefix(text, "From: ") || strings.HasPrefix(text, "Von: ")
 }
 
 // lineAt returns the rest of the line beginning at offset.
