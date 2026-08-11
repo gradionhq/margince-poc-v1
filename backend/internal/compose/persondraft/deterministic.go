@@ -109,16 +109,48 @@ func deterministicOpener(in Input) string {
 	return ""
 }
 
-// The claim kinds a first message can honestly open on, most actionable first.
-// An open question and an objection are both things the reader is waiting on us
-// for; a priority is what they told us matters. The other kinds — our own
-// commitments, decisions already taken — are not openers for a message TO them.
+// The claim kinds a message can honestly open on, most actionable first.
+//
+// An OVERDUE commitment leads, and it leads for a reason worth stating: it is
+// the one thing on this list the recipient is owed rather than merely
+// interested in. We said we would do something by a date, the date has passed,
+// and a message that opens on anything else while that is outstanding reads as
+// having forgotten. It is also the archetype the whole grounding effort is for
+// — the email a rep knows they should send and does not.
+//
+// A commitment with no due date, or one not yet due, stays out. "We said we
+// would look into it" is not a reason to write today, and leading on it invents
+// an urgency nobody agreed to.
+//
+// Below it the order is unchanged: an open question and an objection are both
+// things the reader is waiting on US for, and a priority is what they told us
+// matters.
 var openingClaimKinds = []string{"open_question", "objection", "priority"}
+
+// ourCommitment is the claim kind recording something WE said we would do.
+//
+// Derived from the contract enum rather than spelled as a literal, which is not
+// a style point here: this rule first shipped keyed on "commitment", a kind the
+// contract never emits, so the branch could not fire on any real record and the
+// test that "proved" it fabricated the same missing kind.
+//
+// Their commitments are deliberately excluded. "You said you would send the
+// signed order" is a real fact and a different message from "we owe you the
+// scope document" - chasing them is not what this rule is for, and the prompt
+// beside it says the overdue item is ours.
+var ourCommitment = string(crmcontracts.CommitmentOurs)
 
 // leadClaim picks the claim the opener refers to: the first one of the
 // highest-ranked kind present. The 360 hands claims over newest-first, so
 // within a kind the first is the most recent.
 func leadClaim(in Input) (ClaimIn, bool) {
+	// An overdue promise outranks every kind below: it is the only one the
+	// recipient is owed, and the newest is the one most likely to still matter.
+	for _, claim := range in.Claims {
+		if claim.Kind == ourCommitment && claim.Overdue {
+			return claim, true
+		}
+	}
 	for _, kind := range openingClaimKinds {
 		for _, claim := range in.Claims {
 			if claim.Kind == kind {
@@ -135,6 +167,8 @@ func leadClaim(in Input) (ClaimIn, bool) {
 // the same way would put "you objected to" in a message about a preference.
 func claimOpener(claim ClaimIn, lines draftfloor.Substance) string {
 	switch claim.Kind {
+	case ourCommitment:
+		return draftfloor.Fill(lines.Commitment, claim.Body)
 	case "open_question":
 		return draftfloor.Fill(lines.OpenQuestion, claim.Body)
 	case "objection":

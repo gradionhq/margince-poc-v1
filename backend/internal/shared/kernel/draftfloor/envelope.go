@@ -85,6 +85,18 @@ func boundedRunes(value string, maxRunes int) string {
 // rendering the floor does not have to re-parse the string it just wrote.
 func (e Envelope) Lang() textlang.Lang { return langOrDefault(textlang.Lang(e.Language)) }
 
+// At reads the envelope's "now" back as a time, so a caller that needs to
+// compare a date against it does not re-read a clock and get a different
+// instant than the draft was stamped with. An unparseable or absent value
+// answers the zero time, which every comparison treats as "not yet".
+func (e Envelope) At() time.Time {
+	at, err := time.Parse(time.RFC3339, e.Now)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
 // Band reads the envelope's conversation state back as a typed value.
 func (e Envelope) Band() convstate.Band { return convstate.Band(e.ConversationState) }
 
