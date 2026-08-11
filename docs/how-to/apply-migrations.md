@@ -16,7 +16,7 @@ make migrate  # apply everything pending
 `make migrate` runs:
 
 ```sh
-go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:55432/margince"
+go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:15432/margince"
 ```
 
 ## Direct invocation

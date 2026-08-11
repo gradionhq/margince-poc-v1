@@ -456,6 +456,16 @@ jobs:
         working-directory: .
         run: make check-image-pins
 
+      # The dev stack's published host ports stay below the ephemeral floor.
+      # This one is cheap here and expensive anywhere else: a port inside the
+      # kernel's ephemeral range loses its bind to an unrelated process's client
+      # port only sometimes, so the failure it prevents arrives as a `make db-up`
+      # flake in a job that had nothing to do with ports. Same shape as the pins
+      # above — pure bash, no toolchain, and `make check-backend` runs it too.
+      - name: Dev-stack host ports
+        working-directory: .
+        run: make check-host-ports
+
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
   # package (compose/integration, minutes of serial tests) floors any
@@ -963,7 +973,7 @@ jobs:
           # module — a stray GOWORK would break its resolution).
           GOWORK="$PWD/../go.work" go run ./tools/gen-composition
           GOWORK="$PWD/../build/composition/go.work" \
-            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:15432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do
