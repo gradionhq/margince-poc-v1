@@ -1321,7 +1321,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
   });
 
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <QueryGate query={offerQuery}>
         {(offer) => (
           <>

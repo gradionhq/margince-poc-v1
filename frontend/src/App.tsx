@@ -66,8 +66,10 @@ function safeDecode(value: string): string {
 
 function PendingScreen() {
   const t = useT();
+  // Railed like every other screen it stands in for — an unknown hash, a half
+  // addressed record — so it takes the same content column they do.
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <EmptyState>{t("screen.pending")}</EmptyState>
     </div>
   );
@@ -379,8 +381,12 @@ function RaillessFrame({ children }: Readonly<{ children: ReactNode }>) {
 
 function AuthSplash() {
   const t = useT();
+  // A plain column. It used to borrow onboarding's `.ob-top`, which is that
+  // flow's sticky blurred header — so the splash drew a bar with a bottom
+  // border across a screen that has no header, and took that class's
+  // horizontal padding on top of the column's own.
   return (
-    <div className="wrap narrow ob-top">
+    <div className="wrap narrow">
       <EmptyState>{t("auth.checking")}</EmptyState>
     </div>
   );

@@ -122,6 +122,17 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(window.location.hash).toBe("#/leads/l-1");
   });
 
+  // The app shell yields its page heading on a record route (app/shell.tsx:
+  // PageHead prints the trail and nothing at heading level), so the lead's own
+  // surface is the only thing that can name this page.
+  it("names the page after the lead, at heading level one", async () => {
+    stubFetch(async () => jsonResponse(lead));
+    render(<LeadScreen id="l-1" />);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Jonas Petersen" }),
+    ).toBeTruthy();
+  });
+
   it("opening the promote dialog defaults the trigger to human_qualify", async () => {
     vi.stubGlobal(
       "fetch",

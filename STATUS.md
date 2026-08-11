@@ -21,6 +21,7 @@ needs the whole file to start a session.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
 - Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
 - [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
+- [Open — the app shell restructure and the one-h1 rule it establishes (2026-08-11)](#open--the-app-shell-restructure-and-the-one-h1-rule-it-establishes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Company record page V2 — the contract changed so the mockups are buildable, 2026-08-10](#company-record-page-v2--the-contract-changed-so-the-mockups-are-buildable-2026-08-10)
@@ -100,6 +101,34 @@ purpose key is caller-supplied in the send body with nothing binding the
 declared class to the message's actual nature. Before the ADR that was harmless
 — every class still needed a grant. It now needs a spec call, not a unilateral
 code change; the options are in the issue.
+## Open — the app shell restructure and the one-h1 rule it establishes (2026-08-11)
+
+**Shipped from `feat/app-shell-ui` (PR #865).** The chrome after login was reshaped:
+the top bar is gone, search and the account block moved into the sidebar, the
+sidebar sits flush against the viewport with a hairline instead of floating as a
+card, and the Margince agent panel became a strip at the top right of the
+content column beside the page's heading.
+
+The heading rule this establishes, because it is the part a later change can
+break silently: **exactly one `<h1>` per railed page.** On a route that names no
+record the shell mints it (`PageHead`). On a record route the shell yields — it
+prints `.pagecrumb`, a trail with no heading level — and the record surface's own
+name (`.record-head h1`, `design-system/composed.tsx`) is the page's h1. A screen
+that adds a page-title heading of its own now duplicates the shell's; `dedupe`
+and `design` were demoted to `<h2>` for exactly that reason.
+
+`#/leads/<id>` was the one hole in that rule — `LeadScreen` renders no record
+header, so the shell yielded and nothing took over. Closed on this branch:
+`SectionHeader` gained `level={1}` for the single header on a page that IS the
+page's name, and the lead surface uses it. Any future record screen that does
+not print a name reopens the hole, which is what the leads case now documents.
+
+One content column now serves every railed screen — `--pageColumn`, read by
+both the page head and every screen's wrap, so a heading and the content under it
+cannot drift apart again. The ten screens that used to centre a 780px column, the
+list screens that opted out of the cap entirely, and the duplicates screen's own
+720px rule were all folded into it; `.wrap.narrow` survives for the rail-less
+surfaces, which have no page head to line up with.
 
 ## Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)
 
