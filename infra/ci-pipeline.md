@@ -7,11 +7,17 @@ that decides which jobs run, and how coverage flows into SonarCloud.
 
 `make check` on its own runs only the no-database lane, so the
 tenant-isolation and GDPR-erasure fitness tests (`//go:build integration`,
-they need a real Postgres) never blocked a PR locally. CI runs **both** lanes
-plus the vulnerability scan, the craftsmanship gate, and the frontend + UAT
-lanes as required checks — so a migration that forgets `FORCE RLS`, an
-erasure that misses a PII table, a vulnerable dependency, a swallowed error,
-or a UI regression fails the merge instead of shipping.
+they need a real Postgres) never blocked a PR locally. CI runs **both** lanes,
+plus the craftsmanship gate, the license gate and the frontend lane, as required
+checks — so a migration that forgets `FORCE RLS`, an erasure that misses a PII
+table, a denied dependency license, a swallowed error, or a UI regression fails
+the merge instead of shipping.
+
+Two lanes run but deliberately do **not** block: `vuln` and the SonarCloud scan.
+Both were traded off the required set for merge speed during heavy development,
+and both are re-checked daily on `main` by `scheduled.yml` — see below for why a
+non-blocking gate needs that backstop to stay honest. `uat` and `live-boot` are
+likewise advisory.
 
 ## Triggers
 
@@ -160,7 +166,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
-| `vuln` | `make vuln` (govulncheck over all packages) |
+| `vuln` | `make vuln` (govulncheck over all packages). **Advisory** — not a required context. It still runs on every backend PR, so a vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
 | `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. PR-only — on `main` the same gate runs inside `sbom.yml`, where it is the precondition for signing, so each path runs it exactly once |
 | `frontend` | `make frontend-check` (biome + vitest + tsc + Vite build) + a Storybook catalog build (stories must compile & register). Emits `fe-coverage` (lcov) |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
@@ -209,9 +215,26 @@ Wiring details:
 - Every `uses:` and container `image:` is pinned to an immutable SHA (the
   `check-image-pins` gate enforces it).
 
-## The other two workflows
+## The other workflows
 
-`ci.yml` is the merge gate. Two workflows sit beside it, deliberately outside it:
+`ci.yml` is the merge gate. Three workflows sit beside it, deliberately outside it:
+
+- **`scheduled.yml`** — daily on `main`, the checks whose answer changes when
+  nothing is being merged. `ci.yml` asks "is this diff sound?" and runs because a
+  diff exists; these ask "is `main` still sound?", which a PR gate structurally
+  cannot answer. `govulncheck` runs against a vulnerability database that changes
+  daily, so a per-PR scan proves the day it merged and nothing since. The
+  **SonarCloud quality gate** is read through the API (not re-scanned) because it
+  is no longer a required PR check — a gate nobody is blocked by is a gate nobody
+  reads. And the **backend lane** re-runs unconditionally, because `main`'s
+  last-known-green is not evidence `main` is green: a docs-only commit landing
+  after a breaking one matches no classifier scope, so every gate skips and the
+  run reports green over a broken tree. That has happened more than once.
+  Findings become **issues** (`scripts/scheduled-report.sh`), one open issue per
+  check keyed on an exact title, because a red scheduled run notifies nobody and
+  these checks exist precisely for the case where nothing prompts a human to look.
+  The reporting job is the sole holder of `issues: write` and runs no build code —
+  the same permission isolation `sbom.yml` uses for signing.
 
 - **`sbom.yml`** — **no `pull_request` trigger**, so its automatic path is `main`
   (a manual dispatch still runs the `sbom` job on any ref; only `sign` is guarded
