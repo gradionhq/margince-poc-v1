@@ -3460,6 +3460,33 @@ export const vi = {
     "Đã xếp hàng — sẽ xong trong chốc lát và tự cập nhật.",
   "settings.voice.buildStatus.pending":
     "Vẫn đang dựng — việc này có thể mất một lát; xong sẽ tự cập nhật ở đây.",
+  "settings.tab.extensions": "Tiện ích mở rộng",
+  "extAccess.title": "Tiện ích mở rộng & quyền truy cập",
+  "extAccess.sub":
+    "Mỗi đơn vị tiện ích đã ghép vào bản cài đặt này mang theo những gì, và vai trò nào được dùng. Chỉ dành cho quản trị viên.",
+  "extAccess.adminOnly":
+    "Chỉ quản trị viên mới truy cập được phần tiện ích mở rộng.",
+  "extAccess.readOnly":
+    "Chỗ ngồi của bạn chỉ đọc được trang này. Muốn đổi quyền cần chỗ ngồi đầy đủ.",
+  "extAccess.empty":
+    "Chưa có đơn vị tiện ích nào được ghép vào bản cài đặt này.",
+  "extAccess.version": "Phiên bản {version}",
+  "extAccess.brings.objects": "Đối tượng phân quyền",
+  "extAccess.brings.routes": "Tuyến đường dẫn",
+  "extAccess.brings.jobs": "Tác vụ nền",
+  "extAccess.brings.none": "Không có",
+  "extAccess.noObjects":
+    "Đơn vị này không đăng ký đối tượng phân quyền nào, nên không có gì để cấp.",
+  "extAccess.roleColumn": "Vai trò",
+  "extAccess.action.read": "Đọc",
+  "extAccess.action.create": "Tạo",
+  "extAccess.action.update": "Sửa",
+  "extAccess.action.delete": "Xoá",
+  "extAccess.matrixCaption": "Ai được làm gì với {object}",
+  "extAccess.cell": "Cho phép {role} {action} {object}",
+  "extAccess.systemRole": "Vai trò dựng sẵn",
+  "extAccess.nobodyReads":
+    "Không vai trò nào được đọc {object}, nên mọi thành viên chỉ thấy màn hình trống ở nơi lẽ ra là tiện ích này. Hãy cấp quyền đọc cho ít nhất một vai trò bên dưới.",
   "settings.tab.users": "Người dùng & vai trò",
   "users.title": "Người dùng & vai trò",
   "users.sub":

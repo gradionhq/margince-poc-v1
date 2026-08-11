@@ -15,6 +15,7 @@ import {
   type LucideIcon,
   Mic,
   Package,
+  Puzzle,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -72,6 +73,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { ExtensionAccessCard } from "./extension-access";
 import { InstallationSettingsCard } from "./installation-settings";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
@@ -121,6 +123,7 @@ const SETTINGS_TABS = [
   { id: "installation", icon: Building, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
+  { id: "extensions", icon: Puzzle, group: "org" },
   { id: "data", icon: Database, group: "org" },
   { id: "catalog", icon: Package, group: "org" },
   { id: "rates", icon: Coins, group: "org" },
@@ -148,6 +151,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <CompanyContextCard />;
     case "users":
       return <UsersAdminCard />;
+    case "extensions":
+      return <ExtensionAccessCard />;
     case "ai":
       return <AiSettingsTab />;
     case "data":
@@ -262,6 +267,12 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // exists on this installation at all.
     company: organization && (capabilities.data?.read_enabled ?? false),
     users: isOrgAdmin,
+    // Extension access sits beside Users for the same reason and on the same
+    // predicate: role permissions are an admin surface the server gates on the
+    // role, not on any RBAC object — the extension objects it edits are
+    // registered at composition time and are not in the contract's object
+    // enum, so there is no grant for the nav to ask about.
+    extensions: isOrgAdmin,
     privacy: isOrgAdmin,
     audit: isOrgAdmin,
     // Overlay is exempt, and stays exempt: the system-of-record chip in the

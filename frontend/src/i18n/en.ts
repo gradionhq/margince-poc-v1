@@ -3456,6 +3456,31 @@ export const en = {
     "Queued — it'll finish shortly and update automatically.",
   "settings.voice.buildStatus.pending":
     "Still building — this can take a moment; it'll update here when it's done.",
+  "settings.tab.extensions": "Extensions",
+  "extAccess.title": "Extensions & access",
+  "extAccess.sub":
+    "What each composed extension unit brought into this installation, and which role may use it. Admin-only.",
+  "extAccess.adminOnly": "Extension access is available to admins only.",
+  "extAccess.readOnly":
+    "Your seat reads this page. Changing a grant needs a full seat.",
+  "extAccess.empty": "No extension units are composed into this installation.",
+  "extAccess.version": "Version {version}",
+  "extAccess.brings.objects": "Permission objects",
+  "extAccess.brings.routes": "Routes",
+  "extAccess.brings.jobs": "Background jobs",
+  "extAccess.brings.none": "None",
+  "extAccess.noObjects":
+    "This unit registers no permission objects, so there is nothing to grant.",
+  "extAccess.roleColumn": "Role",
+  "extAccess.action.read": "Read",
+  "extAccess.action.create": "Create",
+  "extAccess.action.update": "Update",
+  "extAccess.action.delete": "Delete",
+  "extAccess.matrixCaption": "Who may do what with {object}",
+  "extAccess.cell": "Allow {role} to {action} {object}",
+  "extAccess.systemRole": "Built-in role",
+  "extAccess.nobodyReads":
+    "No role holds read on {object}, so every member sees an empty screen where this extension should be. Grant read to at least one role below.",
   "settings.tab.users": "Users & roles",
   "users.title": "Users & roles",
   "users.sub": "Invite members, set roles, and deactivate access. Admin-only.",
