@@ -25,6 +25,12 @@ import (
 // payloads (the one spelling of the payload key).
 const fieldKind = "kind"
 
+// fieldLinks is the request field every link refusal attributes itself to, so
+// a caller reading a 422 is told which array to change. One spelling, because
+// three different refusals name it and a fourth that spelled it differently
+// would send the caller looking for a field the request does not have.
+const fieldLinks = "links"
+
 // activityCapturedPayload builds the activity.captured event for the
 // direct-log path (this package's only emit site of the event's two) — it
 // never names a source_system, which is exclusive to the capture
@@ -251,7 +257,7 @@ func (e *InvalidLinkTypeError) Error() string {
 
 // FieldFault refuses a link to an entity type the timeline does not carry.
 func (e *InvalidLinkTypeError) FieldFault() (field, code, message string) {
-	return "links", "invalid_entity_type", e.Error()
+	return fieldLinks, "invalid_entity_type", e.Error()
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {

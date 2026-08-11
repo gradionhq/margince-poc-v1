@@ -114,7 +114,7 @@ func (e *TooManyLinksError) Error() string {
 // FieldFault names the field the caller can shorten, so the refusal is a 422
 // against `links` rather than an unattributed rejection.
 func (e *TooManyLinksError) FieldFault() (field, code, message string) {
-	return "links", "too_many_links", e.Error()
+	return fieldLinks, "too_many_links", e.Error()
 }
 
 // probeLinkTargets refuses an account-started send whose named records the
