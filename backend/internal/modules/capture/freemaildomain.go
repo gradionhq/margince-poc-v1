@@ -12,10 +12,14 @@ package capture
 // operator's real customers mail from. Neither error can wait for a release, and
 // both are answerable by the people reading the mail.
 //
-// Workspace-shared and admin-curated: whether a domain can name a company is a
-// statement about the DOMAIN, not about whoever happens to be reading its mail.
-// Writes are audit-only (EVT-NOEVT-3, the same ruling the capture-settings
-// write holds): the closed event catalog defines no verb for a list entry.
+// Workspace-shared, with a split write posture: ANY seat may contribute a
+// consumer domain the baseline missed (`extra` — everyday judgment about the
+// mail they read, gated on capture_settings:create), while carving a domain
+// back OUT of the baseline (`never`), flipping an entry's kind, and removal
+// change what the whole workspace captures and stay admin/ops
+// (capture_settings:update). Writes are audit-only (EVT-NOEVT-3, the same
+// ruling the capture-settings write holds): the closed event catalog defines
+// no verb for a list entry.
 
 import (
 	"context"
@@ -135,7 +139,13 @@ func (s *FreemailDomainStore) List(ctx context.Context) ([]FreemailDomain, error
 // keys on: an operator typing "mail.gmx.net" means gmx.net, and storing the
 // subdomain would leave an entry that never matches anything.
 func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (FreemailDomain, error) {
-	if err := auth.Require(ctx, freemailDomainObject, principal.ActionUpdate); err != nil {
+	// Which grant this write demands depends on what it turns out to be — a
+	// fresh `extra` contribution is create (every seat), everything else is
+	// update (admin/ops) — and "fresh" is only knowable from the table. So the
+	// upfront gate refuses a principal holding NEITHER before a pool
+	// connection is taken, and the specific demand happens inside the
+	// transaction once the prior state is read.
+	if err := auth.RequireAny(ctx, freemailDomainObject, principal.ActionCreate, principal.ActionUpdate); err != nil {
 		return FreemailDomain{}, err
 	}
 	// The handler validates first and answers 422; these are the store's own
@@ -161,6 +171,17 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 			!errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// The specific demand, now that the write knows which half it is:
+		// inserting a new `extra` is create; a `never` carve-out overrides the
+		// shipped baseline for the whole workspace, and overwriting an
+		// existing entry rewrites a prior decision, so both are update.
+		required := principal.ActionCreate
+		if before != nil || kind == FreemailKindNever {
+			required = principal.ActionUpdate
+		}
+		if err := auth.Require(ctx, freemailDomainObject, required); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO capture_freemail_domain (workspace_id, domain, kind, created_by)
 			VALUES ($1, $2, $3, $4)
@@ -179,10 +200,15 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 		// map[string]any would store JSON null instead of SQL NULL for a first
 		// classification (see storekit.marshalOrNil).
 		var beforeImage any
+		// The verb mirrors what happened — a first entry is create, a rewrite
+		// is update — so the rendered authorization_rule names the grant that
+		// actually admitted the write (auth.AuthzRule maps verb to grant).
+		verb := "create"
 		if before != nil {
 			beforeImage = map[string]any{auditKeyDomain: base, auditKeyKind: *before}
+			verb = "update"
 		}
-		_, auditErr := storekit.Audit(ctx, tx, "update", freemailDomainObject, out.ID,
+		_, auditErr := storekit.Audit(ctx, tx, verb, freemailDomainObject, out.ID,
 			beforeImage, map[string]any{auditKeyDomain: base, auditKeyKind: kind})
 		return auditErr
 	})

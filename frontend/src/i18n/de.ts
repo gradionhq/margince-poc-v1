@@ -2332,6 +2332,16 @@ export const de = {
     "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
   "consumerMail.adminOnly":
     "Du hast keine Berechtigung, diese Liste zu ändern.",
+  "consumerMail.addOnly":
+    "Du kannst Consumer-Mail-Domains ergänzen. Die mitgelieferte Liste übersteuern und Einträge entfernen kann nur ein Admin.",
+  "consumerMail.baselineTitle": "Mitgelieferte Liste",
+  "consumerMail.baselineCount":
+    "Margince liefert {total} bekannte Consumer-Mail-Domains mit.",
+  "consumerMail.baselineSearchLabel": "Mitgelieferte Liste durchsuchen",
+  "consumerMail.baselinePlaceholder": "gmail.com",
+  "consumerMail.baselineNone": "Keine mitgelieferte Domain passt.",
+  "consumerMail.baselineMore":
+    "Die ersten {shown} von {matched} Treffern.",
 
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
@@ -3757,6 +3767,7 @@ export const de = {
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
   "settings.tab.installation": "Installation",
+  "settings.tab.capture": "Erfassung",
   "installationSettings.title": "Installation",
   "installationSettings.sub":
     "Wie diese Installation heißt und in welcher Zeitzone und Währung jede Auswertung berechnet wird.",

@@ -11,6 +11,7 @@ package freemail
 
 import (
 	_ "embed"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -51,6 +52,24 @@ var baseline = sync.OnceValue(func() map[string]struct{} {
 	}
 	return set
 })
+
+// sortedBaseline is the same set as one alphabetical list, materialized once —
+// the read surface that shows an operator what the shipped list contains.
+var sortedBaseline = sync.OnceValue(func() []string {
+	set := baseline()
+	out := make([]string, 0, len(set))
+	for domain := range set {
+		out = append(out, domain)
+	}
+	slices.Sort(out)
+	return out
+})
+
+// Domains returns the shipped baseline, alphabetical. The slice is shared and
+// read-only: callers render or filter it, never mutate it.
+func Domains() []string {
+	return sortedBaseline()
+}
 
 // sanitize turns one dataset line into a usable domain, reporting false for a
 // line that cannot be one. The vendored file is byte-identical to upstream, so

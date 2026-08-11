@@ -20,7 +20,7 @@
         "update": true
       },
       "capture_settings": {
-        "create": false,
+        "create": true,
         "delete": false,
         "read": true,
         "update": true
@@ -211,7 +211,7 @@
         "update": false
       },
       "capture_settings": {
-        "create": false,
+        "create": true,
         "delete": false,
         "read": true,
         "update": false
@@ -402,7 +402,7 @@
         "update": true
       },
       "capture_settings": {
-        "create": false,
+        "create": true,
         "delete": false,
         "read": true,
         "update": true
@@ -784,7 +784,7 @@
         "update": false
       },
       "capture_settings": {
-        "create": false,
+        "create": true,
         "delete": false,
         "read": true,
         "update": false

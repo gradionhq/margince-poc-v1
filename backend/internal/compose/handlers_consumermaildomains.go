@@ -5,8 +5,10 @@ package compose
 
 // The workspace's consumer-mail list surface (CAP-PARAM-5): read what the
 // workspace added to and carved out of the shipped baseline (every role),
-// change it (admin/ops, human-only). Thin transport — the capture store owns
-// the RBAC gate, the normalization and the audit-only write.
+// search the baseline itself (every role), and change the list — any seat
+// with capture_settings:create contributes a new `extra` entry, carve-outs
+// and overwrites stay admin/ops. Thin transport — the capture store owns the
+// RBAC gates, the normalization and the audit-only write.
 
 import (
 	"encoding/json"
@@ -40,6 +42,33 @@ func (h consumerMailDomainHandlers) ListConsumerMailDomains(w http.ResponseWrite
 		out = append(out, toContractConsumerMailDomain(e))
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ConsumerMailDomainListResponse{Data: out})
+}
+
+func (h consumerMailDomainHandlers) ListConsumerMailBaseline(w http.ResponseWriter, r *http.Request, params crmcontracts.ListConsumerMailBaselineParams) {
+	// Human-only (x-agent-access): the read is capture posture, and the module
+	// function re-checks the object read grant.
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	var q string
+	if params.Q != nil {
+		q = *params.Q
+	}
+	result, err := capture.SearchBaseline(r.Context(), q)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	// Empty answers as [], never null — the contract promises an array.
+	if result.Domains == nil {
+		result.Domains = []string{}
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ConsumerMailBaselineResponse{
+		Data:    result.Domains,
+		Matched: result.Matched,
+		Total:   result.Total,
+	})
 }
 
 func (h consumerMailDomainHandlers) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {

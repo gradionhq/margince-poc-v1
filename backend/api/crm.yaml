@@ -6008,12 +6008,15 @@ paths:
       operationId: addConsumerMailDomain
       security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
       x-agent-access: human-only
-      summary: Add a consumer-mail domain, or carve one out (admin/ops).
+      summary: Add a consumer-mail domain, or carve one out.
       description: |
-        Admin/ops-only, human session only — an agent never changes a workspace-wide capture
-        posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
-        takes one back out and wins over the baseline, which is the only way back in for an
-        operator whose real customers mail from a domain the shipped list claims.
+        Human session only — an agent never changes a workspace-wide capture posture. `kind:
+        extra` marks a domain the baseline missed as consumer mail; any seat holding
+        `capture_settings:create` (every seeded role but read_only) may contribute a NEW one.
+        `kind: never` takes a domain back out of the baseline and wins over it — the only way
+        back in for an operator whose real customers mail from a domain the shipped list claims
+        — and, like overwriting an existing entry's kind, demands `capture_settings:update`
+        (admin/ops).
 
         The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
         because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
@@ -6052,6 +6055,33 @@ paths:
         already satisfied.
       responses:
         '204': { description: Entry withdrawn (or already absent). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /capture/consumer-mail-baseline:
+    get:
+      tags: [Capture]
+      operationId: listConsumerMailBaseline
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Search the shipped consumer-mail baseline (CAP-PARAM-5).
+      description: |
+        The vendored consumer-domain dataset the installation ships with, as a searchable read.
+        The workspace's own list is only ever a delta against this baseline, so deciding whether
+        a domain needs an `extra` entry — or a `never` carve-out — starts here. Answers the
+        first 50 alphabetical matches plus the counts; every human role may read it, like the
+        rest of the capture posture.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: 'Case-insensitive substring filter. Absent or empty lists from the top.'
+      responses:
+        '200':
+          description: The matching slice of the shipped baseline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerMailBaselineResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -11029,6 +11059,16 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/ConsumerMailDomain' } }
+    ConsumerMailBaselineResponse:
+      type: object
+      required: [data, matched, total]
+      properties:
+        data:
+          type: array
+          items: { type: string }
+          description: The first 50 matching baseline domains, alphabetical.
+        matched: { type: integer, description: How many baseline domains matched the filter in total. }
+        total: { type: integer, description: The size of the whole shipped baseline. }
 
     # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
     CaptureConnection:
