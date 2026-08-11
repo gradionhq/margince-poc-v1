@@ -487,6 +487,10 @@ func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "CreateFilteredExport")
 }
 
+func (stubs) ListExtensions(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListExtensions")
+}
+
 func (stubs) GetFieldHistory(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetFieldHistoryParams) {
 	httperr.NotImplemented(w, r, "GetFieldHistory")
 }
@@ -1093,6 +1097,14 @@ func (stubs) RunReport(w nethttp.ResponseWriter, r *nethttp.Request, report stri
 
 func (stubs) ExplainReport(w nethttp.ResponseWriter, r *nethttp.Request, report string, params crmcontracts.ExplainReportParams) {
 	httperr.NotImplemented(w, r, "ExplainReport")
+}
+
+func (stubs) ListRoles(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListRoles")
+}
+
+func (stubs) SetRoleObjectGrant(w nethttp.ResponseWriter, r *nethttp.Request, key string, object string, params crmcontracts.SetRoleObjectGrantParams) {
+	httperr.NotImplemented(w, r, "SetRoleObjectGrant")
 }
 
 func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SearchParams) {
