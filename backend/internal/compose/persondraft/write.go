@@ -41,6 +41,8 @@ Open by name using the recipient's first name exactly as given; never invent or 
 Do NOT write a sign-off or a sender name. The composer adds the sender's own; a name you guessed would go out over the wrong signature.
 Say one thing and ask for one thing. Three short paragraphs at most.
 The claims are things this contact said. Answer one of them if it helps; never quote it back at them as something they are on record as saying.
+Where the shared rules let you either write around a missing detail or ask for it, prefer writing around it here: this message opens with an ask of its own, and a second question dilutes it.
+The reasoning array is where an explanation of the draft goes. It is the ONLY place; the body carries none.
 Each reasoning entry names ONE input you actually used, in the reader's words, short enough to read as a chip ("pricing concern", "asked about onboarding"). Give entity_type and entity_id when the input was a record the summary identified; omit both when it was the caller's own intent.
 sections_omitted names what the reader of this summary was not allowed to see. Say nothing about those subjects rather than inferring around the gap.
 If the summary gives you nothing but the recipient, write a short honest opener and return an empty reasoning array. Do not invent a reason.`

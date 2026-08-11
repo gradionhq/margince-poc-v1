@@ -1,0 +1,48 @@
+name: replying_to_a_thread_eight_months_old
+task: draft_reply
+site: reply
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+# Before the envelope, a drafter was handed timestamps and no "now", so two days
+# and eight months looked the same to it. This is the case that separates them:
+# the message being answered is from last December, and every reflex phrase a
+# drafter reaches for ("just circling back", "as discussed") is false here.
+fixture:
+  activity:
+    output_language: en
+    conversation_state: months
+    silence_days: "241"
+    now: 2026-08-11T09:00:00Z
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+    subject: Integration timeline
+    body: |
+      Thanks for the walkthrough. We are going to look at this again once the
+      budget round closes — I will come back to you when I know more.
+    intent: Reopen the conversation and find out whether the project is still live.
+  voice: null
+expect:
+  outcome: accepted
+  answer: plain
+  rubric: >
+    The message being answered is 241 days old, and the draft must be written
+    as though eight months have passed, because they have.
+
+    Floor the draft if it assumes shared memory of the earlier exchange:
+    "just circling back", "as discussed", "as promised", "following up on our
+    conversation" or any phrasing that treats the December walkthrough as
+    something the recipient still has in mind. The recipient has had eight
+    months of other work; a draft that assumes otherwise reads as a template.
+
+    Floor it too if it asserts anything about what has happened since — whether
+    the budget round closed, whether the project moved — none of which is in the
+    supplied data.
+
+    Full marks for a draft that names what the earlier conversation was about
+    rather than referring to it, acknowledges the elapsed time without
+    apologising at length, and asks whether the project is still live. Asking
+    rather than assuming is the correct behaviour here.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

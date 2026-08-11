@@ -150,6 +150,9 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		Threaded: threaded,
 	}, intent)
 	data := replyActivityData{
+		// Already bounded: NewEnvelope caps the two identity fields, which are
+		// the only ones that come from a text column rather than being
+		// server-derived and fixed-shape.
 		Envelope: envelope,
 		Subject:  boundedRunes(topic, replyActivityMaxRunes),
 		Body:     boundedRunes(body, replyActivityMaxRunes),
@@ -182,12 +185,19 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 // and asked to answer it. Which direction that message went decides what the
 // reply owes — an inbound message is a question waiting, an outbound one is our
 // own approach nobody answered.
+// An activity with no direction at all — a note, a task — is neither, and
+// counting it as inbound would claim the counterparty wrote something they did
+// not. It carries a real timestamp, so the silence it produces is honest even
+// though nobody spoke: the anchor is treated as our own side's, which is the
+// reading that assumes least about them.
 func (d replyDrafter) conversationState(activity crmcontracts.Activity) convstate.State {
 	occurred := activity.OccurredAt
-	if activity.Direction != nil && *activity.Direction == crmcontracts.ActivityDirectionOutbound {
-		return convstate.Classify(d.envelope.Now(), time.Time{}, occurred)
+	inbound := activity.Direction != nil &&
+		*activity.Direction == crmcontracts.ActivityDirectionInbound
+	if inbound {
+		return convstate.Classify(d.envelope.Now(), occurred, time.Time{})
 	}
-	return convstate.Classify(d.envelope.Now(), occurred, time.Time{})
+	return convstate.Classify(d.envelope.Now(), time.Time{}, occurred)
 }
 
 // voiceContext is the loaded active profile a voiced draft injects.

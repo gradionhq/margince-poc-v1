@@ -44,19 +44,41 @@ type Envelope struct {
 	SenderEmail string `json:"sender_email,omitempty"`
 }
 
+// IdentityMaxRunes bounds the sender's name and address in the prompt.
+//
+// A name is a name; this is generous for one. It exists because
+// app_user.display_name is unconstrained text, so without a bound an absurd
+// value reaches the prompt at whatever length the database accepted — and the
+// certification harness bounds every field it finds, which would make a payload
+// the product can actually produce look impossible to a cert case.
+const IdentityMaxRunes = 200
+
 // NewEnvelope assembles the envelope from the resolved facts.
+//
+// Everything it stamps is server-derived and fixed-shape except the two
+// identity fields, which come from a text column and are bounded here.
 func NewEnvelope(lang textlang.Lang, state convstate.State, now time.Time, senderName, senderEmail string) Envelope {
 	envelope := Envelope{
 		Language:          string(langOrDefault(lang)),
 		ConversationState: string(state.Band),
 		Now:               now.UTC().Format(time.RFC3339),
-		SenderName:        senderName,
-		SenderEmail:       senderEmail,
+		SenderName:        boundedRunes(senderName, IdentityMaxRunes),
+		SenderEmail:       boundedRunes(senderEmail, IdentityMaxRunes),
 	}
 	if state.Band != convstate.BandNone {
 		envelope.SilenceDays = strconv.Itoa(state.SilenceDays)
 	}
 	return envelope
+}
+
+// boundedRunes truncates on a rune boundary, so a multi-byte name is cut short
+// rather than cut in half.
+func boundedRunes(value string, maxRunes int) string {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
 }
 
 // Lang reads the envelope's language back as a typed value, so a caller
