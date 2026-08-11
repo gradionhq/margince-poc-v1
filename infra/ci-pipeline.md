@@ -35,7 +35,7 @@ output. A required job skipped this way still counts as passing.
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `docker` | root `Dockerfile.*`, `.dockerignore` | the three image builds |
-| `deps` | `go.work[.sum]`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml` | the license gate |
+| `deps` | `go.work[.sum]`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |
 
 Consequences:
 
@@ -213,7 +213,9 @@ Wiring details:
 
 `ci.yml` is the merge gate. Two workflows sit beside it, deliberately outside it:
 
-- **`sbom.yml`** — **`main` only.** Regenerates the source-tree SBOMs whenever a
+- **`sbom.yml`** — **no `pull_request` trigger**, so its automatic path is `main`
+  (a manual dispatch still runs the `sbom` job on any ref; only `sign` is guarded
+  to `main`). Regenerates the source-tree SBOMs whenever a
   dependency set or the SBOM pipeline itself changes, license-gates them, and signs
   them from a separate job that is the sole holder of `id-token: write`. Signing is
   isolated from all PR-controlled code because a keyless signature lands permanently

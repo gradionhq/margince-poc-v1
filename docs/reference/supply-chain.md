@@ -56,9 +56,14 @@ Scan policy lives in [`.syft.yaml`](../../.syft.yaml); the Makefile owns the
   `frontend/src/**`, migrations, config templates) with no checksum at all.
   SHA-1 is kept because SPDX file entries historically key on it; SHA-256 and
   SHA-512 are what a consumer actually verifies.
-- Excluded committed trees — agent/CI/build-tooling/test state, not shipped
-  product: `./.claude/**`, `./.github/**`, `./.githooks/**`, `./.pnpm-store/**`,
-  `./scratchpad/**`, `./cli/craft/**`, `./fixtures/**`.
+- **No `exclude:` list**, on purpose. The constellation dist release gate rejects
+  a release unless the SBOM attests every file the release patch adds or
+  modifies, and that patch is a full committed-tree diff with no excludes — so
+  the SBOM file set must equal the whole committed tree. Excluding any committed
+  tree here (CI workflows, `cli/craft`, `fixtures`, `sbom-schemas`, …) would make
+  a commit touching it fail that gate. Uncommitted host state is already absent
+  because the scan runs on `git archive HEAD`, so there is nothing left to
+  exclude.
 
 ## Versioning
 
@@ -140,9 +145,13 @@ Two categories never reach the allowlist check:
   `github.com/gradionhq/margince/*` (our own Go modules) and
   `example.margince.dev/*` (the committed extension stubs, ADR-0069). They carry
   no third-party license to gate.
-- **CI Actions** are excluded from the **scan** entirely — `.syft.yaml` drops
-  `./.github/**` — so syft never catalogs them as packages and grant never sees
-  them. They are build infrastructure, not shipped product.
+- **Local composite actions** under `.github/actions/` are ignored by coordinate
+  too (`./.github/actions/*`). They are first-party files carrying the repo's own
+  BUSL-1.1, and they cannot be handled the way the pinned third-party actions
+  are: syft assigns a local action **no purl at all**, while
+  `make sbom-supplement` keys its map on purl, so the map cannot reach them. The
+  entry is globbed so the next composite action is covered on the day it is added
+  rather than the day it turns the gate red.
 
 Everything else must still resolve to a known, allowed license.
 
@@ -223,8 +232,10 @@ nor a writable home. So the invocation adds `-u $(id -u):$(id -g)` and
 
 ## CI — `.github/workflows/sbom.yml`
 
-Regenerates the SBOM on **`main`** whenever a dependency set or the pipeline
-itself changes. The runner needs only Docker, which `ubuntu-latest` pre-installs.
+Regenerates the SBOM when a dependency set or the pipeline itself changes. There
+is no `pull_request` trigger, so the automatic path is **`main`** — a manual
+dispatch still runs the `sbom` job on any ref, and only `sign` is guarded to
+`main`. The runner needs only Docker, which `ubuntu-latest` pre-installs.
 
 | Trigger | Condition |
 |---|---|
@@ -233,7 +244,7 @@ itself changes. The runner needs only Docker, which `ubuntu-latest` pre-installs
 
 Path filter: `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`,
 `**/pnpm-lock.yaml`, `**/package.json`, `Makefile`, `.syft.yaml`, `.grant.yaml`,
-`sbom-schemas/**`, `.github/workflows/sbom.yml`.
+`sbom-schemas/**`, `.github/workflows/sbom.yml`, `.github/actions/**`.
 
 `**/pnpm-lock.yaml` is globbed deliberately. The only lockfile in the tree is
 `frontend/pnpm-lock.yaml`, so the unglobbed `pnpm-lock.yaml` matched nothing —
