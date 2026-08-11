@@ -8,11 +8,13 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Database, ScrollText, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { Button } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
+import type { NavSection } from "./nav";
 import {
   clearPendingAuthorize,
   readPendingAuthorize,
@@ -282,6 +284,231 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     const account = screen.getByRole("button", { name: /Account$/ });
     expect(container.querySelector(".railfoot")?.contains(account)).toBe(true);
     expect(screen.getAllByRole("button", { name: /Account$/ })).toHaveLength(1);
+  });
+});
+
+// The sidebar's SECOND level (and its third). A section route replaces the ten
+// destinations with the section's entries rather than hanging them off it: one
+// level at a time, with the way back up in the panel.
+//
+// The fixture below is a section with a THIRD level under one of its entries.
+// Settings — the only real section the app ships — is two levels deep, so
+// nothing in production would prove the renderer takes its depth from the data
+// rather than from a hard-coded pair of levels.
+function fixtureSection(activeId?: string): NavSection {
+  return {
+    screen: "settings",
+    titleKey: "nav.settings",
+    activeId,
+    groups: [
+      {
+        headingKey: "settings.group.you",
+        items: [
+          { id: "account", labelKey: "settings.tab.account", icon: UserRound },
+        ],
+      },
+      {
+        headingKey: "settings.group.org",
+        items: [
+          {
+            id: "audit",
+            labelKey: "settings.tab.audit",
+            icon: ScrollText,
+            children: [
+              { id: "data", labelKey: "settings.tab.data", icon: Database },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+const railLabels = () =>
+  within(screen.getByRole("navigation"))
+    .getAllByRole("link")
+    .map((link) => link.getAttribute("aria-label"));
+
+describe("Rail levels (a section's entries as the second level)", () => {
+  it("replaces the destinations with the section's entries, one current", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    // The destinations are GONE, not pushed below a second list: 64px cannot
+    // carry two levels and 252px carrying both is a list of twenty places to go.
+    expect(screen.queryByRole("link", { name: "Pipeline" })).toBeNull();
+    expect(railLabels()).toEqual(["Margince", "Account", "Audit log"]);
+    expect(
+      screen.getByRole("link", { name: "Audit log" }).getAttribute("href"),
+    ).toBe("#/settings/audit");
+    // Exactly one row claims the current page, and it is the entry the SECTION
+    // resolved — the screen owns that answer, fallbacks included.
+    const current = document.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0].getAttribute("aria-label")).toBe("Account");
+  });
+
+  // The level names itself at heading level 2, so its group labels move down to
+  // 3 — the outline reads Settings → Your settings / Organization, and the rail's
+  // own destinations keep level 2 for their groups on every other route.
+  it("names the level at heading level 2 and its groups at 3", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Settings"]);
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+    ).toEqual(["Your settings", "Organization"]);
+  });
+
+  // A section belongs to ONE screen. Without this the fixture's entries would
+  // leak onto every route, which is exactly what the canonical-ten assertions
+  // above would then be lying about.
+  it("ignores a section that belongs to another screen", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "home" }}
+        section={fixtureSection("audit")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    expect(railLabels()).toEqual(["Margince", ...CANONICAL_ORDER]);
+  });
+
+  it("walks back to the destinations without leaving the page", async () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Back to Destinations" }),
+    );
+    expect(railLabels()).toEqual(["Margince", ...CANONICAL_ORDER]);
+    // Still on a settings route, which no destination answers to — so nothing
+    // claims the current page rather than something claiming it wrongly.
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+    // The rows the reader was standing in are gone, so the arriving level takes
+    // focus instead of dropping it on <body>.
+    expect(document.activeElement).toBe(
+      screen.getByRole("link", { name: "Home" }),
+    );
+  });
+
+  // An entry that HAS children opens them: standing on it, the panel shows the
+  // level it leads to rather than the list it came from. Nothing carries the
+  // current page there until a child is addressed — the same as any list a
+  // reader has just been handed.
+  it("opens an entry's children as soon as the route stands on that entry", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "audit" }}
+        section={fixtureSection("audit")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    expect(railLabels()).toEqual(["Margince", "Data model"]);
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Audit log"]);
+  });
+
+  it("renders a third level from the data, and climbs back one level at a time", async () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "audit", id2: "data" }}
+        section={fixtureSection("audit")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    // The child level: only the entry's children, addressed under it.
+    expect(railLabels()).toEqual(["Margince", "Data model"]);
+    expect(
+      screen.getByRole("link", { name: "Data model" }).getAttribute("href"),
+    ).toBe("#/settings/audit/data");
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Audit log"]);
+
+    // One step at a time, and the back control names where it LEADS — the
+    // section's own list, not the entry whose children are on screen.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Back to Settings" }),
+    );
+    expect(railLabels()).toEqual(["Margince", "Account", "Audit log"]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Back to Destinations" }),
+    );
+    expect(railLabels()).toEqual(["Margince", ...CANONICAL_ORDER]);
+  });
+
+  // AC-shell-1d holds at every depth, and there is ONE tooltip in the sidebar:
+  // moving between two entries of a level must not leave the first one open.
+  it("shows one tooltip at a time on the collapsed level", async () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+        collapsed
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    const account = screen.getByRole("link", { name: "Account" });
+    const audit = screen.getByRole("link", { name: "Audit log" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    account.focus();
+    // waitFor on the TEXT, not findAllByRole on the role: a tooltip left over
+    // from the previous row satisfies the role query on its first poll, so a
+    // "one tooltip" assertion could pass while showing the wrong one.
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip").textContent).toBe("Account"),
+    );
+
+    audit.focus();
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip").textContent).toBe("Audit log"),
+    );
+    expect(screen.getAllByRole("tooltip")).toHaveLength(1);
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
+    expect(document.activeElement).toBe(audit);
+  });
+
+  // At phone width the bar carries the way back up and the control that opens
+  // the sheet; the sheet then holds the level itself, with its back row — which
+  // is how the destinations stay one tap behind the section's entries.
+  it("opens the phone sheet at the current level, with the way back in it", async () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    const rail = screen.getByRole("navigation");
+    expect(within(rail).getByRole("link", { name: "Audit log" })).toBeTruthy();
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    await userEvent.click(
+      within(rail).getByRole("button", { name: "Back to Destinations" }),
+    );
+    expect(railLabels()).toEqual(["Margince", ...CANONICAL_ORDER]);
   });
 });
 

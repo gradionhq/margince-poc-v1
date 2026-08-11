@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+import { ChevronLeft } from "lucide-react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { useT } from "../i18n";
+import {
+  type NavCounts,
+  type NavLevelEntry,
+  type NavLevelGroup,
+  type NavSection,
+  type NavTrailLevel,
+  navLevelHref,
+  railTrail,
+} from "./nav";
+import { type Route, routeHash } from "./router";
+
+// ONE navigation level, whatever its depth. The rail's ten destinations and the
+// entries of a section drilled into from them render through this, so the two
+// can never drift into different rows — and a third level costs nothing but the
+// data that describes it.
+//
+// Depth reaches this file only as data: a level carrying a title prints it and
+// pushes its group labels a heading level down, and a level's entries address
+// themselves from its `path`. Nothing here counts levels.
+
+// The sidebar shows one tooltip at a time and keys it by the row's own ADDRESS,
+// so two levels' rows cannot collide on a key — and the primary level's rows
+// keep the screen id they have always been keyed by (its path is empty).
+function navTipKey(level: NavTrailLevel, id: string): string {
+  return [...level.path, id].join("/");
+}
+
+const BACK_TIP_KEY = "rail-level-back";
+
+/**
+ * The level the sidebar is showing, and the two ways a reader moves between
+ * levels.
+ *
+ * Which level is on screen is STATE — walking back up must not change the
+ * address the reader is on — but the route still owns it: a new address
+ * re-derives the depth, so following a link out of a level never leaves the
+ * panel parked where the reader had climbed to.
+ */
+export function useNavLevel(
+  route: Route,
+  section: NavSection | undefined,
+  container: RefObject<HTMLElement | null>,
+  onNavigate: () => void,
+) {
+  const trail = railTrail(route, section);
+  const deepest = trail.length - 1;
+  const hash = routeHash(route);
+  const [climbed, setClimbed] = useState({ hash, depth: deepest });
+  // Adjusted during render rather than in an effect, so the panel never paints
+  // the previous route's level for a frame first.
+  if (climbed.hash !== hash) {
+    setClimbed({ hash, depth: deepest });
+  }
+  const depth = Math.min(
+    climbed.hash === hash ? climbed.depth : deepest,
+    deepest,
+  );
+
+  // Walking between levels replaces every row in the panel, and an unmounted
+  // focus owner leaves the document focused on <body> — from where the next Tab
+  // starts at the top of the page, having lost the sidebar it was standing in.
+  // So the level that ARRIVES takes focus, and only when the walk was ASKED
+  // for: merely landing on a route that has a level must not pull focus off the
+  // page the reader is reading.
+  const claimFocus = useRef(false);
+  const onWalkUp = useCallback(() => {
+    claimFocus.current = true;
+    setClimbed((current) => ({
+      hash: current.hash,
+      depth: Math.max(0, current.depth - 1),
+    }));
+  }, []);
+  const onSelect = useCallback(
+    (entry: NavLevelEntry) => {
+      // A row pressed inside the phone sheet closes it: the sheet covers the
+      // page it just navigated to. Dismissal on an OUTSIDE click cannot do this,
+      // and should not — a preference row inside a popover must be able to act
+      // without taking the popover with it.
+      onNavigate();
+      // A row that OPENS a level is about to be replaced by that level, so it
+      // hands its focus on rather than dropping it.
+      if (entry.children && entry.children.length > 0) {
+        claimFocus.current = true;
+      }
+    },
+    [onNavigate],
+  );
+  // No dependency list, because the condition is the FLAG rather than a value:
+  // the walk is asked for in a handler, and the rows it asks for are only in the
+  // document after the render that follows. Every other render finds the flag
+  // down and does nothing.
+  useEffect(() => {
+    if (!claimFocus.current) {
+      return;
+    }
+    claimFocus.current = false;
+    container.current
+      ?.querySelector<HTMLElement>(".navlevel .navwrap .navitem")
+      ?.focus();
+  });
+
+  return {
+    depth,
+    shown: trail[depth],
+    parent: depth > 0 ? trail[depth - 1] : undefined,
+    onWalkUp,
+    onSelect,
+  };
+}
+
+type TipState = Readonly<{
+  collapsed: boolean;
+  tip: string | null;
+  onTip: (key: string | null) => void;
+}>;
+
+function NavLevelRow({
+  level,
+  entry,
+  count,
+  state,
+  onSelect,
+}: Readonly<{
+  level: NavTrailLevel;
+  entry: NavLevelEntry;
+  count?: number;
+  state: TipState;
+  onSelect: (entry: NavLevelEntry) => void;
+}>) {
+  const t = useT();
+  const label = t(entry.labelKey);
+  const active = level.activeId === entry.id;
+  const key = navTipKey(level, entry.id);
+  return (
+    <a
+      className={active ? "navitem active" : "navitem"}
+      href={navLevelHref(level.path, entry.id)}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      onMouseEnter={() => state.onTip(key)}
+      onMouseLeave={() => state.onTip(null)}
+      onFocus={() => state.onTip(key)}
+      onBlur={() => state.onTip(null)}
+      onClick={() => onSelect(entry)}
+    >
+      <entry.icon aria-hidden />
+      {/* The label stays mounted and collapses its width, so the transition is
+          continuous rather than a pop. aria-label carries the accessible name
+          either way. */}
+      <span className="navlabel">{label}</span>
+      {count !== undefined && count > 0 && (
+        <span className="count">{count}</span>
+      )}
+      {/* Inside the row, not beside it: the tooltip sits outside the row's box
+          but within its subtree, so moving the pointer onto it never leaves the
+          row and never tears it away mid-read (WCAG 1.4.13, hoverable). A
+          sibling could not manage that without making the wrapper itself
+          interactive. */}
+      {state.collapsed && state.tip === key && (
+        <span className="navtip" role="tooltip">
+          {label}
+        </span>
+      )}
+    </a>
+  );
+}
+
+function NavLevelGroupView({
+  level,
+  group,
+  headingTag: Heading,
+  counts,
+  state,
+  onSelect,
+}: Readonly<{
+  level: NavTrailLevel;
+  group: NavLevelGroup;
+  headingTag: "h2" | "h3";
+  counts?: NavCounts;
+  state: TipState;
+  onSelect: (entry: NavLevelEntry) => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="navgroup">
+      {/* The heading keeps its box in both states — collapsed it hides its text
+          and draws a hairline inside the same space. Swapping it for a shorter
+          <hr> re-spaced every group and drifted the icons. */}
+      {group.headingKey && (
+        <Heading className="navheading">{t(group.headingKey)}</Heading>
+      )}
+      {group.items.map((entry) => (
+        <div
+          className={
+            level.barIds?.has(entry.id) ? "navwrap primary" : "navwrap"
+          }
+          key={entry.id}
+        >
+          <NavLevelRow
+            level={level}
+            entry={entry}
+            count={
+              level.badgeIds?.has(entry.id) ? counts?.[entry.id] : undefined
+            }
+            state={state}
+            onSelect={onSelect}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The way back up. It names where it LEADS rather than saying "back" alone: at
+// the second level that is the destinations it stepped aside for, deeper it is
+// the entry the reader drilled through, and a control whose name never changes
+// while its target does is the one a screen reader gets wrong.
+function NavLevelBack({
+  parent,
+  state,
+  onWalkUp,
+}: Readonly<{
+  parent: NavTrailLevel;
+  state: TipState;
+  onWalkUp: () => void;
+}>) {
+  const t = useT();
+  const name = parent.titleKey ? t(parent.titleKey) : t("shell.navTop");
+  const label = t("shell.navBackTo", { name });
+  return (
+    <button
+      type="button"
+      className="navitem navback"
+      aria-label={label}
+      onClick={onWalkUp}
+      onMouseEnter={() => state.onTip(BACK_TIP_KEY)}
+      onMouseLeave={() => state.onTip(null)}
+      onFocus={() => state.onTip(BACK_TIP_KEY)}
+      onBlur={() => state.onTip(null)}
+    >
+      <ChevronLeft aria-hidden />
+      <span className="navlabel">{name}</span>
+      {state.collapsed && state.tip === BACK_TIP_KEY && (
+        <span className="navtip" role="tooltip">
+          {label}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export function NavLevelView({
+  level,
+  parent,
+  counts,
+  state,
+  onSelect,
+  onWalkUp,
+}: Readonly<{
+  level: NavTrailLevel;
+  // Absent on the primary level, which is where the sidebar already is: there
+  // is nothing above it to walk back to.
+  parent?: NavTrailLevel;
+  counts?: NavCounts;
+  state: TipState;
+  onSelect: (entry: NavLevelEntry) => void;
+  onWalkUp: () => void;
+}>) {
+  const t = useT();
+  return (
+    <div className={parent ? "navlevel drilled" : "navlevel"}>
+      {parent && (
+        <NavLevelBack parent={parent} state={state} onWalkUp={onWalkUp} />
+      )}
+      {level.titleKey && <h2 className="navtitle">{t(level.titleKey)}</h2>}
+      {level.groups.map((group, index) => (
+        <NavLevelGroupView
+          key={group.headingKey ?? `group-${index}`}
+          level={level}
+          group={group}
+          // A level that names itself has taken the level-2 heading, so its
+          // groups sit under it rather than beside it in the outline.
+          headingTag={level.titleKey ? "h3" : "h2"}
+          counts={counts}
+          state={state}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  );
+}

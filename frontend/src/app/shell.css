@@ -561,6 +561,86 @@
   z-index: 50;
 }
 
+/* ===== a navigation level =====
+ * The panel shows ONE level at a time: on a section route the ten destinations
+ * step aside for that section's entries, with the way back up above them. 64px
+ * cannot carry two levels, and 252px carrying both reads as a list of twenty
+ * places to go.
+ *
+ * The rows are the same `.navitem`s as the destinations, deliberately: every
+ * state the sidebar already describes — collapsed, the phone bar, the sheet —
+ * then holds for a level without a second vocabulary to keep in step with it. */
+.rail .navlevel {
+  display: flex;
+  flex-direction: column;
+  gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
+}
+/* A drilled-in level ARRIVES, so it says so — the same rise the account menu
+ * makes (app/account.css), on the shell's own curve, and short because this is
+ * chrome. The destinations do not: they are where the sidebar already was, and
+ * an entrance on them would play on every cold load.
+ * The fallback repeats the curve because the rail is also rendered outside the
+ * shell (the component workbench), and an unresolved custom property in a
+ * shorthand invalidates the whole declaration rather than degrading it. */
+.rail .navlevel.drilled {
+  animation: navlevel-in 0.16s var(--shellEase, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+@keyframes navlevel-in {
+  from {
+    opacity: 0;
+    transform: translateX(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+/* The end state, immediately — a level that renders nothing under reduced
+   motion is broken, not accessible. */
+@media (prefers-reduced-motion: reduce) {
+  .rail .navlevel.drilled {
+    animation: none;
+  }
+}
+/* The level's own name, at the head of its rows. It is the page's section, so it
+   sits at heading level 2 and the group labels under it move down to 3 — the
+   outline a screen reader walks says which level these rows belong to. */
+.rail .navtitle {
+  margin: 0 0 var(--space-2);
+  padding: 0 14px; /* ds:ignore matches .navheading's inset, so the title sits on the rows' own text column */
+  font-family: var(--f-display);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
+}
+/* Collapsed there is no room for the name — and it must not leave the document
+   either: the rows below are icons, and this heading is what says which level
+   they are. Clipped rather than removed, the trade `.sr-only` makes. */
+.rail.collapsed .navtitle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The way back up. Quieter than a destination, because it names where the reader
+   came FROM rather than where they are, and on `.navitem`'s geometry so the
+   level's header and its rows share one column of icons. */
+.rail .navback {
+  /* `flex: none`, against the rows' own `flex: 1`: a row grows inside its
+     `.navwrap`, which is a ROW, while this control is a child of the level's
+     column — where growing would mean growing taller than the rows under it. */
+  flex: none;
+  color: var(--textMeta);
+  font-family: var(--f-body);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.rail .navback:hover {
+  color: var(--textPrimary);
+}
+
 .rail .grow {
   flex: 1;
   min-height: 12px;
@@ -906,6 +986,37 @@
   .rail.expanded .navgroup {
     display: contents;
   }
+  /* A LEVEL on the bar is two controls: the way back up, and More opening the
+     sheet at the level the panel is showing — so the section's entries are one
+     tap away and the destinations are one tap behind the back row. The level's
+     own rows are `.navwrap:not(.primary)` and stay in the sheet by the rule
+     below; its title and group labels belong to the sidebar.
+     Every `.rail.collapsed …` variant is restated here: the desktop preference
+     survives a resize and `.rail.collapsed …` outranks a bare `.rail …`
+     selector, so a phone would otherwise inherit the 64px sidebar's geometry. */
+  .rail .navlevel,
+  .rail.expanded .navlevel,
+  .rail.collapsed .navlevel {
+    display: contents;
+  }
+  .rail .navtitle,
+  .rail.collapsed .navtitle {
+    display: none;
+  }
+  .rail .navback,
+  .rail.expanded .navback,
+  .rail.collapsed .navback {
+    flex: none;
+    width: 56px;
+  }
+  /* Two controls on a bar that spaces its items apart would sit at its opposite
+     edges and read as unrelated to each other. */
+  .rail.leveled,
+  .rail.expanded.leveled,
+  .rail.collapsed.leveled {
+    justify-content: center;
+    gap: var(--space-6);
+  }
   /* The bottom bar carries destinations and nothing else: search, the account
      block and the group headings all belong to the sidebar, and the sheet below
      brings the first two back where there is room for them. */
@@ -1063,6 +1174,42 @@
   }
   .rail.sheetopen .navheading::after {
     display: none;
+  }
+  /* In the sheet a level is a column again, with its back row at the top: this
+     is the phone's whole sidebar, so the way back to the destinations has to be
+     in it. The collapsed variants are restated for the reason above — the sheet
+     is 600px wide whatever the desktop rail was left at. */
+  .rail.sheetopen .navlevel,
+  .rail.sheetopen.collapsed .navlevel {
+    display: flex;
+    flex-direction: column;
+    gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
+  }
+  .rail.sheetopen .navtitle,
+  .rail.sheetopen.collapsed .navtitle {
+    display: block;
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  /* `flex: none`, because the sheet's rows carry `flex: 1` to fill their row
+     wrapper — and this control is a child of the level's COLUMN, where growing
+     means growing taller than the rows under it. */
+  .rail.sheetopen .navback,
+  .rail.sheetopen.collapsed .navback {
+    width: auto;
+    flex: none;
+  }
+  /* The sheet is a LIST, not a bar, so the bar arrangement above is undone here —
+     restated per variant because `.rail.collapsed.leveled` would otherwise
+     outrank the sheet's own `.rail.sheetopen` layout on a phone that inherited
+     the collapsed desktop preference. */
+  .rail.sheetopen.leveled,
+  .rail.sheetopen.collapsed.leveled {
+    justify-content: flex-start;
+    gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
   }
   /* Search opens the sheet's own first row, and the account block closes it —
      the same order the sidebar reads in, so the sheet is the sidebar rather

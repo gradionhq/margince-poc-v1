@@ -218,7 +218,7 @@ export function AccountMenu({ collapsed }: Readonly<{ collapsed: boolean }>) {
         <div className="accountmenu" ref={menu}>
           <a href="#/settings/account">
             <UserRound size={15} aria-hidden />
-            {t("shell.accountSettings")}
+            {t("shell.account")}
           </a>
           <a href="#/settings">
             <Settings size={15} aria-hidden />
