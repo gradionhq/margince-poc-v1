@@ -142,7 +142,8 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// brief's: WithAccountDraft binds the api role's, and without it the
 	// endpoint answers from its deterministic floor rather than 501-ing.
 	s.accountDraftHandlers = accountdraft.NewHandlers(
-		accountdraft.NewService(s.org360Svc, nil), s.sorDispatch.isOverlay)
+		accountdraft.NewService(s.org360Svc, nil).
+			WithEnvelope(draftEnvelope(pool, s.log)), s.sorDispatch.isOverlay)
 	// The dossier reads the SAME people store the 360 and the brief read, so
 	// the three cannot drift about what a company's facts are. No model lane is
 	// wired yet: every assembly is the deterministic floor and says so.

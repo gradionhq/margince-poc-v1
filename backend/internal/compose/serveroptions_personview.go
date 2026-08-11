@@ -28,8 +28,9 @@ import (
 // drafting reads the caller's 360 and writes nothing, so there is nothing for a
 // transaction to do.
 func WithPersonDraft(brain completer) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		svc := persondraft.NewService(s.person360Svc, brain)
+	return func(s *Server, pool *pgxpool.Pool) {
+		svc := persondraft.NewService(s.person360Svc, brain).
+			WithEnvelope(draftEnvelope(pool, s.log))
 		s.personDraftHandlers = persondraft.NewHandlers(svc, s.sorDispatch.isOverlay)
 	}
 }
