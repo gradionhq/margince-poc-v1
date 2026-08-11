@@ -389,7 +389,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
-		quotasHandlers:       quotas.NewHandlers(pool, identity.BaseCurrencyOf),
+		quotasHandlers:       quotas.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
 		// The accept-write's default engine rides the honest-empty NoOp
 		// extractor (nothing is ever grounded, so nothing is acceptable);
 		// WithExtractor rebuilds it together with the activities read so

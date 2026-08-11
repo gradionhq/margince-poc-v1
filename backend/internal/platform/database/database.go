@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -99,6 +100,13 @@ func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) er
 		return ErrNoWorkspace
 	}
 
+	return withBoundTx(ctx, pool, ids.From[ids.WorkspaceKind](wsID), fn)
+}
+
+// withBoundTx is the one spelling of "a transaction with the workspace GUC
+// bound", shared by WithWorkspaceTx (workspace from ctx) and DB.Tx (workspace
+// from the installation resolver) so the two cannot drift while both exist.
+func withBoundTx(ctx context.Context, pool *pgxpool.Pool, ws ids.WorkspaceID, fn func(pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("pg: begin: %w", err)
@@ -110,7 +118,7 @@ func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) er
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Parameterized set_config, never string-built SET LOCAL.
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
 		return fmt.Errorf("pg: binding workspace GUC: %w", err)
 	}
 	if err := fn(tx); err != nil {
