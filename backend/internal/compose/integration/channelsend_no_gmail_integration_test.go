@@ -48,7 +48,7 @@ func setupChannelSendNoGmail(t *testing.T) *channelSendEnv {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generating a test root key: %v", err)
 	}
-	vault, err := keyvault.New(keyvault.Config{RootKey: key, Pool: preflightAppPool(t)})
+	vault, err := keyvault.New(keyvault.Config{RootKey: key, Pool: apptest.EarlyPool(t)})
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
 	}
@@ -64,7 +64,7 @@ func setupChannelSendNoGmail(t *testing.T) *channelSendEnv {
 		t.Fatalf("create person → %d", status)
 	}
 	c.personID = person.ID
-	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
 	}); err != nil {

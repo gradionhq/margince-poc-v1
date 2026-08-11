@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package channels
+
+import (
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
+)
+
+// The statutory retention floor, armed for THIS binary. The jurisdiction registry
+// is process-global and one package is one binary, so the parent package's own
+// arming does not reach here: this file is the registration travelling with the
+// erasure suite that moved out of internal/compose/integration.
+//
+// Do not rename this file to anything ending in a GOOS or GOARCH word. Go reads
+// the segment before _test.go as an implicit build constraint, so a plausible
+// name like jurisdiction_arm_test.go is silently dropped on every machine whose
+// GOARCH is not literally arm — the registration then never happens, and the
+// suite below reports the missing floor as a missing shield.
+func init() {
+	integration.RegisterGoBDFloorPack()
+}
+
+// TestTheStatutoryFloorIsArmedForThisBinary is the guard the erasure suites
+// cannot be: an absent floor makes the destructive path succeed, so a suite that
+// asserts the shield would go green for the opposite of the intended reason.
+// This asserts the registration itself, where a failure names its own cause.
+func TestTheStatutoryFloorIsArmedForThisBinary(t *testing.T) {
+	for _, pack := range jurisdiction.Applicable() {
+		retention := pack.Retention()
+		if retention == nil {
+			continue
+		}
+		for _, class := range retention.Classes() {
+			if class.Name == jurisdiction.CommercialCorrespondence {
+				return
+			}
+		}
+	}
+	t.Fatal("no pack in this binary declares a commercial-correspondence floor — the erasure suites here would pass by proving nothing")
+}

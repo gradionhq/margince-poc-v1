@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package channels
 
 // The mutex between an Art. 17 erasure and the transaction that makes a channel
 // record DURABLE — the activity write, not the ingress edge that admitted it.
@@ -36,6 +36,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -49,7 +50,7 @@ import (
 // sinkConnectorCtx is the principal the ingest worker acts as: a connector
 // acting for no human, permitted to create the activity it captures and the
 // person that activity names.
-func sinkConnectorCtx(e *Env) context.Context {
+func sinkConnectorCtx(e *integration.Env) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalConnector, ID: "connector:telegram",
@@ -107,7 +108,7 @@ func inboundChannelRecordAt(account, body string, at time.Time) connector.Normal
 // activityBodyCount counts activities holding this exact text, whatever they are
 // linked to. It deliberately does NOT join person or activity_link: the whole
 // point of the defect is that the surviving row is joined to nothing.
-func activityBodyCount(t *testing.T, e *Env, body string) int {
+func activityBodyCount(t *testing.T, e *integration.Env, body string) int {
 	t.Helper()
 	return e.WsCount(t, `SELECT count(*) FROM activity WHERE body = $1`, body)
 }
@@ -116,7 +117,7 @@ func activityBodyCount(t *testing.T, e *Env, body string) int {
 // be able to commit the activity after it: the row would outlive the erasure
 // that certified it gone, permanently beyond every lane that could remove it.
 func TestTheSinkRefusesARecordNamingAnErasedChannelAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Erased Subject", nil)
 	seedChannelIdentity(t, e, person, "20301", "erased")
 
@@ -140,7 +141,7 @@ func TestTheSinkRefusesARecordNamingAnErasedChannelAccount(t *testing.T) {
 // probe and its write, and the activity lands anyway. Holding the lock for the
 // whole call proves Upsert waits for it.
 func TestTheSinkWaitsForAnErasureHoldingTheRecordsAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Live Subject", nil)
 	seedChannelIdentity(t, e, person, "20302", "live")
 
@@ -173,7 +174,7 @@ func TestTheSinkWaitsForAnErasureHoldingTheRecordsAccount(t *testing.T) {
 // ACCOUNT, so an erasure of somebody else never delays this capture — and the
 // failure above is the lock, not the bounded pool.
 func TestTheSinkIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Live Subject", nil)
 	seedChannelIdentity(t, e, person, "20303", "live")
 
@@ -209,7 +210,7 @@ func TestTheSinkIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 // "some error occurred" would keep passing if the gate were deleted and an
 // unrelated fault took its place.
 func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 
 	rec := inboundChannelRecord("20304", "named twice")
 	rec.Counterparty.Email = "someone@example.com"
@@ -233,7 +234,7 @@ func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
 // This test builds exactly that state: a Sink with no channel ensurer wired
 // never writes the link at all, which is the same row the race produces.
 func TestAnErasureReachesAChannelActivityWithNoPersonLink(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Orphaned Subject", nil)
 	seedChannelIdentity(t, e, person, "20401", "orphaned")
 
@@ -267,7 +268,7 @@ func TestAnErasureReachesAChannelActivityWithNoPersonLink(t *testing.T) {
 // row — would redact other people's timelines. This pins that erasing one
 // subject touches only their own account's rows.
 func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	erased := e.SeedPerson(t, "Erased Subject", nil)
 	seedChannelIdentity(t, e, erased, "20501", "erased")
 	bystander := e.SeedPerson(t, "Bystander", nil)
@@ -309,7 +310,7 @@ func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
 // under a commercial-correspondence floor is wrong, that is a product and legal
 // question for the spec, not a change to make here.
 func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	person := e.SeedPerson(t, "Recent Subject", nil)
 	seedChannelIdentity(t, e, person, "20601", "recent")
 
@@ -331,7 +332,7 @@ func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testin
 // a provider-less identity would lock and probe a key space the eraser never
 // touches — the erasure gate would pass while an erasure was mid-purge.
 func TestTheSinkRefusesHalfAChannelIdentity(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 
 	rec := inboundChannelRecord("20305", "half an identity")
 	rec.Counterparty.ChannelIdentity.Provider = ""

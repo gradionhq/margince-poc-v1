@@ -24,28 +24,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// seedRetentionPolicies plants the same rows the workspace bootstrap
-// seeds (the HTTP-path exactness is asserted in the consent e2e suite).
-func seedRetentionPolicies(t *testing.T, e *Env) {
-	t.Helper()
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, v.o, v.c, v.d, v.a
-			FROM (VALUES
-			  ('lead', 'unconverted', 365, 'anonymize'),
-			  ('activity', NULL, 1095, 'archive'),
-			  ('activity', 'transcript', 365, 'erase'),
-			  ('person', 'no_consent_no_deal', 730, 'anonymize'),
-			  ('deal', 'lost', 1825, 'archive')
-			) AS v(o, c, d, a)`)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // seedOverAgeRecords plants one record per policy branch the engine must
 // act on — a stale unconverted lead, its legal-held twin, an aged
 // transcript activity, and a long-lost deal (with the pipeline/stage
@@ -114,7 +92,7 @@ func seedOverAgeRecords(t *testing.T, e *Env) (staleLead, heldLead, staleDeal, t
 
 func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	e := Setup(t)
-	seedRetentionPolicies(t, e)
+	SeedRetentionPolicies(t, e)
 	staleLead, heldLead, staleDeal, transcript := seedOverAgeRecords(t, e)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))

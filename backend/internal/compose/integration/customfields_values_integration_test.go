@@ -112,13 +112,13 @@ func TestCustomFieldValues_PersonRoundTrip(t *testing.T) {
 	}
 	assertCF(t, created.AdditionalProperties, col, "gold")
 
-	got, err := f.store.GetPerson(f.ctx, personIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetPerson: %v", err)
 	}
 	assertCF(t, got.AdditionalProperties, col, "gold")
 
-	updated, err := f.store.UpdatePerson(f.ctx, personIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
+	updated, err := f.store.UpdatePerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
 		CustomFields: map[string]any{col: "silver"},
 	})
 	if err != nil {
@@ -207,7 +207,7 @@ func TestCustomFieldValues_AllSixTypesRoundTrip(t *testing.T) {
 		t.Fatalf("CreatePerson: %v", err)
 	}
 
-	got, err := f.store.GetPerson(f.ctx, personIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetPerson: %v", err)
 	}
@@ -236,17 +236,17 @@ func TestCustomFieldValues_WrongShapeDropped(t *testing.T) {
 	}
 	assertNoCF(t, created.AdditionalProperties, col)
 
-	if _, err := f.store.UpdatePerson(f.ctx, personIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
+	if _, err := f.store.UpdatePerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
 		CustomFields: map[string]any{col: float64(7)},
 	}); err != nil {
 		t.Fatalf("UpdatePerson (valid shape): %v", err)
 	}
-	if _, err := f.store.UpdatePerson(f.ctx, personIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
+	if _, err := f.store.UpdatePerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
 		CustomFields: map[string]any{col: "not-a-number"},
 	}); err != nil {
 		t.Fatalf("UpdatePerson with mismatched value shape: %v", err)
 	}
-	got, err := f.store.GetPerson(f.ctx, personIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetPerson: %v", err)
 	}
@@ -385,14 +385,14 @@ func TestCustomFieldValues_RetiredFieldHiddenButPreserved(t *testing.T) {
 		t.Fatalf("Retire: %v", err)
 	}
 
-	got, err := f.store.GetPerson(f.ctx, personIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetPerson after retire: %v", err)
 	}
 	assertNoCF(t, got.AdditionalProperties, col)
 
 	// A write against the retired key is dropped like any unknown key.
-	if _, err := f.store.UpdatePerson(f.ctx, personIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
+	if _, err := f.store.UpdatePerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
 		CustomFields: map[string]any{col: "silver"},
 	}); err != nil {
 		t.Fatalf("UpdatePerson against retired key: %v", err)
@@ -453,7 +453,7 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	}
 
 	// Tenant A still reads its value.
-	gotA, err := f.store.GetPerson(f.ctx, personIDOf(ids.UUID(inA.Id)), storekit.LiveOnly)
+	gotA, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(inA.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetPerson (tenant A): %v", err)
 	}
@@ -474,7 +474,7 @@ func TestCustomFieldValues_UpdateAuditCarriesDiff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreatePerson: %v", err)
 	}
-	if _, err := f.store.UpdatePerson(f.ctx, personIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
+	if _, err := f.store.UpdatePerson(f.ctx, PersonIDOf(ids.UUID(created.Id)), people.UpdatePersonInput{
 		CustomFields: map[string]any{col: "silver"},
 	}); err != nil {
 		t.Fatalf("UpdatePerson: %v", err)

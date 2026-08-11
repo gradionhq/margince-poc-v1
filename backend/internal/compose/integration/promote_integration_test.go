@@ -114,7 +114,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 	if !errors.As(err, &already) {
 		t.Fatalf("re-promote → %v, want people.AlreadyPromotedError", err)
 	}
-	if already.PersonID != personIDOf(ids.UUID(person.Id)) {
+	if already.PersonID != PersonIDOf(ids.UUID(person.Id)) {
 		t.Error("409 lost the promoted_person_id pointer")
 	}
 }

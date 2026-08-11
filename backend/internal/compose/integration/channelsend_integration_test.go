@@ -59,7 +59,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generating a test root key: %v", err)
 	}
-	vault, err := keyvault.New(keyvault.Config{RootKey: key, Pool: preflightAppPool(t)})
+	vault, err := keyvault.New(keyvault.Config{RootKey: key, Pool: apptest.EarlyPool(t)})
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
 	}
@@ -82,7 +82,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 		t.Fatalf("create person → %d", status)
 	}
 	c.personID = person.ID
-	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
 	}); err != nil {
@@ -100,7 +100,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 // reads out of it, not how ingress puts it there.
 func (c *channelSendEnv) bindIdentity(t *testing.T) {
 	t.Helper()
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_channel_identity
 				(workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
@@ -117,7 +117,7 @@ func (c *channelSendEnv) bindIdentity(t *testing.T) {
 // the shape capture leaves behind.
 func (c *channelSendEnv) seedInboundMessage(t *testing.T) {
 	t.Helper()
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (workspace_id, kind, body, occurred_at, direction,
@@ -171,7 +171,7 @@ func (c *channelSendEnv) grantConsent(t *testing.T, key string) {
 // vault — so its value is deliberately opaque here.
 func (c *channelSendEnv) connectBot(t *testing.T) {
 	t.Helper()
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO channel_connection
 				(workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
@@ -232,7 +232,7 @@ func (c *channelSendEnv) sendReplyAs(t *testing.T, scopes []string, purpose stri
 func (c *channelSendEnv) stagedChannelDeliveries(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM comms_outbound WHERE channel_user_id IS NOT NULL`).Scan(&n)
 	}); err != nil {
@@ -246,7 +246,7 @@ func (c *channelSendEnv) stagedChannelDeliveries(t *testing.T) int {
 func (c *channelSendEnv) outboundActivities(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM activity WHERE direction = 'outbound'`).Scan(&n)
 	}); err != nil {
@@ -321,7 +321,7 @@ func TestSendMessageAcceptsAHumanCallerWithoutAToken(t *testing.T) {
 	// caller.
 	var recipient, body, provider string
 	var subject, messageID *string
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT channel_user_id, body, provider, subject, message_id
 			   FROM comms_outbound WHERE channel_user_id IS NOT NULL`).
@@ -346,7 +346,7 @@ func TestSendMessageAcceptsAHumanCallerWithoutAToken(t *testing.T) {
 // park where the rep never looks.
 func TestSendMessageRefusesWhenNoBotIsBoundForTheChannel(t *testing.T) {
 	c := setupChannelSend(t)
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `UPDATE channel_connection SET status = 'disconnected'`)
 		return err
 	}); err != nil {
@@ -411,7 +411,7 @@ func TestSendMessageRefusesWithoutConsentForThePurpose(t *testing.T) {
 // reply must be refused on reachability rather than accepted and parked.
 func TestSendMessageRefusesAnUnreachablePerson(t *testing.T) {
 	c := setupChannelSend(t)
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE person_channel_identity SET blocked_at = now() WHERE channel_user_id = $1`, channelSendAccountID)
 		return err
@@ -453,7 +453,7 @@ func TestSentMessageLandsAsAnOutboundActivity(t *testing.T) {
 
 	var threadKey, linkedPerson string
 	var deliveryActivity string
-	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
 			`SELECT coalesce(thread_key, '') FROM activity WHERE id = $1`, sent.ID).Scan(&threadKey); err != nil {
