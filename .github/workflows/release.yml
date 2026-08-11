@@ -44,6 +44,9 @@ env:
   RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
   # The dist service of the constellation deployment the release is drafted
   # into. The CLI reads this variable directly and refuses a non-https URL.
+  # ONE constellation deployment exists (test.margince.com), so main and test
+  # both draft into it; this becomes a per-ref selection when a production
+  # constellation exists.
   MARGINCE_RELEASE_MANAGEMENT_DIST_URL: https://dist.test.margince.com
 
 jobs:
@@ -85,6 +88,11 @@ jobs:
           # without a patch: all-zeros (branch creation), and a commit the
           # fetched history no longer reaches (a force-push discards its old
           # tip, so even a full fetch of the new tip cannot resolve it).
+          # Ancestry is deliberately NOT required beyond that: a resolvable
+          # BEFORE that is no ancestor of AFTER (a force-push whose old tip
+          # another ref still reaches) still names the previously drafted
+          # state, and the tree diff from it is exactly the increment a
+          # consumer on that state needs.
           base="$BEFORE"
           if [ -z "$base" ]; then
             base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
