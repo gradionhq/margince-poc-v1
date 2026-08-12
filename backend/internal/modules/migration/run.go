@@ -199,8 +199,13 @@ func (s *RunStore) LookupIdentity(ctx context.Context, sourceSystem, object, ext
 	found := false
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
+			-- The workspace predicate is the lookup's own: tenant isolation
+			-- used to bound it, and without it an external id maps to whatever
+			-- installation imported it first, so the row this run writes points
+			-- at another installation's record (ADR-0091 §8 phase A).
 			SELECT native_id FROM import_record_map
-			WHERE source_system = $1 AND object = $2 AND external_id = $3`,
+			WHERE source_system = $1 AND object = $2 AND external_id = $3
+			  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
 			sourceSystem, object, externalID).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

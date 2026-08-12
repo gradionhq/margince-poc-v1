@@ -159,6 +159,10 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	if rep.Imported == 0 {
 		t.Fatal("reconstruction imported nothing")
 	}
+	// Every count below carries its own workspace predicate. Tenant isolation
+	// used to scope these reads to the clean instance; without it they also
+	// count the ORIGINAL workspace's mirror-sourced rows, which is what the
+	// reconstruction is being compared against (ADR-0091 §8 phase A).
 	assertCount := func(name, query string, want int) {
 		t.Helper()
 		var n int
@@ -171,17 +175,19 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 			t.Errorf("%s = %d, want %d", name, n, want)
 		}
 	}
-	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%'`, 3)
-	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'mirror:hubspot:%'`, 2)
-	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
-	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`, 1)
-	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`, 1)
+	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 3)
+	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 2)
+	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 2)
+	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
+	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
-		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
+		WHERE d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
 	assertCount("reconstructed employment", `
 		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
-		WHERE r.kind = 'employment' AND p.source = 'mirror:hubspot:person:p-1'`, 1)
+		WHERE r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND r.kind = 'employment' AND p.source = 'mirror:hubspot:person:p-1'`, 1)
 	// The bundle's owner map named the SOURCE workspace's admin, who does
 	// not exist in this clean instance — so ownership falls to the
 	// rebuild's own operator rather than landing ownerless (an ownerless

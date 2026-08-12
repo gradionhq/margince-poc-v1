@@ -114,25 +114,5 @@ func TestCustomFieldValues_DealRoundTrip(t *testing.T) {
 	assertCF(t, list[0].AdditionalProperties, col, "mid-market")
 }
 
-// seedDealFixtureIn provisions the default pipeline in the context's
-// workspace and returns its pipeline id plus the first open stage.
-func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (ids.PipelineID, ids.StageID) {
-	t.Helper()
-	if err := store.SeedDefaults(ctx); err != nil {
-		t.Fatal(err)
-	}
-	p, err := store.DefaultPipeline(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, st := range *p.Stages {
-		if st.Semantic == "open" {
-			return ids.From[ids.PipelineKind](ids.UUID(p.Id)), ids.From[ids.StageKind](ids.UUID(st.Id))
-		}
-	}
-	t.Fatal("default pipeline has no open stage")
-	return ids.PipelineID{}, ids.StageID{}
-}
-
 // dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.
 func dealIDOf(u ids.UUID) ids.DealID { return ids.From[ids.DealKind](u) }

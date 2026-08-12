@@ -166,13 +166,6 @@ func TestLeadLinkedInRefusesNonURLsAsTheCallersFault(t *testing.T) {
 	}
 }
 
-func (e *linkedinEnv) exec(t *testing.T, sql string, args ...any) {
-	t.Helper()
-	if _, err := e.owner.Exec(context.Background(), sql, args...); err != nil {
-		t.Fatalf("seed %q: %v", sql, err)
-	}
-}
-
 func (e *linkedinEnv) count(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	var n int

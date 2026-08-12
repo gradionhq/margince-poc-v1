@@ -238,8 +238,13 @@ func (s *Store) dueRetries(ctx context.Context, now time.Time, limit int) ([]ids
 		rows, err := tx.Query(ctx, `
 			SELECT d.id
 			FROM webhook_delivery d
-			JOIN webhook_subscription s ON s.id = d.subscription_id
-			WHERE d.status = 'retrying' AND d.next_retry_at <= $1
+			JOIN webhook_subscription s
+			  ON s.workspace_id = d.workspace_id AND s.id = d.subscription_id
+			-- The workspace predicate is the scan's own: tenant isolation used
+			-- to bound it, so a sweep saw only its own tenant's parked
+			-- deliveries without saying so (ADR-0091 §8 phase A).
+			WHERE d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			  AND d.status = 'retrying' AND d.next_retry_at <= $1
 			  AND s.state = 'active' AND s.archived_at IS NULL
 			ORDER BY d.next_retry_at
 			LIMIT $2`, now, limit)

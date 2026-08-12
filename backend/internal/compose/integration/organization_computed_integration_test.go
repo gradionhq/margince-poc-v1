@@ -148,23 +148,6 @@ var computedFieldNoGrantPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
-// computedFieldWorkspaceBPerms grants workspace B's synthetic admin
-// exactly what this suite's cross-tenant scenario needs — organization
-// and deal writes plus computed_field:read — narrower than
-// AdminPerms/CustomFieldAdminPerms because neither existing fixture carries the
-// organization+deal+computed_field combination this suite exercises.
-var computedFieldWorkspaceBPerms = principal.Permissions{
-	RoleKeys: []string{"admin"},
-	Objects: map[string]principal.ObjectGrant{
-		"organization":          {Create: true, Read: true},
-		"deal":                  {Create: true, Read: true},
-		"pipeline":              {Create: true, Read: true},
-		"computed_field":        {Read: true},
-		"installation_settings": {Read: true},
-	},
-	RowScope: principal.RowScopeAll,
-}
-
 // TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead is
 // the happy path: two open deals with their FX frozen (the owner-conn
 // fixture above) sum to a known figure that must match both the view

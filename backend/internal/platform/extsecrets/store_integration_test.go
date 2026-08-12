@@ -135,30 +135,6 @@ func (e *env) currentRef(t *testing.T, ws ids.UUID, unit, key string) keyvault.R
 	return keyvault.Ref(ref)
 }
 
-// rowsVisibleFrom counts the mapping rows a SELECT pinned to ws can see for
-// this unit and key — regardless of which workspace actually owns them. It
-// deliberately does NOT filter on workspace_id: the whole question is what
-// the database hands back to a session bound to ws, which is the tenant
-// policy's answer and nobody else's.
-//
-// It rides the APP pool, not the owner connection. The integration cluster's
-// owner role bypasses row level security (BYPASSRLS/superuser), which FORCE
-// does not override — so the same probe on e.owner returns the other
-// tenant's row and would report a policy failure that is not one. margince_app
-// is the role the policy actually binds, and the role every runtime path uses.
-func (e *env) rowsVisibleFrom(t *testing.T, ws ids.UUID, unit, key string) int {
-	t.Helper()
-	var n int
-	if err := database.WithWorkspaceTx(e.ctxFor(ws), e.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM extension_secret WHERE extension_name = $1 AND key = $2`,
-			unit, key).Scan(&n)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
-
 // systemLogActions returns the ledger entries for ws, oldest first, each as
 // "<action>" or "<action>/<outcome>" where an outcome was recorded.
 func (e *env) systemLogActions(t *testing.T, ws ids.UUID) []string {

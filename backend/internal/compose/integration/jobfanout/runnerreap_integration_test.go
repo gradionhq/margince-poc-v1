@@ -24,7 +24,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -85,30 +84,6 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 		t.Errorf("a run awaiting a human is %q, want awaiting_approval — a person may take weeks, and "+
 			"closing it discards a decision nobody has made", got.status)
 	}
-}
-
-// otherWorkspace mints a second tenant to sweep against. One spelling of the
-// workspace INSERT, shared with the fan-out suites next door: a tenant seeded a
-// second way is a tenant whose shape a cross-tenant refusal was never really
-// tested against.
-func (re *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
-	t.Helper()
-	return integration.SeedExtraWorkspace(t, re.Owner, "reap-other", false)
-}
-
-// seedRunIn writes an abandoned run into an arbitrary workspace, which seedRun
-// cannot do because it stamps this test's own tenant.
-func (re *runnerEnv) seedRunIn(t *testing.T, wsID ids.UUID, triggerRef string, staleFor time.Duration) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := re.Owner.Exec(context.Background(), `
-		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at)
-		VALUES ($1, $2, 'morning_brief', 'another tenant''s run', $3, 'running',
-		        now() - ($4 * interval '1 microsecond'))`,
-		id, wsID, triggerRef, staleFor.Microseconds()); err != nil {
-		t.Fatalf("seeding a run in workspace %s: %v", wsID, err)
-	}
-	return id
 }
 
 // seedRun writes one agent_run row already staleFor old, which is the whole input
@@ -178,17 +153,4 @@ func (re *runnerEnv) runState(t *testing.T, runID ids.UUID) sweptRun {
 		t.Fatalf("reading run %s: %v", runID, err)
 	}
 	return got
-}
-
-// statusAsOwner reads a run bypassing the workspace binding, because the question
-// about another tenant's row is whether it changed at all — and the app role
-// cannot see it to answer that either way.
-func (re *runnerEnv) statusAsOwner(t *testing.T, runID ids.UUID) string {
-	t.Helper()
-	var status string
-	if err := re.Owner.QueryRow(context.Background(),
-		`SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status); err != nil {
-		t.Fatalf("reading run %s as the owner: %v", runID, err)
-	}
-	return status
 }

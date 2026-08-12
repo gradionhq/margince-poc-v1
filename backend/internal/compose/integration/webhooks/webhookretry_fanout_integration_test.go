@@ -77,6 +77,38 @@ func failDueScansFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 			t.Errorf("dropping the fault-injection function: %v", err)
 		}
 	})
+	// The injector arms row security ITSELF, for this table and this test only.
+	// It used to ride the product's own tenant isolation, which phase A retired
+	// (ADR-0091 §8) — but a restrictive policy is still the only way to make a
+	// SELECT fail for one tenant and no other, and a fault injector owning its
+	// mechanism is what keeps this test about the sweep rather than about RLS.
+	// ENABLE without FORCE is deliberate: the app role the sweep runs as is not
+	// this table's owner, so the policy binds it, while the owner connection
+	// this fixture seeds through stays unaffected.
+	if _, err := owner.Exec(ctx, `ALTER TABLE webhook_delivery ENABLE ROW LEVEL SECURITY`); err != nil {
+		t.Fatalf("arming row security for the fault injection: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(),
+			`ALTER TABLE webhook_delivery DISABLE ROW LEVEL SECURITY`); err != nil {
+			t.Errorf("disarming row security after the fault injection: %v", err)
+		}
+	})
+	// A permissive policy admitting everything, because a RESTRICTIVE one only
+	// narrows what some permissive policy already admitted: with row security
+	// on and nothing permissive present the default is deny-all, the scan reads
+	// zero rows, and the fault below never runs — the sweep would report a
+	// clean pass and this test would fail for the opposite reason.
+	if _, err := owner.Exec(ctx, `
+		CREATE POLICY webhook_delivery_scan_all ON webhook_delivery USING (true)`); err != nil {
+		t.Fatalf("arming the permissive base policy: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(),
+			`DROP POLICY webhook_delivery_scan_all ON webhook_delivery`); err != nil {
+			t.Errorf("dropping the permissive base policy: %v", err)
+		}
+	})
 	// CREATE POLICY takes no bind parameters, so the tenant is interpolated;
 	// it is a UUID rendered by ids.UUID.String(), never caller text.
 	if _, err := owner.Exec(ctx, `

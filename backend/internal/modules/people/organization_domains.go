@@ -60,7 +60,9 @@ func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDoma
 	for _, d := range domains {
 		var existing ids.OrganizationID
 		err := tx.QueryRow(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
+			`SELECT organization_id FROM organization_domain
+			  WHERE domain = lower($1) AND archived_at IS NULL
+			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
 			d.Domain).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -110,7 +112,9 @@ func ensureOrgDomainsUnclaimedExcept(ctx context.Context, tx pgx.Tx, self ids.Or
 	for _, d := range domains {
 		var existing ids.OrganizationID
 		err := tx.QueryRow(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
+			`SELECT organization_id FROM organization_domain
+			  WHERE domain = lower($1) AND archived_at IS NULL
+			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
 			d.Domain).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) || existing == self {
 			continue
