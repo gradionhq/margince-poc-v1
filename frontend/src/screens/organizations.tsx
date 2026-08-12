@@ -2026,6 +2026,11 @@ function CompanyPage({
     <CompanyRail
       orgId={org.id}
       view={view}
+      // The composite read still in flight vs. it having failed: without
+      // this the rail's own sections cannot tell the two apart from an
+      // undefined `view` alone, and both drawing the loading skeleton is not
+      // the same defect as both drawing "could not be loaded".
+      loading={loading}
       // The People tab IS the roster in full, so the rail's summary of it
       // stands down rather than repeating it beside itself.
       withPeople={tab !== "people"}
