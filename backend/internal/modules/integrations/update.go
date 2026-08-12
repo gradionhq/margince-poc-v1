@@ -35,14 +35,24 @@ type ConfigPatch struct {
 // categories here cannot retroactively authorize a purchase (PI-AC-2).
 //
 // ifMatch is the caller's last-seen version. Zero means unconditional, which
-// the contract permits; a mismatch is version skew rather than a silent
-// overwrite of somebody else's edit.
+// the contract permits when the header is absent; a mismatch is version skew
+// rather than a silent overwrite of somebody else's edit.
+//
+// Zero is the ABSENCE of a precondition, never a version: the column starts at
+// 1 and no row can carry zero. A transport handing zero because it could not
+// read the caller's header would therefore be promoting a conditional write to
+// an unconditional one — the exact overwrite the caller was preventing — so
+// the transport refuses such a header rather than passing it here. A negative
+// value cannot come from any row either, and is refused outright.
 func (s *Store) UpdateConfig(ctx context.Context, name string, patch ConfigPatch, ifMatch int64) (Connection, error) {
 	if err := auth.RequireHuman(ctx); err != nil {
 		return Connection{}, err
 	}
 	if err := auth.Require(ctx, objectIntegrations, principal.ActionUpdate); err != nil {
 		return Connection{}, err
+	}
+	if ifMatch < 0 {
+		return Connection{}, &NegativeVersionError{Version: ifMatch}
 	}
 	desc, err := s.registry.Descriptor(name)
 	if err != nil {

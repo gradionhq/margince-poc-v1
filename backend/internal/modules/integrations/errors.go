@@ -73,3 +73,17 @@ func (e *VerificationFailedError) Error() string {
 func (e *VerificationFailedError) FieldFault() (field, code, message string) {
 	return "api_key", "verification_failed", e.Error()
 }
+
+// NegativeVersionError maps to 422: a version below zero cannot name any row.
+// The column starts at 1, so this is a caller error rather than a stale read,
+// and refusing it keeps a nonsense precondition from reaching the comparison
+// as though it were real.
+type NegativeVersionError struct{ Version int64 }
+
+func (e *NegativeVersionError) Error() string {
+	return "a row version is never negative"
+}
+
+func (e *NegativeVersionError) MessageFault() (code, message string) {
+	return "invalid_version", "The version to match must be the one the last read returned. Re-read the connection and retry with its version."
+}
