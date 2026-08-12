@@ -527,7 +527,12 @@ function useSelectListbox(
     listboxId,
     optionDomId: (index: number) => `${listboxId}-option-${index}`,
     onKeyDown: keyDownHandler(open, actions),
-    onTriggerClick: () => (open ? setOpen(false) : openFrom(1)),
+    // Pressing the trigger a second time closes on nothing chosen, which is
+    // the same answer as Escape and as a press outside, so it leaves through
+    // `abandon` like they do. Closed with `setOpen` alone it would be the one
+    // dismissal a caller is never told about, and InlineChoice would sit in
+    // its editing view with no list beneath it.
+    onTriggerClick: () => (open ? abandon() : openFrom(1)),
     pick: commit,
     hover: setActive,
   };
