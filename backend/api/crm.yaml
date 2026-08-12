@@ -11547,7 +11547,7 @@ components:
                   required: [task, tier, calls, tokens_in, tokens_out]
                   properties:
                     task: { type: string, description: 'capture_classify, enrich, summarize, …' }
-                    tier: { type: string, description: 'local_small, cheap_cloud, premium, local_large.' }
+                    tier: { type: string, description: 'local_small, cheap_cloud, premium, frontier, local_large.' }
                     calls: { type: integer }
                     cached_hits: { type: integer }
                     tokens_in: { type: integer }
@@ -16314,8 +16314,8 @@ components:
       properties:
         tier:
           type: string
-          enum: [local_small, cheap_cloud, premium, local_large]
-          x-enum-varnames: [AssistantModelTierLocalSmall, AssistantModelTierCheapCloud, AssistantModelTierPremium, AssistantModelTierLocalLarge]
+          enum: [local_small, cheap_cloud, premium, frontier, local_large]
+          x-enum-varnames: [AssistantModelTierLocalSmall, AssistantModelTierCheapCloud, AssistantModelTierPremium, AssistantModelTierFrontier, AssistantModelTierLocalLarge]
         provider:
           type: string
           enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm]

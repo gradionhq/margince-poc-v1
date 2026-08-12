@@ -202,6 +202,51 @@ func TestRouterSovereignRemapsCloudTiersToLocal(t *testing.T) {
 	}
 }
 
+// The cloudTiers classification must stay TOTAL over the contract's tier list,
+// because applyProfile only remaps what it classifies: a tier declared in
+// ai-tasks.yaml and left out of the map would egress under the one profile that
+// promises it never will. The naming convention is the derivation — a tier is
+// local only if it says so — so adding a tier without classifying it fails here
+// rather than silently in production.
+func TestEveryNonLocalTierIsClassifiedCloud(t *testing.T) {
+	for tier := range knownTiers {
+		local := strings.HasPrefix(string(tier), "local_")
+		if local == cloudTiers[tier] {
+			t.Errorf("tier %q: named local=%v but classified cloud=%v — applyProfile would %s under sovereign",
+				tier, local, cloudTiers[tier],
+				map[bool]string{true: "remap a local rung needlessly", false: "let a cloud rung through"}[local])
+		}
+	}
+}
+
+// applyProfile is exercised directly here because no task ladder names frontier
+// yet: the sovereign guarantee has to hold for the rung BEFORE something routes
+// to it, not after.
+func TestApplyProfileRemapsFrontierUnderSovereign(t *testing.T) {
+	r := testRouter(map[Tier]model.Client{
+		TierLocalSmall: NewFakeClient(),
+		TierLocalLarge: NewFakeClient(),
+	}, &memMeter{}, DefaultMonthlyTokens, ProfileSovereign)
+	got := r.applyProfile([]Tier{TierFrontier, TierPremium})
+	if len(got) != 1 || got[0] != TierLocalLarge {
+		t.Fatalf("a frontier-led ladder must collapse to the local rung under sovereign, got %v", got)
+	}
+}
+
+// Economy mode steps one rung down, and frontier's step is premium — not
+// straight to a cheap tier, which would drop two capability classes at the
+// first sign of budget pressure.
+func TestFrontierDegradesToPremium(t *testing.T) {
+	if got := degradeTo[TierFrontier]; got != TierPremium {
+		t.Fatalf("frontier must degrade to premium, got %q", got)
+	}
+	for tier := range knownTiers {
+		if _, ok := degradeTo[tier]; !ok {
+			t.Errorf("tier %q has no degrade_to entry — economy mode would leave it at full cost", tier)
+		}
+	}
+}
+
 func TestRouterSovereignWithoutLocalDegradesHonestly(t *testing.T) {
 	r := testRouter(map[Tier]model.Client{}, &memMeter{}, DefaultMonthlyTokens, ProfileSovereign)
 	_, _, err := r.Complete(wsContext(t), TaskSummarize, model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}})

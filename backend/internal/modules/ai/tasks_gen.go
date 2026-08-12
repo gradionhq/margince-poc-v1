@@ -64,13 +64,14 @@ const (
 	TierLocalSmall Tier = "local_small"
 	TierCheapCloud Tier = "cheap_cloud"
 	TierPremium    Tier = "premium"
+	TierFrontier   Tier = "frontier"
 	TierLocalLarge Tier = "local_large"
 )
 
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "f818b1f3ff64ce3f21069c3fb2c9f08529170cfa15ae4e60bc984f7ce63441ac"
+const TaskContractHash = "9ee37bacc7d67837c7d210b83471662d55f05d7a5f567efedbeeb79e46a238c5"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -131,6 +132,7 @@ var degradeTo = map[Tier]Tier{
 	TierLocalSmall: TierLocalSmall,
 	TierCheapCloud: TierLocalSmall,
 	TierPremium:    TierCheapCloud,
+	TierFrontier:   TierPremium,
 	TierLocalLarge: TierLocalSmall,
 }
 
@@ -166,6 +168,7 @@ var knownTiers = map[Tier]bool{
 	TierLocalSmall: true,
 	TierCheapCloud: true,
 	TierPremium:    true,
+	TierFrontier:   true,
 	TierLocalLarge: true,
 }
 

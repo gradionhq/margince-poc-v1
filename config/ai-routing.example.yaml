@@ -38,6 +38,17 @@ tiers:
     provider: gemini
     model: gemini-3.5-flash
 
+  # frontier is the rung above premium: the strongest model this deployment is
+  # willing to pay for. NO task ladder selects it — binding it costs nothing
+  # until you put it in one (a routing-POLICY change in backend/api/ai-tasks.yaml,
+  # which needs a rebuild). It is here so the rung has a measured default when a
+  # task does need it, and so `make e2e-ai` can judge a candidate against it.
+  # gemini-3.1-pro-preview is $2.00/$12.00 per MTok against premium's
+  # $1.50/$9.00, so a ladder change here roughly doubles that task's bill.
+  frontier:
+    provider: gemini
+    model: gemini-3.1-pro-preview
+
 # embeddings — bound separately from the chat tiers so retrieval keeps working
 # when the chat budget is exhausted. Required.
 embeddings:

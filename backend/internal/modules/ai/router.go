@@ -383,6 +383,18 @@ func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceI
 	}
 }
 
+// cloudTiers are the rungs that reach a third-party API. applyProfile
+// rewrites every one of them to a local rung under sovereign, so the
+// classification must stay TOTAL over the contract's tier list: a tier
+// declared in ai-tasks.yaml and forgotten here would pass through the remap
+// and egress under the one profile that promises it never will.
+// TestEveryNonLocalTierIsClassifiedCloud holds that line.
+var cloudTiers = map[Tier]bool{
+	TierCheapCloud: true,
+	TierPremium:    true,
+	TierFrontier:   true,
+}
+
 // applyProfile remaps cloud rungs to local ones under sovereign: P7
 // zero-egress holds by construction because a cloud tier is simply
 // never selected (validation already refused cloud bindings).
@@ -392,7 +404,7 @@ func (r *Router) applyProfile(ladder []Tier) []Tier {
 	}
 	remapped := make([]Tier, 0, len(ladder))
 	for _, tier := range ladder {
-		if tier == TierCheapCloud || tier == TierPremium {
+		if cloudTiers[tier] {
 			if _, ok := r.clients[TierLocalLarge]; ok {
 				tier = TierLocalLarge
 			} else {

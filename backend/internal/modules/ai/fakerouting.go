@@ -4,7 +4,7 @@
 package ai
 
 // FakeRoutingConfig is the routing config the offline --ai-fake dev/test
-// path is built over. It binds EVERY tier the contract knows about
+// path is built over. It binds every tier a task ladder NAMES
 // (local_small, cheap_cloud, premium) plus the embeddings lane to
 // ProviderFake, so every task's fallback ladder is fully bound —
 // UnboundLadderWarnings reports nothing for it, and no ladder is ever
@@ -13,8 +13,13 @@ package ai
 // (no fallback rung): a fake config that skipped the premium tier would
 // silently refuse deep-read extraction under --ai-fake while every
 // other lane worked, an inconsistency a dev/test flag must never
-// produce. Riding this config through NewModelPath (rather than
-// FakeModelPath's direct client wiring) means --ai-fake exercises the
+// produce. The tiers no ladder names — frontier and local_large — stay
+// deliberately unbound: they exist for an operator to bind, and binding
+// them here would assert a fallback the contract does not declare.
+// TestFakeRoutingConfigBindsEveryLadder keeps the set derived from the
+// ladders rather than maintained by hand. Riding this config through
+// NewModelPath (rather than FakeModelPath's direct client wiring) means
+// --ai-fake exercises the
 // real Router — tiering, the budget guardrail, metering and call
 // tracing — with only the provider swapped for the deterministic fake.
 func FakeRoutingConfig() RoutingConfig {
