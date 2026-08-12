@@ -137,17 +137,18 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
     }
   }, [center.data]);
 
+  // The draft arrives as the mutation's variable rather than through this
+  // closure. react-query re-arms a mutation's options in a passive effect, so a
+  // click landing between the commit that renders Save and that effect runs the
+  // previous render's function — where the draft was still null. The guard that
+  // used to stand here could only ever fire in that window, and what it
+  // reported was false: the subject's choices were on the screen.
   const save = useMutation({
-    mutationFn: async () => {
-      if (!draft) {
-        // The Save button only renders once the draft is seeded — this
-        // guard only protects a stale closure, never a real path.
-        throw new Error("preferences not loaded yet");
-      }
+    mutationFn: async (choices: Draft) => {
       const { data, error } = await api.PUT("/public/preferences/{token}", {
         params: { path: { token } },
         body: {
-          choices: toChoices(purposes, draft, (key) => wordingByKey[key]),
+          choices: toChoices(purposes, choices, (key) => wordingByKey[key]),
         },
       });
       if (error) {
@@ -380,7 +381,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
               <Button
                 variant="primary"
                 disabled={writePending}
-                onClick={() => save.mutate()}
+                onClick={() => draft && save.mutate(draft)}
               >
                 {t("prefs.save")}
               </Button>
