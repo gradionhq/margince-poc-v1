@@ -13,6 +13,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -54,7 +56,7 @@ func TestOverlayWirePersonAssemblesNameAndStampsProvenance(t *testing.T) {
 		t.Errorf("Source = %q, want overlay", person.Source)
 	}
 	if !person.CreatedAt.Equal(wireSyncedAt) || !person.UpdatedAt.Equal(wireSyncedAt) {
-		t.Error("timestamps must carry the mirror's own last-synced instant — the only time the mirror can honestly claim")
+		t.Error("a record carrying neither incumbent stamp must fall back to the mirror's own last-synced instant — the only time the mirror can honestly claim")
 	}
 	if person.Raw == nil || (*person.Raw)["title"] != "CTO" {
 		t.Error("the full canonical payload must ride raw")
@@ -63,7 +65,7 @@ func TestOverlayWirePersonAssemblesNameAndStampsProvenance(t *testing.T) {
 
 func TestOverlayWirePersonNamelessFallsBackToEmailThenUnnamed(t *testing.T) {
 	withEmail := wireRecord(t, datasource.EntityPerson, map[string]any{
-		"person_email": map[string]any{"email": "ada@example.test"},
+		"person_email": []map[string]any{{"email": "ada@example.test", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	person, err := overlayWirePerson(wireCtx(), withEmail)
 	if err != nil {
@@ -84,7 +86,7 @@ func TestOverlayWirePersonNamelessFallsBackToEmailThenUnnamed(t *testing.T) {
 func TestOverlayWireOrganizationSurfacesDomain(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{
 		"display_name":        "Acme",
-		"organization_domain": map[string]any{"domain": "acme.io"},
+		"organization_domain": []map[string]any{{"domain": "acme.io", "is_primary": true, "position": 0}},
 	})
 	org, err := overlayWireOrganization(wireCtx(), rec)
 	if err != nil {
@@ -115,6 +117,39 @@ func TestOverlayWireOrganizationSurfacesDomain(t *testing.T) {
 	}
 	if (*again.Domains)[0].Id != d.Id {
 		t.Errorf("domain id churned across reads: %v then %v", d.Id, (*again.Domains)[0].Id)
+	}
+}
+
+// A company's domains are a collection, read whole the way a contact's emails
+// are. The wire-coverage gate only asks that the slot is non-empty and differs
+// from the fallback, so a reader publishing the leading row alone passes it
+// while dropping every domain after the first.
+func TestOverlayWireOrganizationPublishesEveryDomainRow(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{
+		"display_name": "Acme",
+		"organization_domain": []map[string]any{
+			{"domain": "acme.io", "is_primary": true, "position": 0},
+			{"domain": "acme.de", "position": 1},
+		},
+	})
+	org, err := overlayWireOrganization(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireOrganization: %v", err)
+	}
+	if org.Domains == nil || len(*org.Domains) != 2 {
+		t.Fatalf("Domains = %#v, want both mirrored rows", org.Domains)
+	}
+	rows := *org.Domains
+	if rows[0].Domain != "acme.io" || rows[1].Domain != "acme.de" {
+		t.Errorf("domains = %q then %q, want the mapping's declared order", rows[0].Domain, rows[1].Domain)
+	}
+	// The second row declares no flag, so it is not a second primary — which
+	// the native collection's partial unique index would reject outright.
+	if !rows[0].IsPrimary || rows[1].IsPrimary {
+		t.Errorf("is_primary = %v then %v, want only the row that declared it", rows[0].IsPrimary, rows[1].IsPrimary)
+	}
+	if rows[0].Id == rows[1].Id {
+		t.Error("two domain rows of one company must not share a synthesized id; a keyed render collapses the pair")
 	}
 }
 
@@ -270,7 +305,7 @@ func TestOverlayWireActivitySurfacesDurationAndDueAt(t *testing.T) {
 func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
 		"full_name": "grace.hopper", "first_name": "", "last_name": "",
-		"person_email": map[string]any{"email": "grace.hopper@navy.mil"},
+		"person_email": []map[string]any{{"email": "grace.hopper@navy.mil", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	person, err := overlayWirePerson(wireCtx(), rec)
 	if err != nil {
@@ -282,6 +317,152 @@ func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
 	}
 	if person.FullName != title {
 		t.Errorf("person detail full_name %q and search title %q diverge", person.FullName, title)
+	}
+}
+
+// The mapper assembles an address into the mirror and it was picked up by
+// nothing — the value existed and the slot a client reads stayed empty.
+func TestOverlayWirePersonPublishesAddress(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"address": map[string]any{
+			"line1": "Hauptstrasse 1", "city": "Munich",
+			"postal_code": "80331", "country": "DE",
+		},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Address == nil {
+		t.Fatal("Address is nil; the mapper's address_json assembly must reach the contract's structured slot")
+	}
+	if person.Address.City == nil || *person.Address.City != "Munich" {
+		t.Errorf("Address.City = %v, want Munich", person.Address.City)
+	}
+	if person.Address.Line1 == nil || *person.Address.Line1 != "Hauptstrasse 1" {
+		t.Errorf("Address.Line1 = %v, want the mirrored street", person.Address.Line1)
+	}
+}
+
+// overlayAddress is the one reader of the canonical address payload, shared
+// by the read wire and the flip import. It answers an Address only when a
+// member carries something: a blank Address stored on a flipped row, or
+// published on a read, asserts a location the incumbent never held.
+func TestOverlayAddressCarriesEveryMemberAndOmitsAnEmptyOne(t *testing.T) {
+	for name, fields := range map[string]map[string]any{
+		"no address key":     {"display_name": "Acme"},
+		"address not a map":  {"address": "12 Main St"},
+		"empty address map":  {"address": map[string]any{}},
+		"only unknown parts": {"address": map[string]any{"floor": "3"}},
+	} {
+		if got := overlayAddress(fields); got != nil {
+			t.Errorf("%s: overlayAddress = %+v, want nil", name, got)
+		}
+	}
+
+	full := overlayAddress(map[string]any{"address": map[string]any{
+		"line1": "12 Main St", "city": "Frankfurt", "region": "HE",
+		"postal_code": "60311", "country": "DE",
+	}})
+	if full == nil {
+		t.Fatal("a populated mirrored address must reach the contract's Address")
+	}
+	// VALUES, not presence: a presence-only check would pass a transposition
+	// that ships a postcode into the region slot of every record.
+	got := addressMemberValues(full)
+	for member, want := range map[string]string{
+		"line1":       "12 Main St",
+		"city":        "Frankfurt",
+		"region":      "HE",
+		"postal_code": "60311",
+		"country":     "DE",
+	} {
+		if got[member] != want {
+			t.Errorf("%s = %q, want %q — a transposed member ships the wrong value into every record", member, got[member], want)
+		}
+	}
+
+	// A partial address still lands — dropping it would lose the only
+	// location the incumbent had.
+	partial := overlayAddress(map[string]any{"address": map[string]any{"city": "Berlin"}})
+	if partial == nil || partial.City == nil || *partial.City != "Berlin" {
+		t.Errorf("partial address = %+v, want the city carried", partial)
+	}
+	if partial != nil && partial.Line1 != nil {
+		t.Errorf("absent members must stay nil, got line1 = %v", *partial.Line1)
+	}
+}
+
+// addressMemberValues renders an assembled Address as member → value, an
+// absent member reading "<nil>" so a mismatch names the member instead of
+// dereferencing past it.
+func addressMemberValues(addr *crmcontracts.Address) map[string]string {
+	out := make(map[string]string, 6)
+	for member, value := range map[string]*string{
+		"line1":       addr.Line1,
+		"line2":       addr.Line2,
+		"city":        addr.City,
+		"region":      addr.Region,
+		"postal_code": addr.PostalCode,
+		"country":     addr.Country,
+	} {
+		out[member] = "<nil>"
+		if value != nil {
+			out[member] = *value
+		}
+	}
+	return out
+}
+
+// A mirror payload assembled before the address transform renamed its members
+// still carries the incumbent's own spelling, and nothing rewrites it: the
+// poller touches a record only when its incumbent baseline advances, and a
+// converged backfill does not revisit it. Read under the contract's names
+// alone, such a record would lose its street, region and postcode on every
+// read, permanently, keeping only the two members whose spelling coincides.
+func TestOverlayAddressReadsTheIncumbentMemberSpelling(t *testing.T) {
+	stored := overlayAddress(map[string]any{"address": map[string]any{
+		"address": "12 Main St", "city": "Frankfurt", "state": "HE",
+		"zip": "60311", "country": "DE",
+	}})
+	if stored == nil {
+		t.Fatal("an address held under the incumbent's member names must still reach the contract's Address")
+	}
+	got := addressMemberValues(stored)
+	for member, want := range map[string]string{
+		"line1":       "12 Main St",
+		"city":        "Frankfurt",
+		"region":      "HE",
+		"postal_code": "60311",
+		"country":     "DE",
+	} {
+		if got[member] != want {
+			t.Errorf("%s = %q, want %q — a member stored under the incumbent's name is lost for good", member, got[member], want)
+		}
+	}
+
+	// A payload carrying both spellings answers with the contract's own, so a
+	// re-synced record is never read through the older name.
+	both := overlayAddress(map[string]any{"address": map[string]any{"line1": "Neu 1", "address": "Alt 9"}})
+	if both == nil || both.Line1 == nil || *both.Line1 != "Neu 1" {
+		t.Errorf("line1 = %+v, want the contract's member to win over the incumbent one", both)
+	}
+}
+
+// A contact the incumbent holds no address for must read as absent, not as
+// an address whose every member is empty.
+func TestOverlayWirePersonOmitsAnEmptyAddress(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"address":   map[string]any{"city": "  "},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Address != nil {
+		t.Errorf("Address = %+v, want nil when no member carries a value", person.Address)
 	}
 }
 
@@ -300,5 +481,476 @@ func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 		if got := overlayWireTitle(tc.et, tc.fields); got != tc.want {
 			t.Errorf("title(%s) = %q, want %q", tc.et, got, tc.want)
 		}
+	}
+}
+
+// orgDomainOf reduces the collection overlayOrganizationDomains publishes to
+// its leading domain, so a case table can hold that reader next to
+// overlayPersonEmail's value-only shape.
+func orgDomainOf(fields map[string]any) string {
+	domains := overlayOrganizationDomains(openapi_types.UUID{}, fields)
+	if domains == nil || len(*domains) == 0 {
+		return ""
+	}
+	return (*domains)[0].Domain
+}
+
+// The child collection the wire reads is the one the mapping pipeline
+// actually writes, seeded through the real HubSpot mapping and put through
+// the same json round trip the mirror's jsonb column performs. Apply builds
+// []map[string]any in-process and json.Unmarshal hands back []any; a reader
+// tested only against the in-process shape would answer "" for every record
+// that ever reached the database.
+func TestOverlayChildReadersReadWhatTheMappingPipelineWrites(t *testing.T) {
+	cases := []struct {
+		incumbentClass string
+		raw            map[string]any
+		parent         string
+		read           func(map[string]any) string
+		want           string
+	}{
+		{
+			incumbentClass: "contacts",
+			raw:            map[string]any{"hs_object_id": "1", "email": "Ada@Example.TEST"},
+			parent:         "person_email",
+			read:           overlayPersonEmail,
+			want:           "ada@example.test",
+		},
+		{
+			incumbentClass: "companies",
+			raw:            map[string]any{"hs_object_id": "2", "domain": "Acme.IO"},
+			parent:         "organization_domain",
+			read:           orgDomainOf,
+			want:           "acme.io",
+		},
+	}
+	for _, tc := range cases {
+		m, ok := hubspot.Mapping(tc.incumbentClass)
+		if !ok {
+			t.Fatalf("Mapping(%s): want a declared mapping", tc.incumbentClass)
+		}
+		canonical, _, err := overlay.Apply(m, tc.raw)
+		if err != nil {
+			t.Fatalf("Apply(%s): %v", tc.incumbentClass, err)
+		}
+		if _, inProcess := canonical[tc.parent].([]map[string]any); !inProcess {
+			t.Fatalf("%s in-process = %T, want the []map[string]any collection Apply builds", tc.parent, canonical[tc.parent])
+		}
+		encoded, err := json.Marshal(canonical)
+		if err != nil {
+			t.Fatalf("marshaling the canonical payload: %v", err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatalf("decoding the canonical payload: %v", err)
+		}
+		if _, isAnySlice := decoded[tc.parent].([]any); !isAnySlice {
+			t.Fatalf("%s decoded = %T, want the []any every JSON array decodes to", tc.parent, decoded[tc.parent])
+		}
+		if got := tc.read(decoded); got != tc.want {
+			t.Errorf("reading %s from the decoded payload = %q, want %q", tc.parent, got, tc.want)
+		}
+		if got := tc.read(canonical); got != tc.want {
+			t.Errorf("reading %s from the in-process payload = %q, want %q", tc.parent, got, tc.want)
+		}
+	}
+}
+
+// A mirror row written before child targets held collections carries a bare
+// object, and the poller rewrites it only when the incumbent touches that
+// record — never, for a record nobody edits again. Its email must still reach
+// the wire.
+func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
+	legacy := map[string]any{
+		"person_email":        map[string]any{"email": "ada@example.test"},
+		"organization_domain": map[string]any{"domain": "acme.io"},
+	}
+	if got := overlayPersonEmail(legacy); got != "ada@example.test" {
+		t.Errorf("overlayPersonEmail = %q, want the address the pre-collection payload holds", got)
+	}
+	if got := orgDomainOf(legacy); got != "acme.io" {
+		t.Errorf("orgDomainOf = %q, want the domain the pre-collection payload holds", got)
+	}
+	// A payload holding neither shape answers absent rather than erroring:
+	// the true value always survives in raw.
+	for name, fields := range map[string]map[string]any{
+		"no key":                {},
+		"a bare string":         {"person_email": "ada@example.test"},
+		"rows that are strings": {"person_email": []any{"ada@example.test"}},
+		"a row with no email":   {"person_email": []any{map[string]any{"email_type": "work"}}},
+	} {
+		if got := overlayPersonEmail(fields); got != "" {
+			t.Errorf("%s: overlayPersonEmail = %q, want the empty answer", name, got)
+		}
+	}
+}
+
+// A child row's type and primary flag are the mapping's declaration, and the
+// flip carries them onto the native row rather than assuming them — an
+// imported contact whose mirrored address is a personal, non-primary one must
+// not land as the work primary. A row declaring no flag is not the primary,
+// and a type the contract does not know is the work address one mapped address
+// means: person_email.email_type is CHECK-constrained, so forwarding it raw
+// would abort the whole import instead of importing the contact.
+func TestFlipCarriesTheChildRowsDeclaredAttributes(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "Ada@Example.TEST"})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	emails := flipPersonEmails(canonical)
+	if len(emails) != 1 || emails[0].Email != "ada@example.test" {
+		t.Fatalf("emails = %v, want the one mapped address", emails)
+	}
+	if emails[0].EmailType != "work" || !emails[0].IsPrimary {
+		t.Errorf("emails[0] = %+v, want the type and primary flag the mapping declared", emails[0])
+	}
+
+	declared := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{
+		"email": "ada@home.test", "email_type": "personal", "is_primary": false,
+	}}})
+	if len(declared) != 1 || declared[0].EmailType != "personal" || declared[0].IsPrimary {
+		t.Errorf("emails = %+v, want the row's own personal, non-primary declaration", declared)
+	}
+
+	bare := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{"email": "ada@example.test"}}})
+	if len(bare) != 1 || bare[0].EmailType != "work" || bare[0].IsPrimary {
+		t.Errorf("emails = %+v on a row declaring no attributes, want the work address and no primary claim", bare)
+	}
+
+	offEnum := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{
+		"email": "ada@example.test", "email_type": "billing",
+	}}})
+	if len(offEnum) != 1 || offEnum[0].EmailType != "work" {
+		t.Errorf("emails = %+v for a type the contract does not know, want the work fallback rather than a value the column's CHECK rejects", offEnum)
+	}
+	if got := flipPersonEmails(map[string]any{}); got != nil {
+		t.Errorf("emails = %+v for a record holding no address, want none", got)
+	}
+
+	domains := flipOrgDomains(map[string]any{"organization_domain": []any{map[string]any{
+		"domain": "acme.io", "is_primary": false,
+	}}})
+	if len(domains) != 1 || domains[0].Domain != "acme.io" || domains[0].IsPrimary {
+		t.Errorf("domains = %+v, want the row's own non-primary declaration", domains)
+	}
+}
+
+// A mirrored contact that publishes no email address and no phone number is a
+// contact a user cannot act on. The row identity is synthesized because the
+// mirror holds none, and it is derived from the contact and the value so it
+// stays fixed across reads rather than handing the client a fresh identity
+// each time.
+func TestOverlayWirePersonPublishesEmailsAndPhones(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"person_email": []any{
+			map[string]any{"email": "ada@example.de", "email_type": "work", "is_primary": true, "position": 0},
+		},
+		"person_phone": []any{
+			map[string]any{"phone": "+4930111", "phone_type": "work", "is_primary": true, "position": 0},
+			map[string]any{"phone": "+4917622", "phone_type": "mobile", "is_primary": false, "position": 1},
+		},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Emails == nil || len(*person.Emails) != 1 {
+		t.Fatalf("Emails = %v, want the one mirrored address", person.Emails)
+	}
+	email := (*person.Emails)[0]
+	if string(email.Email) != "ada@example.de" {
+		t.Errorf("Email = %q, want the mirrored address", email.Email)
+	}
+	if email.EmailType != crmcontracts.PersonEmailEmailTypeWork || !email.IsPrimary {
+		t.Errorf("email row = %+v, want the work/primary attributes the mapping declared", email)
+	}
+	if email.Source != "overlay" || email.CapturedBy == nil || *email.CapturedBy != "connector:overlay" {
+		t.Error("a synthesized child row carries the same provenance stamp as its parent")
+	}
+	if person.Phones == nil || len(*person.Phones) != 2 {
+		t.Fatalf("Phones = %v, want both the work and mobile numbers", person.Phones)
+	}
+	work, mobile := (*person.Phones)[0], (*person.Phones)[1]
+	if work.PhoneType != crmcontracts.PersonPhonePhoneTypeWork || mobile.PhoneType != crmcontracts.PersonPhonePhoneTypeMobile {
+		t.Errorf("phone types = %q then %q, want the order the mapping fixed", work.PhoneType, mobile.PhoneType)
+	}
+	if work.Phone != "+4930111" || mobile.Phone != "+4917622" {
+		t.Errorf("phones = %q then %q, want each number on its own typed row", work.Phone, mobile.Phone)
+	}
+	if !work.IsPrimary || mobile.IsPrimary {
+		t.Errorf("primary flags = %v then %v, want only the work number primary", work.IsPrimary, mobile.IsPrimary)
+	}
+	if work.Position != 0 || mobile.Position != 1 {
+		t.Errorf("positions = %d then %d, want the declared order carried onto the wire", work.Position, mobile.Position)
+	}
+	if work.Id == mobile.Id || work.Id == (openapi_types.UUID{}) {
+		t.Errorf("row ids = %v and %v, want two distinct non-zero identities", work.Id, mobile.Id)
+	}
+}
+
+// The email and phone collections the wire publishes are the ones the mapping
+// pipeline actually writes, seeded through the real HubSpot mapping and put
+// through the same json round trip the mirror's jsonb column performs — the
+// attribute keys compose reads are exactly the keys mapping_hs.go declares, and
+// the mobile row's non-default type and primary flag are what proves it.
+func TestOverlayWirePersonPublishesWhatTheMappingPipelineWrites(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "email": "Ada@Example.DE",
+		"phone": "+4930111", "mobilephone": "+4917622",
+	})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	person, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, canonical))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Emails == nil || len(*person.Emails) != 1 {
+		t.Fatalf("Emails = %v, want the one mapped address", person.Emails)
+	}
+	if got := (*person.Emails)[0]; string(got.Email) != "ada@example.de" ||
+		got.EmailType != crmcontracts.PersonEmailEmailTypeWork || !got.IsPrimary {
+		t.Errorf("email = %+v, want the lowercased work primary address the mapping declares", got)
+	}
+	if person.Phones == nil || len(*person.Phones) != 2 {
+		t.Fatalf("Phones = %v, want the work and mobile numbers the mapping declares", person.Phones)
+	}
+	mobile := (*person.Phones)[1]
+	if mobile.Phone != "+4917622" {
+		t.Errorf("phones[1].Phone = %q, want the mobilephone property", mobile.Phone)
+	}
+	// Non-default on both axes: the fallback type is work and the fallback
+	// primary flag is false, so reading either attribute from the wrong key
+	// would show up here and nowhere else.
+	if mobile.PhoneType != crmcontracts.PersonPhonePhoneTypeMobile {
+		t.Errorf("phones[1].PhoneType = %q, want the mobile type mapping_hs.go declares", mobile.PhoneType)
+	}
+	if !(*person.Phones)[0].IsPrimary || mobile.IsPrimary {
+		t.Error("the work number is the declared primary and the mobile one is not")
+	}
+	// The third axis, pinned like the other two: the collection's ORDER comes
+	// from Apply's own sort, so only the published Position proves the wire and
+	// the mapping still spell the position attribute the same way.
+	if mobile.Position != 1 {
+		t.Errorf("phones[1].Position = %d, want the second slot mapping_hs.go declares", mobile.Position)
+	}
+}
+
+// A child row whose declared type is not one the contract knows must not ship
+// an invalid enum: the value stays in raw and the row publishes the type one
+// mapped address or number means.
+func TestOverlayWirePersonFallsBackOnAnOffEnumChildType(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name":    "Ada Overlay",
+		"person_email": []any{map[string]any{"email": "ada@example.de", "email_type": "billing"}},
+		"person_phone": []any{map[string]any{"phone": "+4930111", "phone_type": "switchboard"}},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Emails == nil || (*person.Emails)[0].EmailType != crmcontracts.PersonEmailEmailTypeWork {
+		t.Errorf("Emails = %v, want the work fallback rather than an off-enum type", person.Emails)
+	}
+	if person.Phones == nil || (*person.Phones)[0].PhoneType != crmcontracts.PersonPhonePhoneTypeWork {
+		t.Errorf("Phones = %v, want the work fallback rather than an off-enum type", person.Phones)
+	}
+	if person.Raw == nil {
+		t.Fatal("the full canonical payload must ride raw")
+	}
+	raw := *person.Raw
+	emailRows, phoneRows := overlayChildRows(raw, "person_email"), overlayChildRows(raw, "person_phone")
+	if len(emailRows) != 1 || fieldString(emailRows[0], "email_type") != "billing" {
+		t.Errorf("raw person_email = %v, want the incumbent's own type intact behind the fallback", emailRows)
+	}
+	if len(phoneRows) != 1 || fieldString(phoneRows[0], "phone_type") != "switchboard" {
+		t.Errorf("raw person_phone = %v, want the incumbent's own type intact behind the fallback", phoneRows)
+	}
+}
+
+// A row carrying no number is skipped rather than published as a blank one:
+// the incumbent leaves an unset property null, and the mapping still lands the
+// row its ChildRow declares.
+func TestOverlayWirePersonSkipsAChildRowWithNoValue(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"person_phone": []any{
+			map[string]any{"phone": nil, "phone_type": "work", "is_primary": true, "position": 0},
+			map[string]any{"phone": "  ", "phone_type": "home", "is_primary": false, "position": 1},
+			map[string]any{"phone": "+4917622", "phone_type": "mobile", "is_primary": false, "position": 2},
+		},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Phones == nil || len(*person.Phones) != 1 {
+		t.Fatalf("Phones = %v, want only the row that carries a number", person.Phones)
+	}
+	if (*person.Phones)[0].Phone != "+4917622" {
+		t.Errorf("Phones[0] = %+v, want the mobile number", (*person.Phones)[0])
+	}
+	bare, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, map[string]any{"full_name": "Ada"}))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if bare.Emails != nil || bare.Phones != nil {
+		t.Errorf("Emails = %v, Phones = %v, want both absent when the mirror holds neither", bare.Emails, bare.Phones)
+	}
+}
+
+// A child row's position decodes as float64 through the mirror's jsonb column
+// and stays an int in-process; a reader that knew only one shape would order
+// every stored record by zero.
+func TestChildRowPositionReadsBothDecodedAndInProcessShapes(t *testing.T) {
+	for name, row := range map[string]map[string]any{
+		"decoded":    {"position": float64(2)},
+		"in-process": {"position": 2},
+	} {
+		if got := childRowPosition(row); got != 2 {
+			t.Errorf("%s: childRowPosition = %d, want 2", name, got)
+		}
+	}
+	for name, row := range map[string]map[string]any{
+		"absent":      {},
+		"a string":    {"position": "2"},
+		"fractional":  {"position": 1.5},
+		"unbounded":   {"position": 1e19},
+		"not a value": {"position": nil},
+	} {
+		if got := childRowPosition(row); got != 0 {
+			t.Errorf("%s: childRowPosition = %d, want the collection's first slot", name, got)
+		}
+	}
+}
+
+// A churning row id would hand the SPA a fresh identity for the same row on
+// every read; two rows of one parent sharing an id would collapse them in any
+// keyed render.
+func TestOverlaySyntheticChildIDsAreStableAndDistinct(t *testing.T) {
+	parent := openapi_types.UUID(ids.NewV7())
+	first := overlaySyntheticID(parent, 0, "ada@example.de")
+	if again := overlaySyntheticID(parent, 0, "ada@example.de"); first != again {
+		t.Error("the same parent, position and value must always derive the same id")
+	}
+	if other := overlaySyntheticID(parent, 0, "ada@example.com"); first == other {
+		t.Error("two values of one parent must derive different ids")
+	}
+	if sameValue := overlaySyntheticID(parent, 1, "ada@example.de"); first == sameValue {
+		t.Error("two rows of one parent must derive different ids even holding the same value")
+	}
+	if elsewhere := overlaySyntheticID(openapi_types.UUID(ids.NewV7()), 0, "ada@example.de"); first == elsewhere {
+		t.Error("the same value under different parents must derive different ids")
+	}
+}
+
+// One number reachable as both the work and the mobile line is ordinary data —
+// the native model constrains person_phone only on (person_id, phone_type)
+// where primary, never on the number itself — so the two rows must reach the
+// SPA as two identities: person360.tsx keys its render on the row id, and a
+// duplicate key collapses the pair.
+func TestOverlayWirePersonKeepsOneNumberOnTwoRowsDistinct(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "phone": "+4930111", "mobilephone": "+4930111",
+	})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	rec := wireRecord(t, datasource.EntityPerson, canonical)
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Phones == nil || len(*person.Phones) != 2 {
+		t.Fatalf("Phones = %v, want the number on both its declared rows", person.Phones)
+	}
+	work, mobile := (*person.Phones)[0], (*person.Phones)[1]
+	if work.Phone != "+4930111" || mobile.Phone != "+4930111" {
+		t.Fatalf("phones = %q and %q, want the one number on both rows", work.Phone, mobile.Phone)
+	}
+	if work.Id == mobile.Id {
+		t.Errorf("row ids = %v and %v, want the work and mobile rows to keep separate identities", work.Id, mobile.Id)
+	}
+	again, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if (*again.Phones)[0].Id != work.Id || (*again.Phones)[1].Id != mobile.Id {
+		t.Error("a second read of one record must publish the same two row identities")
+	}
+}
+
+// Reporting the sync instant as a mirrored record's own created and updated
+// time makes "recently updated" mean "recently synced" — the same answer for
+// every record in the workspace, so the ordering carries no information. The
+// incumbent stamps both instants and the mapping mirrors them, so the honest
+// values are there to read. The assertion drives the real mapping rather than
+// a hand-built canonical payload, so it holds against what Apply lands.
+func TestOverlayWirePersonCarriesTheIncumbentTimestamps(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, unmapped, err := overlay.Apply(m, map[string]any{
+		"hs_object_id":     "100214862042",
+		"firstname":        "Christian",
+		"lastname":         "Muller",
+		"createdate":       "2024-11-15T13:27:49.194Z",
+		"lastmodifieddate": "2026-05-13T06:44:38.727Z",
+	})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	if len(unmapped) != 0 {
+		t.Errorf("unmapped = %v, want both incumbent stamps consumed by the mapping", unmapped)
+	}
+	person, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, canonical))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	created := time.Date(2024, 11, 15, 13, 27, 49, 194_000_000, time.UTC)
+	updated := time.Date(2026, 5, 13, 6, 44, 38, 727_000_000, time.UTC)
+	if !person.CreatedAt.Equal(created) {
+		t.Errorf("CreatedAt = %v, want the incumbent's own create instant %v, never the sync instant %v", person.CreatedAt, created, wireSyncedAt)
+	}
+	if !person.UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want the incumbent's own last-modified instant %v, never the sync instant %v", person.UpdatedAt, updated, wireSyncedAt)
+	}
+}
+
+// A record the incumbent stamped no instants for still needs both: the
+// contract requires them, and the mirror's own sync instant is the only time
+// it can honestly claim for itself.
+func TestOverlayWirePersonFallsBackToTheSyncInstant(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "firstname": "Ada"})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	person, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, canonical))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if !person.CreatedAt.Equal(wireSyncedAt) {
+		t.Errorf("CreatedAt = %v, want the sync instant %v as the fallback", person.CreatedAt, wireSyncedAt)
+	}
+	if !person.UpdatedAt.Equal(wireSyncedAt) {
+		t.Errorf("UpdatedAt = %v, want the sync instant %v as the fallback", person.UpdatedAt, wireSyncedAt)
 	}
 }

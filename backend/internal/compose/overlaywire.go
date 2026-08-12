@@ -5,24 +5,25 @@ package compose
 
 // The mirror-record → typed-contract assembly (design.md §4.1/§4.6): the
 // ONE place an overlay datasource.Record becomes a Person/Organization/
-// Deal/Lead/Activity wire struct for the human REST surface. The mirror
-// holds canonical-named fields in one jsonb payload (the mapping
-// adapter's targets, hubspot/mapping_hs.go), so assembly here is
-// field-picking, not translation. Every struct is stamped
+// Deal/Lead/Activity wire struct for the human REST surface. Field-picking
+// out of the mirror's canonical jsonb payload lives in overlaywirefields.go;
+// this file is the struct-shaping on top of it. Every struct is stamped
 // `source: overlay`, the FULL canonical payload rides `raw` (nothing the
 // mapper landed is dropped just because a typed slot doesn't exist for
-// it), and both timestamps carry the mirror's own last-synced instant —
-// the only time the mirror can honestly claim (the incumbent's
-// create/update instants are not mapped in branch 1).
+// it), and a timestamp is the incumbent's own wherever the mapping mirrors
+// one: a person's and an organization's created_at is the incumbent's create
+// instant and its updated_at the incumbent's last-modified instant, each
+// falling back to the mirror's own last-synced instant — the only time the
+// mirror can claim for itself — where the incumbent stamped none. The other
+// three entities read the mirror's own last-synced instant into both slots,
+// even where the mapping landed the incumbent's (#1016).
 
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
-	"math"
-	"strconv"
 	"strings"
-	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -51,6 +52,14 @@ const overlayUnnamed = "Unnamed"
 // mapper to read, and naming one it cannot verify would be a guess.
 const overlayCapturedByValue = "connector:overlay"
 
+// overlayCanonicalLastModified is the canonical payload key holding the
+// incumbent's own last-modified instant: the mirror's structural slot for a
+// mapping's Baseline property, which overlay.Apply writes under this name. It
+// is NOT the mirror row's ingest time — that one is Record.Freshness.
+// LastSyncedAt, stamped now() by every upsert, so reading it for a record's
+// updated_at reports the whole workspace as modified at one instant.
+const overlayCanonicalLastModified = "last_synced_at"
+
 // overlayRecordFields decodes a mirror record's canonical jsonb payload.
 // A record the overlay provider served always carries an object payload;
 // a decode failure is a real defect (the provider marshaled this very
@@ -68,10 +77,13 @@ func overlayRecordFields(rec datasource.Record) (map[string]any, error) {
 // first+last → email local part → placeholder); it is reused as-is so the
 // wire cannot diverge from the mirror, with a first+last → email → "Unnamed"
 // re-derivation kept only as a fallback for a pre-mapping mirror row that
-// carries no full_name. Structured child rows (emails,
-// phones) are NOT fabricated: the contract's PersonEmail demands a row
-// identity/type/position the mirror does not hold, so the mapped email
-// stays in raw rather than riding a made-up child row.
+// carries no full_name. The emails and phones collections are the mirrored
+// child rows themselves — the type, the primary flag and the order are the
+// mapping's own declarations, carried across rather than assumed, save for a
+// declared type outside the contract's enum, which reads as the work type one
+// mapped address or number means rather than shipping an invalid value — with
+// only the contract-required row id synthesized, since a mirrored child row has
+// no native row of its own to carry one.
 func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts.Person, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {
@@ -92,16 +104,20 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 	if fullName == "" {
 		fullName = overlayUnnamed
 	}
+	personID := openapi_types.UUID(rec.Ref.ID)
 	return crmcontracts.Person{
-		Id:         openapi_types.UUID(rec.Ref.ID),
+		Id:         personID,
 		Source:     overlaySource,
 		CapturedBy: ptrString(overlayCapturedByValue),
 		FullName:   fullName,
 		FirstName:  fieldStringPtr(fields, "first_name"),
 		LastName:   fieldStringPtr(fields, "last_name"),
 		Title:      fieldStringPtr(fields, "title"),
-		CreatedAt:  syncedAt,
-		UpdatedAt:  syncedAt,
+		Address:    overlayAddress(fields),
+		Emails:     overlayPersonEmails(personID, fields),
+		Phones:     overlayPersonPhones(personID, fields),
+		CreatedAt:  overlayTimeOr(fields, "created_at", syncedAt),
+		UpdatedAt:  overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:        &fields,
 	}, nil
 }
@@ -110,6 +126,11 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 // mirror record. size_band rides only when it lands on the contract's
 // own enum (the mapper's transform already targets those band labels);
 // an off-enum value stays in raw rather than shipping an invalid enum.
+// The address is the mapper's own address_json assembly, so it is shaped
+// rather than re-derived. The domains collection is the mirrored child rows
+// themselves, carried across whole the way a person's emails and phones are —
+// the primary flag among them is the mapping's declaration, never this
+// reader's assumption.
 func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcontracts.Organization, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {
@@ -120,14 +141,17 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if displayName == "" {
 		displayName = overlayUnnamed
 	}
+	orgID := openapi_types.UUID(rec.Ref.ID)
 	org := crmcontracts.Organization{
-		Id:          openapi_types.UUID(rec.Ref.ID),
+		Id:          orgID,
 		Source:      overlaySource,
 		CapturedBy:  ptrString(overlayCapturedByValue),
 		DisplayName: displayName,
 		Industry:    fieldStringPtr(fields, "industry"),
-		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
+		Address:     overlayAddress(fields),
+		Domains:     overlayOrganizationDomains(orgID, fields),
+		CreatedAt:   overlayTimeOr(fields, "created_at", syncedAt),
+		UpdatedAt:   overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:         &fields,
 		// Stated rather than omitted: a mirror-backed organization is one of
 		// the incumbent's accounts, and the installation's own company is a
@@ -139,48 +163,31 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if band := crmcontracts.OrganizationSizeBand(fieldString(fields, "size_band")); band.Valid() {
 		org.SizeBand = &band
 	}
-	if domain := overlayOrgDomain(fields); domain != "" {
-		org.Domains = &[]crmcontracts.OrganizationDomain{{
-			Id:         overlayDomainID(openapi_types.UUID(rec.Ref.ID), domain),
-			Domain:     domain,
-			IsPrimary:  true,
-			Source:     overlaySource,
-			CapturedBy: ptrString(overlayCapturedByValue),
-		}}
-	}
 	return org, nil
 }
 
-// overlayOrgDomain digs the mapped domain out of the organization_domain
-// child payload (the mapper's "organization_domain.domain" child target lands
-// as a nested object in the canonical fields), mirroring overlayPersonEmail.
-func overlayOrgDomain(fields map[string]any) string {
-	child, ok := fields["organization_domain"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	domain, ok := child["domain"].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(domain)
-}
-
-// overlayDomainID derives a STABLE synthesized id for a mirrored domain from
-// its org id and the domain string. An overlay domain has no native row of its
-// own to carry an id, and the contract's OrganizationDomain.Id is required, so
-// a churning id would hand the SPA a fresh identity on every read; hashing the
-// two stable inputs keeps it fixed for a given (org, domain). The 16-byte org
-// id is a fixed-length prefix, so no separator is needed to keep (org, domain)
-// unambiguous. The version/variant nibbles are stamped to RFC 9562 v8
+// overlaySyntheticID derives an id for a mirrored child row from its parent id,
+// its declared position in that parent's collection, and its own value. An
+// overlay child row has no native row of its own to carry an id and the
+// contract requires one, so the identity the SPA keys its render on has to hold
+// on two axes: DISTINCT for every row of one parent, and STABLE across reads of
+// the same record. The value alone carries neither — a contact reachable on the
+// same number as both work and mobile is ordinary data the native model permits
+// — so the position joins it, which Apply keeps unique within a parent. Both
+// leading inputs each end where the next begins — the parent id is a fixed
+// 16-byte prefix and the position rides as a self-terminating varint — so no
+// separator is needed to keep the triple unambiguous, the free-length value
+// being last. The version/variant nibbles are stamped to RFC 9562 v8
 // (application-defined — the honest label for a custom hash-derived id) so the
-// value is a well-formed UUID. This layer stays off the `github.com/google/uuid`
-// package by arch rule, so the bits are set by hand. Non-authoritative like
-// every overlay wire value — it is never persisted or resolved back to a row.
-func overlayDomainID(orgID openapi_types.UUID, domain string) openapi_types.UUID {
-	buf := make([]byte, 0, len(orgID)+len(domain))
-	buf = append(buf, orgID[:]...)
-	buf = append(buf, domain...)
+// value is a well-formed UUID. This layer stays off the
+// `github.com/google/uuid` package by arch rule, so the bits are set by hand.
+// Non-authoritative like every overlay wire value — it is never persisted or
+// resolved back to a row.
+func overlaySyntheticID(parent openapi_types.UUID, position int, value string) openapi_types.UUID {
+	buf := make([]byte, 0, len(parent)+binary.MaxVarintLen64+len(value))
+	buf = append(buf, parent[:]...)
+	buf = binary.AppendVarint(buf, int64(position))
+	buf = append(buf, value...)
 	sum := sha256.Sum256(buf)
 	var id openapi_types.UUID
 	copy(id[:], sum[:])
@@ -291,10 +298,6 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	if !kind.Valid() {
 		kind = crmcontracts.ActivityKindNote
 	}
-	occurredAt := syncedAt
-	if ts, ok := overlayTime(fields, "occurred_at"); ok {
-		occurredAt = ts
-	}
 	act := crmcontracts.Activity{
 		Id:         openapi_types.UUID(rec.Ref.ID),
 		Source:     overlaySource,
@@ -302,7 +305,7 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		Kind:       kind,
 		Subject:    fieldStringPtr(fields, "subject"),
 		Body:       fieldStringPtr(fields, "body"),
-		OccurredAt: occurredAt,
+		OccurredAt: overlayTimeOr(fields, "occurred_at", syncedAt),
 		CreatedAt:  syncedAt,
 		UpdatedAt:  syncedAt,
 		Raw:        &fields,
@@ -355,93 +358,4 @@ func overlayWireTitle(et datasource.EntityType, fields map[string]any) string {
 	default:
 		return ""
 	}
-}
-
-// overlayPersonEmail digs the mapped email out of the person_email child
-// payload (the mapper's "person_email.email" child target lands as a
-// nested object in the canonical fields).
-func overlayPersonEmail(fields map[string]any) string {
-	child, ok := fields["person_email"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	email, ok := child["email"].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(email)
-}
-
-// fieldString answers the string value of a canonical field, "" when
-// absent or non-string.
-func fieldString(fields map[string]any, key string) string {
-	s, _ := fields[key].(string)
-	return s
-}
-
-// fieldStringPtr answers a trimmed non-empty string field as a pointer,
-// nil otherwise — optional wire slots stay absent, never "".
-func fieldStringPtr(fields map[string]any, key string) *string {
-	s := strings.TrimSpace(fieldString(fields, key))
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// fieldInt64 answers a numeric field as int64. JSON numbers decode as
-// float64; a numeric string (HubSpot amounts arrive as strings) parses
-// too. A fractional, non-finite, or int64-overflowing number answers
-// absent (the raw payload keeps the true value) — a narrowed cast would
-// silently invent a different amount.
-func fieldInt64(fields map[string]any, key string) (int64, bool) {
-	switch v := fields[key].(type) {
-	case float64:
-		if !isExactInt64(v) {
-			return 0, false
-		}
-		return int64(v), true
-	case string:
-		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		if err != nil {
-			return 0, false
-		}
-		return n, true
-	default:
-		return 0, false
-	}
-}
-
-// overlayTime parses a canonical timestamp field. HubSpot stamps arrive
-// as RFC 3339, date-only, or epoch-milliseconds — each is tried; an
-// unparseable stamp answers absent (the value stays in raw) rather than
-// a fabricated instant.
-func overlayTime(fields map[string]any, key string) (time.Time, bool) {
-	switch v := fields[key].(type) {
-	case string:
-		s := strings.TrimSpace(v)
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			return t, true
-		}
-		if t, err := time.Parse("2006-01-02", s); err == nil {
-			return t, true
-		}
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return time.UnixMilli(n).UTC(), true
-		}
-	case float64:
-		if !isExactInt64(v) {
-			return time.Time{}, false
-		}
-		return time.UnixMilli(int64(v)).UTC(), true
-	}
-	return time.Time{}, false
-}
-
-// isExactInt64 reports whether f is a finite, integral value that fits
-// int64. float64(math.MaxInt64) rounds UP to 2^63, so the upper bound is
-// an exclusive >=; the lower bound -2^63 is exactly representable.
-func isExactInt64(f float64) bool {
-	return !math.IsNaN(f) && !math.IsInf(f, 0) && f == math.Trunc(f) &&
-		f >= math.MinInt64 && f < math.MaxInt64
 }

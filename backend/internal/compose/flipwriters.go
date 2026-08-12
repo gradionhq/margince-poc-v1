@@ -276,28 +276,6 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 	}
 }
 
-func flipAddress(fields map[string]any) *crmcontracts.Address {
-	raw, ok := fields["address"].(map[string]any)
-	if !ok || len(raw) == 0 {
-		return nil
-	}
-	get := func(k string) *string {
-		s, ok := raw[k].(string)
-		if !ok || strings.TrimSpace(s) == "" {
-			return nil
-		}
-		return &s
-	}
-	addr := &crmcontracts.Address{
-		Line1: get("address"), City: get("city"), Region: get("state"),
-		PostalCode: get("zip"), Country: get("country"),
-	}
-	if addr.Line1 == nil && addr.City == nil && addr.Region == nil && addr.PostalCode == nil && addr.Country == nil {
-		return nil
-	}
-	return addr
-}
-
 func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
 	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectOrganization)
 	if err != nil {
@@ -311,18 +289,13 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 		DisplayName: name,
 		Industry:    fieldStringPtr(row.Fields, "industry"),
 		OwnerID:     owner,
-		Address:     flipAddress(row.Fields),
+		Address:     overlayAddress(row.Fields),
+		Domains:     flipOrgDomains(row.Fields),
 		Source:      w.provenance(flipObjectOrganization, row.ExternalID),
 	}
 	if band := crmcontracts.OrganizationSizeBand(fieldString(row.Fields, "size_band")); band.Valid() {
 		s := string(band)
 		in.SizeBand = &s
-	}
-	// The company's domain is a TargetChild like the person's email:
-	// nested, and carried across rather than dropped (the store
-	// normalizes it, so no pre-cleaning here).
-	if domain := overlayOrgDomain(row.Fields); domain != "" {
-		in.Domains = []people.OrgDomainInput{{Domain: domain, IsPrimary: true}}
 	}
 	if _, err := w.landRecord(ctx, flipObjectOrganization, row.ExternalID, func(tx pgx.Tx) (ids.UUID, error) {
 		org, err := w.people.CreateOrganizationTx(ctx, tx, in)
@@ -351,15 +324,9 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		LastName:  fieldStringPtr(row.Fields, "last_name"),
 		Title:     fieldStringPtr(row.Fields, "title"),
 		OwnerID:   owner,
-		Address:   flipAddress(row.Fields),
+		Address:   overlayAddress(row.Fields),
+		Emails:    flipPersonEmails(row.Fields),
 		Source:    w.provenance(flipObjectPerson, row.ExternalID),
-	}
-	// The mapper lands a TargetChild under a NESTED map, never under its
-	// dotted To — so read it with the same helper the wire projection
-	// uses. A flat lookup silently returns "" and drops every contact's
-	// email (and with it the duplicate-email skip below).
-	if email := overlayPersonEmail(row.Fields); email != "" {
-		in.Emails = []people.PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}}
 	}
 	if _, err := w.landRecord(ctx, flipObjectPerson, row.ExternalID, func(tx pgx.Tx) (ids.UUID, error) {
 		person, err := w.people.CreatePersonTx(ctx, tx, in)
@@ -380,6 +347,58 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		return migration.EnsureResult{}, err
 	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
+}
+
+// flipPersonEmails shapes the mirrored contact's addresses into the people
+// store's input. The mapper lands a TargetChild under its PARENT key, as rows
+// of a collection, never under the dotted To — so this reads it with the same
+// helper the wire projection uses; a flat lookup silently returns "" and drops
+// every contact's email, and with it the duplicate-email skip ensurePerson
+// depends on. The WHOLE collection is carried, as the read wire publishes it
+// (overlayPersonEmails): the flip writes durable rows and freezes the mirror,
+// so an address the wire shows but the import drops is lost for good. Type,
+// primary flag and position are each row's own declared attributes, so the
+// native rows inherit what the mapping said rather than an assumption. Every
+// row's type is held to the contract's enum before it is forwarded:
+// person_email.email_type is CHECK-constrained, so a mapping declaring a type
+// outside that set would abort the whole import with a raw constraint error
+// where the read wire falls back — the work address one mapped address means.
+func flipPersonEmails(fields map[string]any) []people.PersonEmailInput {
+	var out []people.PersonEmailInput
+	for _, row := range overlayChildRows(fields, "person_email") {
+		address := strings.TrimSpace(fieldString(row, "email"))
+		if address == "" {
+			continue
+		}
+		emailType := crmcontracts.PersonEmailEmailType(strings.TrimSpace(fieldString(row, "email_type")))
+		if !emailType.Valid() {
+			emailType = crmcontracts.PersonEmailEmailTypeWork
+		}
+		out = append(out, people.PersonEmailInput{
+			Email:     address,
+			EmailType: string(emailType),
+			IsPrimary: childRowIsPrimary(row),
+			Position:  childRowPosition(row),
+		})
+	}
+	return out
+}
+
+// flipOrgDomains shapes the mirrored company's domains the way flipPersonEmails
+// shapes the contact's addresses — the same child collection, carried across
+// whole rather than reduced to its leading row (the people store normalizes the
+// host, so no pre-cleaning here). A domain row declares no type, so there is no
+// enum to hold it to.
+func flipOrgDomains(fields map[string]any) []people.OrgDomainInput {
+	var out []people.OrgDomainInput
+	for _, row := range overlayChildRows(fields, "organization_domain") {
+		domain := strings.TrimSpace(fieldString(row, "domain"))
+		if domain == "" {
+			continue
+		}
+		out = append(out, people.OrgDomainInput{Domain: domain, IsPrimary: childRowIsPrimary(row)})
+	}
+	return out
 }
 
 func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {

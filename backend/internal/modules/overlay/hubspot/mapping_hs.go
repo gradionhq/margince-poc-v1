@@ -73,6 +73,11 @@ const (
 	// same word both sides of the mapping, named once so read and write
 	// select it rather than retype the literal.
 	industryField = "industry"
+	// attrIsPrimary is the ChildRow attribute naming the primary row of a
+	// child collection. Every mapped collection declares it, and the canonical
+	// payload carries that spelling to every consumer of the mirror, so it is
+	// named once rather than retyped per mapping.
+	attrIsPrimary = "is_primary"
 )
 
 // The five canonical activity kinds (OVA-MAP-1) — the Const value each
@@ -160,12 +165,24 @@ var ownerIDField = overlay.FieldMapping{
 // consumed by person_email.email — the assembler is an ADDITIONAL reader of
 // those keys, so it adds no unmapped entry.
 //
+// phone and mobilephone both land in the core person_phone collection, as two
+// separate typed rows: no incumbent property says which number is which, so
+// the phone_type and the primary flag each row publishes are the ChildRow's
+// declaration, and a contact reachable on both keeps both numbers. Each number
+// rides verbatim where email is lowercased: the mirror is non-authoritative, so
+// it owes the reader what the incumbent holds, and E.164 normalization — unlike
+// lowercasing — can fail on a real number, with no honest answer at projection
+// time for what a mirror row that cannot be normalized should become.
+//
+// createdate carries the incumbent's own create instant, so a mirrored contact
+// reports when the customer's CRM created it rather than when we mirrored it.
+// Its last-modified counterpart needs no FieldMapping: Baseline already lands
+// lastmodifieddate on the canonical last_synced_at.
+//
 // One §9 field remains a deliberate gap: social links (jsonb) has no
 // closed-registry transform yet, and its source properties are consumed by
 // no FieldMapping, so Apply's unmapped []string surfaces them — the "flag,
-// never silently drop" policy (design §4.8) holds. The phone/mobilephone
-// properties (design §9: "phone→no column (x_phone custom)") are the same
-// ordinary case: unmapped/flagged until the x_ custom column lands.
+// never silently drop" policy (design §4.8) holds.
 var contactsMapping = overlay.ObjectMapping{
 	Source:         objectClassContacts,
 	Target:         personTarget,
@@ -183,11 +200,21 @@ var contactsMapping = overlay.ObjectMapping{
 			AlwaysEmit: true,
 		},
 		{From: []string{"jobtitle"}, To: "title", Kind: overlay.TargetColumn},
+		{From: []string{"createdate"}, To: "created_at", Kind: overlay.TargetColumn},
 		{
 			From:      []string{propEmail},
 			To:        "person_email.email",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
+			Child:     &overlay.ChildRow{Attrs: map[string]any{"email_type": "work", attrIsPrimary: true}, Position: 0},
+		},
+		{
+			From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+			Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work", attrIsPrimary: true}, Position: 0},
+		},
+		{
+			From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+			Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile", attrIsPrimary: false}, Position: 1},
 		},
 		ownerIDField,
 		{
@@ -200,11 +227,20 @@ var contactsMapping = overlay.ObjectMapping{
 }
 
 // companiesMapping is the design.md §9 companies→organization subset.
-// `domain` maps into the organization_domain child row — the same 1:N child
-// shape contacts' email → person_email uses — lowercased to the canonical
-// domain spelling (HubSpot's `domain` property is already a bare host: no
-// scheme, no www). The overlay org wire lifts it onto the contract's
+// `domain` maps into a row of the organization_domain child collection — the
+// same 1:N child shape contacts' email → person_email uses — lowercased to
+// the canonical domain spelling (HubSpot's `domain` property is already a bare
+// host: no scheme, no www). The overlay org wire lifts it onto the contract's
 // domains[] so a mirrored company shows its domain like a native one.
+//
+// createdate carries the incumbent's own create instant, for the same reason
+// contacts' does: a mirrored company otherwise reports when we mirrored it. Its
+// last-modified counterpart needs no FieldMapping — Baseline already lands
+// hs_lastmodifieddate on the canonical last_synced_at. The two spellings differ
+// by object class: a company has hs_lastmodifieddate where a contact has
+// lastmodifieddate, while createdate is the same property name on both — read
+// from HubSpot's documentation, where the contact side rests on a live portal
+// capture; issue #1032 tracks capturing a company to confirm it.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
 	Target:         organizationTarget,
@@ -220,11 +256,13 @@ var companiesMapping = overlay.ObjectMapping{
 			Kind:      overlay.TargetColumn,
 			Transform: "employees_to_size_band",
 		},
+		{From: []string{"createdate"}, To: "created_at", Kind: overlay.TargetColumn},
 		{
 			From:      []string{propDomain},
 			To:        "organization_domain.domain",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
+			Child:     &overlay.ChildRow{Attrs: map[string]any{attrIsPrimary: true}, Position: 0},
 		},
 		ownerIDField,
 		{
