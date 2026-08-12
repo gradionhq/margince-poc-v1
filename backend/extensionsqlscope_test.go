@@ -34,6 +34,14 @@ package backendarch
 // computed is not judged at all, and a table name that is computed IS a finding
 // (name it with a string constant, and the gate can read it).
 //
+// The fold has no scopes, and the rules that make that safe are the two the
+// gate would otherwise be wrong under. A name resolves only when every binding
+// of it in the unit folds to the SAME text, so one function's `table :=
+// "person"` is never answered by another function's `table := "ext.…"`; and a
+// name bound even once to something unreadable resolves to nothing, so a value
+// the fold could read does not stand in for one it could not. Under both rules
+// the statement reads as computed — a finding — rather than as allowed.
+//
 // The allowlist is the unit's namespace, not a list of core tables: a table is
 // the unit's own when it is `ext.<namespace>_…` — derived through the same
 // extension.Name(…).Namespace() the migration gate and the unit's database role
@@ -41,6 +49,12 @@ package backendarch
 // and for the reason notes' own constant gives: the ext schema is on no
 // search_path the app connects with, so `ext_notes_note` unqualified is a public
 // table the unit does not own.
+//
+// WHAT IT CANNOT SEE, so that nobody reads more into a green run than it says: a
+// statement built by anything other than `+` over constants (a Sprintf whose
+// verb is the table, a strings.Builder, a query assembled in a loop) is read as
+// far as its literals go and no further. That is the same bound as the header's
+// first paragraph and the reason the wall is #628's, not this file's.
 
 import (
 	"fmt"
@@ -78,8 +92,11 @@ func TestExtensionSQLNamesOnlyTheUnitsOwnTables(t *testing.T) {
 		t.Fatal("no extension tree was found: this gate judges extensions/* and fixtures/extensions/*, and a run that enrols none certifies nothing")
 	}
 	judged := 0
-	for dir, unit := range trees {
-		scan := scanUnitSQL(t, unit, goSources(t, dir))
+	// Sorted, because two units each holding a finding must report in the same
+	// order twice: a merge gate whose output shuffles between runs is one a
+	// reader cannot diff.
+	for _, dir := range slices.Sorted(maps.Keys(trees)) {
+		scan := scanUnitSQL(t, trees[dir], goSources(t, dir))
 		judged += scan.tables
 		for _, finding := range scan.findings {
 			t.Error(finding)
@@ -113,9 +130,8 @@ func scanUnitSQL(t testing.TB, unit string, sources map[string]string) extSQLSca
 	prefix := namespace + "_"
 
 	fset := token.NewFileSet()
-	paths := slices.Sorted(maps.Keys(sources))
-	files := make([]*ast.File, 0, len(paths))
-	for _, path := range paths {
+	files := make([]*ast.File, 0, len(sources))
+	for _, path := range slices.Sorted(maps.Keys(sources)) {
 		file, parseErr := parser.ParseFile(fset, path, sources[path], 0)
 		if parseErr != nil {
 			t.Fatalf("%s does not parse, and a source this gate cannot read may hold the SQL it exists to judge: %v", path, parseErr)
@@ -144,13 +160,9 @@ func scanUnitSQL(t testing.TB, unit string, sources map[string]string) extSQLSca
 // declared them.
 func judgeTable(ref tableRef, unit, prefix string) string {
 	if !ref.readable {
-		return fmt.Sprintf("a statement names its table through something this gate cannot read (a call, a format verb, a runtime value): spell the table with a string constant, so the SQL the unit %s issues says which table it touches", unit)
+		return fmt.Sprintf("a statement names its table through something this gate cannot read (a call, a format verb, a name bound more than one way): spell the table with a string constant, so the SQL the unit %s issues says which table it touches", unit)
 	}
-	name := strings.ToLower(strings.Trim(ref.name, `"`))
-	schema, relation, qualified := strings.Cut(name, ".")
-	if !qualified {
-		schema, relation = "", name
-	}
+	schema, relation := splitQualified(ref.name)
 	switch {
 	case schema == "information_schema" || schema == "pg_catalog":
 		return "" // reading the catalog says nothing about another owner's rows
@@ -159,9 +171,42 @@ func judgeTable(ref tableRef, unit, prefix string) string {
 	case schema == extSchema && strings.HasPrefix(relation, prefix):
 		return ""
 	case schema == "" && strings.HasPrefix(relation, prefix):
-		return fmt.Sprintf("SQL names %q unqualified: the %s schema is on no search_path the app connects with, so this resolves to a public table the unit %s does not own — qualify it as %s.%s", name, extSchema, unit, extSchema, relation)
+		return fmt.Sprintf("SQL names %q unqualified: the %s schema is on no search_path the app connects with, so this resolves to a public table the unit %s does not own — qualify it as %s.%s", ref.name, extSchema, unit, extSchema, relation)
 	}
-	return fmt.Sprintf("SQL names %q: the unit %s addresses %s.%s… and nothing else, so this table is not its to read or write", name, unit, extSchema, prefix)
+	return fmt.Sprintf("SQL names %q: the unit %s addresses %s.%s… and nothing else, so this table is not its to read or write", ref.name, unit, extSchema, prefix)
+}
+
+// splitQualified reads a possibly-qualified name as (schema, relation), taking
+// the LAST two parts so that a database-qualified `db.public.person` is judged
+// on `public.person`. Quoting is stripped per part, because PostgreSQL quotes
+// each identifier separately — `"ext"."ext_notes_note"` is one reference — and
+// the result is lower-cased, which is what an unquoted identifier folds to.
+func splitQualified(name string) (schema, relation string) {
+	parts := identParts(name)
+	if len(parts) == 1 {
+		return "", parts[0]
+	}
+	return parts[len(parts)-2], parts[len(parts)-1]
+}
+
+// identParts splits a qualified name on the dots OUTSIDE quotes, so a quoted
+// identifier holding one ("a.b") stays whole.
+func identParts(name string) []string {
+	var parts []string
+	current := strings.Builder{}
+	quoted := false
+	for _, r := range name {
+		switch {
+		case r == '"':
+			quoted = !quoted
+		case r == '.' && !quoted:
+			parts = append(parts, strings.ToLower(current.String()))
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	return append(parts, strings.ToLower(current.String()))
 }
 
 // goSources reads every .go file under dir, keyed by its slash-normalised path.
@@ -185,32 +230,70 @@ func goSources(t testing.TB, dir string) map[string]string {
 	return out
 }
 
+// stringBinding is one place a unit binds a name to a value — a const, a var,
+// or an assignment.
+type stringBinding struct {
+	name string
+	expr ast.Expr
+}
+
+// maxConstantPasses bounds the fold's fixed point. Each pass resolves one more
+// link of a constant built from constants, so the bound is the longest chain
+// this reader follows; past it the map is used as it stands, which can only
+// leave a name unresolved (and its SQL unread), never wrongly resolved.
+const maxConstantPasses = 8
+
 // stringConstants maps every name a unit binds to a constant string — package
 // consts, vars, and `:=` — so a statement spelled through them can be folded.
 //
-// Two passes, over the files in a fixed order, so a constant built from another
-// resolves whichever file declares it first. A name bound twice is read as its
-// last binding: a unit that spells one table two ways under one name is not a
-// shape this tree has, and reading the later one keeps the pass deterministic.
+// A name resolves only when EVERY binding of it in the unit folds to the same
+// text. Bind it twice to different strings, or once to something the fold
+// cannot read (a function call, another package's value), and the name resolves
+// to nothing at all: the SQL spelled through it then reads as computed, which is
+// a finding rather than a silent pass. That rule is what keeps one function's
+// `table := "person"` from being answered by another function's `table :=
+// "ext.ext_notes_note"` — the fold is name-keyed across the whole unit and has
+// no scopes of its own.
 func stringConstants(files []*ast.File) map[string]string {
+	all := make([]stringBinding, 0, 16)
+	for _, file := range files {
+		all = append(all, stringBindings(file)...)
+	}
 	consts := map[string]string{}
-	for range 2 {
-		for _, file := range files {
-			collectStringBindings(file, consts)
+	for range maxConstantPasses {
+		next := map[string]string{}
+		unreadable := map[string]bool{}
+		for _, binding := range all {
+			text, folded := foldString(binding.expr, consts)
+			prior, bound := next[binding.name]
+			switch {
+			case !folded, bound && prior != text:
+				unreadable[binding.name] = true
+			default:
+				next[binding.name] = text
+			}
 		}
+		for name := range unreadable {
+			delete(next, name)
+		}
+		if maps.Equal(next, consts) {
+			break
+		}
+		consts = next
 	}
 	return consts
 }
 
-func collectStringBindings(file *ast.File, consts map[string]string) {
+// stringBindings walks one file and reports every name it binds, in source
+// order. The blank identifier is skipped: it binds nothing a statement can name.
+func stringBindings(file *ast.File) []stringBinding {
+	var out []stringBinding
 	ast.Inspect(file, func(node ast.Node) bool {
 		switch decl := node.(type) {
 		case *ast.ValueSpec:
 			for i, name := range decl.Names {
-				if i < len(decl.Values) {
-					if text, ok := foldString(decl.Values[i], consts); ok {
-						consts[name.Name] = text
-					}
+				if i < len(decl.Values) && name.Name != "_" {
+					out = append(out, stringBinding{name: name.Name, expr: decl.Values[i]})
 				}
 			}
 		case *ast.AssignStmt:
@@ -218,20 +301,18 @@ func collectStringBindings(file *ast.File, consts map[string]string) {
 				return true
 			}
 			for i, target := range decl.Lhs {
-				name, ok := target.(*ast.Ident)
-				if !ok {
-					continue
-				}
-				if text, folded := foldString(decl.Rhs[i], consts); folded {
-					consts[name.Name] = text
+				if name, ok := target.(*ast.Ident); ok && name.Name != "_" {
+					out = append(out, stringBinding{name: name.Name, expr: decl.Rhs[i]})
 				}
 			}
 		}
 		return true
 	})
+	return out
 }
 
-// foldedSQL is one folded string the gate reads as a statement.
+// foldedSQL is one folded string the gate reads as a statement, already
+// stripped of the comments and literals a keyword can hide in.
 type foldedSQL struct {
 	text string
 	pos  token.Pos
@@ -248,12 +329,27 @@ func sqlStrings(file *ast.File, consts map[string]string) []foldedSQL {
 		if !isExpr {
 			return true
 		}
+		switch expr.(type) {
+		case *ast.BasicLit, *ast.BinaryExpr, *ast.ParenExpr:
+		default:
+			// A bare name is not a statement even when it resolves to one. The
+			// fold answers for a name so a concatenation can be read through it;
+			// judging the name on its own would report the statement again at
+			// its declaration, at every call that passes it, and at every
+			// comparison against it — three reports of one mistake, none of them
+			// where the SQL is written.
+			return true
+		}
 		text, folded := foldString(expr, consts)
 		if !folded {
 			return true
 		}
-		if looksLikeSQL(text) {
-			out = append(out, foldedSQL{text: text, pos: expr.Pos()})
+		// Stripped BEFORE the shape test, not after: a statement that opens with
+		// its own `-- why` comment is still a statement, and testing the raw text
+		// would read that comment as the first word and skip the query.
+		cleaned := sqlNoise.ReplaceAllString(text, " ")
+		if looksLikeSQL(cleaned) {
+			out = append(out, foldedSQL{text: cleaned, pos: expr.Pos()})
 		}
 		return false
 	})
@@ -337,25 +433,29 @@ type tableRef struct {
 }
 
 var (
-	// sqlNoise is what a table name cannot hide in and a keyword can falsely
-	// appear in: comments, and single-quoted literals ('' escaping included).
-	sqlNoise = regexp.MustCompile(`--[^\n]*|(?s)/\*.*?\*/|'(?:[^']|'')*'`)
+	// sqlNoise is what a keyword can falsely appear in and a table name cannot
+	// hide in: comments, single-quoted literals ('' escaping included), and
+	// dollar-quoted bodies. The dollar-quote pattern cannot pair a tag with its
+	// own closing tag (RE2 has no backreference), so it matches the nearest
+	// closing delimiter of the same SHAPE — which over-strips only a statement
+	// carrying two differently-tagged bodies, and under-strips nothing.
+	sqlNoise = regexp.MustCompile(`--[^\n]*|(?s)/\*.*?\*/|'(?:[^']|'')*'|(?s)\$[A-Za-z0-9_]*\$.*?\$[A-Za-z0-9_]*\$`)
 
-	// sqlToken splits a statement into quoted identifiers, bare identifiers
-	// (schema-qualified names held together by the dot), placeholders, and
-	// single characters for everything else.
-	sqlToken = regexp.MustCompile(`"[^"]*"|[A-Za-z_][A-Za-z0-9_$.]*|\$[0-9]+|\S`)
+	// sqlToken splits a statement into names (a dotted chain of bare or quoted
+	// identifiers, held together so `"ext"."ext_notes_note"` is one token),
+	// placeholders, and single characters for everything else.
+	sqlToken = regexp.MustCompile(`(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_$]*))*|\$[0-9]+|\S`)
 )
 
 // tableRefs returns every table the statement names.
 func tableRefs(sql string) []tableRef {
-	tokens := sqlToken.FindAllString(sqlNoise.ReplaceAllString(sql, " "), -1)
-	ctes := cteNames(tokens)
+	tokens := sqlToken.FindAllString(sql, -1)
+	ctes := cteScopes(tokens)
 	var refs []tableRef
 	var callStack []string
+	judged := map[int]bool{}
 	for i, raw := range tokens {
-		keyword := strings.ToLower(raw)
-		switch keyword {
+		switch raw {
 		case "(":
 			enclosing := ""
 			if i > 0 && isBareIdentifier(tokens[i-1]) {
@@ -372,11 +472,21 @@ func tableRefs(sql string) []tableRef {
 		if !opensTablePosition(tokens, i, callStack) {
 			continue
 		}
-		ref, judgeable := tableAfter(tokens, i+1, keyword)
-		if !judgeable || (ref.readable && ctes[strings.ToLower(ref.name)]) {
-			continue
+		for _, at := range tableTargets(tokens, i) {
+			// One index is judged once. `TRUNCATE TABLE t` reaches t twice —
+			// once past the qualifier TRUNCATE steps over, once from TABLE
+			// itself — and the same table counted twice would read as two
+			// findings for one mistake.
+			if judged[at] {
+				continue
+			}
+			judged[at] = true
+			ref := refAt(tokens, at)
+			if ref.readable && withinCTEScope(ctes, ref.name, at) {
+				continue
+			}
+			refs = append(refs, ref)
 		}
-		refs = append(refs, ref)
 	}
 	return refs
 }
@@ -386,9 +496,26 @@ func tableRefs(sql string) []tableRef {
 // SUBSTRING(s FROM 2), OVERLAY(s PLACING x FROM 2).
 var argumentSeparators = []string{"extract", "trim", "substring", "overlay"}
 
+// clauseWords end a table list. They are what tells `FROM a, b WHERE c` from
+// `FROM a, b` — an alias is any other word, so the list has to know where it
+// stops.
+var clauseWords = []string{
+	"where", "group", "having", "window", "order", "limit", "offset", "fetch",
+	"for", "union", "intersect", "except", "returning", "set", "values", "on",
+	"using", "join", "left", "right", "inner", "outer", "full", "cross",
+	"natural", "lateral", "select", "insert", "update", "delete", "with", "into",
+}
+
 // tableQualifiers stand between a keyword and the name it introduces —
-// `DELETE FROM ONLY t`, `JOIN LATERAL …`, `CREATE TABLE IF NOT EXISTS t`.
-var tableQualifiers = []string{"only", "lateral", "if", "not", "exists"}
+// `DELETE FROM ONLY t`, `JOIN LATERAL …`, `TRUNCATE TABLE t`,
+// `CREATE TABLE IF NOT EXISTS t`.
+var tableQualifiers = []string{"only", "lateral", "table", "if", "not", "exists"}
+
+// nonTableUpdatePrefixes are the words a clause's UPDATE follows: `FOR UPDATE`,
+// `FOR NO KEY UPDATE`, `ON CONFLICT … DO UPDATE`. Every other UPDATE names the
+// table it is about to rewrite — including the one in `WITH x AS (…) UPDATE t`,
+// which is why this is a denylist and not a list of positions UPDATE may open in.
+var nonTableUpdatePrefixes = []string{"for", "do", "key"}
 
 // opensTablePosition reports whether the token at i is a keyword the next token
 // names a table for.
@@ -400,66 +527,177 @@ func opensTablePosition(tokens []string, i int, callStack []string) bool {
 	switch strings.ToLower(tokens[i]) {
 	case "from":
 		return len(callStack) == 0 || !slices.Contains(argumentSeparators, callStack[len(callStack)-1])
-	case "join", "into", "table", "using":
+	case "join", "into", "table", "truncate", "using":
 		// USING carries two meanings and both are handled here: the table of a
 		// `DELETE … USING t` / `MERGE … USING t`, and the column list of a
-		// `JOIN … USING (a, b)`, which tableAfter drops on the opening paren.
+		// `JOIN … USING (a, b)`, which tableTargets drops on the opening paren.
 		return true
 	case "update":
-		// Only a statement's own opening UPDATE names a table. Every other
-		// spelling — `FOR UPDATE`, `FOR NO KEY UPDATE`, `ON CONFLICT DO UPDATE` —
-		// is a clause, and the words before it are not a table's.
-		return previous == "" || previous == ";" || previous == "("
+		return !slices.Contains(nonTableUpdatePrefixes, previous)
 	}
 	return false
 }
 
-// tableAfter reads the table a keyword introduces. It reports false when the
-// position holds something that is not a table at all (a subquery, a column
-// list, a set-returning function) and true when there is a reference to judge —
-// including one whose name it could not read.
-func tableAfter(tokens []string, i int, keyword string) (tableRef, bool) {
-	for i < len(tokens) && slices.Contains(tableQualifiers, strings.ToLower(tokens[i])) {
-		i++
+// tableTargets returns the token indices the keyword at i introduces as table
+// names: one for most keywords, and after FROM every entry of a comma-separated
+// list, because `FROM ext.ext_notes_note n, person p` is a join with no JOIN in
+// it. An index at or past the end means the statement stopped on the keyword and
+// the name is somewhere this gate cannot see.
+func tableTargets(tokens []string, i int) []int {
+	keyword := strings.ToLower(tokens[i])
+	fromList := keyword == "from"
+	var targets []int
+	at := i + 1
+	for {
+		for at < len(tokens) && slices.Contains(tableQualifiers, strings.ToLower(tokens[at])) {
+			at++
+		}
+		if at >= len(tokens) {
+			return append(targets, at)
+		}
+		if !namesATable(tokens, at, keyword) {
+			return targets
+		}
+		targets = append(targets, at)
+		if !fromList {
+			return targets
+		}
+		next := skipAlias(tokens, at+1)
+		if next >= len(tokens) || tokens[next] != "," {
+			return targets
+		}
+		at = next + 1
 	}
-	if i >= len(tokens) {
-		// A statement that ends on the keyword introducing its table: the name is
-		// somewhere this gate cannot see.
-		return tableRef{}, true
-	}
-	name := tokens[i]
-	if name == "(" {
-		return tableRef{}, false // a subquery, or the column list of a JOIN … USING (a, b)
-	}
-	if !isBareIdentifier(name) && !strings.HasPrefix(name, `"`) {
-		return tableRef{readable: false}, true
-	}
-	// A name applied to an argument list is a set-returning function, not a
-	// table — but only where one can stand: `INSERT INTO t (cols)` names a table
-	// and a column list, and `UPDATE t (…)` is not a spelling at all.
-	if (keyword == "from" || keyword == "join") && i+1 < len(tokens) && tokens[i+1] == "(" {
-		return tableRef{}, false
-	}
-	return tableRef{name: name, readable: true}, true
 }
 
-// cteNames collects the names a statement declares for itself: `WITH x AS (…)`,
-// including the MATERIALIZED spellings. A reference to one names no table.
-func cteNames(tokens []string) map[string]bool {
-	names := map[string]bool{}
+// namesATable reports whether the token at i can be a table name at all. A `(`
+// opens a subquery or a column list. A name applied to an argument list is a
+// set-returning function — but only where one can stand: `INSERT INTO t (cols)`
+// names a table and its columns, and `CREATE TABLE t (…)` a table and its
+// definition. A token that is neither a paren nor a name IS judged, as a
+// reference whose name could not be read.
+func namesATable(tokens []string, i int, keyword string) bool {
+	if tokens[i] == "(" {
+		return false
+	}
+	if keyword != "from" && keyword != "join" {
+		return true
+	}
+	return !isName(tokens[i]) || i+1 >= len(tokens) || tokens[i+1] != "("
+}
+
+// refAt classifies the token at i as the table reference it holds.
+func refAt(tokens []string, i int) tableRef {
+	if i >= len(tokens) || !isName(tokens[i]) {
+		return tableRef{}
+	}
+	return tableRef{name: tokens[i], readable: true}
+}
+
+// skipAlias steps over the alias a table may carry — `t x`, `t AS x`, and the
+// column list either spelling may take — and returns where the entry ends. A
+// clause word is never an alias: it is what the list stops at.
+func skipAlias(tokens []string, i int) int {
+	if i < len(tokens) && strings.EqualFold(tokens[i], "as") {
+		i++
+	}
+	if i < len(tokens) && isName(tokens[i]) && !slices.Contains(clauseWords, strings.ToLower(tokens[i])) {
+		i++
+	}
+	if i < len(tokens) && tokens[i] == "(" {
+		i = matchingParen(tokens, i) + 1
+	}
+	return i
+}
+
+// cteScope is the token span of one WITH-declared name's body.
+type cteScope struct {
+	start, end int
+	recursive  bool
+}
+
+// cteScopes collects the names a statement declares for itself: `WITH x AS (…)`,
+// including the MATERIALIZED spellings and a column list (`WITH x(id) AS (…)`).
+//
+// The BODY is recorded, not just the name, because a CTE shadows a real table
+// only where it is in scope: in `WITH person AS (SELECT id FROM person)` the
+// inner name still reads the core table, and exempting it everywhere would hand
+// a unit a one-line way past this gate. A RECURSIVE WITH is the exception —
+// there the body legitimately names the CTE itself.
+func cteScopes(tokens []string) map[string]cteScope {
+	recursive := false
 	for i, raw := range tokens {
-		if !strings.EqualFold(raw, "as") || i == 0 || !isBareIdentifier(tokens[i-1]) {
-			continue
-		}
-		next := i + 1
-		for next < len(tokens) && (strings.EqualFold(tokens[next], "materialized") || strings.EqualFold(tokens[next], "not")) {
-			next++
-		}
-		if next < len(tokens) && tokens[next] == "(" {
-			names[strings.ToLower(tokens[i-1])] = true
+		if strings.EqualFold(raw, "with") && i+1 < len(tokens) && strings.EqualFold(tokens[i+1], "recursive") {
+			recursive = true
 		}
 	}
-	return names
+	scopes := map[string]cteScope{}
+	for i, raw := range tokens {
+		if !strings.EqualFold(raw, "as") || i == 0 {
+			continue
+		}
+		name := i - 1
+		if tokens[name] == ")" {
+			name = matchingOpen(tokens, name) - 1 // a column list: WITH x(id) AS (…)
+		}
+		if name < 0 || !isBareIdentifier(tokens[name]) {
+			continue
+		}
+		body := i + 1
+		for body < len(tokens) && (strings.EqualFold(tokens[body], "materialized") || strings.EqualFold(tokens[body], "not")) {
+			body++
+		}
+		if body < len(tokens) && tokens[body] == "(" {
+			scopes[strings.ToLower(tokens[name])] = cteScope{start: body, end: matchingParen(tokens, body), recursive: recursive}
+		}
+	}
+	return scopes
+}
+
+// withinCTEScope reports whether the reference at index at reads a CTE rather
+// than a table: anywhere for a recursive WITH, and after the body otherwise.
+func withinCTEScope(scopes map[string]cteScope, name string, at int) bool {
+	scope, declared := scopes[strings.ToLower(strings.Trim(name, `"`))]
+	return declared && (scope.recursive || at > scope.end)
+}
+
+// matchingParen returns the index of the ")" closing the "(" at open, or the
+// last token when the statement never closes it.
+func matchingParen(tokens []string, open int) int {
+	depth := 0
+	for i := open; i < len(tokens); i++ {
+		switch tokens[i] {
+		case "(":
+			depth++
+		case ")":
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(tokens) - 1
+}
+
+// matchingOpen is matchingParen read backwards, from a ")" to its "(".
+func matchingOpen(tokens []string, closing int) int {
+	depth := 0
+	for i := closing; i >= 0; i-- {
+		switch tokens[i] {
+		case ")":
+			depth++
+		case "(":
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+// isName reports whether the token can be an identifier — bare, quoted, or a
+// dotted chain of either.
+func isName(token string) bool {
+	return isBareIdentifier(token) || strings.HasPrefix(token, `"`)
 }
 
 func isBareIdentifier(token string) bool {
@@ -468,164 +706,4 @@ func isBareIdentifier(token string) bool {
 	}
 	first := token[0]
 	return first == '_' || (first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')
-}
-
-// probeUnit is the synthetic unit the gate's own test is written against. Its
-// namespace is ext_probe, so ext.ext_probe_note is its table and everything else
-// in the cases below is somebody's else's.
-const probeUnit = "probe"
-
-// extSQLGateCase is one source the gate must judge a particular way. want is the
-// text the refusal has to carry, or "" when the source must be accepted.
-type extSQLGateCase struct {
-	name   string
-	body   string
-	want   string
-	tables int // table references the gate is expected to have read
-}
-
-// extSQLGateCases exercise the gate against a unit it can refuse. The real tree
-// is supposed to pass, so a gate proven only by "extensions/ is currently clean"
-// is one that keeps passing after it stops working — and this one has a second
-// way to read green that a clean tree hides completely: seeing no SQL at all.
-// Every accepted case therefore also pins how many table references were READ.
-var extSQLGateCases = []extSQLGateCase{
-	{
-		name:   "a core table named inline",
-		body:   `tx.Exec(ctx, "SELECT id FROM person WHERE id = $1")`,
-		want:   `"person": the unit probe addresses ext.ext_probe_…`,
-		tables: 1,
-	},
-	{
-		name:   "a core table named through the public schema",
-		body:   `tx.Exec(ctx, "DELETE FROM public.person WHERE id = $1")`,
-		want:   `"public.person"`,
-		tables: 1,
-	},
-	{
-		name: "a core table reached through a constant",
-		body: `tx.Exec(ctx, "SELECT id FROM "+subject+" WHERE id = $1")`,
-		// The spelling the one unit shipping SQL uses for its OWN table. A gate
-		// blind to the concatenation reads the whole tier green.
-		want:   `"person"`,
-		tables: 1,
-	},
-	{
-		name:   "another unit's table",
-		body:   `tx.Exec(ctx, "SELECT body FROM ext.ext_notes_note LIMIT 1")`,
-		want:   `"ext.ext_notes_note": the unit probe addresses`,
-		tables: 1,
-	},
-	{
-		name:   "a core table joined onto the unit's own",
-		body:   `tx.Exec(ctx, "SELECT n.id FROM ext.ext_probe_note n JOIN person p ON p.id = n.subject_id")`,
-		want:   `"person"`,
-		tables: 2,
-	},
-	{
-		name:   "a core table reached around a DELETE … USING",
-		body:   `tx.Exec(ctx, "DELETE FROM ext.ext_probe_note USING person WHERE person.id = ext_probe_note.subject_id")`,
-		want:   `"person"`,
-		tables: 2,
-	},
-	{
-		name:   "a core table written by an INSERT",
-		body:   `tx.Exec(ctx, "INSERT INTO activity (kind, subject_id) VALUES ($1, $2)")`,
-		want:   `"activity"`,
-		tables: 1,
-	},
-	{
-		name:   "a core table rewritten by an UPDATE",
-		body:   `tx.Exec(ctx, "UPDATE person SET full_name = $1 WHERE id = $2")`,
-		want:   `"person"`,
-		tables: 1,
-	},
-	{
-		name:   "the unit's own table left unqualified",
-		body:   `tx.Exec(ctx, "SELECT id FROM ext_probe_note LIMIT 1")`,
-		want:   "the ext schema is on no search_path",
-		tables: 1,
-	},
-	{
-		name:   "a scratch table created over a core name",
-		body:   `tx.Exec(ctx, "CREATE TABLE IF NOT EXISTS person (id uuid)")`,
-		want:   `"person"`,
-		tables: 1,
-	},
-	{
-		name:   "a table name assembled at runtime",
-		body:   `tx.Exec(ctx, fmt.Sprintf("SELECT id FROM %s LIMIT 1", subject))`,
-		want:   "this gate cannot read",
-		tables: 1,
-	},
-	{
-		name:   "the unit's own table, schema-qualified through a constant",
-		body:   `tx.Exec(ctx, "SELECT id FROM "+noteTable+" ORDER BY id LIMIT 1")`,
-		tables: 1,
-	},
-	{
-		name:   "a CTE the same statement declares",
-		body:   `tx.Exec(ctx, "WITH stale AS (SELECT id FROM "+noteTable+" ORDER BY id DESC OFFSET 50) DELETE FROM "+noteTable+" WHERE id IN (SELECT id FROM stale)")`,
-		tables: 2,
-	},
-	{
-		name:   "a catalog read",
-		body:   `tx.Exec(ctx, "SELECT column_name FROM information_schema.columns WHERE table_name = $1")`,
-		tables: 1,
-	},
-	{
-		name:   "EXTRACT's argument separator",
-		body:   `tx.Exec(ctx, "SELECT extract(epoch FROM created_at) FROM "+noteTable)`,
-		tables: 1,
-	},
-	{
-		name:   "a row lock and an upsert clause",
-		body:   `tx.Exec(ctx, "INSERT INTO "+noteTable+" (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET body = $2 RETURNING (SELECT body FROM "+noteTable+" WHERE id = $1 FOR UPDATE)")`,
-		tables: 2,
-	},
-	{
-		name:   "a set-returning function and a USING column list",
-		body:   `tx.Exec(ctx, "SELECT n.id FROM "+noteTable+" n JOIN unnest($1::uuid[]) AS wanted(id) USING (id)")`,
-		tables: 1,
-	},
-	{
-		name:   "prose that merely reads like SQL",
-		body:   `_ = "hello from the demo extension"; _ = "update the note, then select the row"`,
-		tables: 0,
-	},
-}
-
-// TestExtensionSQLScopeRefusesWhatItMust drives the gate with sources the real
-// tree does not contain.
-func TestExtensionSQLScopeRefusesWhatItMust(t *testing.T) {
-	for _, probe := range extSQLGateCases {
-		t.Run(probe.name, func(t *testing.T) {
-			scan := scanUnitSQL(t, probeUnit, map[string]string{"probe.go": probeSource(probe.body)})
-			if probe.tables != scan.tables {
-				t.Errorf("the gate read %d table reference(s), want %d — a case whose SQL the reader never saw proves nothing about the verdict below", scan.tables, probe.tables)
-			}
-			switch {
-			case probe.want == "" && len(scan.findings) > 0:
-				t.Errorf("the gate refused what it must accept: %s", strings.Join(scan.findings, "; "))
-			case probe.want == "":
-			case len(scan.findings) != 1:
-				t.Errorf("the gate returned %d finding(s), want the one refusing %q: %s", len(scan.findings), probe.want, strings.Join(scan.findings, "; "))
-			case !strings.Contains(scan.findings[0], probe.want):
-				t.Errorf("the gate refused the source but the reason does not mention %q: %s", probe.want, scan.findings[0])
-			}
-		})
-	}
-}
-
-// probeSource wraps a case body in a compilable unit whose constants are the
-// two a real unit declares: its own table, and — for the cases that reach past
-// it — a core one.
-func probeSource(body string) string {
-	return `package probe
-
-const noteTable = "ext.ext_probe_note"
-const subject = "person"
-
-func run(ctx context.Context, tx Tx) { ` + body + ` }
-`
 }
