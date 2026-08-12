@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
@@ -619,6 +620,37 @@ describe("Rail levels (a section's entries as the second level)", () => {
     // The panel is derived from the address, so the destinations arrive with it —
     // and they take the focus the level's own rows gave up rather than leaving
     // the document on <body>.
+    await waitFor(() => expect(levelLabels()).toEqual(CANONICAL_ORDER));
+    expect(document.activeElement).toBe(
+      screen.getByRole("link", { name: "Home" }),
+    );
+  });
+
+  // The walk asks for focus at the address it is GOING to, and the route it is
+  // going to arrives on a hashchange that lands a task later. Anything that
+  // re-renders the section's own rail in that gap — a query settling, a popover
+  // closing — must not be handed the focus meant for the destinations: it would
+  // spend it on a row it is about to unmount, and the document would end on
+  // <body> with the sidebar lost. The re-render below is that gap, made
+  // deterministic.
+  it("keeps the arriving level's focus when the section re-renders mid-walk", async () => {
+    window.location.hash = "#/reports";
+    render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
+    navigate({ screen: "settings", id: "account" });
+    const back = await screen.findByRole("button", {
+      name: "Back to Destinations",
+    });
+
+    back.click();
+    // The gap: the address has changed but the hashchange has not been delivered,
+    // and the section's rail re-renders for a reason of its own (a pointer landing
+    // on a row is the cheapest one to stage).
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Account" }));
+    // Still inside the section: its own first row must not have taken the focus.
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("link", { name: "Account" }),
+    );
+
     await waitFor(() => expect(levelLabels()).toEqual(CANONICAL_ORDER));
     expect(document.activeElement).toBe(
       screen.getByRole("link", { name: "Home" }),

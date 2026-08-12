@@ -21,7 +21,7 @@ import {
   navLevelRoute,
   railTrail,
 } from "./nav";
-import { navigate, type Route } from "./router";
+import { navigate, type Route, routeHash } from "./router";
 
 // ONE navigation level, whatever its depth. The rail's ten destinations and the
 // entries of a section drilled into from them render through this, so the two
@@ -57,10 +57,15 @@ type NavWalk = {
   // says which screen was open before it, so it is remembered as the reader
   // passes rather than reconstructed.
   origin: Route;
-  // Asked for by the control that walks, spent by the level that arrives. It is
-  // a flag rather than a comparison of depths because merely LANDING on a route
-  // that has a level must not pull focus off the page the reader is reading.
-  claimFocus: boolean;
+  // The ADDRESS whose level asked for focus, spent by the level that arrives at
+  // it. An address rather than a flag: a walk changes the route, the route
+  // changes on a `hashchange` that lands a task later, and any render in that gap
+  // — a query settling, a menu closing — would let the level being LEFT spend a
+  // bare flag on itself and focus a row it is about to unmount. Naming the target
+  // means only the arriving level can spend it. Absent, nobody asked: merely
+  // landing on a route that has a level must not pull focus off the page the
+  // reader is reading.
+  claimAt?: string;
 };
 
 const NavWalkMemory = createContext<RefObject<NavWalk> | undefined>(undefined);
@@ -79,7 +84,7 @@ export function useNavWalk(
   route: Route,
   remembers: boolean,
 ): RefObject<NavWalk> {
-  const walk = useRef<NavWalk>({ origin: HOME, claimFocus: false });
+  const walk = useRef<NavWalk>({ origin: HOME });
   useEffect(() => {
     if (remembers) {
       walk.current.origin = route;
@@ -117,10 +122,11 @@ export function useNavLevel(
 ) {
   const trail = railTrail(route, section);
   const depth = trail.length - 1;
+  const shown = trail[depth];
   const parent = depth > 0 ? trail[depth - 1] : undefined;
   // With no shell above it the panel is all there is, so it keeps the walk's
   // memory itself — one lifetime, and no history before it.
-  const own = useRef<NavWalk>({ origin: HOME, claimFocus: false });
+  const own = useRef<NavWalk>({ origin: HOME });
   const walk = useContext(NavWalkMemory) ?? own;
 
   // Walking between levels replaces every row in the panel, and an unmounted
@@ -130,8 +136,9 @@ export function useNavLevel(
   // for: merely landing on a route that has a level must not pull focus off the
   // page the reader is reading.
   const onWalkUp = () => {
-    walk.current.claimFocus = true;
-    navigate(walkUpTarget(parent, walk.current.origin));
+    const target = walkUpTarget(parent, walk.current.origin);
+    walk.current.claimAt = routeHash(target);
+    navigate(target);
   };
   const onSelect = useCallback(
     (entry: NavLevelEntry) => {
@@ -141,29 +148,30 @@ export function useNavLevel(
       // without taking the popover with it.
       onNavigate();
       // A row that OPENS a level is about to be replaced by that level, so it
-      // hands its focus on rather than dropping it.
+      // hands its focus on rather than dropping it — to the address it opens,
+      // which is the row's own.
       if (entry.children && entry.children.length > 0) {
-        walk.current.claimFocus = true;
+        walk.current.claimAt = navLevelHref(shown.path, entry.id);
       }
     },
-    [onNavigate, walk],
+    [onNavigate, shown, walk],
   );
-  // No dependency list, because the condition is the FLAG rather than a value:
+  // No dependency list, because the condition is the CLAIM rather than a value:
   // the walk is asked for in a handler, and the rows it asks for are only in the
-  // document after the render that follows — in another rail entirely, when the
-  // walk crossed into or out of a section. Every other render finds the flag down
-  // and does nothing.
+  // document after the address changes — in another rail entirely, when the walk
+  // crossed into or out of a section. Every render at any other address finds a
+  // claim that is not for it and does nothing.
   useEffect(() => {
-    if (!walk.current.claimFocus) {
+    if (walk.current.claimAt !== routeHash(route)) {
       return;
     }
-    walk.current.claimFocus = false;
+    walk.current.claimAt = undefined;
     container.current
       ?.querySelector<HTMLElement>(".navlevel .navwrap .navitem")
       ?.focus();
   });
 
-  return { depth, shown: trail[depth], parent, onWalkUp, onSelect };
+  return { depth, shown, parent, onWalkUp, onSelect };
 }
 
 type TipState = Readonly<{
