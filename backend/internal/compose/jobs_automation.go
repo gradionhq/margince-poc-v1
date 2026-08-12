@@ -10,11 +10,11 @@ package compose
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -59,7 +59,8 @@ func (a TimeScanWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // module's TimeScanner — River-agnostic by construction (this file's own doc:
 // the adapters are the only code that knows about River).
 type timeScanWorkspaceWorker struct {
-	scanner *automation.TimeScanner
+	pool *pgxpool.Pool
+	log  *slog.Logger
 }
 
 func (w *timeScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[TimeScanWorkspaceArgs]) error {
@@ -67,5 +68,13 @@ func (w *timeScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[TimeS
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	return jobs.FaultContext(ctx, w.scanner.ScanWorkspace(wsCtx, job.Args.Workspace))
+	// Built per job: this is a fleet pass, so the scanner's engine binds the
+	// workspace THIS job names rather than whatever an installation resolver
+	// would answer (ADR-0091 §9 step 3).
+	db, err := workspaceJobDB(w.pool, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	scanner := NewTimeScanner(db, w.log)
+	return jobs.FaultContext(ctx, scanner.ScanWorkspace(wsCtx, job.Args.Workspace))
 }

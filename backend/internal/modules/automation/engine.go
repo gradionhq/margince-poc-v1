@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
@@ -42,7 +41,8 @@ type WorkflowEngine struct {
 	// automations, so the catalog and the paused/enabled surface do not
 	// apply to them.
 	system []workflow.Handler
-	pool   *pgxpool.Pool
+	// db binds the workspace this pass runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// resolver backs the match-time owner-permission gate (gate.go,
 	// AUTO-T06): the ratified authz.Resolver seam, never modules/identity
 	// directly (a module never imports a sibling) — the composition root
@@ -54,8 +54,8 @@ type WorkflowEngine struct {
 // the match-time owner gate re-checks each human-authored firing against
 // (gate.go). compose injects the real resolver; a nil one fails firings
 // closed rather than waving them through.
-func NewWorkflowEngine(pool *pgxpool.Pool, resolver authz.Resolver) *WorkflowEngine {
-	return &WorkflowEngine{pool: pool, resolver: resolver}
+func NewWorkflowEngine(db *database.DB, resolver authz.Resolver) *WorkflowEngine {
+	return &WorkflowEngine{db: db, resolver: resolver}
 }
 
 // RegisterWorkflow adds one handler at composition time.
@@ -204,7 +204,7 @@ type automationInstance struct {
 // binds on the very next dispatch, no cache to invalidate.
 func (e *WorkflowEngine) liveInstances(ctx context.Context) (map[string][]automationInstance, error) {
 	out := map[string][]automationInstance{}
-	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	err := e.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id, key, params, owner_id FROM automation WHERE enabled AND archived_at IS NULL ORDER BY created_at, id`)
 		if err != nil {

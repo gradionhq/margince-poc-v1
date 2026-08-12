@@ -44,7 +44,7 @@ func setupRouting(t *testing.T) *routingEnv {
 		rep2, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	return &routingEnv{SearchEnv: e, Rep2: rep2, engine: compose.NewWorkflowEngine(e.Pool)}
+	return &routingEnv{SearchEnv: e, Rep2: rep2, engine: compose.NewWorkflowEngine(e.DB())}
 }
 
 // routeNewLead seeds one unowned lead and dispatches its lead.created

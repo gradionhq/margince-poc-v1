@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -98,7 +99,7 @@ func clockPass(ws ids.UUID, automationID ids.AutomationID, entity datasource.Ent
 // firing actually happened.
 func TestClockTriggerFiresAfterEarlierNonMatchingPasses(t *testing.T) {
 	fx := setupAutomationDB(t)
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	instanceID := fx.seedAutomation(t, "clock_first_firing")
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 	runCtx := principal.WithWorkspaceID(context.Background(), fx.ws)
@@ -142,7 +143,7 @@ func TestClockTriggerFiresAfterEarlierNonMatchingPasses(t *testing.T) {
 // last_activity_at, say) would have re-armed it.
 func TestClockTriggerAtMostOnceOnAnUnchangedAnchor(t *testing.T) {
 	fx := setupAutomationDB(t)
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	instanceID := fx.seedAutomation(t, "clock_at_most_once")
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 	runCtx := principal.WithWorkspaceID(context.Background(), fx.ws)
@@ -177,7 +178,7 @@ func TestClockTriggerAtMostOnceOnAnUnchangedAnchor(t *testing.T) {
 // again after a fresh burst of inactivity) must fire again.
 func TestClockTriggerRearmsWhenTheAnchorMoves(t *testing.T) {
 	fx := setupAutomationDB(t)
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	instanceID := fx.seedAutomation(t, "clock_rearm")
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 	runCtx := principal.WithWorkspaceID(context.Background(), fx.ws)

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -40,7 +41,7 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 			return workflow.RunResult{}, &workflow.StagedApprovalError{ApprovalID: stagedApproval}
 		}},
 	}
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	for _, h := range handlers {
 		fx.seedAutomation(t, h.name)
 		engine.RegisterWorkflow(h)
@@ -89,7 +90,7 @@ func TestFailedRunReasonNeverLeaksRawProviderErrorInternals(t *testing.T) {
 		},
 	}
 	fx.seedAutomation(t, h.name)
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: this fixture carries no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: this fixture carries no owner_id, so the match-time gate skips before ever touching it
 	engine.RegisterWorkflow(h)
 
 	env := kevents.Envelope{

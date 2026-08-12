@@ -10,14 +10,13 @@ package compose
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -31,27 +30,27 @@ import (
 // creates a task) — while the lead-score recompute is a formula
 // obligation (formulas-and-rules §3 — "recomputed on each captured
 // signal") and fires always.
-func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
-	return workflowEngineWithDrafter(pool, nil)
+func NewWorkflowEngine(db *database.DB) *automation.WorkflowEngine {
+	return workflowEngineWithDrafter(db, nil)
 }
 
 // NewWorkflowEngineWithReplyDraft adds the routed reply lane to draft_email
 // actions while preserving NewWorkflowEngine's deterministic default.
-func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer) *automation.WorkflowEngine {
+func NewWorkflowEngineWithReplyDraft(db *database.DB, brain completer) *automation.WorkflowEngine {
 	if brain == nil {
-		return NewWorkflowEngine(pool)
+		return NewWorkflowEngine(db)
 	}
-	drafter := newReplyDrafter(pool, brain, nil)
-	return workflowEngineWithDrafter(pool, drafter)
+	drafter := newReplyDrafter(db.Pool(), brain, nil)
+	return workflowEngineWithDrafter(db, drafter)
 }
 
-func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter) *automation.WorkflowEngine {
+func workflowEngineWithDrafter(db *database.DB, drafter activities.EmailDrafter) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
 	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
-	engine := automation.NewWorkflowEngine(pool, identity.NewService(pool))
-	peopleStore := people.NewStore(pool)
+	engine := automation.NewWorkflowEngine(db, identity.NewService(db.Pool()))
+	peopleStore := people.NewStore(db.Pool())
 	// Executors ride the same per-workspace dispatch as every other
 	// datasource consumer: a starter firing for an overlay-mode
 	// workspace reads/writes through the overlay seam, not silently
@@ -60,14 +59,14 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// a starter never triggers a force-fresh spend; its OVB meter is a
 	// fail-closed placeholder (no Redis), never charged.
 	ex := automation.Executors{
-		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
-		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
-		Lists:     listsAdapter{store: collections.NewStore(InstallationDB(pool))},
+		Provider:  NewDispatcher(NewProvider(db.Pool()), NewOverlayProvider(db.Pool(), failClosedOverlayMeter(), nil), db.Pool()),
+		Approvals: automationApprovalsAdapter{svc: approvals.NewService(db.Pool())},
+		Lists:     listsAdapter{store: collections.NewStore(db)},
 		// The zero SendPath is the honest one here: a send_email action
 		// stages an approval instead of sending, and automation.Comms
 		// declares DraftEmail alone, so no send is reachable from this
 		// surface to configure.
-		Comms: newCommsAdapter(pool, drafter, SendPath{}),
+		Comms: newCommsAdapter(db.Pool(), drafter, SendPath{}),
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a
 		// notify firing surfaces as a visible 'skipped' run instead

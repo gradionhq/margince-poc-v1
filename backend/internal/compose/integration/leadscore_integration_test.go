@@ -28,7 +28,7 @@ import (
 
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	e := SetupSearch(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 	ctx := e.AsFullUser()
 
 	// A working lead with a decision-maker title from a high-intent

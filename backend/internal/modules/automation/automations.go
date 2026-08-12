@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -31,12 +30,14 @@ import (
 // AutomationStore owns the automation table (tableownership: this
 // module) and the catalog lookups the transport needs.
 type AutomationStore struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	// db binds the workspace this pass runs for (ADR-0091 §9 step 3).
+	db  *database.DB
+	now func() time.Time
 }
 
-func NewAutomationStore(pool *pgxpool.Pool) *AutomationStore {
-	return &AutomationStore{pool: pool, now: time.Now}
+// NewAutomationStore binds the automation tables to the pool it is given.
+func NewAutomationStore(db *database.DB) *AutomationStore {
+	return &AutomationStore{db: db, now: time.Now}
 }
 
 // Automation is one configured instance.
@@ -99,7 +100,7 @@ func (s *AutomationStore) List(ctx context.Context, cursor *string, limit *int) 
 		args = append(args, c.CreatedAt, c.ID)
 	}
 	var page AutomationPage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM automation WHERE %s ORDER BY created_at DESC, id DESC LIMIT %d`,
 			automationColumns, where, n+1), args...)
@@ -135,7 +136,7 @@ func (s *AutomationStore) Get(ctx context.Context, id ids.AutomationID) (Automat
 		return Automation{}, err
 	}
 	var a Automation
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = scanAutomation(tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s FROM automation WHERE id = $1 AND archived_at IS NULL`, automationColumns), id))
@@ -183,7 +184,7 @@ func (s *AutomationStore) Create(ctx context.Context, in CreateAutomationInput) 
 	}
 
 	var a Automation
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = scanAutomation(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO automation (workspace_id, key, name, origin, trigger, action, params, owner_id, enabled, tier)
@@ -212,7 +213,7 @@ func (s *AutomationStore) Update(ctx context.Context, id ids.AutomationID, in Up
 		return Automation{}, err
 	}
 	var a Automation
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The row lock makes the state read and the update below one
 		// race-free unit.
 		if _, err := storekit.LockRow(ctx, tx, "automation", id.UUID, storekit.LiveOnly); err != nil {
@@ -280,7 +281,7 @@ func (s *AutomationStore) Archive(ctx context.Context, id ids.AutomationID) erro
 	if err := auth.Require(ctx, "automation", principal.ActionDelete); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		before, err := scanAutomation(tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s FROM automation WHERE id = $1 AND archived_at IS NULL`, automationColumns), id))
 		if errors.Is(err, pgx.ErrNoRows) {
