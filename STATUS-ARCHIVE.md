@@ -21,6 +21,32 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-12 (later) — identity too: step 3 is complete (PR #1010)
+
+The entry below called identity a slice with real fixture work, and it was —
+just a smaller one than it looked. The self-reference is a non-issue:
+`InstallationWorkspace` reads no tenant table, so
+`svc.db = database.Bind(pool, svc.InstallationWorkspace)` resolves fine at
+runtime. What actually needed doing was the fixtures, and the reason is the
+module's own invariant turned on itself: identity REFUSES when a second
+workspace exists, and its suites bootstrap an installation per test — so the
+one module that defines the singleton is the one whose tests can never resolve
+one. `NewServiceFor` is what they use; each names the workspace it just created.
+
+One real defect fell out of it, and it is the shape to watch for in step 4: the
+tool registry's admission gate built an identity service of its own rather than
+taking the registry's handle, so a registry pinned to a named workspace admitted
+through a service resolving a different one. An ungoverned-agent refusal answered
+`ErrMultipleWorkspaces` instead of the refusal it exists to assert. **A component
+that carries a handle must pass THAT handle to everything it constructs** — the
+gate now does.
+
+CodeRabbit caught the other one, correctly: the mechanical rewrite had turned
+`s.pool` into `s.db.Pool()` in identity's roster pager, which kept the old
+ctx-derived binding and silently bypassed a pinned service. Worth knowing that
+the rewrite has exactly this failure mode wherever a helper takes a pool and
+opens its own workspace transaction; roster was the only one left in the tree.
+
 ## 2026-08-12 — every module but identity opens on a pool that knows its workspace (PRs #976, #984, #992, #999, #1002)
 
 ADR-0091 §9 **step 3** is done except `identity`. `platform/database.DB` — a pool
