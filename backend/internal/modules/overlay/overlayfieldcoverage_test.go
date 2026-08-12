@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package backendarch
+package overlay_test
 
 // An overlay-mode installation serves its reads from a mirror of the
 // customer's incumbent CRM, and every contract field that mirror cannot fill
@@ -15,12 +15,19 @@ package backendarch
 // gate names them so the remainder stays visible in code.
 
 import (
+	"os"
 	"sort"
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 )
+
+// contractFile is the contract this gate derives its field lists from,
+// relative to this package's own directory.
+const contractFile = "../../../api/crm.yaml"
 
 // contractSchemaNameFor maps a canonical overlay entity to the contract
 // schema publishing its fields. Both spellings are load-bearing and differ
@@ -89,4 +96,32 @@ func checkEntityCoverage(t *testing.T, entity overlay.EntityBinding) {
 			"mapped (name the incumbent property), deferred (with an issue URL), unmappable or native_only (with a reason).",
 			schemaName, name, name, entity.Entity)
 	}
+}
+
+// contractSchemaFields is the slice of one components.schemas entry this gate
+// reads. Decoding a narrow struct rather than a free-form map keeps a
+// malformed contract a parse failure instead of a silently empty field list.
+type contractSchemaFields struct {
+	Properties map[string]yaml.Node `yaml:"properties"`
+}
+
+func contractSchema(t *testing.T, name string) contractSchemaFields {
+	t.Helper()
+	raw, err := os.ReadFile(contractFile)
+	if err != nil {
+		t.Fatalf("reading %s: %v", contractFile, err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]contractSchemaFields `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing %s: %v", contractFile, err)
+	}
+	schema, ok := doc.Components.Schemas[name]
+	if !ok {
+		t.Fatalf("%s declares no components.schemas.%s", contractFile, name)
+	}
+	return schema
 }
