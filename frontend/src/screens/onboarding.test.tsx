@@ -428,10 +428,12 @@ describe("the conversational company act", () => {
     await userEvent.type(icp, "Owner-led manufacturers");
 
     // This waits for a COUNT of polls, not for a condition the render reaches,
-    // so it cannot succeed before the cadence has run twice however fast the
-    // machine is. Derived from the cadence for that reason: a round 3000ms left
-    // 1400ms of headroom over two 800ms periods, which a loaded runner spends
-    // on scheduling alone.
+    // so it cannot succeed before the cadence has run EXPECTED_READS times
+    // however fast the machine is. The budget is therefore a multiple of that
+    // floor rather than a number of its own: four cadence periods of headroom
+    // over the two it must outlast, which is what a loaded runner spends on
+    // scheduling. A budget written independently of the cadence cannot be seen
+    // to disagree with it.
     await waitFor(
       () => {
         const reads = calls.filter(
