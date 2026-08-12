@@ -10,8 +10,11 @@ package compose
 // already there: agentgate.go decides whether a call is ADMITTED, and this is
 // what happens to the one answer that is neither yes nor no. The MCP door's
 // twin of this file is modules/agents/approvals.go, and the two must agree on
-// what "the identical call" means — which is why both hash through
-// shared/kernel/diffhash rather than each spelling it.
+// what "the identical call" means even though each hashes it through its own
+// spelling — the MCP door through shared/kernel/diffhash
+// (modules/agents/reserved.go), this door through its own canonicalRESTCall
+// (agentgatecanon.go), because a REST call carries a method, a concrete path
+// and headers that a tool call's arguments object has no place for.
 
 import (
 	"fmt"

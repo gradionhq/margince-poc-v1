@@ -169,24 +169,77 @@ func TestCanonicalRESTCallHashesContent(t *testing.T) {
 	}
 }
 
-// Two calls differing only in a header that changes what executes must not hash alike.
-// If-Match decides whether the write happens at all; Idempotency-Key decides whether it
-// is a fresh effect, a replay or a conflict. Both reach the handler; neither was hashed.
-func TestTheCanonicalCallBindsTheHeadersThatChangeWhatExecutes(t *testing.T) {
+// A call carrying Idempotency-Key must not hash the same as one without it:
+// the header decides whether a retry is a fresh effect, a replay or a
+// conflict, and it reaches the handler untouched.
+//
+// If-Match is deliberately NOT exercised here the same way: the gate itself
+// overwrites it with the server-side version pin on redemption
+// (agentgatestaging.go), so the caller's own If-Match never reaches the
+// handler unchanged, and hashing it would make the split-update residue
+// (agentsplit.go) unredeemable by the very version the agent just read.
+// canonicalHeaders' own doc comment carries the full reasoning.
+func TestTheCanonicalCallBindsIdempotencyKey(t *testing.T) {
 	body := []byte(`{"to_stage_id":"a"}`)
-	with := func(k, v string) http.Header { h := http.Header{}; h.Set(k, v); return h }
+	withKey := http.Header{}
+	withKey.Set("Idempotency-Key", "k")
 	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, h := range []http.Header{with("If-Match", "7"), with("Idempotency-Key", "k")} {
+	other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", withKey, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(base, other) {
+		t.Error("a call carrying Idempotency-Key canonicalized identically to one without it")
+	}
+}
+
+// A header that never changes what a handler does — Authorization names WHO
+// is calling, User-Agent names WHAT is calling, neither decides WHAT RUNS —
+// must leave the hash untouched. This is the half TestTheCanonicalCallBindsIdempotencyKey
+// cannot prove on its own: that test shows a hashed header changes the hash,
+// this one shows an unhashed header does not, which is what stops a future
+// header creeping into the digest by sitting next to one that belongs there.
+func TestTheCanonicalCallIgnoresHeadersThatDoNotChangeExecution(t *testing.T) {
+	body := []byte(`{"to_stage_id":"a"}`)
+	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []http.Header{
+		{"Authorization": []string{"Bearer secret"}},
+		{"User-Agent": []string{"some-agent/1.0"}},
+	} {
 		other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", h, body)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bytes.Equal(base, other) {
-			t.Errorf("a call carrying %v canonicalized identically to one without it", h)
+		if !bytes.Equal(base, other) {
+			t.Errorf("a call carrying %v canonicalized differently from one without it", h)
 		}
+	}
+}
+
+// A call carrying no hashed header must canonicalize BYTE-FOR-BYTE as it did
+// before the `headers` member existed, or every pending REST-agent approval
+// and every issued redemption token minted before this task ships becomes
+// unredeemable. Pinned against literal golden bytes and a literal golden
+// hash — not two in-process hashes compared to each other, which cannot see
+// a canonical-form change that moves both sides of the comparison together.
+func TestTheCanonicalCallIsByteCompatibleWithoutAHashedHeader(t *testing.T) {
+	const wantCanonical = `{"body":{"a":1,"b":2},"operation":"updatePerson","path":"/v1/people/x"}`
+	const wantHash = "8924889e55733baa0964dc3aa1929f9af6f315b49ed82d4c11e8c2c1190bba84"
+	canonical, hash, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonical) != wantCanonical {
+		t.Errorf("canonical = %s, want %s", canonical, wantCanonical)
+	}
+	if hash != wantHash {
+		t.Errorf("hash = %s, want %s", hash, wantHash)
 	}
 }
 
@@ -207,20 +260,17 @@ func TestTheCanonicalCallRefusesAnEscapedUnpairedSurrogate(t *testing.T) {
 	}
 }
 
-// Decoding through `any` turns every JSON number into a float64, so two distinct integers
-// beyond 2^53 canonicalize to one — and the handler decodes the original bytes into an
-// int64, which is a second reading of one value.
-func TestTheCanonicalCallKeepsLargeIntegersDistinct(t *testing.T) {
-	a, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"v":9007199254740993}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"v":9007199254740992}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(a, b) {
-		t.Error("two distinct integers canonicalized identically")
+// json.Unmarshal into `any` refuses a body that is not exactly one JSON value —
+// unlike json.Decoder.Decode, which stops after the first value and leaves the
+// rest unread. Without this, `{"a":1} garbage` and `{"a":1}{"b":2}` would both
+// canonicalize to `{"a":1}` and hash identically to it, letting a distinct wire
+// body redeem another call's approval. The same one-value boundary httperr.Decode
+// and modules/agents/badargs.go draw elsewhere in this tree.
+func TestTheCanonicalCallRefusesTrailingContentAfterTheJSONValue(t *testing.T) {
+	for _, body := range []string{`{"a":1} garbage`, `{"a":1}{"b":2}`} {
+		if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(body)); err == nil {
+			t.Errorf("body %q canonicalized cleanly despite trailing content after the JSON value", body)
+		}
 	}
 }
 

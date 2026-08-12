@@ -196,23 +196,26 @@ func TestAssertSameCallIdentityPinsEveryMemberOfTheStagedCallExceptBody(t *testi
 			wantChanged: []string{"/path"},
 		},
 		{
-			// A member the canonical call does not carry TODAY (If-Match is
-			// the next task's addition) is still pinned: deny-by-default
-			// means this needs no update when that member is added.
+			// A member the canonical call does not carry TODAY is still
+			// pinned: deny-by-default means this needs no update when a
+			// future member is added — proven with an arbitrary name here
+			// precisely so no real member has to be named for the rule to
+			// hold.
 			name:        "an unrecognized top-level member is pinned exactly like operation and path",
 			original:    `{"operation":"advance_deal","path":"` + dealPath + `","if_match":"7","body":{}}`,
 			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","if_match":"9","body":{}}`,
 			wantChanged: []string{"/if_match"},
 		},
 		{
-			// The cross-task seam: compose.canonicalRESTCall now writes a
-			// `headers` member carrying If-Match and Idempotency-Key -- the
-			// version pin and the retry key. Nothing else in this codebase
-			// asserts that member is pinned; this case proves the
-			// deny-by-default rule above already covers it, unchanged.
-			name:        "editing headers (If-Match / Idempotency-Key) is refused, not treated as content",
-			original:    `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"If-Match":"7"},"body":{}}`,
-			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"If-Match":"9"},"body":{}}`,
+			// The cross-task seam: compose.canonicalRESTCall writes a
+			// `headers` member carrying Idempotency-Key, the caller's retry
+			// key. Nothing else in this codebase asserts that member is
+			// pinned; this case proves the deny-by-default rule above
+			// already covers the REAL member canonicalRESTCall adds, not
+			// only the placeholder name the case above uses.
+			name:        "editing headers (Idempotency-Key) is refused, not treated as content",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"Idempotency-Key":"k1"},"body":{}}`,
+			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"Idempotency-Key":"k2"},"body":{}}`,
 			wantChanged: []string{"/headers"},
 		},
 	}

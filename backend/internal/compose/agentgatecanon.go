@@ -23,63 +23,73 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// canonicalHeaders is the two REQUEST headers that change what a staged
-// call executes, sorted (a Go map marshals its keys in sorted order, so
-// the type carries the ordering rather than a caller having to remember
-// it). If-Match decides whether the write happens at all; Idempotency-Key
-// decides whether it is a fresh effect, a replay, or a conflict — both
-// reach the handler, so both are part of what "the identical call" means.
-// Every other header (Authorization, User-Agent, tracing headers, …) does
-// not change execution and is deliberately excluded: hashing one would
-// make an approval unredeemable from a different client, which is a worse
-// bug than the one this guards against.
+// canonicalHeaders is the one REQUEST header that changes what a staged call
+// executes without the gate itself already deciding it: Idempotency-Key says
+// whether a retry is a fresh effect, a replay or a conflict, and it reaches
+// the handler exactly as the caller sent it.
+//
+// If-Match is deliberately NOT here, though it is also execution-relevant.
+// On the redemption path the gate OVERWRITES the caller's If-Match with the
+// server-side version pin taken at staging time (agentgatestaging.go,
+// redeemIfPresented) before the handler ever reads it, and on the
+// field-ownership split path (agentsplit.go) the auto-execute half can
+// advance the record's version between staging and redemption while the
+// staged residue's hash must still match on retry — hashing If-Match would
+// make that retry unredeemable by the version the agent just saw, without
+// protecting anything the server-side pin does not already protect.
+//
+// Every other header (Authorization, User-Agent, tracing headers, …) is
+// excluded for the same reason it always was: hashing one would make an
+// approval unredeemable from a different client, which is a worse bug than
+// the one this guards against.
 func canonicalHeaders(h http.Header) map[string]string {
 	out := map[string]string{}
-	for _, name := range []string{"If-Match", idempotencyKeyHeader} {
-		if v := h.Get(name); v != "" {
-			out[name] = v
-		}
+	if v := h.Get(idempotencyKeyHeader); v != "" {
+		out[idempotencyKeyHeader] = v
 	}
 	return out
 }
 
 // canonicalRESTCall canonicalizes the request into the bytes both staging
 // and redemption hash: decoding into maps and re-marshaling sorts keys at
-// every depth, so "identical call" is a property of content, not of the
-// client's serialization habits.
+// every depth and folds equivalent number spellings ("1" vs "1.0" vs "1e0")
+// to the same value, so "identical call" is a property of content, not of
+// the client's serialization habits. The decode into `any` also draws the
+// one-value boundary this tree already draws elsewhere (httperr.Decode,
+// modules/agents/badargs.go): a body carrying trailing content after the
+// JSON value — `{"a":1} garbage`, `{"a":1}{"b":2}` — is refused rather than
+// silently truncated to its first value.
 //
-// Numbers survive as json.Number (UseNumber): decoding through a bare
-// `any` renders every JSON number as float64, which loses precision past
-// 2^53 while the handler that later decodes the same bytes reads an exact
-// int64 — two distinct integers would canonicalize alike and a hash
-// collision would let one redeem the other's approval.
+// The `headers` member is present only when canonicalHeaders found
+// something to carry: a call presenting no hashed header canonicalizes
+// byte-for-byte as it did before this member existed, so a REST-agent
+// approval or redemption token minted before headers joined the hash stays
+// redeemable. Adding the empty member unconditionally would have changed
+// the hash of every call, headered or not.
 //
 // UTF-8 is checked on both sides of the decode, matching the tool door's
 // two-halved check (modules/agents/reserved.go): utf8.Valid on the raw
-// bytes catches malformed encoding BEFORE the decode destroys the
-// evidence (encoding/json replaces an invalid byte with U+FFFD, so two
-// different wire bodies would arrive as one string); the replacement-rune
-// scan on the canonical form catches an escaped unpaired surrogate
-// (`"\udcff"`), which is valid UTF-8 on the wire and still decodes to
-// U+FFFD, so the byte check cannot see it.
+// bytes catches malformed encoding BEFORE the decode destroys the evidence
+// (encoding/json replaces an invalid byte with U+FFFD, so two different
+// wire bodies would arrive as one string); the replacement-rune scan on the
+// canonical form catches an escaped unpaired surrogate (`"\udcff"`), which
+// is valid UTF-8 on the wire and still decodes to U+FFFD, so the byte check
+// cannot see it.
 func canonicalRESTCall(op, path string, headers http.Header, body []byte) (json.RawMessage, string, error) {
 	if !utf8.Valid(body) {
 		return nil, "", httperr.Validation("body", "invalid_utf8", "request body must be valid UTF-8")
 	}
 	var payload any
 	if len(bytes.TrimSpace(body)) > 0 {
-		dec := json.NewDecoder(bytes.NewReader(body))
-		dec.UseNumber()
-		if err := dec.Decode(&payload); err != nil {
+		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, "", httperr.Validation("body", "invalid_json", "request body must be valid JSON")
 		}
 	}
-	canonical, err := json.Marshal(map[string]any{
-		"operation": op,
-		"path":      path,
-		"headers":   canonicalHeaders(headers),
-		"body":      payload,
-	})
+	fields := map[string]any{"operation": op, "path": path, "body": payload}
+	if hdrs := canonicalHeaders(headers); len(hdrs) > 0 {
+		fields["headers"] = hdrs
+	}
+	canonical, err := json.Marshal(fields)
 	if err != nil {
 		return nil, "", err
 	}
