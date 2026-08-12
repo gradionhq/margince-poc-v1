@@ -1834,6 +1834,56 @@ export const de = {
   "privacy.legalHold":
     "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
 
+  "retention.title": "Aufbewahrung",
+  "retention.sub":
+    "wie lange jede Art von Datensatz aufbewahrt wird und was nach Ablauf der Frist geschieht",
+  "retention.retainOnly": "Nur-Aufbewahren-Modus",
+  "retention.retainOnlyHelp":
+    "Solange dies aktiv ist, vernichtet diese Installation nichts: kein Anonymisieren und kein Löschen, unabhängig davon, was eine Richtlinie unten vorsieht. Archivieren läuft weiter — ein archivierter Datensatz bleibt erhalten.",
+  "retention.adminOnly": "Nur ein Admin oder Ops kann die Aufbewahrung ändern.",
+  "retention.addPolicy": "Richtlinie hinzufügen",
+  "retention.create": "Richtlinie erstellen",
+  "retention.scope": "Gilt für",
+  "retention.window": "Frist in Tagen",
+  "retention.windowDays": "{days} Tage",
+  "retention.windowInvalid":
+    "Eine Frist ist eine ganze Zahl von Tagen, mindestens 1.",
+  "retention.action": "Aktion",
+  "retention.actionHint":
+    "Archivieren bewahrt den Datensatz; Anonymisieren und Löschen vernichten Daten und sind die beiden, die der Nur-Aufbewahren-Modus zurückhält.",
+  "retention.lawfulBasis": "Rechtsgrundlage",
+  "retention.lawfulBasisHint":
+    "Optional. Die Grundlage nach Art. 6, auf die sich diese Frist stützt — für die prüfende Person, die die Zeile liest.",
+  "retention.enabled": "Aktiv",
+  "retention.edit": "Bearbeiten",
+  "retention.save": "Richtlinie speichern",
+  "retention.delete": "Richtlinie löschen",
+  "retention.deleteTitle": "Aufbewahrungsrichtlinie löschen?",
+  "retention.deleteBody":
+    "Damit entfällt die Regel für {scope} vollständig, und in diesem Bereich verfällt nichts mehr. Um die Regel zu pausieren und ihre Frist zu behalten, deaktiviere sie stattdessen.",
+  "retention.duplicateScope":
+    "Für diesen Bereich existiert bereits eine Richtlinie — jeder Bereich trägt höchstens eine Regel. Bearbeite stattdessen die vorhandene Zeile.",
+  "retention.empty":
+    "Noch keine Aufbewahrungsrichtlinie — in dieser Installation verfällt nichts.",
+  "retention.effectActing": "Läuft nächtlich",
+  "retention.effectSuppressed": "Durch Nur-Aufbewahren zurückgehalten",
+  "retention.effectDisabled": "Deaktiviert",
+  "retention.suppressedWhy":
+    "Aktiv, aber der Nur-Aufbewahren-Modus hält sie zurück: diese Regel vernichtet Daten und greift erst, wenn der Modus abgeschaltet wird.",
+  "retention.disabledWhy":
+    "Abgeschaltet und behalten — die Frist bleibt gespeichert, und in diesem Bereich verfällt währenddessen nichts.",
+  "retention.actionArchive": "Archivieren",
+  "retention.actionAnonymize": "Anonymisieren",
+  "retention.actionErase": "Löschen",
+  "retention.scopeLeadUnconverted": "Nicht konvertierte Leads",
+  "retention.scopeActivity": "Alle erfassten Aktivitäten",
+  "retention.scopeActivityTranscript": "Gesprächstranskripte",
+  "retention.scopePersonNoConsentNoDeal":
+    "Personen ohne Einwilligung und ohne Deal",
+  "retention.scopeDealLost": "Verlorene Deals",
+  "retention.scopeDealWon": "Gewonnene Deals",
+  "retention.scopeAiCallPayloadContent": "KI-Aufruf-Nutzdaten",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Pipelines und ihre Phasen konfigurieren.",
   "pipeline.new": "Neue Pipeline",

@@ -89,6 +89,7 @@ import { MirrorUserMapCard } from "./overlay-usermap";
 import { OwnDomainsCard } from "./own-domains";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
+import { RetentionCard } from "./retention";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
 import { WebhooksCard } from "./webhooks";
@@ -193,6 +194,11 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConsentPurposesCard />
+          {/* The retention ladder sits under the purpose catalogue and above
+              the DSR inbox: what the installation keeps by default, before the
+              requests that override it case by case. Admin/ops-only — it
+              renders nothing without a retention_policy read grant. */}
+          <RetentionCard />
           <PrivacyInboxCard />
         </>
       );

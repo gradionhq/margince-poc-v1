@@ -23,6 +23,28 @@ bootstrap_admin:
   # match scripts/seed-dev.sh — change both together if you change them.
   password_file: config/margince-admin-password
 
+# Retention posture at first boot (optional). Consumed ONCE, when the api
+# bootstraps the organization against an empty database — it is not re-read, and
+# an admin can change the posture afterwards on the privacy settings screen.
+#
+#   standard    (or omitted) the shipped storage-limitation ladder runs: an
+#               unconverted lead is anonymized after a year, a meeting transcript
+#               and an AI payload are erased after a year, activities and lost
+#               deals are archived. Art. 5(1)(e) compliant out of the box.
+#   retain_only the SAME policy rows are planted, and nothing destructive ever
+#               fires: no anonymize, no erase, however over-age a record becomes.
+#               Archive still runs, because archiving retains. For an
+#               installation under a contractual or statutory keep-everything
+#               obligation — a seven-year engagement being the case that named it.
+#
+# Why declare it here rather than just toggling it in the UI: bootstrap plants the
+# policy rows, and the nightly pass can fire before an admin first signs in. This
+# closes that window. The rows stay visible under either posture, so an admin can
+# always see what WOULD happen if the obligation lapsed.
+# seeds:
+#   retention:
+#     default_policy: retain_only
+
 # AI runtime posture (optional). Uncomment to turn on Layer-3 AI payload capture
 # (ai_call_payload) — OFF by default because it stores special-category-adjacent
 # content that then ages under the retention engine and the Art. 17 erasure

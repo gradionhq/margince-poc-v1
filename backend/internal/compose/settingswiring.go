@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 )
@@ -44,6 +45,7 @@ var settingsDefinitions = sync.OnceValue(func() []settings.Definition {
 	var defs []settings.Definition
 	defs = append(defs, capture.Definitions()...)
 	defs = append(defs, identity.Definitions()...)
+	defs = append(defs, privacy.Definitions()...)
 	return defs
 })
 

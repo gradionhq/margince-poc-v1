@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
@@ -46,6 +47,11 @@ func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) 
 	payload.Reason = reason
 	return payload
 }
+
+// actionAnonymize is the in-place anonymization action. Named beside the
+// erase/archive constants the sibling files declare so isDestructive reads as a
+// closed set rather than a pair of string literals.
+const actionAnonymize = "anonymize"
 
 // erasedActivitySubject is the tombstone the retention erase action leaves in
 // an over-age activity's subject line — and, through redactDeliveries, in the
@@ -73,16 +79,22 @@ const maxRecordDuration = 10 * time.Second
 // rather than re-deriving it from constants it cannot see, so raising any bound
 // moves the cap with it.
 //
-// The stage count is one per selector, and what holds it there is that NOTHING
-// WRITES retention_policy but the workspace bootstrap:
-// consent.SeedDefaultRetentionTx plants exactly one row per selector, and the
-// contract exposes no retention-policy operation for anyone to add a second.
-// The schema does NOT hold it — the table's UNIQUE spans a nullable category
-// and Postgres counts NULLs as distinct, so any number of ('activity', NULL)
-// rows are legal and each would claim its own full batch. That seed is also
-// where the ladder is meant to grow (separate rows at increasing retain_days),
-// so a second policy row for one selector — seeded, or through a write path
-// added later — is precisely what invalidates this bound, and has to move it.
+// The stage count is one per selector, and two ENFORCED facts hold it there —
+// neither of them a convention, because an admin can author a policy row:
+//
+//   - `retention_policy_unique` is UNIQUE NULLS NOT DISTINCT, so the database
+//     refuses a second row for one scope, the NULL-category scope included (a
+//     plain UNIQUE would not: Postgres counts NULLs as distinct).
+//   - every write resolves its scope through ParseRetentionScope, so a policy
+//     can only exist for a scope this table has a selector for.
+//
+// Together: at most one enabled policy per selector, therefore at most
+// len(retentionSelectors) policy stages. A second row for one selector is
+// precisely what would make this bound a fiction, which is why both facts are
+// enforced rather than assumed.
+//
+// The §3.4 ladder is unaffected: its rungs are different scopes (`activity` at
+// 1095, `activity/transcript` at 365), never repeated ones.
 //
 // aiRetentionStages adds the engine-owned AI stores, which batch the same way.
 var MaxPassDuration = time.Duration(len(retentionSelectors)+aiRetentionStages) *
@@ -158,59 +170,6 @@ func (s *RetentionService) invalidateGraph(ctx context.Context, tx pgx.Tx, id id
 	return s.invalidateEdges(ctx, tx, id)
 }
 
-// selectors name the records a (object_type, category) policy governs.
-// The closed map is deliberate: a policy row with a scope the engine
-// does not understand is skipped LOUDLY (logged every pass), never
-// half-applied. Every query filters the hold column — and for
-// activities, the holds of every linked record plus the statutory floor.
-var retentionSelectors = map[string]string{
-	"lead/unconverted": `SELECT id FROM lead
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
-		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
-		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
-	"activity/": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.archived_at IS NULL
-		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + correspondenceFloorPredicate(3, 4) + `
-		  AND NOT EXISTS (SELECT 1 FROM activity_link l
-		        LEFT JOIN person p ON p.id = l.person_id
-		        LEFT JOIN organization o ON o.id = l.organization_id
-		        LEFT JOIN deal d ON d.id = l.deal_id
-		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
-		LIMIT $2`,
-	"activity/transcript": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.source_system = 'transcript' AND a.body IS NOT NULL
-		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + correspondenceFloorPredicate(3, 4) + `
-		  AND NOT EXISTS (SELECT 1 FROM activity_link l
-		        LEFT JOIN person p ON p.id = l.person_id
-		        LEFT JOIN organization o ON o.id = l.organization_id
-		        LEFT JOIN deal d ON d.id = l.deal_id
-		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
-		LIMIT $2`,
-	"person/no_consent_no_deal": `SELECT p.id FROM person p
-		WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND p.archived_at IS NULL AND NOT p.legal_hold
-		  AND p.full_name IS DISTINCT FROM 'Erased Subject'
-		  AND p.created_at < now() - make_interval(days => $1)
-		  AND NOT EXISTS (SELECT 1 FROM person_consent pc WHERE pc.person_id = p.id AND pc.state = 'granted')
-		  AND NOT EXISTS (SELECT 1 FROM relationship r
-		        WHERE r.kind = 'deal_stakeholder' AND r.person_id = p.id AND r.archived_at IS NULL)
-		LIMIT $2`,
-	"deal/lost": `SELECT id FROM deal
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status = 'lost' AND archived_at IS NULL AND NOT legal_hold
-		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
-	"ai_call_payload/content": `SELECT id FROM ai_call_payload
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND occurred_at < now() - make_interval(days => $1) LIMIT $2`,
-}
-
 type retentionPolicy struct {
 	// ID stays ids.UUID: a retention policy is a config row, not a
 	// first-class entity, so the kernel mints no kind for it.
@@ -228,6 +187,7 @@ type retentionPolicy struct {
 // policy with nothing recording that it happened.
 func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 	var policies []retentionPolicy
+	var retainOnly bool
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, object_type, category, retain_days, action
@@ -235,7 +195,14 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		policies, err = pgx.CollectRows(rows, pgx.RowToStructByPos[retentionPolicy])
+		if policies, err = pgx.CollectRows(rows, pgx.RowToStructByPos[retentionPolicy]); err != nil {
+			return err
+		}
+		// ONE posture read per pass, in the same transaction as the policy read.
+		// Reading it per policy would let a mid-pass change apply to some
+		// records and not others, which is the one thing an installation that
+		// declared it destroys nothing must never see.
+		retainOnly, err = settings.GetTx(ctx, tx, RetainOnly)
 		return err
 	})
 	if err != nil {
@@ -251,6 +218,22 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		scope := pol.ObjectType + "/"
 		if pol.Category != nil {
 			scope += *pol.Category
+		}
+		if retainOnly && isDestructive(pol.Action) {
+			// Suppressed at the POLICY, before the due-list query: the records
+			// are never selected, so a retain-only pass costs one log line per
+			// suppressed policy rather than a batch of reads that act on
+			// nothing.
+			//
+			// Not audited. audit_log records mutations, and a suppression is the
+			// absence of one — a row per skipped record would be up to a full
+			// batch per policy per night, forever, saying nothing happened. The
+			// POSTURE CHANGE is the audited event (settings write, under
+			// RetainOnly's own verb), and the surface reports the live state as
+			// suppressed_by_posture so nobody has to read the log to see it.
+			s.log.Info("retention: retain-only posture suppresses a destructive policy",
+				"scope", scope, "policy", pol.ID, "action", pol.Action)
+			continue
 		}
 		selector, known := retentionSelectors[scope]
 		if !known {
@@ -287,10 +270,28 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 			}
 		}
 	}
+	// The embedding-kind ai_call sweep runs under the posture too, and that is
+	// deliberate rather than an omission: those rows are telemetry — routing,
+	// spend and served identity, never a customer's data (see embedCallRetention)
+	// — so ageing them out is engine hygiene, not storage limitation, and a
+	// retain-only installation is promising to keep its RECORDS, not its metering
+	// backlog. The voice corpus is the other way round: it holds draft plaintext
+	// about real correspondence, so it stops with the policies.
 	if err := s.evaluateEmbedCallRetention(ctx); err != nil {
 		return err
 	}
+	if retainOnly {
+		s.log.Info("retention: retain-only posture suppresses the voice-signal content sweep")
+		return nil
+	}
 	return s.evaluateVoiceSignalRetention(ctx)
+}
+
+// isDestructive reports whether an action destroys data. `archive` retains — it
+// sets archived_at and the record stays readable — so it is the one action the
+// retain-only posture leaves alone.
+func isDestructive(action string) bool {
+	return action == actionAnonymize || action == actionErase
 }
 
 // voiceSignalRetention note: the deadline itself is stamped per row

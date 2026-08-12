@@ -12,20 +12,37 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // Handlers is privacy's transport surface: the audit-log governance
-// read and the field-history projection (the erasure/SAR/retention
-// engines run behind the DSR queue and the worker, not their own
-// routes).
+// read, the field-history projection, and the retention-authoring
+// surface (the erasure/SAR engines and the nightly evaluator run behind
+// the DSR queue and the worker, not their own routes).
 type Handlers struct {
 	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
-	db *database.DB
+	db       *database.DB
+	policies *PolicyStore
+	// posture is the retain-only surface. Nil in a role that wired the transport
+	// without the settings catalog, where the two posture routes stay their
+	// generated 501 rather than panicking on the first read.
+	posture *PostureStore
 }
 
 // NewHandlers wires the transport over the installation-bound pool.
-func NewHandlers(db *database.DB) Handlers { return Handlers{db: db} }
+func NewHandlers(db *database.DB) Handlers {
+	return Handlers{db: db, policies: NewPolicyStore(db)}
+}
+
+// WithSettings returns a copy whose retain-only posture routes work. Separate
+// from NewHandlers because the settings catalog is assembled from every module's
+// declarations at the composition root, which is a later step than this module's
+// own construction.
+func (h Handlers) WithSettings(store *settings.Store) Handlers {
+	h.posture = NewPostureStore(store)
+	return h
+}
 
 // ListAuditLog implements (GET /audit-log).
 func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params crmcontracts.ListAuditLogParams) {

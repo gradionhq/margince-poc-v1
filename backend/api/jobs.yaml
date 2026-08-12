@@ -931,7 +931,7 @@ kinds:
     queue: privacy_retention
     timeout:
       derived: privacyRetentionPassTimeout
-      value: 4h31m40s
+      value: 5h5m0s
       reason: >-
         privacy.MaxPassDuration is the pass's own ceiling — its stage count
         times its batch bound times its per-record allowance — and the margin

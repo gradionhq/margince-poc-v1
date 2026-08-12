@@ -1167,6 +1167,30 @@ func (stubs) ExplainReport(w nethttp.ResponseWriter, r *nethttp.Request, report 
 	httperr.NotImplemented(w, r, "ExplainReport")
 }
 
+func (stubs) ListRetentionPolicies(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRetentionPoliciesParams) {
+	httperr.NotImplemented(w, r, "ListRetentionPolicies")
+}
+
+func (stubs) CreateRetentionPolicy(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateRetentionPolicy")
+}
+
+func (stubs) DeleteRetentionPolicy(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteRetentionPolicy")
+}
+
+func (stubs) UpdateRetentionPolicy(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "UpdateRetentionPolicy")
+}
+
+func (stubs) GetRetentionSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetRetentionSettings")
+}
+
+func (stubs) UpdateRetentionSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UpdateRetentionSettings")
+}
+
 func (stubs) ListRoles(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListRoles")
 }

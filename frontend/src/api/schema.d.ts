@@ -4716,6 +4716,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/retention/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's retention posture (admin/ops).
+         * @description Reads the retain-only posture (GCS-PARAM-6). While it holds, the nightly evaluator
+         *     applies no `anonymize` and no `erase` — whatever any policy row says — so an
+         *     installation under a contractual keep-everything obligation destroys nothing. `archive`
+         *     actions are unaffected, because archiving retains.
+         *
+         *     Admin/ops-only, read included: the retention screen is an admin surface and no other
+         *     role has a consumer for it. Governed by the `retention_policy` RBAC object.
+         */
+        get: operations["getRetentionSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set the installation's retention posture (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never decides whether the installation
+         *     deletes. A sparse patch: an omitted field is left unchanged.
+         *
+         *     Turning the posture ON suspends every destructive action immediately; the policy rows are
+         *     left exactly as they are, so turning it OFF resumes enforcement with nothing to re-author.
+         *     Audit-only write, no event (EVT-NOEVT-3).
+         */
+        patch: operations["updateRetentionSettings"];
+        trace?: never;
+    };
+    "/retention-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the installation's retention policies (admin/ops).
+         * @description The storage-limitation ladder as data (UC-GDPR-09, DM-SEED-1..6): one row per scope, one
+         *     action per row, ladders composing as separate rows at increasing `retain_days`.
+         *
+         *     `suppressed_by_posture` reports a row the retain-only posture is currently overriding, so
+         *     the surface can say WHY an enabled policy is not acting instead of leaving it
+         *     unexplained.
+         */
+        get: operations["listRetentionPolicies"];
+        put?: never;
+        /**
+         * Author a retention policy (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never authors a deletion rule.
+         *
+         *     `scope` comes from the authorable vocabulary (GCS-PARAM-8), which is exactly the set the
+         *     evaluator has a selector for: a policy for any other scope would be skipped, loudly,
+         *     every pass forever, so it is refused rather than stored. A scope that already holds a
+         *     policy is `409` — edit that row instead, which the list read hands you — because an
+         *     upsert would let one admin overwrite a colleague's window while believing they had added
+         *     a rule.
+         *
+         *     Authoring a destructive policy while the retain-only posture holds SUCCEEDS and reads
+         *     back suppressed: preparing the ladder to run after an obligation lapses is legitimate
+         *     work, and refusing it would force the posture off first.
+         */
+        post: operations["createRetentionPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention-policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a retention policy (admin/ops).
+         * @description Removes the configuration row. The records it governed are untouched — deleting a policy
+         *     stops future actions, it never undoes past ones. Audited under `archive`.
+         *
+         *     Prefer `enabled: false` when the intent is to pause: a deleted row takes its window and
+         *     its lawful basis with it.
+         */
+        delete: operations["deleteRetentionPolicy"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit a retention policy (admin/ops).
+         * @description Sparse — an omitted field is left unchanged. `enabled: false` is how a policy is disabled
+         *     WITHOUT deleting it, preserving the row and its audit history (UC-GDPR-09 E2).
+         *
+         *     The scope is deliberately not patchable: re-targeting a row would silently re-attribute
+         *     every audited change made to it, so a different scope is a different policy.
+         */
+        patch: operations["updateRetentionPolicy"];
+        trace?: never;
+    };
     "/people/{id}/consent": {
         parameters: {
             query?: never;
@@ -12168,7 +12278,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -13657,6 +13767,82 @@ export interface components {
             label: string;
             /** @default false */
             requires_double_opt_in: boolean;
+        };
+        /**
+         * @description An authorable retention scope (GCS-PARAM-8) — a `(object_type, category)` pair the nightly
+         *     evaluator has a selector for. The enum IS the authorable set, so a client cannot offer a
+         *     scope that would be stored and then skipped every pass. `activity` is the bare object type
+         *     (the row whose `category` is null); every other value carries its category after the slash.
+         *
+         *     Extending this enum means adding a selector in the same change.
+         * @enum {string}
+         */
+        RetentionScope: "lead/unconverted" | "activity" | "activity/transcript" | "person/no_consent_no_deal" | "deal/lost" | "deal/won" | "ai_call_payload/content";
+        /**
+         * @description What happens to a record past its window. One action per policy row — a ladder is separate
+         *     rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+         *     `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+         * @enum {string}
+         */
+        RetentionAction: "archive" | "anonymize" | "erase";
+        /**
+         * @description One storage-limitation rule (DM-DDL-10, UC-GDPR-09). At most one row exists per scope,
+         *     enforced by the database rather than by this surface.
+         */
+        RetentionPolicy: {
+            /** Format: uuid */
+            id: string;
+            scope: components["schemas"]["RetentionScope"];
+            /** @description The scope's object type, split out so a client need not parse `scope`. */
+            object_type: string;
+            /** @description The scope's finer category, or null for a bare object-type policy. */
+            category?: string | null;
+            /** @description Age in days past which the action fires. Whole days; the evaluator compares against `now()`. */
+            retain_days: number;
+            action: components["schemas"]["RetentionAction"];
+            /** @description The Art. 6 basis this window is argued from, for the auditor reading the row. */
+            lawful_basis?: string | null;
+            /** @description A disabled policy is preserved and inert — the way to pause a rule without losing its window. */
+            enabled: boolean;
+            /**
+             * @description Server-derived; the create and update request schemas do not carry it, which is what
+             *     makes it unwritable — a `readOnly` marker here would only turn the response field
+             *     optional in the generated clients.
+             *     True when the retain-only posture is currently overriding this row — an `anonymize` or
+             *     `erase` policy on an installation that destroys nothing. The row is unchanged and
+             *     resumes the moment the posture is lifted.
+             */
+            suppressed_by_posture: boolean;
+        };
+        CreateRetentionPolicyRequest: {
+            scope: components["schemas"]["RetentionScope"];
+            retain_days: number;
+            action: components["schemas"]["RetentionAction"];
+            lawful_basis?: string | null;
+            /** @default true */
+            enabled: boolean;
+        };
+        /** @description A sparse policy patch. The scope is not patchable — a different scope is a different policy. */
+        UpdateRetentionPolicyRequest: {
+            retain_days?: number;
+            action?: components["schemas"]["RetentionAction"];
+            lawful_basis?: string | null;
+            enabled?: boolean;
+        };
+        /** @description The installation's retention posture (GCS-PARAM-6). */
+        RetentionSettings: {
+            /**
+             * @description When true, the nightly evaluator applies no `anonymize` and no `erase` — whatever any
+             *     policy row says. `archive` is unaffected. Default false: storage limitation
+             *     (Art. 5(1)(e)) is the out-of-the-box posture, and the installation under a
+             *     keep-everything obligation opts in.
+             */
+            retain_only: boolean;
+        };
+        /** @description A sparse retention-posture patch (admin/ops). */
+        UpdateRetentionSettingsRequest: {
+            /** @description Turn the retain-only posture on or off. */
+            retain_only?: boolean;
         };
         /** @description A person's current consent for one purpose. */
         PersonConsentState: {
@@ -23626,6 +23812,177 @@ export interface operations {
                     "application/json": components["schemas"]["ConsentPurpose"];
                 };
             };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getRetentionSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The retention posture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateRetentionSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRetentionSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated retention posture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listRetentionPolicies: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of retention policies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RetentionPolicy"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createRetentionPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRetentionPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicy"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteRetentionPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateRetentionPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRetentionPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicy"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
     };

@@ -153,8 +153,14 @@ var tableOwners = map[string]string{
 	"consent_qualifying_event":       "internal/modules/consent",
 	"consent_existing_customer_flag": "internal/modules/consent",
 	"data_subject_request":           "internal/modules/consent",
-	"retention_policy":               "internal/modules/consent",
 	"preference_token":               "internal/modules/consent",
+	// retention_policy sits in consent's DDL block (DM-DDL-10) but is OWNED by
+	// privacy, because ownership here names the module whose store owns the
+	// writes: privacy runs the nightly evaluator that reads it and, since the
+	// authoring surface landed (GCS-WIRE-1..4), holds the only CRUD path to it.
+	// Consent's bootstrap seed is the waiver below, not the owner — a boot-time
+	// INSERT of the shipped defaults is not a store.
+	"retention_policy": "internal/modules/privacy",
 	// capture
 	"raw_capture":                  "internal/modules/capture",
 	"capture_connection":           "internal/modules/capture",
@@ -396,6 +402,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:ai_feedback":                  "Art. 17 deletes the subject's correction ledger inside the single erasure transaction, exactly as it does field_provenance beside it: the ledger holds a human-typed value ABOUT the subject, and a claim nobody may now assert anything about has nothing left to suppress",
 	"internal/modules/privacy:ai_call_payload":              "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
+	"internal/modules/consent:retention_policy":             "bootstrap plants the DM-SEED-1..6 defaults inside the workspace-creation transaction, beside the consent purposes it ships with, so a new installation is compliant before it serves a request. Boot-time only and one row per scope — the table's store, its RBAC gate and every runtime write live in privacy, which owns it",
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 	"internal/modules/privacy:comms_outbound":               "the send log stores a second copy of an outbound message's recipients, subject and body, so Art. 17 erasure and the retention erase action scrub it in the SAME transaction that scrubs the activity it belongs to — routing it through comms would let the timeline row commit as a tombstone while the delivery still served the whole message",
 

@@ -258,6 +258,60 @@ func TestMCPConnectorGateDefaultsOff(t *testing.T) {
 	}
 }
 
+// The retention posture defaults to the historical behaviour byte for byte: an
+// omitted block, an empty value and the explicit `standard` all leave storage
+// limitation enforcing. An installation under a keep-everything obligation is
+// the one that has to say so, and only `retain_only` says it.
+func TestRetentionSeedPostureDefaultsToStandard(t *testing.T) {
+	for name, doc := range map[string]string{
+		"block omitted":     "version: 1\n",
+		"seeds without it":  "version: 1\nseeds:\n  starter_automations: false\n",
+		"empty value":       "version: 1\nseeds:\n  retention:\n    default_policy: \"\"\n",
+		"explicit standard": "version: 1\nseeds:\n  retention:\n    default_policy: standard\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(doc))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if cfg.Seeds.RetainOnly() {
+				t.Error("the retain-only posture was seeded ON without the operator asking; " +
+					"a fresh installation must enforce storage limitation (Art. 5(1)(e)) out of the box")
+			}
+		})
+	}
+}
+
+func TestRetentionSeedRetainOnlyTurnsThePostureOn(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\nseeds:\n  retention:\n    default_policy: retain_only\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Seeds.Retention == nil || cfg.Seeds.Retention.DefaultPolicy != RetentionRetainOnlyPosture {
+		t.Fatalf("seeds.retention did not parse: %+v", cfg.Seeds.Retention)
+	}
+	if !cfg.Seeds.RetainOnly() {
+		t.Error("default_policy: retain_only did not seed the posture; the nightly pass could destroy " +
+			"records between bootstrap and the first admin login, which is the window this key closes")
+	}
+}
+
+// A typo must not fall back to `standard` in silence: for the one deployment
+// that set the key on purpose, silence is the exact failure it set it to prevent.
+func TestRetentionSeedRefusesAnUnknownPosture(t *testing.T) {
+	for _, value := range []string{"retain-only", "retainonly", "keep_everything", "Standard"} {
+		_, err := Parse([]byte("version: 1\nseeds:\n  retention:\n    default_policy: " + value + "\n"))
+		if err == nil {
+			t.Fatalf("Parse accepted seeds.retention.default_policy: %q", value)
+		}
+		for _, want := range []string{"seeds.retention.default_policy", value, RetentionStandardPosture, RetentionRetainOnlyPosture} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("refusal for %q omits %q, so the operator cannot fix the file from it: %v", value, want, err)
+			}
+		}
+	}
+}
+
 func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	pwFile := filepath.Join(t.TempDir(), "pw")
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {

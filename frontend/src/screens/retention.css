@@ -1,0 +1,59 @@
+/* The retention section of the privacy tab: the posture block, the policy
+ * ladder and its inline editor. Layout + token colours only (ds-purity) — every
+ * control comes from the design system. */
+
+.retention-posture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.retention-form {
+  margin-top: var(--space-3);
+}
+
+.retention-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.retention-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.retention-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The words and the wire identifier stack, so a wide row stays one line per
+ * policy instead of pushing the badges off the end. */
+.retention-scope {
+  display: flex;
+  flex-direction: column;
+}
+
+.retention-reason {
+  color: var(--textMeta);
+}
+
+.retention-edit {
+  margin-top: var(--space-2);
+}
+
+.retention-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.retention-error {
+  color: var(--danger);
+}
