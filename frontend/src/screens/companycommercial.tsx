@@ -117,7 +117,10 @@ export function CompanyLastOffer({
 //     second-largest deal is a line the reader has no way to question.
 //
 // In both cases the block is omitted rather than filled from a guess.
-function leadingDeal(
+// Exported for its own test file: this is the one place the account's
+// commercial reading picks a single deal to represent the account, and a
+// wrong pick here is a wrong number presented as a fact about the account.
+export function leadingDeal(
   deals: readonly Deal[],
   truncated: boolean,
 ): Deal | undefined {
@@ -137,7 +140,7 @@ function leadingDeal(
   })[0];
 }
 
-function offerAmount(
+export function offerAmount(
   offer: Offer,
   locale: ReturnType<typeof useLocale>["locale"],
 ): string {
