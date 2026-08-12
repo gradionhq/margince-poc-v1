@@ -157,7 +157,7 @@ func nativeToolReaderPerms() principal.Permissions {
 func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
 	e := integration.Setup(t)
 	ws, user := seedOverlayModeWorkspace(t)
-	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	registry := compose.NewRegistryFor(e.DBFor(ws), compose.SendPath{})
 	// Every object grant a guarded read could need, so an unwired guard fails
 	// with the native-table answer this suite exists to forbid rather than with
 	// "permission denied" — which would pass the assertion for a reason that has
@@ -208,7 +208,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 
 	// The tool addresses the record by the id its own reads hand out, so
 	// resolve it the way an agent would rather than minting one.
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DBFor(overlayWS), overlaybudget.New(nil, nil), nil), e.Pool)
 	found, err := d.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson},
 		Limit:       10,
@@ -218,7 +218,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 	}
 	target := found.Records[0].Ref.ID
 
-	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	registry := compose.NewRegistryFor(e.DBFor(overlayWS), compose.SendPath{})
 	args := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"title":"Principal Analyst"}}`, target)
 
 	_, err = registry.Invoke(agentActorCtx(overlayWS, actorID), "update_record", json.RawMessage(args))
@@ -274,7 +274,7 @@ func TestOverlayWritesRefuseAnUnreleasedAgentAtTheSeam(t *testing.T) {
 		t.Fatalf("ingesting the overlay fixture record: %v", err)
 	}
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DBFor(ws), overlaybudget.New(nil, nil), nil), e.Pool)
 	found, err := d.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10,
 	})
@@ -332,7 +332,7 @@ func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T)
 	e := integration.Setup(t)
 	ws, actorID := seedNativeModeWorkspaceForFlip(t)
 	ctx := overlayActorCtx(ws, actorID)
-	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	registry := compose.NewRegistryFor(e.DBFor(ws), compose.SendPath{})
 
 	// Warm this process's mode cache while the workspace is still native, by
 	// making the same read an ordinary request would.
@@ -362,7 +362,7 @@ func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T)
 		t.Fatalf("ingesting the overlay fixture record: %v", err)
 	}
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DBFor(ws), overlaybudget.New(nil, nil), nil), e.Pool)
 	found, err := d.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson},
 		Limit:       10,
@@ -419,7 +419,7 @@ func mergedFixtures(sets ...map[string]string) map[string]string {
 
 func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	e := integration.Setup(t)
-	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	registry := compose.NewRegistryFor(e.DB(), compose.SendPath{})
 	ctx := e.As(e.Rep1, nil, nativeToolReaderPerms())
 
 	// The tools whose NOT-FOUND is itself a served answer — the answer only a
@@ -472,7 +472,7 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 func TestOverlayListRecordsRefusesAFilterAndServesAnEnumeration(t *testing.T) {
 	e := integration.Setup(t)
 	ws, user := seedOverlayModeWorkspace(t)
-	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	registry := compose.NewRegistryFor(e.DBFor(ws), compose.SendPath{})
 	ctx := overlayActorCtxWith(ws, user, nativeToolReaderPerms())
 
 	_, err := registry.Invoke(ctx, "list_records",
