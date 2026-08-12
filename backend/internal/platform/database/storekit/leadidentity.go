@@ -73,7 +73,12 @@ func liveLeadBy(ctx context.Context, tx pgx.Tx, predicate, value string, exclude
 	var id ids.LeadID
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM lead
-		 WHERE `+predicate+` AND archived_at IS NULL
+		 -- The workspace predicate is the probe's own. Tenant isolation used to
+		 -- bound it, so "the live lead holding this address" meant this
+		 -- installation's; without it a create is refused as a duplicate
+		 -- because ANOTHER installation holds the address (ADR-0091 §8 phase A).
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND `+predicate+` AND archived_at IS NULL
 		   AND ($2::text IS NULL
 		        OR source_system IS DISTINCT FROM $2
 		        OR source_id IS DISTINCT FROM $3)
