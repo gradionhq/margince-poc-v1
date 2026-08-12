@@ -192,7 +192,11 @@ type operationDoc struct {
 	RbacObject  string    `yaml:"x-rbac-object"` // key spelled once in rbacObjectExtension
 	RbacAction  string    `yaml:"x-rbac-action"` // key spelled once in rbacActionExtension
 	RequestBody yaml.Node `yaml:"requestBody"`
-	Responses   yaml.Node `yaml:"responses"`
+	// Parameters is where a BODYLESS operation's arguments live. A GET and a
+	// DELETE carry no body, so the tool's input schema is assembled from the
+	// declared query parameters instead — see argumentSchema.
+	Parameters yaml.Node `yaml:"parameters"`
+	Responses  yaml.Node `yaml:"responses"`
 }
 
 // toolAnnotation is the extension spelling of x-mcp-tool, read strictly: a
@@ -232,7 +236,7 @@ func readOperation(base, unit, route, method string, node *yaml.Node) (declaredV
 	if err != nil {
 		return declaredVerb{}, fmt.Errorf("%s: %w", mcpToolExtension, err)
 	}
-	input, err := requestSchema(&op.RequestBody)
+	input, err := argumentSchema(strings.ToUpper(method), &op.RequestBody, &op.Parameters)
 	if err != nil {
 		return declaredVerb{}, err
 	}
@@ -333,13 +337,107 @@ func decodeStrict[T any](node *yaml.Node) (T, error) {
 	return out, nil
 }
 
+// argumentSchema reads the operation's argument shape from wherever the method
+// says it lives, and refuses it in the other place.
+//
+// The refusals are the point rather than tidiness: this seam reads a body OR a
+// query, never both, so arguments declared on the side it does not read would be
+// published to every client and then silently dropped on every call. That is the
+// defect the old body-only reader had in mirror image — it refused GET outright
+// with "a route whose arguments never arrive" — and it is worth a named
+// generation failure at the declaration's own position.
+func argumentSchema(method string, body, params *yaml.Node) (json.RawMessage, error) {
+	if extension.CarriesBody(method) {
+		if !params.IsZero() {
+			return nil, fmt.Errorf("the operation declares %s and also declares parameters — a %s carries its arguments in the body, so the parameters would be published and never read. Move them into the requestBody schema, or declare the operation GET", method, method)
+		}
+		return requestSchema(body)
+	}
+	if !body.IsZero() {
+		return nil, fmt.Errorf("the operation declares %s and also declares a requestBody — a %s carries no body, so the schema would be published and never read. Declare the arguments as query parameters, or declare the operation POST", method, method)
+	}
+	return querySchema(params)
+}
+
+// querySchema assembles a bodyless operation's input schema from its declared
+// query parameters: one property per parameter, `required` from the parameters
+// that say so, and `additionalProperties: false` because the serving seam
+// refuses a query key nothing declared.
+//
+// The assembled object is what a model is shown as the tool's argument shape and
+// what the seam decodes against, so it is built from the SAME declaration a
+// human reads in the contract rather than restated. An operation with no
+// parameters yields the empty object, which is the honest shape for a list or a
+// status probe — not nil, because "takes no arguments" is a fact worth
+// publishing rather than a gap a default fills in.
+func querySchema(params *yaml.Node) (json.RawMessage, error) {
+	schema := struct {
+		Type                 string                     `json:"type"`
+		Properties           map[string]json.RawMessage `json:"properties,omitempty"`
+		Required             []string                   `json:"required,omitempty"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}{Type: "object"}
+	if params.IsZero() {
+		return json.Marshal(schema)
+	}
+	if params.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("the operation's parameters is not a list")
+	}
+	schema.Properties = make(map[string]json.RawMessage, len(params.Content))
+	for _, param := range params.Content {
+		var decl struct {
+			Name     string `yaml:"name"`
+			In       string `yaml:"in"`
+			Required bool   `yaml:"required"`
+		}
+		if err := param.Decode(&decl); err != nil {
+			return nil, fmt.Errorf("the operation declares a parameter this reader cannot decode: %w", err)
+		}
+		// Query only. `path` is refused because an extension route may carry no
+		// template (see extension.Verb's route grammar), and `header`/`cookie`
+		// because a tool's arguments are its arguments — transport metadata is not
+		// something a model may be handed as an input field.
+		if decl.In != "query" {
+			return nil, fmt.Errorf("parameter %q is declared in %q — a bodyless extension operation takes its arguments from the query string only", decl.Name, decl.In)
+		}
+		if decl.Name == "" {
+			return nil, fmt.Errorf("the operation declares a query parameter with no name")
+		}
+		if _, dup := schema.Properties[decl.Name]; dup {
+			// json.Marshal would silently keep one of the two, and the published
+			// schema would describe an argument set no reader of the contract wrote.
+			return nil, fmt.Errorf("the operation declares the query parameter %q twice", decl.Name)
+		}
+		node := yamlChild(param, "schema")
+		if node == nil {
+			return nil, fmt.Errorf("query parameter %q declares no schema — the seam coerces a query value against its declared type, so an untyped one could not be decoded", decl.Name)
+		}
+		// Through jsonSchema for the $ref refusal, which matters here for the same
+		// reason it matters for a body: the emitted literal is a standalone schema
+		// and this generator resolves nothing.
+		encoded, err := jsonSchema("parameter "+decl.Name, node)
+		if err != nil {
+			return nil, err
+		}
+		schema.Properties[decl.Name] = encoded
+		if decl.Required {
+			schema.Required = append(schema.Required, decl.Name)
+		}
+	}
+	// Sorted, because `required` is a LIST and YAML declaration order would
+	// otherwise reach the emitted literal and the manifest digest — making a
+	// reordering of the contract look like a changed argument contract.
+	slices.Sort(schema.Required)
+	return json.Marshal(schema)
+}
+
 // requestSchema reads the operation's inline JSON request schema. A $ref is
 // refused BY NAME rather than resolved: this generator does not walk
 // references, and a silently unresolved one would advertise `{"$ref": …}` to a
 // model as the tool's argument shape.
 func requestSchema(body *yaml.Node) (json.RawMessage, error) {
 	if body.IsZero() {
-		return nil, fmt.Errorf("the operation declares no requestBody — a served extension operation is a tool invocation and its arguments are the body")
+		return nil, fmt.Errorf("the operation declares no requestBody — a body-carrying extension operation is a tool invocation and its arguments are the body")
 	}
 	schema := yamlChild(yamlChild(yamlChild(body, "content"), "application/json"), "schema")
 	if schema == nil {
