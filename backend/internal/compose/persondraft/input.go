@@ -64,6 +64,14 @@ type Input struct {
 	// message is context for writing, where a claim is a reason to write.
 	Claims []ClaimIn `json:"claims,omitempty"`
 	Recent []ActIn   `json:"recent,omitempty"`
+	// Meeting is the next scheduled meeting THIS PERSON is on, when there is
+	// one. A draft that asks for a call when one is already booked reads as not
+	// knowing, and it is the most concrete thing a follow-up can refer to.
+	//
+	// Only meetings they attend. One they are NOT on is somebody else's
+	// calendar, and naming it in a message to them discloses a meeting they
+	// were not invited to.
+	Meeting *MeetingIn `json:"meeting,omitempty"`
 	// SectionsOmitted names what the caller could NOT see, so the writer stays
 	// silent about those sections rather than inferring around the gap.
 	SectionsOmitted []string `json:"sections_omitted,omitempty"`
@@ -145,6 +153,21 @@ type ClaimIn struct {
 	// about a claim cites the conversation the reader can open rather than the
 	// derived row, which has no page.
 	SourceID string `json:"source_id"`
+}
+
+// MeetingIn is the next meeting this person is on.
+//
+// It carries no attendee list, and that absence is the rule rather than an
+// omission: who ELSE is in the room is internal context about the account, and
+// a draft naming the other attendees to the recipient tells them who we are
+// also talking to.
+type MeetingIn struct {
+	// Subject as scheduled, empty when the meeting has none.
+	Subject string `json:"subject,omitempty"`
+	// StartsAt is RFC3339 UTC. The drafter is told WHEN so it can write "next
+	// Tuesday" rather than a timestamp, which is why the envelope's own clock
+	// is what it compares against.
+	StartsAt string `json:"starts_at"`
 }
 
 // ActIn is one recent exchange.

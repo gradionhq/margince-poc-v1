@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
@@ -27,6 +29,7 @@ func FromView(view crmcontracts.Person360, req Request) Input {
 	foldCommercial(&in, view)
 	foldClaims(&in, view, req.Envelope.At())
 	foldRecent(&in, view)
+	foldMeeting(&in, view, req.Envelope.At())
 	return in
 }
 
@@ -371,4 +374,44 @@ func stamp(at *time.Time) string {
 // subject too, and "Re:" on it replies to ourselves.
 func (in Input) Threaded() bool {
 	return len(in.Recent) > 0 && in.Recent[0].Inbound && in.Recent[0].Subject != ""
+}
+
+// foldMeeting carries the next meeting this person is actually on.
+//
+// Two conditions, and both are refusals rather than filters. A meeting already
+// past is not a next meeting - the section can hold a stale row, and a draft
+// referring to it as upcoming is wrong in the way a reader notices. And a
+// meeting whose participant list does not include this person is somebody
+// else's: naming it to them discloses a meeting they were not invited to,
+// which is the privacy line this grounding sits closest to.
+func foldMeeting(in *Input, view crmcontracts.Person360, now time.Time) {
+	meeting := view.NextMeeting
+	if meeting == nil || !meeting.StartsAt.After(now) {
+		return
+	}
+	if !attends(meeting, view.Person.Id) {
+		return
+	}
+	folded := MeetingIn{StartsAt: meeting.StartsAt.UTC().Format(time.RFC3339)}
+	if meeting.Subject != nil {
+		folded.Subject = *meeting.Subject
+	}
+	in.Meeting = &folded
+}
+
+// attends reports whether this person is on the meeting.
+//
+// An absent participant list answers NO. The list is the evidence, and a
+// meeting that carries none has not shown that they are on it - assuming they
+// are is exactly the disclosure this guard exists to prevent.
+func attends(meeting *crmcontracts.Person360NextMeeting, personID openapi_types.UUID) bool {
+	if meeting.Participants == nil {
+		return false
+	}
+	for _, participant := range *meeting.Participants {
+		if participant.PersonId == personID {
+			return true
+		}
+	}
+	return false
 }
