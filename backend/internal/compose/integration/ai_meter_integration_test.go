@@ -81,7 +81,13 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	meter := ai.NewMeter(pool)
+	// A meter per workspace: the handle carries the tenant now (ADR-0091 §9
+	// step 3), so one meter driven by two contexts would fold both tenants'
+	// usage into whichever workspace it was bound to — and the RLS isolation
+	// this asserts would be asserted against nothing.
+	meterA := ai.NewMeter(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsA)))
+	meterB := ai.NewMeter(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsB)))
+	unbound := ai.NewMeter(database.BindTo(pool, ids.WorkspaceID{}))
 	ctxA := principal.WithWorkspaceID(ctx, wsA)
 	ctxB := principal.WithWorkspaceID(ctx, wsB)
 
@@ -91,12 +97,12 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 		{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud, TokensIn: 50, TokensOut: 10, Cached: true},
 		{Task: ai.TaskBriefRanking, Tier: ai.TierPremium, TokensIn: 500, TokensOut: 300},
 	} {
-		if err := meter.Record(ctxA, usage); err != nil {
+		if err := meterA.Record(ctxA, usage); err != nil {
 			t.Fatalf("record: %v", err)
 		}
 	}
 
-	total, err := meter.MonthTokens(ctxA)
+	total, err := meterA.MonthTokens(ctxA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +110,7 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 		t.Fatalf("month tokens = %d, want 1000", total)
 	}
 
-	share, alarm, err := meter.PremiumShare(ctxA, 30*24*time.Hour)
+	share, alarm, err := meterA.PremiumShare(ctxA, 30*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +119,7 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 	}
 
 	// Tenant isolation: workspace B sees none of A's spend.
-	totalB, err := meter.MonthTokens(ctxB)
+	totalB, err := meterB.MonthTokens(ctxB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +128,7 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 	}
 
 	// A workspace-less call is a programming error, not an empty result.
-	if err := meter.Record(ctx, ai.Usage{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud}); err == nil {
+	if err := unbound.Record(ctx, ai.Usage{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud}); err == nil {
 		t.Fatal("metering outside workspace context must fail")
 	}
 

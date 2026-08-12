@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -28,7 +29,7 @@ import (
 
 type rateEnv struct {
 	owner *pgx.Conn
-	store *RateStore
+	pool  *pgxpool.Pool
 }
 
 func setupRateStore(t *testing.T) *rateEnv {
@@ -55,7 +56,7 @@ func setupRateStore(t *testing.T) *rateEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	return &rateEnv{owner: owner, store: NewRateStore(pool)}
+	return &rateEnv{owner: owner, pool: pool}
 }
 
 // seedWorkspace inserts one throwaway workspace and returns a context
@@ -120,6 +121,7 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
 	ws, wsCtx := e.seedWorkspace(ctx, t)
+	store := e.storeFor(ws)
 
 	jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	jun1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -133,7 +135,7 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 	})
 
 	t.Run("before either rate exists → unpriced", func(t *testing.T) {
-		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC))
+		got, err := store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +145,7 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 	})
 
 	t.Run("between the two rates → the first one still applies", func(t *testing.T) {
-		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+		got, err := store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,7 +155,7 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 	})
 
 	t.Run("on or after the rate change → the new rate applies", func(t *testing.T) {
-		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+		got, err := store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +165,7 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 	})
 
 	t.Run("unknown model → unpriced, never an error", func(t *testing.T) {
-		got, err := e.store.RateFor(wsCtx, providerAnthropic, "no-such-model", jun1)
+		got, err := store.RateFor(wsCtx, providerAnthropic, "no-such-model", jun1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,6 +240,7 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
 	ws, wsCtx := e.seedWorkspace(ctx, t)
+	store := e.storeFor(ws)
 
 	f := buildCostReportFixture()
 	e.insertRate(ctx, t, ws, f.rate)
@@ -245,7 +248,7 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 		e.insertCall(ctx, t, ws, c)
 	}
 
-	report, err := e.store.CostReport(wsCtx, f.from, f.to)
+	report, err := store.CostReport(wsCtx, f.from, f.to)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +305,7 @@ func TestCostReportGroupsByCalendarDay(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
 	ws, wsCtx := e.seedWorkspace(ctx, t)
+	store := e.storeFor(ws)
 
 	rate := ModelRate{
 		Provider: providerAnthropic, ModelID: "claude-test-model",
@@ -321,7 +325,7 @@ func TestCostReportGroupsByCalendarDay(t *testing.T) {
 		tokensIn: 300, tokensOut: 30, occurredAt: day2,
 	})
 
-	report, err := e.store.CostReport(wsCtx, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+	report, err := store.CostReport(wsCtx, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +356,7 @@ func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
 	ws, wsCtx := e.seedWorkspace(ctx, t)
+	store := e.storeFor(ws)
 
 	rate := ModelRate{
 		Provider: providerAnthropic, ModelID: "claude-test-model",
@@ -372,7 +377,7 @@ func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
 	e.insertCall(ctx, t, ws, cheapCall)
 	e.insertCall(ctx, t, ws, premiumCall)
 
-	report, err := e.store.CostReport(wsCtx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
+	report, err := store.CostReport(wsCtx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,6 +434,7 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
 	ws, wsCtx := e.seedWorkspace(ctx, t)
+	store := e.storeFor(ws)
 
 	effective := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	for _, r := range SeedModelRates(effective) {
@@ -458,7 +464,7 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 		tokensIn: 10_000, occurredAt: day.Add(2 * time.Hour),
 	})
 
-	report, err := e.store.CostReport(wsCtx, from, to)
+	report, err := store.CostReport(wsCtx, from, to)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +491,7 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
-	_, ctxA := e.seedWorkspace(ctx, t)
+	wsA, ctxA := e.seedWorkspace(ctx, t)
 	wsB, ctxB := e.seedWorkspace(ctx, t)
 
 	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -500,7 +506,7 @@ func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 
 	// Workspace A's context must never see workspace B's rate row — same
 	// provider/model, RLS is the only thing standing between them.
-	got, err := e.store.RateFor(ctxA, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
+	got, err := e.storeFor(wsA).RateFor(ctxA, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +516,7 @@ func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 
 	// And workspace A's CostReport over the same window must not pick up
 	// workspace B's call.
-	report, err := e.store.CostReport(ctxA, day, day.Add(48*time.Hour))
+	report, err := e.storeFor(wsA).CostReport(ctxA, day, day.Add(48*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,14 +528,14 @@ func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 
 	// Sanity: workspace B's own context DOES see it (proves the isolation
 	// above is RLS working, not a fixture that silently inserted nothing).
-	gotB, err := e.store.RateFor(ctxB, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
+	gotB, err := e.storeFor(wsB).RateFor(ctxB, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotB == nil {
 		t.Fatal("workspace B could not see its own rate row")
 	}
-	reportB, err := e.store.CostReport(ctxB, day, day.Add(48*time.Hour))
+	reportB, err := e.storeFor(wsB).CostReport(ctxB, day, day.Add(48*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,4 +548,18 @@ func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 	if !found {
 		t.Fatal("workspace B's own cost report did not see its own call")
 	}
+}
+
+// storeFor binds a rate store to the workspace a test just seeded. One store
+// per workspace, because the handle carries the tenant now (ADR-0091 §9
+// step 3) — a shared one would run every test against whichever workspace
+// happened to be created first.
+func (e *rateEnv) storeFor(ws ids.UUID) *RateStore {
+	return NewRateStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws)))
+}
+
+// dbFor is storeFor's handle, for the tests that build a different store over
+// the same workspace.
+func (e *rateEnv) dbFor(ws ids.UUID) *database.DB {
+	return database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))
 }

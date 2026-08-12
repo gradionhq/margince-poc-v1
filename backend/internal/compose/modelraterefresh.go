@@ -442,7 +442,7 @@ func (w *aiModelRateRefreshWorker) Work(ctx context.Context, job *river.Job[AiMo
 
 func newModelCostRefreshWorker(pool *pgxpool.Pool, brain completer, sources []pricingSource, bound map[string]map[string]bool, log *slog.Logger) *aiModelRateRefreshWorker {
 	return &aiModelRateRefreshWorker{refresh: modelCostRefresh{
-		rates:   ai.NewRateStore(pool),
+		rates:   ai.NewRateStore(InstallationDB(pool)),
 		svc:     approvals.NewService(pool),
 		fetcher: webread.New(),
 		brain:   brain,

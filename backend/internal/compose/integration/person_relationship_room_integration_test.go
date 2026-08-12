@@ -55,7 +55,7 @@ var roomPerms = principal.Permissions{
 
 func personRoomService(e *Env) *person360.Service {
 	return person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
-		ai.NewFeedbackStore(e.Pool), func() time.Time { return roomFixedNow })
+		ai.NewFeedbackStore(e.DB()), func() time.Time { return roomFixedNow })
 }
 
 // A contact outside the caller's row scope must be a NOT FOUND, never an empty
@@ -139,7 +139,7 @@ func TestCorrectionLedgerSurvivesRederivation(t *testing.T) {
 	}
 
 	corrected := "Head of Business Development"
-	if err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
+	if err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
 		SubjectType: "person", SubjectID: mine, ClaimKind: ai.ClaimProfileField,
 		ClaimPath: *before[0].ClaimKey, Verdict: ai.VerdictCorrected, CorrectedValue: &corrected,
 	}); err != nil {
@@ -178,7 +178,7 @@ func TestCorrectionLedgerRefusesAWriteWithoutTheSubjectsUpdateGrant(t *testing.T
 	readOnly.Objects = map[string]principal.ObjectGrant{"person": {Read: true}}
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, readOnly)
 
-	err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
+	err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
 		SubjectType: "person", SubjectID: mine, ClaimKind: ai.ClaimProfileField,
 		ClaimPath: "profile_field:title", Verdict: ai.VerdictSuppressed,
 	})
@@ -194,7 +194,7 @@ func TestCorrectionLedgerRefusesASubjectOutsideRowScope(t *testing.T) {
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
-	err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
+	err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
 		SubjectType: "person", SubjectID: theirs, ClaimKind: ai.ClaimProfileField,
 		ClaimPath: "profile_field:title", Verdict: ai.VerdictSuppressed,
 	})
@@ -209,7 +209,7 @@ func TestCorrectionLedgerKeepsOneVerdictPerClaim(t *testing.T) {
 	e := Setup(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
-	store := ai.NewFeedbackStore(e.Pool)
+	store := ai.NewFeedbackStore(e.DB())
 
 	first := "Head of Sales"
 	if err := store.Record(rep, ai.RecordInput{
@@ -268,7 +268,7 @@ func TestErasureReachesTheEnrichmentSidecarAndTheLedger(t *testing.T) {
 		        'Anna Weber — Head of Procurement at ScaleCommerce', 'site_read:https://example.test/team', 'site_read', 'agent:enrich')`, e.WS)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
-	if err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
+	if err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
 		SubjectType: "person", SubjectID: mine, ClaimKind: ai.ClaimProfileField,
 		ClaimPath: "profile_field:title", Verdict: ai.VerdictSuppressed,
 	}); err != nil {

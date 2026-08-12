@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -89,7 +88,7 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 		return ModelRateRow{}, err
 	}
 	var out ModelRateRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var e error
 		out, e = s.writeModelRate(ctx, tx, p, in.EffectiveDate)
 		return e
@@ -278,7 +277,7 @@ func (s *RateStore) ListLatestModelRates(ctx context.Context) ([]ModelRateRow, e
 		return nil, err
 	}
 	var rows []ModelRateRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (provider, model_id)
 			       provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
@@ -306,7 +305,7 @@ func (s *RateStore) ListEffectiveModelRates(ctx context.Context) ([]ModelRateRow
 		return nil, err
 	}
 	var rows []ModelRateRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Sample "today" inside the transaction: a wait for a pooled
 		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
@@ -332,7 +331,7 @@ func (s *RateStore) ModelRateHistory(ctx context.Context, provider, modelID stri
 		return nil, err
 	}
 	var rows []ModelRateRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		r, err := tx.Query(ctx, `
 			SELECT provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
 			       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date

@@ -36,7 +36,7 @@ import (
 func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	corr := ids.NewV7()
 	logical := ids.NewV7()
@@ -129,7 +129,7 @@ func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 func TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	logical := ids.NewV7()
 	terminalPayload := &ai.Payload{Request: json.RawMessage(`{"messages":[]}`), Response: json.RawMessage(`{"text":"ok"}`)}
@@ -206,7 +206,7 @@ func TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction(t *testing.T) 
 func TestEnsureConfigIsIdempotentAndFKsFromAICall(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	snap := ai.ConfigSnapshot{
 		Hash: "test-config-hash", TaskContractHash: "task-hash",

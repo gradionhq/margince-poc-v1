@@ -56,7 +56,18 @@ func (d *DB) Workspace(ctx context.Context) (ids.WorkspaceID, error) {
 
 // Pool exposes the underlying pool for the paths that do not run a
 // transaction — the outbox relay's listener, the health probe.
-func (d *DB) Pool() *pgxpool.Pool { return d.pool }
+//
+// Nil-safe on a nil handle, because construction reaches it: a store built
+// from an un-injected handle would otherwise panic where it is WIRED rather
+// than where it is used, and the unit tests that build a handler with no
+// database at all — to assert a gate that answers before any query — are
+// exactly the callers that would crash.
+func (d *DB) Pool() *pgxpool.Pool {
+	if d == nil {
+		return nil
+	}
+	return d.pool
+}
 
 // Tx runs fn inside a transaction with app.workspace_id bound, which is what
 // the RLS policies key on. Same contract as WithWorkspaceTx, minus the

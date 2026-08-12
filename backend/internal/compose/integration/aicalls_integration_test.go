@@ -175,7 +175,7 @@ func TestAiCallIsInvisibleAcrossTenants(t *testing.T) {
 			RowScope: principal.RowScopeAll,
 		},
 	})
-	if _, err := ai.NewCallReadStore(e.Pool).GetCall(ctx, seeded.newest); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := ai.NewCallReadStore(e.DBFor(workspaceB)).GetCall(ctx, seeded.newest); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("cross-tenant detail err = %v, want ErrNotFound", err)
 	}
 }

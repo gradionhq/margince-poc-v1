@@ -31,7 +31,7 @@ import (
 func rateSvc(e *integration.Env) *approvals.Service {
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(e.Pool, DealsInstallation())))
-	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(e.Pool)))
+	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(e.DB())))
 	return svc
 }
 
@@ -200,7 +200,7 @@ func TestModelRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
-	rates := ai.NewRateStore(e.Pool)
+	rates := ai.NewRateStore(e.DB())
 
 	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "m", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
@@ -245,7 +245,7 @@ func TestModelRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
 			"provider": "acme", "model_id": "new",
 			"input_per_mtok": "3", "output_per_mtok": "15", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
 		}, "acme/new")
-	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+	if _, err := ai.NewRateStore(e.DB()).SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "new", InputUsd: "2", OutputUsd: "10", CacheReadUsd: "0", CacheWriteUsd: "0",
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -262,7 +262,7 @@ func TestModelRateProposalApplyMatchingPriorApplies(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+	if _, err := ai.NewRateStore(e.DB()).SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "m2", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -325,13 +325,13 @@ func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 func TestModelRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	seed := ai.NewRateStore(e.Pool)
+	seed := ai.NewRateStore(e.DB())
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 	seedModelRate(ctx, t, seed, "mx", "5", time.Time{})
 	seedModelRate(ctx, t, seed, "mx", "9", tomorrow)
 
 	calls := 0
-	crossing := ai.NewRateStore(e.Pool).WithClock(func() time.Time {
+	crossing := ai.NewRateStore(e.DB()).WithClock(func() time.Time {
 		calls++
 		if calls == 1 {
 			return time.Now().UTC()

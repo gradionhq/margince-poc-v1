@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // AppEnv is the heaviest of the three exported fixtures: a real compose handler
@@ -311,4 +312,14 @@ func applyRiverSchema(t *testing.T) {
 // honest about the path under test.
 func (e *AppEnv) DB() *database.DB {
 	return compose.InstallationDB(e.Pool)
+}
+
+// DBFor pins a handle to another workspace, for the suites that seed a second
+// one to prove it cannot be read from the first.
+//
+// The resolving DB above is right for everything the app itself does; it is
+// wrong the moment a test creates a workspace the installation does not know
+// about, because then there is no single installation to resolve.
+func (e *AppEnv) DBFor(ws ids.UUID) *database.DB {
+	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](ws))
 }

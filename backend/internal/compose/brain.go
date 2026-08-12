@@ -129,7 +129,7 @@ func (m ModelPath) WithAgentTokenSpend(spend ai.AgentTokenSpender) ModelPath {
 // router's ai_call tracing (ai.NewRouter) — the deployment's
 // AI.CapturePayloads posture and the process logger, never a stand-in.
 func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (ModelPath, error) {
-	router, err := ai.NewRouter(cfg, ai.NewMeter(pool), NewSeatBudget(pool), ai.NewCallMeter(pool), capturePayloads, log)
+	router, err := ai.NewRouter(cfg, ai.NewMeter(InstallationDB(pool)), NewSeatBudget(pool), ai.NewCallMeter(InstallationDB(pool)), capturePayloads, log)
 	if err != nil {
 		return ModelPath{}, err
 	}

@@ -44,7 +44,7 @@ func TestRunTransparencyReadsAndPricesOneCorrelatedProductRun(t *testing.T) {
 			Objects: map[string]principal.ObjectGrant{"organization": {Read: true}},
 		},
 	})
-	summary, err := NewRunTransparency(env.store.pool).Get(readCtx, correlationID)
+	summary, err := NewRunTransparency(env.dbFor(workspaceID)).Get(readCtx, correlationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +65,10 @@ func TestRunTransparencyReadsAndPricesOneCorrelatedProductRun(t *testing.T) {
 			Objects: map[string]principal.ObjectGrant{"organization": {Create: true}},
 		},
 	})
-	if _, err := NewRunTransparency(env.store.pool).Get(createCtx, correlationID); err != nil {
+	if _, err := NewRunTransparency(env.dbFor(workspaceID)).Get(createCtx, correlationID); err != nil {
 		t.Fatalf("installer create fallback: %v", err)
 	}
-	if _, err := NewRunTransparency(env.store.pool).Get(workspaceCtx, correlationID); err == nil {
+	if _, err := NewRunTransparency(env.dbFor(workspaceID)).Get(workspaceCtx, correlationID); err == nil {
 		t.Fatal("an unauthenticated caller read correlated model telemetry")
 	}
 }

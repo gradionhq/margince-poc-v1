@@ -94,8 +94,8 @@ func setupEstimator(t *testing.T) *estEnv {
 // construction B6 wires in compose.
 func (e *estEnv) newEstimator(ws ids.UUID) *Estimator {
 	return NewEstimator(
-		ai.NewCallReadStore(e.pool),
-		ai.NewRateStore(e.pool),
+		ai.NewCallReadStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))),
+		ai.NewRateStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))),
 		e.router,
 		activities.NewStore(e.pool),
 		capture.NewRegistry(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws)), nil, nil, nil),

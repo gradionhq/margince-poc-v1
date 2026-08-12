@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -153,12 +152,13 @@ type callStore = CallRecorder
 // CallMeter writes ai_call (+ ai_call_payload when capture is on). It rides
 // the workspace GUC transaction like every tenant write.
 type CallMeter struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
 // NewCallMeter constructs the CallMeter that writes ai_call trace rows
 // (and, when payload capture is on, the linked ai_call_payload row).
-func NewCallMeter(pool *pgxpool.Pool) *CallMeter { return &CallMeter{pool: pool} }
+func NewCallMeter(db *database.DB) *CallMeter { return &CallMeter{db: db} }
 
 // Record writes every attempt's ai_call row — and, for whichever attempt
 // carries a Payload (only ever the terminal one), the ai_call_payload
@@ -168,7 +168,7 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 	if len(attempts) == 0 {
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, m.pool, func(tx pgx.Tx) error {
+	return m.db.Tx(ctx, func(tx pgx.Tx) error {
 		for _, c := range attempts {
 			// kind and served_identity_source carry a CHECK constraint, not
 			// just a SQL DEFAULT — the columns are always listed explicitly
@@ -233,7 +233,7 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 // exist.
 func (m *CallMeter) EnsureConfig(ctx context.Context, snap ConfigSnapshot) error {
 	// rls-exempt: ai_call_config is a global config-snapshot dimension (spec §4) — no workspace_id, no RLS policy, so this write must not ride the per-workspace GUC transaction.
-	_, err := m.pool.Exec(ctx, `
+	_, err := m.db.Pool().Exec(ctx, `
 		INSERT INTO ai_call_config (hash, task_contract_hash, routing_config_hash, prompt_version, provider_params)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (hash) DO NOTHING`,
