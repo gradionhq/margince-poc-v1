@@ -77,9 +77,12 @@ export function InlineChoice({
   const trigger = useRef<HTMLButtonElement>(null);
   // Set right before a close that should return focus to the resting
   // trigger, read once that trigger has actually remounted (see the effect
-  // below). `revert` cannot focus it directly: at the moment it runs,
-  // `editing` is still true, so the resting button — only rendered in the
-  // `!editing` branch — does not exist yet and `trigger.current` is null.
+  // below). Every exit from the editing view sets it — a value picked and a
+  // value abandoned both put the reader back where they started — because
+  // what the rule is about is leaving the view, not which answer they left
+  // with. Neither path can focus the trigger directly: at the moment they
+  // run, `editing` is still true, so the resting button — only rendered in
+  // the `!editing` branch — does not exist yet and `trigger.current` is null.
   const restoreFocus = useRef(false);
   const fieldId = useId();
   const errorId = useId();
@@ -151,6 +154,7 @@ export function InlineChoice({
     // Choosing what is already set is not an edit. Sending it would write an
     // audit row for a change that did not happen.
     if (next === value) {
+      restoreFocus.current = true;
       setEditing(false);
       return;
     }
@@ -158,6 +162,10 @@ export function InlineChoice({
     setFailure(null);
     try {
       await onSave(next);
+      // Picking a value leaves the editing view exactly as backing out of it
+      // does, so it lands the reader on the same trigger: the rule is about
+      // leaving the view at all, not about which answer they left with.
+      restoreFocus.current = true;
       setEditing(false);
     } catch (err) {
       // The draft survives: `pending` still holds what they chose, and the

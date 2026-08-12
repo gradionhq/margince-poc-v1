@@ -101,6 +101,24 @@ describe("editing a value where it is read", () => {
     expect(screen.getByRole("combobox")).toBeTruthy();
   });
 
+  // The counterpart of the Escape case below: leaving the editing view is what
+  // returns the reader to the trigger, so the answer they left with does not
+  // change where they land. Picking a value dropped them on the document body
+  // while backing out did not, which is the same loss of place either way.
+  it("lands focus back on the trigger after a value is picked", async () => {
+    renderChoice();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Change Account lifecycle" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: "Customer" }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Change Account lifecycle" }),
+      ),
+    );
+  });
+
   it("lets Escape back out of an open list without changing anything", async () => {
     const { onSave } = renderChoice();
     await userEvent.click(
