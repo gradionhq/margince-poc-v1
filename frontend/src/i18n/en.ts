@@ -1504,7 +1504,7 @@ export const en = {
   "today.meeting.withWhen": "With {who} · {when}",
   "today.meeting.prepare": "Prepare meeting",
   "today.source.people": "the contacts",
-  "today.source.signals": "the signals",
+  "today.source.standing": "whose move it is and the signals",
   "today.source.activities": "what was said",
   "today.commitment.overdueAtLeast": "{count}+ overdue",
   "today.commitment.openAtLeast": "{count}+ open",

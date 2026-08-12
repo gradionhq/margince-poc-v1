@@ -764,9 +764,11 @@ describe("company view — a section still loading is not one that failed", () =
     expect(within(panel).queryByText(/Could not be loaded/)).toBeNull();
 
     resolve360?.();
-    await waitFor(() =>
-      expect(within(panel).queryByText(/Could not be loaded/)).toBeNull(),
-    );
+    await waitFor(() => expect(panel.querySelector(".skeleton")).toBeNull());
+    expect(
+      within(panel).getByText("No open deal on this account."),
+    ).toBeTruthy();
+    expect(within(panel).queryByText(/Could not be loaded/)).toBeNull();
   });
 });
 

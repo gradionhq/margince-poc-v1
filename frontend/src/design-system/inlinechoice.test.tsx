@@ -108,10 +108,30 @@ describe("editing a value where it is read", () => {
     );
     await userEvent.keyboard("{Escape}");
     // Back to the resting trigger, not stranded on a closed combobox with
-    // nowhere left to go.
-    expect(
+    // nowhere left to go — and focus lands ON it, not merely present in the
+    // document: a keyboard user who backed out with Escape must not also
+    // lose their place on the page.
+    const trigger = screen.getByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(trigger).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("does not pull focus back to the trigger when Tab moves it forward", async () => {
+    const { onSave } = renderChoice();
+    await userEvent.click(
       screen.getByRole("button", { name: "Change Account lifecycle" }),
-    ).toBeTruthy();
+    );
+    await userEvent.tab();
+    // Tab already moved the reader on — reclaiming focus here would fight
+    // the very key that just moved it, the opposite of what Escape does.
+    const trigger = screen.getByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(document.activeElement).not.toBe(trigger);
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(onSave).not.toHaveBeenCalled();
   });

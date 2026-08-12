@@ -1493,7 +1493,7 @@ export const vi = {
   "today.meeting.withWhen": "Với {who} · {when}",
   "today.meeting.prepare": "Chuẩn bị cuộc họp",
   "today.source.people": "các liên hệ",
-  "today.source.signals": "các tín hiệu",
+  "today.source.standing": "phía nào cần hành động và các tín hiệu",
   "today.source.activities": "những gì đã trao đổi",
   "today.commitment.overdueAtLeast": "{count}+ quá hạn",
   "today.commitment.openAtLeast": "{count}+ đang mở",
@@ -4265,7 +4265,7 @@ export const vi = {
   "person.meeting.talking_points": "Gợi ý nội dung trao đổi",
   "person.meeting.company_context": "Bối cảnh công ty",
 
-  "co.strip.healthSummary": "Sức khỏe",
+  "co.strip.healthSummary": "Tình hình",
   "co.strip.healthSummary.failingOf": "{failing}/{rated} đang gặp rủi ro",
   "co.strip.healthSummary.of": "{rated}/3 đã được đánh giá",
   "today.source.suggestions": "các đề xuất",

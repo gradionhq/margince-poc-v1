@@ -2022,6 +2022,11 @@ function CompanyPage({
   // 360 renders it, not a `["activities", …]` query of its own), the
   // workspace-wide queue, and the task's own detail.
   const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
+  // Either composer holds the rail's column, and the rail does not care
+  // which. Computed once so both `CompanyRail` and the layout below share
+  // the one decision, rather than the page rendering a rail element that
+  // itself returns null while `RecordView` still reserves the column for it.
+  const composerOpen = Boolean(composing) || writingEmail;
   // The rail, or nothing while a composer holds its column. Both drawers open
   // into this space, so a rail beside them would be two things in one place —
   // and absent rather than narrowed, because a rail squeezed to a third of its
@@ -2029,6 +2034,7 @@ function CompanyPage({
   const rail = (
     <CompanyRail
       orgId={org.id}
+      org={org}
       view={view}
       // The composite read still in flight vs. it having failed: without
       // this the rail's own sections cannot tell the two apart from an
@@ -2038,10 +2044,7 @@ function CompanyPage({
       // The People tab IS the roster in full, so the rail's summary of it
       // stands down rather than repeating it beside itself.
       withPeople={tab !== "people"}
-      // Either composer holds this column, and the rail does not care which.
-      // Passed rather than branched on here so the page keeps one decision
-      // about the rail instead of two.
-      composerOpen={Boolean(composing) || writingEmail}
+      composerOpen={composerOpen}
     />
   );
   const { slots, showChanges: filterToChanges } = useChronologySlots({
@@ -2110,11 +2113,11 @@ function CompanyPage({
       //
       // It yields to the composer, which opens as its own drawer rather than
       // into either column (ComposeModal's `placement="right"` is a portalled
-      // overlay, not a grid slot) — CompanyRail returns null while
-      // `composerOpen`, so the page folds to one column for exactly as long
-      // as the drawer is open, absent rather than narrowed, unchanged from
-      // before the move.
-      rail={rail}
+      // overlay, not a grid slot) — `null`, not the `CompanyRail` element, so
+      // `RecordView` folds to one column for exactly as long as the drawer is
+      // open: `CompanyRail` returning null on its own left `RecordView`
+      // holding the column open around an empty landmark.
+      rail={composerOpen ? null : rail}
       // Named "Context", not the default "Profile": a Profile TAB sits beside
       // this rail carrying entirely different content, and two regions with
       // one name is a dead end for anyone moving between them by landmark.
@@ -2539,7 +2542,7 @@ function CompanyDealsAndTasksTabs({
           update={taskUpdate}
         />
       )}
-      {openTaskId && (
+      {tab === "tasks" && openTaskId && (
         <TaskDetailModal
           activityId={openTaskId}
           readOnly={readOnly}

@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { TextInput } from "./atoms";
 import "./inlinechoice.css";
@@ -75,18 +75,37 @@ export function InlineChoice({
   const [failure, setFailure] = useState<string | null>(null);
   const container = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // Set right before a close that should return focus to the resting
+  // trigger, read once that trigger has actually remounted (see the effect
+  // below). `revert` cannot focus it directly: at the moment it runs,
+  // `editing` is still true, so the resting button — only rendered in the
+  // `!editing` branch — does not exist yet and `trigger.current` is null.
+  const restoreFocus = useRef(false);
   const fieldId = useId();
   const errorId = useId();
 
-  const revert = () => {
+  const close = () => {
     setEditing(false);
     setPending(null);
     setFailure(null);
+  };
+
+  const revert = () => {
     // The a11y counterpart of the value snapping back into plain text: a
     // keyboard user who opened this and backed out lands on the same trigger
     // they pressed, not dropped to the document body.
-    trigger.current?.focus();
+    restoreFocus.current = true;
+    close();
   };
+
+  // Runs after the resting trigger has actually mounted, so the focus call
+  // lands on a live node instead of the null ref `revert` would have hit.
+  useEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      trigger.current?.focus();
+    }
+  }, [editing]);
 
   if (!canEdit || !editing) {
     return (
@@ -180,10 +199,13 @@ export function InlineChoice({
         // asking for a second one.
         openOnMount
         // Closing the popup without picking anything (a press outside, the
-        // trigger scrolling away, Tab) is the one closed transition that is
-        // not also a commit — Select's own `commit` never routes through
-        // this, only `cancel`/`leave`/an outside dismissal do.
+        // trigger scrolling away) is the one closed transition that is not
+        // also a commit — Select's own `commit` never routes through this,
+        // only `cancel`/an outside dismissal do. Tab is deliberately routed
+        // to `onLeave`, not here: the reader already moved forward, and
+        // refocusing this trigger would drag them back to where they left.
         onCancel={revert}
+        onLeave={close}
         onChange={(next) => {
           setPending(next);
           void commit(next);
@@ -273,6 +295,12 @@ export function InlineText({
         onClick={() => {
           setDraft(value);
           setFailure(null);
+          // A previous Escape can leave this set if the browser never
+          // delivered the unmount's blur to this node's React handler — the
+          // one place `onBlur` below clears it. Cleared here too, the one
+          // path every new edit session always runs, so a stale flag cannot
+          // silently swallow this session's first blur commit.
+          cancelling.current = false;
           setEditing(true);
         }}
       >

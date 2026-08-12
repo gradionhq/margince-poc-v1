@@ -80,18 +80,30 @@ export function TaskCompleteCheck({
   update: ReturnType<typeof useTaskUpdate>;
 }>) {
   const t = useT();
-  const pending = update.isPending && update.variables?.id === activityId;
+  const isThisTask = update.variables?.id === activityId;
+  const pending = update.isPending && isThisTask;
+  // A rejected PATCH re-enables the box and leaves it unchecked — the same
+  // rendering a click that did nothing would leave. Without this, the two are
+  // indistinguishable and the reader has no reason to try again.
+  const failed = update.isError && isThisTask;
   return (
-    <input
-      type="checkbox"
-      className="co-task-check"
-      checked={false}
-      disabled={pending}
-      aria-label={t("tasks.complete")}
-      onChange={() =>
-        update.mutate({ id: activityId, body: { is_done: true } })
-      }
-    />
+    <>
+      <input
+        type="checkbox"
+        className="co-task-check"
+        checked={false}
+        disabled={pending}
+        aria-label={t("tasks.complete")}
+        onChange={() =>
+          update.mutate({ id: activityId, body: { is_done: true } })
+        }
+      />
+      {failed && (
+        <span className="co-part-error" role="alert">
+          {problemMessageOf(update.error, t)}
+        </span>
+      )}
+    </>
   );
 }
 

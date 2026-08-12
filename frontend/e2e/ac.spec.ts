@@ -832,6 +832,9 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
   test("no AA violations on #/companies/<id>", async ({ page }) => {
     await page.goto("/#/companies/o-brandt");
     await page.waitForLoadState("networkidle");
+    // The sweep is only meaningful once the record chrome is on screen: axe
+    // finds nothing to complain about in an empty shell.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await animationsSettled(page);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])

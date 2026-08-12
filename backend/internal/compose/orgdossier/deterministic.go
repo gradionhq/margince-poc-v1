@@ -118,12 +118,18 @@ func fieldSentence(field crmcontracts.CompanyProfileField) (claims.Sentence, boo
 	if value == "" || field.Id == nil {
 		return claims.Sentence{}, false
 	}
+	// A stored value of nothing but punctuation reduces to nothing, and a
+	// sentence reading "Label: " is worse than no sentence.
+	value = claims.TerminateSentence(value)
+	if value == "" {
+		return claims.Sentence{}, false
+	}
 	label, ok := fieldLabels[field.Field]
 	if !ok {
 		return claims.Sentence{}, false
 	}
 	return claims.Sentence{
-		Text:   label + ": " + claims.TerminateSentence(value),
+		Text:   label + ": " + value,
 		Nature: natureFact,
 		Evidence: []claims.Evidence{{
 			EntityType: citeProfileField,

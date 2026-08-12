@@ -49,18 +49,25 @@ import { byReach } from "./coverage";
 // its own overlay, and the rail standing behind it would only be two things
 // competing for the same glance.
 
+type Organization = components["schemas"]["Organization"];
 type Organization360 = components["schemas"]["Organization360"];
 type Contact = components["schemas"]["Organization360Contact"];
 type Signal = components["schemas"]["Signal"];
 
 export function CompanyRail({
   orgId,
+  org,
   view,
   loading,
   withPeople,
   composerOpen,
 }: Readonly<{
   orgId: string;
+  // The page's own resolved record, read regardless of how the composite
+  // read below is doing — Details draws from this whenever the composite
+  // has no organization slice yet (still loading, or failed), rather than
+  // going blank on a read the page already has the answer to.
+  org?: Organization;
   view?: Organization360;
   // The composite read `view` comes off is still in flight. Threaded to the
   // sections that read `view` straight (Health, People, Tags) so their
@@ -87,7 +94,7 @@ export function CompanyRail({
     <div className="co-rail">
       <Panel title={t("co.details.title")}>
         <PanelBody>
-          <DetailsGrid organization={view?.organization} />
+          <DetailsGrid organization={view?.organization ?? org} />
         </PanelBody>
         <HealthSection view={view} orgId={orgId} loading={loading} />
         {withPeople && <PeopleSection view={view} loading={loading} />}

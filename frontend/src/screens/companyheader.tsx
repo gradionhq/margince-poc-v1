@@ -660,7 +660,7 @@ export function CompanyIdentityLine({
   // current state, not an absence to omit the way a missing website is.
   facts.push(
     <span key="owner">
-      {t("co.pulse.owner")} <CompanyOwnerControl org={org} />
+      {t("co.pulse.owner")} <CompanyOwnerControl org={org} hideLabel />
     </span>,
   );
   return (

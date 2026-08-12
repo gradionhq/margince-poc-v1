@@ -741,7 +741,7 @@ describe("CompanyRail", () => {
   // crash is not the fix — it has to render DIFFERENTLY from the failed case.
   it("reads an in-flight composite read as loading, not unavailable", () => {
     stub();
-    render(
+    const { container } = render(
       <CompanyRail
         orgId="o-1"
         view={undefined}
@@ -751,6 +751,7 @@ describe("CompanyRail", () => {
       />,
     );
     // The skeleton placeholder, not the "could not be loaded" sentence.
+    expect(container.querySelector(".skeleton")).toBeTruthy();
     expect(
       screen.queryByText(
         "Could not be loaded — this may not be the whole picture",

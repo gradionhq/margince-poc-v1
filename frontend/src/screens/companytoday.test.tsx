@@ -130,11 +130,11 @@ describe("what needs a person on this account today", () => {
   // tested elsewhere (company360.test.tsx), but that is the STRIP's read of
   // the same fields — this brief reads them independently, off its own copy
   // of the view, and had no coverage of its own withheld path until now.
-  it("names the signals when the reader may not see whose move it is or what is at risk", () => {
+  it("names both readings when the reader may not see whose move it is or what is at risk", () => {
     show({ ...BASE, sections_omitted: ["state_strip"] });
 
     expect(screen.getByText(/Hidden from you/).textContent).toContain(
-      "the signals",
+      "whose move it is and the signals",
     );
   });
 

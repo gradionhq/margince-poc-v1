@@ -46,7 +46,8 @@
 .panel-row:hover {
   background: var(--bgHover);
 }
-.panel-row:first-child {
+.panel-row:first-child,
+.panel-head + .panel-row {
   border-top: 0;
 }
 

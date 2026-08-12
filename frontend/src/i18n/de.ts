@@ -1501,7 +1501,7 @@ export const de = {
   "today.meeting.withWhen": "Mit {who} · {when}",
   "today.meeting.prepare": "Termin vorbereiten",
   "today.source.people": "die Kontakte",
-  "today.source.signals": "die Signale",
+  "today.source.standing": "wer am Zug ist und die Signale",
   "today.source.activities": "was gesprochen wurde",
   "today.commitment.overdueAtLeast": "{count}+ überfällig",
   "today.commitment.openAtLeast": "{count}+ offen",
@@ -4278,7 +4278,7 @@ export const de = {
   "person.meeting.talking_points": "Vorgeschlagene Gesprächspunkte",
   "person.meeting.company_context": "Unternehmenskontext",
 
-  "co.strip.healthSummary": "Gesundheit",
+  "co.strip.healthSummary": "Zustand",
   "co.strip.healthSummary.failingOf": "{failing} von {rated} gefährdet",
   "co.strip.healthSummary.of": "{rated} von 3 bewertet",
   "today.source.suggestions": "die Empfehlungen",

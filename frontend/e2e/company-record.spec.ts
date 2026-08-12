@@ -357,20 +357,19 @@ test.describe("company record — the mockup's visual weight", () => {
     // some slots carry a figure and some a sentence ("typically 4 days
     // early"), and a slot sized to its own content would stop the row reading
     // as one comparison. The shared clamp floors at 14px, and at 1280px (this
-    // suite's pinned viewport) it sits AT that floor — 12 rather than 14: the
-    // bar is "clearly bigger than a label", not "exactly what the clamp
-    // happens to compute".
+    // suite's pinned viewport) it sits AT that floor: the bar is "clearly
+    // bigger than a label", not "exactly what the clamp happens to compute".
     const size = await px(
-      page.locator(".stat-card-value").first(),
+      page.locator(".co-strip .stat-card-value").first(),
       "font-size",
     );
-    expect(size).toBeGreaterThanOrEqual(12);
+    expect(size).toBeGreaterThanOrEqual(14);
     // And it must still LEAD its label — the stronger claim, that every
     // slot's value shares this exact size with every other slot, is what the
     // strip's "the KPI strip has six slots…" test above pins; a fixed ratio
     // here cannot also express that.
     const label = await px(
-      page.locator(".stat-card-label").first(),
+      page.locator(".co-strip .stat-card-label").first(),
       "font-size",
     );
     expect(size).toBeGreaterThan(label);

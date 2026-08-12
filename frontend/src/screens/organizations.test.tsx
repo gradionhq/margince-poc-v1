@@ -2393,7 +2393,7 @@ describe("CompanyScreen — the Tasks tab", () => {
     await waitFor(() =>
       expect(screen.getByText(openTask.subject)).toBeTruthy(),
     );
-    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
 
     // The same withheld verb holds inside the detail modal, not only the row.

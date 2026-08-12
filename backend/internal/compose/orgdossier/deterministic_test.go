@@ -202,7 +202,22 @@ func TestAFieldValueEndingItsOwnSentenceIsNotGivenASecondFullStop(t *testing.T) 
 	if len(sections) != 1 || len(sections[0].Sentences) != 1 {
 		t.Fatalf("sections = %+v, want exactly one sentence", sections)
 	}
-	if got := sections[0].Sentences[0].Text; strings.Contains(got, "..") {
-		t.Errorf("text = %q, doubled the value's own full stop", got)
+	const want = "Legal name: Voltaq Systems GmbH."
+	if got := sections[0].Sentences[0].Text; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+}
+
+// A value that is nothing but punctuation normalizes to nothing, and the
+// floor skips it rather than citing a sentence that reads "Legal name: ".
+func TestAFieldValueThatIsPunctuationOnlyWritesNoSentence(t *testing.T) {
+	in := Input{
+		OrganizationID: ids.NewV7().String(),
+		ProfileFields: []crmcontracts.CompanyProfileField{
+			field("legal_name", "; : ,", rowID()),
+		},
+	}
+	if sections := Deterministic(in); len(sections) != 0 {
+		t.Errorf("sections = %+v, want none — a punctuation-only value normalizes to empty", sections)
 	}
 }

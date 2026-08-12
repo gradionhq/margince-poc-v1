@@ -70,13 +70,19 @@ export type SelectProps = Readonly<{
   // that started editing (InlineChoice), where the first click already meant
   // "show me the options" and a second one is one press too many.
   openOnMount?: boolean;
-  // Fires when the list closes WITHOUT a value having been committed — Escape,
-  // a press outside, the trigger scrolling out of view, or Tab leaving it.
-  // Never fires from `commit`, which is the one path a value actually changes
-  // on: a caller telling "closed, nothing chosen" apart from "closed, picked"
-  // is exactly what InlineChoice needs to revert to its resting view only on
+  // Fires when the list closes WITHOUT a value having been committed —
+  // Escape, a press outside, or the trigger scrolling out of view. Never
+  // fires from `commit`, which is the one path a value actually changes on:
+  // a caller telling "closed, nothing chosen" apart from "closed, picked" is
+  // exactly what InlineChoice needs to revert to its resting view only on
   // the former.
   onCancel?: () => void;
+  // Fires when Tab moves focus forward, out of the list, without picking
+  // anything. Kept apart from `onCancel`: the reader is moving ON, not
+  // backing out, so a caller that pulls focus back to its own trigger on
+  // cancel must not also do that here — that would fight the very key that
+  // just moved focus away.
+  onLeave?: () => void;
 }>;
 
 // The popup sits this far from the trigger, never closer than this to a viewport
@@ -417,6 +423,7 @@ function useSelectListbox(
   onChange: (next: string) => void,
   openOnMount: boolean,
   onCancel?: () => void,
+  onLeave?: () => void,
 ): Listbox {
   const selectedIndex = options.findIndex((option) => option.value === value);
   const edge = (step: 1 | -1) =>
@@ -498,7 +505,16 @@ function useSelectListbox(
       trigger.current?.focus();
       abandon();
     },
-    leave: abandon,
+    // Tab already moved focus forward — that is the browser's own default,
+    // which the keydown handler above deliberately leaves unclaimed. Closing
+    // through `abandon` would fire `onCancel`, and a caller that restores
+    // focus on cancel (InlineChoice) would then yank it straight back to the
+    // trigger the reader just left. `onLeave` tells that caller apart from a
+    // real cancel so it knows not to.
+    leave: () => {
+      setOpen(false);
+      onLeave?.();
+    },
     search,
   };
 
@@ -535,14 +551,23 @@ function useActiveOptionVisible(
 }
 
 export function Select(props: SelectProps) {
-  const { options, value, onChange, name, disabled, openOnMount, onCancel } =
-    props;
+  const {
+    options,
+    value,
+    onChange,
+    name,
+    disabled,
+    openOnMount,
+    onCancel,
+    onLeave,
+  } = props;
   const listbox = useSelectListbox(
     options,
     value,
     onChange,
     openOnMount ?? false,
     onCancel,
+    onLeave,
   );
   const reduced = usePrefersReducedMotion();
 

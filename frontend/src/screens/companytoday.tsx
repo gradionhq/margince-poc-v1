@@ -370,7 +370,7 @@ const TODAY_SOURCES: ReadonlyArray<{ section: string; label: MessageKey }> = [
   // Whose move it is and the risk tile both read `state_strip` (whoseMove
   // and openRisk, below) — that is the section name the server actually
   // omits when a caller has no grant on it.
-  { section: "state_strip", label: "today.source.signals" },
+  { section: "state_strip", label: "today.source.standing" },
   { section: "activities", label: "today.source.activities" },
   // The moves themselves: a withheld advice section reads as "nothing to
   // add" from `useSuggestionsBody`, which is the right call for the rows —
