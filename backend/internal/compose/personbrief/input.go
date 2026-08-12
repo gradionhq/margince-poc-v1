@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
@@ -143,28 +144,12 @@ func FromView(view crmcontracts.Person360) Input {
 // fingerprint hashes and the writer reads. The contract types them as an enum;
 // the brief only needs to know which names are in the list.
 func omittedNames(omitted []crmcontracts.Person360SectionsOmitted) []string {
-	if len(omitted) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(omitted))
-	for _, section := range omitted {
-		out = append(out, string(section))
-	}
-	return out
+	return personcontext.OmittedNames(omitted)
 }
 
 // currentEmployer names where this person works now. The 360 sorts the
 // current-primary employment to index zero, so the first row is the answer.
-func currentEmployer(view crmcontracts.Person360) string {
-	if view.Employments == nil || len(view.Employments.Data) == 0 {
-		return ""
-	}
-	first := view.Employments.Data[0]
-	if !first.IsCurrentPrimary || first.OrganizationName == nil {
-		return ""
-	}
-	return *first.OrganizationName
-}
+func currentEmployer(view crmcontracts.Person360) string { return personcontext.CurrentEmployer(view) }
 
 func foldCommercial(in *Input, view crmcontracts.Person360) {
 	if view.Commercial == nil {
@@ -241,12 +226,7 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 // stamp renders an optional instant in one fixed format, so two timestamps
 // compare as strings the way the instants they name compare — and so the
 // fingerprint does not churn on a formatting difference.
-func stamp(at *time.Time) string {
-	if at == nil {
-		return ""
-	}
-	return at.UTC().Format(time.RFC3339)
-}
+func stamp(at *time.Time) string { return personcontext.Stamp(at) }
 
 // Fingerprint keys the cache on everything that could change the text: the
 // assembled input, the prompt version, and the model routing version.

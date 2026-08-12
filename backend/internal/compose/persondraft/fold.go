@@ -13,6 +13,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
@@ -133,16 +134,7 @@ func primaryEmail(person crmcontracts.Person) string {
 
 // currentEmployer names where this person works now. The 360 sorts the
 // current-primary employment to index zero, so the first row is the answer.
-func currentEmployer(view crmcontracts.Person360) string {
-	if view.Employments == nil || len(view.Employments.Data) == 0 {
-		return ""
-	}
-	first := view.Employments.Data[0]
-	if !first.IsCurrentPrimary || first.OrganizationName == nil {
-		return ""
-	}
-	return *first.OrganizationName
-}
+func currentEmployer(view crmcontracts.Person360) string { return personcontext.CurrentEmployer(view) }
 
 func foldCommercial(in *Input, view crmcontracts.Person360) {
 	if view.Commercial == nil {
@@ -350,24 +342,12 @@ func foldRecent(in *Input, view crmcontracts.Person360) {
 // omittedNames renders the withheld sections as plain strings for the writer.
 // The contract types them as an enum; the draft only needs the names.
 func omittedNames(omitted []crmcontracts.Person360SectionsOmitted) []string {
-	if len(omitted) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(omitted))
-	for _, section := range omitted {
-		out = append(out, string(section))
-	}
-	return out
+	return personcontext.OmittedNames(omitted)
 }
 
 // stamp renders an optional instant in one fixed format, so two timestamps
 // compare as strings the way the instants they name compare.
-func stamp(at *time.Time) string {
-	if at == nil {
-		return ""
-	}
-	return at.UTC().Format(time.RFC3339)
-}
+func stamp(at *time.Time) string { return personcontext.Stamp(at) }
 
 // Threaded reports whether a real inbound message earns this draft a reply
 // prefix. Only a message THEY sent counts: our own last outbound carries a
