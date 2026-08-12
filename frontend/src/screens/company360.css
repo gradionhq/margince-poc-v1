@@ -41,7 +41,7 @@
    separator above: a line that wraps never leaves a dot stranded at its
    end. */
 .co-sep {
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 /* The header's description line. */
@@ -71,10 +71,13 @@
   color: var(--textMeta);
 }
 /* The second line: when, not who — quieter than the first so the eye lands
-   on identity before date. */
+   on identity before date. The SIZE carries that, not the colour: this is
+   meta text, and every 11-13px line reads --textMeta to clear AA.
+   --textTertiary is a 3:1 token for marks and rules, and small text set in
+   it fails the contrast law the axe gate holds this page to. */
 .co-meta-quiet {
   font-size: var(--fs-meta);
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 .co-meta-link {
   color: var(--accent);
@@ -1169,7 +1172,7 @@
   letter-spacing: var(--tracking-normal);
   font-size: var(--fs-meta);
   font-weight: var(--fw-regular);
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 /* Each reading keeps its date and its reason in the record it came from. Here
    the detail is what would turn the sentence back into a table. */

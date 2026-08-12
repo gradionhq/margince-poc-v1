@@ -182,11 +182,8 @@ test.describe("company record — the mockup's page shape", () => {
   });
 
   // "Today on this account" and "Worth doing next" merged into one daily
-  // brief (companytoday.tsx), which moved out of the overview column into
-  // the BAND — full width, above the tab bar, on every tab rather than only
-  // Overview. The account brief ("The account, in short") stays where it
-  // was, leading the main column now that the merged brief no longer sits
-  // beside it there.
+  // brief (companytoday.tsx), which LEADS the overview column. The account
+  // brief ("The account, in short") follows it in the same column.
   //
   // Anchored on the rendered HEADING rather than a class: NextSteps draws a
   // bare `.card.co-card` with nothing to name it by, so a class assertion here
@@ -204,10 +201,11 @@ test.describe("company record — the mockup's page shape", () => {
     }
   });
 
-  // The daily brief sits in the band, between the state strip and the tab
-  // bar — so it stays on screen whichever tab is open, the same reason the
-  // strip does.
-  test("the daily brief stays on screen across tabs, not only Overview", async ({
+  // The brief asks for a move on the account, so it belongs to the tab a
+  // reader opens to be told what to do — not to every tab. Someone who has
+  // gone to People or Documents has already chosen what to read, and the
+  // readings above the tab bar are what stays with them there.
+  test("the daily brief leads the overview, and is not drawn on the other tabs", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
@@ -217,7 +215,7 @@ test.describe("company record — the mockup's page shape", () => {
     await expect(brief).toBeVisible();
 
     await page.getByRole("button", { name: "Personen" }).click();
-    await expect(brief).toBeVisible();
+    await expect(brief).toHaveCount(0);
   });
 
   // State A's left column (RecordView's `rail` slot, aria-label "Profile"):
