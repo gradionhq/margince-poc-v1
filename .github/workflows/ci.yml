@@ -45,7 +45,6 @@ jobs:
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
-  #   docker   = the root Dockerfile.* + .dockerignore — gates the image builds
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -56,7 +55,6 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
-      docker: ${{ steps.filter.outputs.docker }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,15 +129,15 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
-            docker:
-              - 'Dockerfile.*'
-              - '.dockerignore'
             # Everything that can change WHICH packages are in the tree, and
             # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
-            # is globbed on purpose: the only lockfile is frontend/pnpm-lock.yaml,
-            # so a bare `pnpm-lock.yaml` matches nothing — and a Renovate
-            # lockfile-only PR, which is precisely where new transitive packages
-            # (and their licenses) enter, would slip past unscanned.
+            # is globbed on purpose: a Renovate lockfile-only PR is precisely
+            # where new transitive packages (and their licenses) enter, and it
+            # must not slip past unscanned. The pattern predates the pnpm
+            # workspace root moving to the repository root — the lockfile is
+            # /pnpm-lock.yaml now, which `**/` still matches because it matches
+            # zero segments, so this keeps firing and needs no edit next time the
+            # workspace moves.
             deps:
               - 'go.work'
               - 'go.work.sum'
@@ -453,6 +451,16 @@ jobs:
         working-directory: .
         run: make check-image-pins
 
+      # The dev stack's published host ports stay below the ephemeral floor.
+      # This one is cheap here and expensive anywhere else: a port inside the
+      # kernel's ephemeral range loses its bind to an unrelated process's client
+      # port only sometimes, so the failure it prevents arrives as a `make db-up`
+      # flake in a job that had nothing to do with ports. Same shape as the pins
+      # above — pure bash, no toolchain, and `make check-backend` runs it too.
+      - name: Dev-stack host ports
+        working-directory: .
+        run: make check-host-ports
+
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
   # package (compose/integration, minutes of serial tests) floors any
@@ -519,7 +527,13 @@ jobs:
           # nproc-derived default leaves the slice mostly waiting on Postgres.
           INTEGRATION_JOBS: 16
         run: make test-integration
+      # `!cancelled()` and not the default success(): a RED shard is exactly when
+      # somebody needs this artifact, and on failure the script writes the
+      # failing packages' logs + a failure-summary.txt into the same directory.
+      # Uploading only on green kept the evidence for the runs that did not need
+      # it and destroyed it with the runner for the runs that did.
       - name: Upload the shard manifest + coverage pods
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: integration-shard-${{ matrix.shard }}
@@ -676,65 +690,25 @@ jobs:
           fi
           make check-ext-migrations
 
-  # The root Dockerfiles (api, web, worker) are consumed only by downstream
-  # deploy tooling — no other job builds them, so without this gate a FROM
-  # bump (Renovate's dockerfile manager auto-merges when green) or a stage
-  # restructure would ship untested: the change matches no other classifier
-  # scope, every meaningful job skips, and the PR looks green. The
-  # `docker-images` fan-in below is the required check; a build the deploy
-  # pipeline would reject fails the merge here instead.
-  docker-image:
-    name: docker image (${{ matrix.role }})
-    needs: [changes]
-    if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      # A broken web image must not hide whether api/worker still build.
-      fail-fast: false
-      matrix:
-        # `role`, not `image`: the check-image-pins gate key-anchors every
-        # `image:` in a workflow as a container reference to digest-check.
-        role: [api, web, worker]
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the image
-        # ONE revision for every role, so the api and the web tier can be
-        # compared at run time. github.sha is immutable for this run; a role
-        # that does not declare the ARG simply ignores it.
-        run: docker build --build-arg MARGINCE_BUILD_REVISION=${{ github.sha }} -f Dockerfile.${{ matrix.role }} .
-
-  # The fan-in — the single required "docker images" context. Static-named
-  # because a path-skipped matrix job reports ONE check run under its
-  # unexpanded name ("docker image (${{ matrix.role }})"), so the expanded
-  # leg names can never be required contexts. Same shape as the integration
-  # fan-in: it must RUN and FAIL when a leg fails — `needs` alone would leave
-  # it skipped, and a skipped required check counts as passing.
+  # The three role images are built, pushed and digest-pinned by release.yml
+  # on every push to main; no PR-side job builds them anymore. Branch
+  # protection still requires the "docker images (api + web + worker)"
+  # context, so this no-op posts it — remove the job together with the
+  # required-context entry in the protection settings.
   docker-images:
     name: docker images (api + web + worker)
-    needs: [changes, docker-image]
-    if: >-
-      !cancelled()
-      && needs.changes.outputs.docker == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
     defaults:
       run:
+        # The workflow default is backend/, which exists only after a checkout
+        # this job doesn't need.
         working-directory: .
     steps:
-      - name: Every image built
-        env:
-          BUILD_RESULT: ${{ needs.docker-image.result }}
-        run: |
-          [ "$BUILD_RESULT" = "success" ] || { echo "docker image builds: $BUILD_RESULT"; exit 1; }
+      - name: No-op — the release build is the image gate
+        run: echo "image builds run in release.yml"
 
   vuln:
     name: govulncheck
@@ -919,7 +893,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          # Root, not frontend/: this branch moved the lockfile to a root pnpm
+          # workspace so a unit's frontend/ can join it.
+          cache-dependency-path: pnpm-lock.yaml
       # This lane compiles the composition generator and then `go run`s cmd/api.
       - name: Restore the Go build cache
         uses: ./.github/actions/go-build-cache
@@ -958,7 +934,7 @@ jobs:
           # module — a stray GOWORK would break its resolution).
           GOWORK="$PWD/../go.work" go run ./tools/gen-composition
           GOWORK="$PWD/../build/composition/go.work" \
-            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:15432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do
@@ -999,7 +975,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       # Go, in the FRONTEND job (ADR-0069). `make check-fe` now covers both SPA
       # lanes, and the composed one needs build/composition/frontend/ — which
       # only gen-composition can produce. There is no Node-only shortcut: the
@@ -1068,7 +1044,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - name: Install deps and the Playwright Chromium browser
         working-directory: frontend
         # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at

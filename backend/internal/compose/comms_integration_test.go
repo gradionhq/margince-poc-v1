@@ -85,11 +85,16 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	anchorID := ids.NewV7()
+	// INBOUND, and that is load-bearing rather than fixture decoration: only a
+	// mail thread somebody actually wrote to us earns a reply prefix
+	// (activities.IsMailThread), so an anchor carrying no direction is a topic
+	// WE picked and is drafted as "About …". This test answers a customer's
+	// mail, so the row has to be one.
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+			INSERT INTO activity (id, workspace_id, kind, direction, subject, occurred_at, source, captured_by)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'email', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
+			        'email', 'inbound', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
 		return err
 	})
 	if err != nil {

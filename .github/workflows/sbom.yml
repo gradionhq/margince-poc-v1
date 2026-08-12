@@ -11,11 +11,13 @@ name: SBOM
 # artifact work nobody waits on: generation, the gate that guards signing, and
 # signing itself.
 #
-# `**/pnpm-lock.yaml`, not `pnpm-lock.yaml`: the only lockfile in the tree is
-# frontend/pnpm-lock.yaml, so the unglobbed pattern matched nothing and a
-# lockfile-only dependency change — the shape Renovate raises most often, and
-# exactly where new transitive packages and their licenses arrive — never
-# triggered this workflow at all.
+# `**/pnpm-lock.yaml`, not `pnpm-lock.yaml`: a lockfile-only dependency change is
+# the shape Renovate raises most often, and exactly where new transitive packages
+# and their licenses arrive, so it must trigger this workflow. The glob was
+# written when the only lockfile was frontend/pnpm-lock.yaml and the unglobbed
+# pattern matched nothing; the pnpm workspace root has since moved to the
+# repository root, and `**/` matches zero segments, so the same pattern covers
+# /pnpm-lock.yaml without an edit.
 on:
   workflow_dispatch:
   push:

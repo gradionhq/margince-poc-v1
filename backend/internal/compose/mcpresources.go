@@ -35,12 +35,15 @@ import (
 //
 // The vocabulary comes FIRST, so a collision resolves to it — see composeResources
 // for why the order is stated rather than incidental.
-func mcpResourceProviders(vocabulary mcp.ResourceProvider, views *apps.Provider) []mcp.ResourceProvider {
+func mcpResourceProviders(capabilities mcp.ResourceProvider, vocabulary mcp.ResourceProvider, views *apps.Provider) []mcp.ResourceProvider {
 	// The write vocabulary is unconditional where the query vocabulary is not:
 	// it is composed from the contract alone, so it has no pool to be missing
 	// and no deployment that can lack it. A record type this build can write is
 	// a record type this document can describe.
-	providers := []mcp.ResourceProvider{vocabulary, agents.RecordFieldsResource{}}
+	// Capabilities is unconditional for the same reason the write vocabulary is:
+	// it is derived from the registry this transport already holds, so there is
+	// no deployment that can serve tools and fail to describe them.
+	providers := []mcp.ResourceProvider{capabilities, vocabulary, agents.RecordFieldsResource{}}
 	// views is nil for a role that composes none — a worker, or an api whose
 	// connector gate is off. composeResources drops it, which is the same
 	// conditional wiring every other injected capability takes.

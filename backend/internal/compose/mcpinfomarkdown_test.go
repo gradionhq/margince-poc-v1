@@ -111,6 +111,44 @@ func writeMCPInfoHead(page *strings.Builder, doc mcpInfo) {
 	page.WriteString("clause the transport appends. The Surface-B listing a run re-sends every step is\n")
 	page.WriteString("smaller — name, description and input schema only — and is held against its own\n")
 	page.WriteString("budget in `agenttooldescriptions_test.go`.\n\n")
+	writeMCPInfoComposition(page, doc.Totals)
+}
+
+// writeMCPInfoComposition prints what the wire total is made of, because the
+// paragraph above has warned in prose since this page existed and the number in
+// the table is still the one people act on.
+//
+// The last column is the point: the largest component is the one no prompt
+// carries, so "shorten the descriptions" attacks a quarter of the bytes and
+// spends the only part with a measured effect on tool selection.
+func writeMCPInfoComposition(page *strings.Builder, totals mcpInfoTotals) {
+	split := totals.Composition
+	page.WriteString("### What the tool catalog is made of\n\n")
+	page.WriteString("| Part | Bytes | Share | In a run's prompt? |\n|---|---:|---:|---|\n")
+	for _, row := range []struct {
+		part   string
+		bytes  int
+		prompt string
+	}{
+		{"Output schemas", split.OutputSchemaBytes, "**No** — a result's shape, never listed to a model"},
+		{"Descriptions (incl. governance clause)", split.DescriptionBytes, "Yes, every step"},
+		{"Input schemas", split.InputSchemaBytes, "Yes, every step"},
+	} {
+		fmt.Fprintf(page, "| %s | %s | %d%% | %s |\n",
+			row.part, humanBytes(row.bytes), row.bytes*100/totals.ToolBytes, row.prompt)
+	}
+	fmt.Fprintf(page, "| _Names, annotations, punctuation_ | %s | %d%% | Partly |\n",
+		humanBytes(totals.ToolBytes-split.OutputSchemaBytes-split.DescAndInputBytes),
+		(totals.ToolBytes-split.OutputSchemaBytes-split.DescAndInputBytes)*100/totals.ToolBytes)
+	fmt.Fprintf(page, "| **Description + input schema** | **%s** | **%d%%** | **the recurring cost** |\n\n",
+		humanBytes(split.DescAndInputBytes), split.DescAndInputBytes*100/totals.ToolBytes)
+	page.WriteString("So the headline total is dominated by the part a model is never charged for, and\n")
+	page.WriteString("descriptions are a minority of it. Trimming the copy to shrink the total trades a\n")
+	page.WriteString("MEASURED gain — the same copy took gemini's tool selection from 0.80 to 0.87, and\n")
+	page.WriteString("one restraint scenario from 0/3 to 3/3 on a single sentence — for bytes that were\n")
+	page.WriteString("not the cost. `agenttooldescriptions_test.go` records that argument and the\n")
+	page.WriteString("budget decision it produced; the room is bought by publishing a vocabulary as a\n")
+	page.WriteString("resource, the way `margince://schema/record-fields` did, not by writing less.\n\n")
 }
 
 func writeMCPInfoIndex(page *strings.Builder, tools []mcpToolEntry, resources []mcpResourceEntry) {

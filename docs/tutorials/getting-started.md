@@ -19,8 +19,8 @@ the commands below work from either directory.
 make db-up
 ```
 
-This starts a `pgvector/pgvector:pg16` container on port 55432 and a
-`redis:7` container on port 56379, waits for Postgres to accept
+This starts a `pgvector/pgvector:pg16` container on port 15432 and a
+`redis:7` container on port 16379, waits for Postgres to accept
 connections, and applies `scripts/db-init.sql` (which creates the
 runtime app role — the API never runs as the schema owner).
 

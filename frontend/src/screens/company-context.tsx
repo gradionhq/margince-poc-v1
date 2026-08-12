@@ -282,8 +282,23 @@ export function CompanyContextCard() {
   });
 
   const startRefresh = useMutation({
-    mutationFn: async () => {
-      const website = form?.website?.trim() ?? "";
+    // The website arrives as the mutation's VARIABLE rather than being read off
+    // `form` through this closure, and that is a correctness fix rather than a
+    // style one. react-query re-arms a mutation's options in a PASSIVE effect,
+    // so between the commit that first renders this control with a loaded
+    // `form` and the effect that hands the observer that render's closure there
+    // is a window where the DOM offers an enabled button and the mutation still
+    // holds the previous closure — the one where `form` was null. A click
+    // landing in that window read "" and told a reader who has a website to add
+    // one. React yields between commit and passive effects, so the window is
+    // real in a browser and merely likelier on a loaded machine; it surfaced as
+    // a flaky company-context suite failing on the guard below.
+    //
+    // A variable cannot be older than the button: the handler only exists in a
+    // render where `form` is non-null, so what it passes is what the field
+    // beside it shows.
+    mutationFn: async (candidate: string) => {
+      const website = candidate.trim();
       if (!website) {
         throwProblem({ title: t("settings.companyWebsiteRequired") });
       }
@@ -421,7 +436,7 @@ export function CompanyContextCard() {
                       disabled={
                         startRefresh.isPending || !(form.website ?? "").trim()
                       }
-                      onClick={() => startRefresh.mutate()}
+                      onClick={() => startRefresh.mutate(form.website ?? "")}
                     >
                       <RefreshCw aria-hidden /> {t("settings.companyRefresh")}
                     </Button>

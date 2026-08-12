@@ -2,7 +2,10 @@
 
 For shipping a bounded add-on — a **jurisdiction pack**, a **governed agent tool**, an **HTTP surface**,
 its **own tables**, its **own secrets** or a **scheduled job** — as a named, versioned unit under
-`extensions/<name>/`, without editing any upstream-owned file. For *why* the seam is a compile-time
+`extensions/<name>/`, without editing any upstream-owned file — with one exception: a unit that ships a
+`frontend/` with npm dependencies of its own also changes the root `pnpm-lock.yaml`, and that lockfile
+diff is reviewed on the same terms as the unit's Go (see
+[explanation/extensibility.md](../explanation/extensibility.md)). For *why* the seam is a compile-time
 declaration and what the surface guarantees, read
 [explanation/extensibility.md](../explanation/extensibility.md) first. For a country pack
 specifically, the live capability is retention floors; the running example below builds one.
@@ -13,10 +16,9 @@ flip. `extensions/notes` is the **reference unit** and exercises every capabilit
 unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
 agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
 
-A unit owns **five** surfaces — tables, an HTTP surface, governed agent tools, secrets and scheduled
-jobs. It does **not** own a screen: `extensions/<name>/frontend/` is still refused on sight by the
-composer. Every composed unit still gets a route at `#/ext/<name>`, rendering a generic card built from
-the operations its contract fragment publishes.
+A unit owns **all six** surfaces, frontend included: `extensions/<name>/frontend/` is a pnpm workspace
+package whose default export the SPA mounts at `#/ext/<name>`. A unit that ships none still gets a
+route and a generic descriptor card automatically.
 
 Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
 a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
@@ -294,6 +296,72 @@ key, err := rt.Secrets().Get(ctx, "signing") // errors.Is(err, extension.ErrSecr
 Declaring grants and stores nothing — it is a request recorded in the manifest. Keys are your unit's own
 bare names, namespaced for you; there is no method that takes another unit's name.
 
+## Own a screen — `frontend/`
+
+Ship `extensions/<name>/frontend/package.json` and the module it names. The package is a workspace
+member, so it may bring its own dependencies; `pnpm install` from the repo root links it.
+
+```json
+{
+  "name": "@margince-ext/<name>",
+  "private": true,
+  "type": "module",
+  "main": "screen.tsx",
+  "peerDependencies": {
+    "@margince/frontend": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
+    "react": "^19.2.0"
+  }
+}
+```
+
+Four rules, each refused at generation because each fails somewhere worse otherwise:
+
+- **`@margince-ext/<name>`, matching the directory.** One workspace holds every enabled unit, so a
+  shared name is two members claiming one identity and pnpm resolves whichever it saw last.
+- **`private: true`.** A workspace member that is not private is one `pnpm publish -r` from a registry.
+- **`main` names a module that exists *inside* your `frontend/`**, and its **default export** is the
+  screen. Relative is required and containment is checked, not just existence: the import gate scans
+  `extensions/*/frontend`, so a `main` of `../elsewhere/screen.tsx` would put your shipped code outside
+  the one thing holding the unit/core boundary.
+- **React, react-dom and `@tanstack/react-query` are PEERS, never dependencies.** Each keeps state the
+  host owns — React's hook dispatcher, react-query's QueryClient context — and a second copy is a
+  second, empty one. This is the rule that fails at *run time* if you get it wrong: hooks throw with a
+  message naming neither the unit nor the cause, or the first `useQuery` reports no QueryClient on a
+  page that plainly has one.
+
+**Import the core only through `@margince/frontend/<subpath>`** — `design-system`, `api`, `app`, as
+published by `frontend/package.json`'s `exports` map. That map is this side's
+`//margince:extension-surface`: the Go tier gets its boundary from the compiler, a bundler gives none,
+so `frontend/scripts/check-ext-imports.sh` is the boundary. It refuses a relative path escaping your
+unit, an unpublished subpath, and any bare specifier your own `package.json` does not declare —
+`devDependencies` count for test files only, so a screen cannot pull a test runner into the bundle.
+
+**Name your page in a level-1 header, exactly once.** The app shell mints the page's `h1` for a core
+screen, but it *yields* to a composed unit — your surface is yours to name, and the shell has no title
+key for a route the NAV rail deliberately does not carry. So your screen's top
+`<SectionHeader …  level={1} />` IS the page's heading, and every header under it stays at the default
+`2`. Leave the top one at the default and your page ships with no heading for a reader to jump to.
+
+The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
+unit exactly as they sweep core.
+
+**Test your screen next to it.** A `*.test.tsx` under your `frontend/` is run by `make fe-test-ext`,
+which `make check-fe` calls — a second vitest lane (`frontend/vitest.ext.config.ts`) rather than files
+added to the core one, because a unit screen reads its copy through the merged catalogue and calls
+routes that exist only in the merged contract, so its suite passes only against a composed tree. The
+lane composes first. Declare `vitest`, `@testing-library/react` and friends in your own
+`devDependencies`: the import gate lets a test file reach them and shipped code not.
+
+**Ship your copy with your screen.** Put one flat JSON object per locale in
+`frontend/i18n/<locale>.json`, keyed `ext<CamelUnit>.` — `extNotes.notes.add`. `<CamelUnit>` title-cases
+each hyphen-separated segment, and marks a segment that starts with a DIGIT with a leading underscore
+(`crm-2-x` → `extCrm_2X.`) so that two distinct unit names can never derive one prefix — `foo-1` and
+`foo1` would otherwise both claim `extFoo1.`. The composer merges
+them into the one catalogue, so `useT()` resolves your keys and core's through the same lookup. Supply
+**every** locale the installation ships (en, de, vi) or generation refuses: a reader of the missing one
+gets a blank screen. Keys outside your namespace are refused too — a unit does not rewrite core copy.
+
 ## Own scheduled jobs
 
 Declare **two kinds** in `api/jobs.yaml`: a cadenced `dispatcher` that fans out over the live fleet, and a
@@ -320,11 +388,11 @@ Jobs: []extension.Job{{Name: "heartbeat", Handle: heartbeat}},
 A job handler takes `(ctx, rt)` and no arguments — a tick has no caller. It cannot be confirm-first and
 it cannot request an outbound scope; both are refused at boot.
 
-> **Know before you ship a cadence:** nothing in the product creates an agent seat yet (**#656**), and a
-> tick needs one to name its initiator. A workspace with no agent seat is **skipped**, and the count is
-> reported as `margince_extension_job_seatless_workspaces` on the worker's `/metrics`. So on a fresh
-> installation your job will not run at all until an operator inserts a seat — pick a cadence that is
-> honest about that, and do not treat a silent job as a broken one without checking the gauge.
+> **Know before you ship a cadence:** a tick needs the workspace's agent seat to name its initiator.
+> Bootstrap writes one, so a fresh installation runs your job — but an operator who archives or
+> deactivates that seat silently stops every scheduled job at once. Such a workspace is **skipped**,
+> and the count is reported as `margince_extension_job_seatless_workspaces` on the worker's
+> `/metrics`. Do not treat a silent job as a broken one without reading that gauge first.
 
 ## Write the unit's own test
 
@@ -378,10 +446,9 @@ have to regenerate the composition and run the gates:
    resolved the empty-tree registry and every unit route answered "no extension named …" while the
    api served it perfectly.)
 
-   A **scheduled job** needs one more thing that no product path creates yet: the workspace's agent
-   seat. Without it every tick fails at the authority derivation — see
-   [margince-poc-v1#656](https://github.com/gradionhq/margince-poc-v1/issues/656), which carries the
-   reproduction and the one-statement workaround.
+   A **scheduled job** needs the workspace's agent seat, which bootstrap writes. A database
+   bootstrapped before that landed gets it from the `0216_agent_seat_backfill` migration, so run
+   `make migrate` before wondering why a tick never fires.
 
 Push only once `make check` is **green** — not red, not still running. The vanilla stub check keeps
 passing because it's keyed on the *empty* `extensions/` tree; your unit only changes the composed
@@ -407,15 +474,21 @@ tracked `composition/` stub unchanged unless you are deliberately changing the v
 off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
 merge only when the gates are green.
 
-**Removal is the unit's directory and nothing else**, and this is the whole recipe:
+**Removal is the unit's directory and nothing else**, and this is the whole recipe — run end to end
+against `notes`, with the gate green afterwards:
 
 ```bash
 git rm -r extensions/<name>
+rm -rf extensions/<name>   # the IGNORED install output git rm leaves behind
+pnpm install               # prune the workspace member from the lockfile
 make check-q
 ```
 
-`git rm`, never `mv`: a moved directory is still a directory under `extensions/`, and presence under
-`extensions/` IS enablement.
+The `rm -rf` is not tidiness: `git rm` takes the tracked files and leaves `node_modules`, so the
+directory survives holding nothing a human wrote — and presence under `extensions/` IS enablement, so
+the composer still sees a unit. It says exactly that if you forget.
+
+`git rm`, never `mv`: a moved directory is still a directory under `extensions/`.
 
 No core file is edited, and no core TEST needs touching. Removal
 *disables* cleanly — routes 404, the inventory omits the unit, migrations skip it — but it does **not

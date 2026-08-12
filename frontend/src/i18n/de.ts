@@ -3533,6 +3533,10 @@ export const de = {
   "users.deactivateConfirmTitle": "{name} deaktivieren?",
   "users.deactivateConfirmBody":
     "Die Person wird überall abgemeldet und ihre Agent-Pässe werden sofort widerrufen. Du kannst sie später reaktivieren, aber sie muss sich dann neu anmelden.",
+  "users.deactivateAgentConfirmBody":
+    "Das ist die Agent-Identität dieses Arbeitsbereichs. Wird sie deaktiviert, laufen alle Jobs ohne Person dahinter nicht mehr — Erweiterungen eingeschlossen — bis du sie reaktivierst. Kein Mensch verliert Zugriff: Sie meldet sich nirgends an.",
+  "users.agentSeat": "Agent",
+  "users.agentSeatRole": "Handelt mit einem Pass, nicht mit einer Rolle",
   "users.roleLabel": "Rolle für das neue Mitglied",
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",

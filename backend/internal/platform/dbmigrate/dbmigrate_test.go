@@ -131,3 +131,41 @@ func TestTrackingTableRefusesUnspellableNamespaces(t *testing.T) {
 		}
 	}
 }
+
+// A version applied under a different name is a renumber, and it must stop the
+// run rather than read as done.
+//
+// The failure it prevents is silent: the database recorded 0209 against a
+// migration that has since become 0211, so the 0209 now on disk — an unrelated
+// migration — would be skipped as already applied and never create anything it
+// declares. Nothing later reports that; the first symptom is a missing
+// relation at runtime, long after the deploy that caused it.
+func TestALedgerRowNamingADifferentMigrationStopsTheRun(t *testing.T) {
+	t.Parallel()
+	applied := map[string]string{"0209": "drop_workspace_identity_columns"}
+
+	err := assertLedgerMatches("core", applied, Migration{Version: "0209", Name: "person_record_page_v2"})
+	if err == nil {
+		t.Fatal("a version applied under another name read as a match; the migration on disk would be skipped as done")
+	}
+	for _, want := range []string{"drop_workspace_identity_columns", "person_record_page_v2", "dev-fresh"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name both migrations and the repair; %q is missing from %q", want, err)
+		}
+	}
+}
+
+// The same version under the same name is an ordinary already-applied
+// migration, and an unrecorded version is ordinary work to do. Neither may
+// trip the guard, or every run would refuse.
+func TestALedgerRowMatchingItsMigrationIsNotARenumber(t *testing.T) {
+	t.Parallel()
+	applied := map[string]string{"0209": "person_record_page_v2"}
+
+	if err := assertLedgerMatches("core", applied, Migration{Version: "0209", Name: "person_record_page_v2"}); err != nil {
+		t.Errorf("an exact match refused: %v", err)
+	}
+	if err := assertLedgerMatches("core", applied, Migration{Version: "0210", Name: "consumer_mail_create_grant"}); err != nil {
+		t.Errorf("an unapplied version refused: %v", err)
+	}
+}

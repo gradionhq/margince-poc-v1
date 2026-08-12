@@ -354,3 +354,75 @@ func (g *countingConsentGate) RequireGrantedForEmails(context.Context, []string,
 	g.calls++
 	return nil
 }
+
+// A record named twice is filed once. uq_activity_link says a link is one row
+// per record, so the repeat used to reach the insert and raise a unique
+// violation — a 500 at the very end of the send, and for an agent's approved
+// retry a 500 that had already consumed the human's one-shot approval.
+func TestARepeatedLinkIsFiledOnceRatherThanRaisingAUniqueViolation(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	stager := &recordingStager{}
+	repeated := FromAccount([]ActivityLinkInput{
+		{EntityType: "organization", EntityID: org},
+		{EntityType: "organization", EntityID: org},
+	})
+
+	sent, err := e.accountStore().SendEmail(
+		e.as(principal.RowScopeAll), repeated, sendInput("transactional"), stubConsentGate{}, stager)
+	if err != nil {
+		t.Fatalf("send naming the same record twice: %v", err)
+	}
+	if sent.Links == nil || len(*sent.Links) != 1 {
+		t.Fatalf("wrote links %v, want the one record filed once", sent.Links)
+	}
+}
+
+// Every link costs its own row-scoped probe, and the array is the caller's to
+// choose, so the list is bounded before any of those queries runs. The bound is
+// the contract's own `maxItems`, and it holds for a human's send as much as for
+// an agent's — the tool surface refuses the same count earlier so that no
+// approval is minted for a call this would reject.
+func TestASendFiledUnderMoreRecordsThanTheBoundIsRefusedBeforeItProbesAnything(t *testing.T) {
+	e := setupSend(t)
+	stager := &recordingStager{}
+	links := make([]ActivityLinkInput, maxActivityLinks+1)
+	for i := range links {
+		links[i] = ActivityLinkInput{EntityType: "organization", EntityID: ids.NewV7()}
+	}
+
+	_, err := e.accountStore().SendEmail(
+		e.as(principal.RowScopeAll), FromAccount(links), sendInput("transactional"), stubConsentGate{}, stager)
+
+	var tooMany *TooManyLinksError
+	if !errors.As(err, &tooMany) {
+		t.Fatalf("send naming %d records = %v, want a TooManyLinksError", len(links), err)
+	}
+	if field, code, _ := tooMany.FieldFault(); field != "links" || code != "too_many_links" {
+		t.Errorf("FieldFault = %s/%s, want links/too_many_links so the caller is told what to shorten", field, code)
+	}
+	if len(stager.staged) != 0 {
+		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
+// The bound is applied at the WRITE, not only on the send path's probe, so a
+// booking — which reaches the timeline through the same insert and never passes
+// probeLinkTargets — meets it too.
+func TestTheLinkBoundHoldsAtTheWriteItself(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	links := make([]ActivityLinkInput, maxActivityLinks+1)
+	for i := range links {
+		links[i] = ActivityLinkInput{EntityType: "organization", EntityID: org}
+	}
+
+	_, _, err := e.store(stubUnsubscribeLinker{}).LogActivity(e.as(principal.RowScopeAll), LogActivityInput{
+		Kind: "note", Source: "manual", Links: links,
+	})
+
+	var tooMany *TooManyLinksError
+	if !errors.As(err, &tooMany) {
+		t.Fatalf("logging an activity with %d links = %v, want a TooManyLinksError", len(links), err)
+	}
+}

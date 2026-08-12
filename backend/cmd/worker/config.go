@@ -76,7 +76,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for a marketing send from the Surface-B agent run")
 	env.String(fs, &cfg.configPath, "config", "MARGINCE_CONFIG", "margince.yaml",
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
-	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:56379", "Redis address (event bus)")
+	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:16379", "Redis address (event bus)")
 	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")

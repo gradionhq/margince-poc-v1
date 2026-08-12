@@ -21,7 +21,7 @@ MARGINCE_OWNER_DSN="<the owner DSN>" go run ./cmd/migrate up
 
 The DSN reaches the command through the environment rather than argv — it carries
 a password, and argv is world-readable. The recipe announces its target with the
-credential stripped (`postgres://***@localhost:55432/margince`), so `migrate-down`
+credential stripped (`postgres://***@localhost:15432/margince`), so `migrate-down`
 says which database it is about to revert.
 
 ## Direct invocation

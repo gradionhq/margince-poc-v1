@@ -1,0 +1,5 @@
+{
+  "name": "margince",
+  "private": true,
+  "description": "Workspace root. pnpm needs a manifest where the workspace is rooted, and the workspace is rooted here so a unit's extensions/<name>/frontend package can be a member. Nothing is built from this file — the SPA is frontend/, and every script still lives there. It declares no packageManager on purpose: CI pins pnpm through pnpm/action-setup, and a second source of that version is what ERR_PNPM_BAD_PM_VERSION is about."
+}

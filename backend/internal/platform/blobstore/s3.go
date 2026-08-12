@@ -19,7 +19,7 @@ import (
 // tenant secrets and never sourced from the keyvault (a cold boot must reach
 // the store before any vault exists).
 type Config struct {
-	Endpoint  string // host:port, no scheme (e.g. "localhost:59000")
+	Endpoint  string // host:port, no scheme (e.g. "localhost:29000")
 	AccessKey string
 	SecretKey string
 	Bucket    string

@@ -1,0 +1,44 @@
+{
+  // The COMPOSED lane's TESTS — the fourth project, and the one that closes
+  // the tree's last typecheck gap.
+  //
+  // A unit's screen lives in its own package, outside src entirely, so neither
+  // vanilla project sees it (its calls reach routes only a composed
+  // installation serves, which is correctly a type error there). And
+  // tsconfig.composed.json excludes *.test.* like every other project. Between
+  // them a unit screen's test file was compiled by nothing: vitest transpiles
+  // without typechecking, so a fixture whose shape had drifted from the
+  // contract would run green forever.
+  //
+  // A fourth project rather than dropping the test exclusion from
+  // tsconfig.composed.json: that project's job is to prove the SHIPPED sources
+  // compile against the merged contract, and folding test files into it would
+  // mean a broken fixture failed the gate that is supposed to be reporting on
+  // the product. Two questions, two answers.
+  "extends": "./tsconfig.composed.json",
+  "compilerOptions": {
+    "composite": false,
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.composed-tests.tsbuildinfo",
+    // Tests reach for expect/describe and the jsdom globals the app does not.
+    "types": ["vite/client", "node"]
+  },
+  // The unit packages and their tests. Everything under src is already covered
+  // by the app and node projects; re-including it here would typecheck the
+  // whole tree a third time for nothing.
+  //
+  // A glob rather than a list, so a unit joins this gate by existing — the same
+  // property presence-is-enablement gives every other layer.
+  //
+  // The committed screen stub is included beside it for one reason: TypeScript
+  // treats a project whose include matches NOTHING as an error (TS18003), and
+  // on a tree with no frontend-bearing unit the glob matches nothing. Without
+  // an always-present input, removing the last such unit would fail this gate —
+  // and "the tier works until you use none of it" is not a property worth
+  // shipping. The stub is a real module and costs a few milliseconds to check.
+  "include": [
+    "../extensions/*/frontend/**/*",
+    "src/composition/extscreens.gen.ts"
+  ],
+  // The inherited exclusion, undone. This project exists FOR the test files.
+  "exclude": []
+}

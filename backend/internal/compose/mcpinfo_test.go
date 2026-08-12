@@ -61,8 +61,9 @@ const mcpInfoNote = "Generated from the served MCP surface by " +
 	"This is the ALL-SCOPE view: tools/list and resources/list are both filtered per caller, so a " +
 	"passport holding fewer scopes is served less than this. It is the CORE catalog: extension units " +
 	"register onto the same registry and are not composed here. It is captured as an Apps-capable " +
-	"host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; a client that does not " +
-	"declare the UI extension is served no such member. The `ui://` view descriptors ARE " +
+	"host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; only a MODERN request " +
+	"that declined the UI extension is served no such member — the handshake era, which has no way " +
+	"to declare one, is served views. The `ui://` view descriptors ARE " +
 	"included, and a deployment publishes each only once its boot has fetched and admitted that " +
 	"document, so an api serving neither advertises neither."
 
@@ -99,13 +100,43 @@ type mcpInfo struct {
 // prevent. The ~4-bytes rule is the same one the window estimates with, so the
 // figure is an estimate of the same KIND, not of the same thing.
 type mcpInfoTotals struct {
-	Tools          int    `json:"tools"`
-	Resources      int    `json:"resources"`
-	ToolBytes      int    `json:"tool_catalog_bytes"`
-	ResourceBytes  int    `json:"resource_catalog_bytes"`
-	ApproxTokens   int    `json:"approx_wire_tokens_total"`
-	LargestToolB   int    `json:"largest_tool_bytes"`
-	LargestToolNam string `json:"largest_tool"`
+	Tools          int                `json:"tools"`
+	Resources      int                `json:"resources"`
+	ToolBytes      int                `json:"tool_catalog_bytes"`
+	ResourceBytes  int                `json:"resource_catalog_bytes"`
+	ApproxTokens   int                `json:"approx_wire_tokens_total"`
+	LargestToolB   int                `json:"largest_tool_bytes"`
+	LargestToolNam string             `json:"largest_tool"`
+	Composition    mcpInfoComposition `json:"tool_catalog_composition"`
+}
+
+// mcpInfoComposition splits the tool catalog into its parts, because the total
+// above is prose-warned and still misread: the comment on mcpInfoTotals says
+// the wire figure is not the per-step one, and a reader looking at a TABLE of
+// bytes reaches for the biggest number in it anyway.
+//
+// The split is published so the arithmetic argues for itself. Output schemas
+// are the largest single component and appear in NO run's prompt — the runner's
+// listing renders name, description and input schema alone — so a reader who
+// shortens descriptions to bring the headline down is paying with the one
+// component measured to move tool selection (agenttooldescriptions_test.go
+// records the copy taking gemini 0.80 -> 0.87) to save bytes nothing was ever
+// charged for.
+//
+// DescriptionBytes counts decoded text and the schema fields count served JSON,
+// so these are the reviewable magnitudes of each part rather than addends of
+// ToolBytes: names, annotations and per-entry punctuation are outside them and
+// the sum is deliberately short of the total.
+//
+// Neither is the runner's number. DescAndInputBytes is the pair that survives
+// into a listing, NOT a prediction of what ToolListing renders — that has its
+// own format and its own budget, and restating it here would recreate the exact
+// conflation this type exists to break.
+type mcpInfoComposition struct {
+	DescriptionBytes  int `json:"description_bytes"`
+	InputSchemaBytes  int `json:"input_schema_bytes"`
+	OutputSchemaBytes int `json:"output_schema_bytes"`
+	DescAndInputBytes int `json:"description_plus_input_schema_bytes"`
 }
 
 func TestPublishedMCPSurfaceMatchesWhatAClientIsServed(t *testing.T) {
@@ -147,6 +178,7 @@ func mcpInfoDocument(t *testing.T, tools, resources json.RawMessage) mcpInfo {
 			ApproxTokens:   (len(tools) + len(resources)) / 4,
 			LargestToolB:   size,
 			LargestToolNam: name,
+			Composition:    toolCatalogComposition(t, tools),
 		},
 		Tools:     tools,
 		Resources: resources,
@@ -272,7 +304,8 @@ func mcpCall(t *testing.T, method, extraParams, name string, views *apps.Provide
 		// the dispatcher's own, applied behind this door, so what the artifact
 		// records is the narrowed catalogue a caller is really served.
 		agents.WithResourceProvider(composeResources(
-			mcpResourceProviders(search.NewQuerySchemaResource(queryVocabulary(nil)), views)...)),
+			mcpResourceProviders(agents.NewCapabilitiesResource(NewRegistry(nil, SendPath{})),
+				search.NewQuerySchemaResource(queryVocabulary(nil)), views)...)),
 		// A tool names its view only where the deployment HOLDS that document,
 		// which is the same promise the protocol makes: a `_meta.ui.resourceUri`
 		// pointing at a document the server will not serve is a dangling
@@ -356,9 +389,39 @@ func countMembers(t *testing.T, result json.RawMessage, member string) int {
 	return len(entries)
 }
 
+// toolCatalogComposition sizes each part of the served tool catalog.
+//
+// It walks the SERVED payload rather than the registry, for the same reason the
+// page is rendered from the published document: a walk of the specs would size
+// what this package believes is advertised, and the whole question here is what
+// a client is actually charged for.
+//
+// It decodes into mcpToolEntry rather than a shape of its own. A second
+// spelling of the same three members would carry its own camelCase exemptions
+// and could drift from what the page reads, which is the drift this whole
+// artifact exists to prevent.
+func toolCatalogComposition(t *testing.T, result json.RawMessage) mcpInfoComposition {
+	t.Helper()
+	var decoded struct {
+		Tools []mcpToolEntry `json:"tools"`
+	}
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("sizing the parts of the tool catalog: %v", err)
+	}
+	var split mcpInfoComposition
+	for _, tool := range decoded.Tools {
+		split.DescriptionBytes += len(tool.Description)
+		split.InputSchemaBytes += len(tool.InputSchema)
+		split.OutputSchemaBytes += len(tool.OutputSchema)
+	}
+	split.DescAndInputBytes = split.DescriptionBytes + split.InputSchemaBytes
+	return split
+}
+
 // largestTool names the entry a reader should look at first when the catalog
 // grows. One tool carrying a per-type vocabulary is how this surface reached
 // its budget once already, and a total alone does not say which one.
+
 func largestTool(t *testing.T, result json.RawMessage) (string, int) {
 	t.Helper()
 	var decoded struct {

@@ -15,7 +15,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 | `dev-fresh` | `make dev-fresh [DEV_SLUG=<slug>]` — `dev` onto a **rebuilt** database: drops it, re-migrates, and boots the installation a first customer gets. Plain `dev` keeps whatever data is there, so a restart for a backend change never costs you a half-finished record |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — bare, it stops **every** dev stack on the machine and frees the ports (the mirror of what `dev` sweeps); with `DEV_SLUG` just that one. `DROP=1` also drops the per-slug `margince_dev_*` databases — never the shared `margince` |
 | `dev-logs` | `make dev-logs [DEV_SLUG=<slug>] [ROLE=api\|worker\|fe\|boot] [LEVEL=debug\|info\|warn\|error] [ALL=1] [FOLLOW=0 N=<n>]` — follow `.tmp/dev/<slug>/dev.log` coloured by process and severity. api, worker and Vite all append to that one file, so `make dev` tags each line with the process that wrote it. At `MARGINCE_LOG_LEVEL=debug` the writer also colours the tag and severity **in the file**, so a plain `tail -f` is readable on its own; at info level the file stays plain text so `grep` and editors see clean lines. This view strips whatever colour is there and repaints, so its filters work either way. The job-queue (River) heartbeat is hidden by default because at `MARGINCE_LOG_LEVEL=debug` it repeats every few seconds and pushes real lines off the screen; `ALL=1` restores it. `LEVEL` is a floor, so `LEVEL=warn` shows warnings **and** errors. A dev view only: the servers' own output is unchanged plain text for a log collector |
-| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
+| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 15432) and Redis 7 (port 16379) containers, create the app role (`infra-up` is an alias) |
 | `db-init` | (Re)apply `scripts/db-init.sql` to the running Postgres |
 | `migrate` | Apply core + custom migrations with the owner DSN |
 | `infra-down` | Stop the dev containers but keep the data volumes |
@@ -66,6 +66,7 @@ root gates (each is a small script; all merge-blocking):
 | Target | What it does |
 |---|---|
 | `check-image-pins` | Every workflow `uses:` and container `image:` is pinned to an immutable ref |
+| `check-host-ports` | Every host port published by `infra/docker-compose.dev.yml` is below the ephemeral floor (32768), so `db-up` cannot lose a bind to a transient client port |
 | `contract-breaking-check` | oasdiff severity gate on `api/crm.yaml` vs `origin/main` (breaking change fails; additive passes) |
 | `test-lanes` | Hermetic-unit-lane check: no untagged test opens a real Postgres/Redis |
 | `go-file-length` | Hard 500-LOC cap on hand-written **product** Go, ratcheted via `scripts/go-file-length-waivers.txt`. Test and generated files are exempt here — `*_test.go` is bounded at 1000 lines by the craft gate instead |
@@ -108,7 +109,7 @@ root gates (each is a small script; all merge-blocking):
 ## Isolated stack per worktree
 
 `make dev DEV_SLUG=<slug>` runs a full stack that won't collide with another
-worktree's: the ONE shared infra (Postgres/Redis on `55432`/`56379`), but a
+worktree's: the ONE shared infra (Postgres/Redis on `15432`/`16379`), but a
 private database `margince_dev_<slug>` and api/FE ports derived
 deterministically from the slug (the FE's `/v1` proxy follows the api via
 `BACKEND_PORT`). Logs + stop handle live under `.tmp/dev/<slug>/`. Bare
@@ -145,7 +146,7 @@ Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `m
 
 ## Variables
 
-`GO`, `PG_PORT` (55432), `REDIS_PORT` (56379), `DB_NAME` (margince),
+`GO`, `PG_PORT` (15432), `REDIS_PORT` (16379), `DB_NAME` (margince),
 `OWNER_DSN`, `APP_DSN` — all overridable (`make migrate PG_PORT=5432`).
 The Makefile exports `MARGINCE_ENV=dev` and the `MARGINCE_TEST_*`
 variables so tests find the dev containers.

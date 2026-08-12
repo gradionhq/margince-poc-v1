@@ -37,14 +37,22 @@ import (
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
 
-// WithPasswordReset wires the A74 forgot-password flow's transport onto
-// the identity surface: the operator's transactional mailer. Without it
-// forgot-password answers its explicit 501 and the capabilities probe
-// reports password_reset=false (A107 — the login UI renders only what
-// works). The link base is NOT wired here; it arrives through
-// WithPublicBaseURL, because an installation with no mailer still builds
-// set-password links (ADR-0061 Amendment 1).
-func WithPasswordReset(m mailer.Mailer) Option {
+// WithOperatorMail wires the operator's own transactional mailer — the
+// ADR-0056 transport the INSTALLATION sends through, as distinct from a
+// rep's mailbox, which is what correspondence goes out on.
+//
+// It is named for the transport rather than for one consumer because it
+// has more than one. Password reset is the consumer that exists today, and
+// the invite mail rides the same door; the emailed daily digest
+// (UC-NOTIFY-03) is the next one, and it would otherwise have had to be
+// wired through an option whose name says password reset.
+//
+// Without it, forgot-password answers its explicit 501 and the
+// capabilities probe reports password_reset=false (A107 — the login UI
+// renders only what works). The link base is NOT wired here; it arrives
+// through WithPublicBaseURL, because an installation with no mailer still
+// builds set-password links (ADR-0061 Amendment 1).
+func WithOperatorMail(m mailer.Mailer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.authHandlers = s.WithPasswordReset(m)
 	}

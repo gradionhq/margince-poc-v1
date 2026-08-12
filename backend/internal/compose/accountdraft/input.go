@@ -15,8 +15,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -27,6 +30,11 @@ type Input struct {
 	// Intent is the caller's own steering ("shorter", "ask for Tuesday"). The
 	// one field they typed, and the one field not fenced.
 	Intent string `json:"intent,omitempty"`
+
+	// Envelope is the correspondence this draft is written into: its language,
+	// how long it has been silent, the current time and who is signing it.
+	// Server-derived, never read out of the counterparty's own text.
+	Envelope draftfloor.Envelope `json:"envelope"`
 
 	Company  string `json:"company"`
 	Industry string `json:"industry,omitempty"`
@@ -142,6 +150,7 @@ func FromView(
 	}
 	in := Input{
 		Intent:     strings.TrimSpace(req.Intent),
+		Envelope:   req.Envelope,
 		Company:    view.Organization.DisplayName,
 		Recipient:  recipientOf(contact),
 		Recent:     foldRecent(view),
@@ -208,6 +217,52 @@ func foldCommitment(view crmcontracts.Organization360) *TaskIn {
 		out.Due = step.DueAt.UTC().Format(rfc3339)
 	}
 	return &out
+}
+
+// ConversationState reads where this account's correspondence stands off the
+// view's own last-message stamps.
+//
+// Both are absent when the caller holds no activity grant, which reads as a
+// first touch. That is the conservative end of the axis and the right answer
+// here: a caller who cannot see the history has no basis for a draft that
+// refers to it.
+func ConversationState(view crmcontracts.Organization360, now time.Time) convstate.State {
+	return convstate.Classify(now, instant(view.LastInboundAt), instant(view.LastOutboundAt))
+}
+
+// instant reads one optional stamp, treating an absent one as never.
+func instant(at *time.Time) time.Time {
+	if at == nil {
+		return time.Time{}
+	}
+	return *at
+}
+
+// CorrespondenceText is what this account has been written to and from,
+// newest first, for detecting the language its correspondence runs in.
+//
+// Subjects and bodies both, because a subject line rarely carries enough words
+// to clear the detector's floor on its own. This drafter opens a new
+// conversation, so the text is evidence about the ACCOUNT's language rather
+// than about a thread being answered — a German account gets a German first
+// touch even though nothing is being replied to.
+func CorrespondenceText(view crmcontracts.Organization360) string {
+	if view.Activities == nil {
+		return ""
+	}
+	var text strings.Builder
+	for i, act := range view.Activities.Data {
+		if i == draftInputActivities {
+			break
+		}
+		if act.Subject != nil {
+			text.WriteString(*act.Subject + "\n")
+		}
+		if act.Body != nil {
+			text.WriteString(*act.Body + "\n\n")
+		}
+	}
+	return text.String()
 }
 
 func foldRecent(view crmcontracts.Organization360) []ActIn {

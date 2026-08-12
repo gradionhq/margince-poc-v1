@@ -389,6 +389,20 @@ describe("PageHead", () => {
     expect(document.body.textContent).not.toContain("nope");
   });
 
+  // An extension route the installation does NOT answer keeps the unknown-page
+  // heading, and that is the deliberate half of the head's yield to a unit: the
+  // yield is conditioned on the descriptor resolving, so a hand-typed
+  // `#/ext/<anything>` is an unknown page here exactly as it is under the head,
+  // where the screen says so in words. This is the vanilla registry, where EVERY
+  // unit route is unknown — the composed half is pinned in App.extscreen.test.tsx.
+  it("names an extension route this installation did not compose", () => {
+    render(<PageHead route={{ screen: "ext", id: "notes" }} />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Not found" }),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("notes");
+  });
+
   // A record names itself: its surface prints the identity block, and that is
   // the page's one h1. The head yields — it prints the trail that leads here
   // and nothing at heading level, or the document would offer two page titles

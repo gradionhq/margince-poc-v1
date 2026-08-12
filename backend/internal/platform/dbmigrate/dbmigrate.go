@@ -129,7 +129,10 @@ func Up(ctx context.Context, conn *pgx.Conn, namespaces ...Namespace) (applied i
 		}
 
 		for _, m := range ns.Migrations {
-			if done[m.Version] {
+			if err := assertLedgerMatches(ns.Name, done, m); err != nil {
+				return applied, err
+			}
+			if _, isDone := done[m.Version]; isDone {
 				continue
 			}
 			if err := inTx(ctx, conn, func(tx pgx.Tx) error {
@@ -168,7 +171,14 @@ func Down(ctx context.Context, conn *pgx.Conn, ns Namespace, n int) (reverted in
 
 	for i := len(ns.Migrations) - 1; i >= 0 && reverted < n; i-- {
 		m := ns.Migrations[i]
-		if !done[m.Version] {
+		// Checked on the way down too, and for a sharper reason: reverting a
+		// version whose ledger row names a different migration would run THIS
+		// migration's down against a schema the other one built, then delete
+		// the row that was the only record either had been applied.
+		if err := assertLedgerMatches(ns.Name, done, m); err != nil {
+			return reverted, err
+		}
+		if _, isDone := done[m.Version]; !isDone {
 			continue
 		}
 		if err := inTx(ctx, conn, func(tx pgx.Tx) error {
@@ -234,22 +244,51 @@ func trackingTable(ctx context.Context, conn *pgx.Conn, namespace string) (strin
 	return table, nil
 }
 
-func appliedVersions(ctx context.Context, conn *pgx.Conn, table string) (map[string]bool, error) {
-	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT version FROM %s`, table))
+// appliedVersions returns version → the NAME it was applied under.
+//
+// The name is read, not just the version, because the ledger is the only place
+// a renumber is visible. A version recorded under a different name is a
+// database that applied some other migration in that slot — and matching on
+// the version alone makes the two indistinguishable, so the migration actually
+// sitting there is skipped silently and forever.
+func appliedVersions(ctx context.Context, conn *pgx.Conn, table string) (map[string]string, error) {
+	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT version, name FROM %s`, table))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	done := map[string]bool{}
+	done := map[string]string{}
 	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
+		var version, name string
+		if err := rows.Scan(&version, &name); err != nil {
 			return nil, err
 		}
-		done[v] = true
+		done[version] = name
 	}
 	return done, rows.Err()
+}
+
+// assertLedgerMatches refuses when a version was applied under a different
+// name than the source carries.
+//
+// It is a stop, not a warning, because every continuation from here is wrong
+// in a way nothing later reports. The migration recorded in that slot is not
+// the one on disk, so this run would skip the on-disk one as done; the obvious
+// manual repair — inserting the new version's row — leaves the database
+// permanently missing whatever the skipped migration created, with no failure
+// to point at it. A renumbered migration cannot be reconciled forward: the
+// database has to be rebuilt (make dev-fresh).
+func assertLedgerMatches(namespace string, done map[string]string, m Migration) error {
+	recorded, ok := done[m.Version]
+	if !ok || recorded == m.Name {
+		return nil
+	}
+	return fmt.Errorf(
+		"pgmigrate: %s %s: applied as %q, but the source at that version is %q — this database "+
+			"applied a migration that has since been renumbered, so %q would be skipped as done. "+
+			"It cannot be repaired forward; rebuild the database (make dev-fresh)",
+		namespace, m.Version, recorded, m.Name, m.Name)
 }
 
 func inTx(ctx context.Context, conn *pgx.Conn, fn func(pgx.Tx) error) error {

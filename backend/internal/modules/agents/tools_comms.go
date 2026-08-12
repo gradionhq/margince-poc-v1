@@ -14,7 +14,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,6 +29,11 @@ import (
 type Comms interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
 	SendEmail(ctx context.Context, anchor ids.UUID, in SendEmailArgs) (SendEmailResult, error)
+	// SendAccountEmail starts a NEW conversation instead of continuing one
+	// (ADR-0087). It takes no anchor — there is no prior message, and the
+	// product refuses to fabricate a placeholder activity to obtain one — so
+	// the records the message is filed under are named instead of inherited.
+	SendAccountEmail(ctx context.Context, links []RecordLink, in SendEmailArgs) (SendEmailResult, error)
 	// SendMessage replies on a captured channel conversation. It takes no
 	// addressee: the recipient is the person the anchor conversation is with,
 	// resolved server-side, so a reply can only reach the human who opened it.
@@ -61,26 +65,23 @@ type SendMessageArgs struct {
 }
 
 type BookMeetingArgs struct {
-	HostUserID *ids.UUID `json:"host_user_id"`
-	Start      time.Time `json:"start"`
-	End        time.Time `json:"end"`
-	Subject    string    `json:"subject"`
-	Links      []struct {
-		EntityType string   `json:"entity_type"`
-		EntityID   ids.UUID `json:"entity_id"`
-	} `json:"links"`
+	HostUserID *ids.UUID    `json:"host_user_id"`
+	Start      time.Time    `json:"start"`
+	End        time.Time    `json:"end"`
+	Subject    string       `json:"subject"`
+	Links      []RecordLink `json:"links"`
 }
 
-// RegisterCommsTools wires the five verbs over the injected seam. The provider
-// is the record reader the three 🟡 verbs stage against; draft_email and
+// RegisterCommsTools wires the six verbs over the injected seam. The provider
+// is the record reader the four 🟡 verbs stage against; draft_email and
 // check_availability propose nothing durable and never read it.
 //
 // A nil comms seam is a legal composition and registers nothing — the verbs
-// simply are not offered. A nil provider is NOT: the three 🟡 verbs would
+// simply are not offered. A nil provider is NOT: the four 🟡 verbs would
 // register, advertise themselves on tools/list, and then dereference it the
 // first time a human-approvable call was staged. Failing at wiring time is the
 // difference between a boot that does not start and a surface that offers
-// three sends it panics on, so this asserts rather than silently dropping them
+// four sends it panics on, so this asserts rather than silently dropping them
 // — a comms surface missing exactly its outbound verbs is the confusing
 // middle, not a safe default.
 func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordProvider) {
@@ -89,10 +90,11 @@ func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordPro
 	}
 	if p == nil {
 		//craft:ignore panic-in-domain composition-time wiring assertion — fires only while cmd wiring runs, never on a request path
-		panic("crmagents: RegisterCommsTools needs a record provider — send_email, send_message and book_meeting read the row they stage against")
+		panic("crmagents: RegisterCommsTools needs a record provider — the confirm-first sends, the account-started send and book_meeting all read the records they stage against")
 	}
 	r.Register(draftEmailTool{comms: comms})
 	r.Register(sendEmailTool{comms: comms, p: p})
+	r.Register(sendAccountEmailTool{comms: comms, p: p})
 	r.Register(sendMessageTool{comms: comms, p: p})
 	r.Register(checkAvailability{comms: comms})
 	r.Register(bookMeetingTool{comms: comms, p: p})
@@ -198,9 +200,8 @@ func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	// an approval, a human reads a send with no addressee and says yes, the
 	// approved retry consumes that one-shot authority, and only then does the
 	// store refuse — a "yes" spent on something that was never going to happen.
-	if len(args.To) == 0 {
-		return StageInfo{}, &BadArgsError{Cause: errors.New(
-			"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
+	if err := requireAddressee(args.To); err != nil {
+		return StageInfo{}, err
 	}
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
 	if err != nil {

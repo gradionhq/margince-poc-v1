@@ -8,6 +8,15 @@ sanitized_by: hand_authored/claude-fable-5
 # variant for a workspace that has one — the state chooses, not the corpus.
 fixture:
   activity:
+    # The envelope the product now resolves for every draft. Without it this
+    # fixture describes a request the server no longer sends.
+    output_language: en
+    conversation_state: fresh
+    silence_days: "1"
+    now: 2026-08-11T09:00:00Z
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+    recipient: Marek
     subject: quick question
     body: |
       Hi, does the Professional tier include the API integration, or is that only

@@ -3,13 +3,6 @@
 `notes.mp4` (1.0 MB, 1360×860, 1:23) — same take as `notes.webm` (5.6 MB), re-encoded.
 Attach the **mp4** to the PR; the webm is the Playwright original.
 
-> **The screen this recording drives is NOT part of this PR.** It was made at `11e05fee`, when a
-> bespoke `notes` screen still lived in the core tree; that screen — and the whole unit-owned frontend
-> layer that later replaced it — is split out into its own PR (DESIGN.md §4.5). What this branch serves
-> at `#/ext/notes` is the contract-derived descriptor card. Everything the recording shows BELOW the
-> screen — the routes answering, the secret never reaching the DOM, the job tick, the read-only seat's
-> refusals — is still exactly what this branch does; only the surface rendering it is not here.
-
 One continuous browser session, recorded by Playwright at `feat/extension-tier-capabilities`
 `11e05fee`. Nothing is cut or re-ordered. The dark strip along the bottom is a caption overlay
 injected by the recording script — it labels the step and, where it quotes a number, that number was
@@ -57,7 +50,7 @@ make dev DEV_SLUG=vid            # db margince_dev_vid, api :18401, composed vit
 
 # prerequisite 0 — RBAC grants, raw SQL (there is no /roles endpoint).
 # TWO objects now: the signing operations gained their own, ext_notes_signing_key.
-psql -h localhost -p 55432 -U margince_owner -d margince_dev_vid <<'SQL'
+psql -h localhost -p 15432 -U margince_owner -d margince_dev_vid <<'SQL'
 UPDATE role SET permissions = jsonb_set(permissions,'{objects,ext_notes_note}',
    '{"create":true,"read":true,"update":true,"delete":true}'::jsonb,true), updated_at=now()
  WHERE key='admin' AND archived_at IS NULL;
@@ -72,7 +65,9 @@ UPDATE role SET permissions = jsonb_set(permissions,'{objects,ext_notes_signing_
  WHERE key='read_only' AND archived_at IS NULL;
 SQL
 
-# prerequisite 0b — an agent seat, or the heartbeat tick cannot run (issue #656)
+# prerequisite 0b — an agent seat, or the heartbeat tick cannot run. NO LONGER NEEDED: bootstrap
+# writes the seat and 0216_agent_seat_backfill gives it to a database bootstrapped before that.
+# Kept because it is what this recording was made with; re-running it now inserts a second seat.
 psql … -c "INSERT INTO app_user (workspace_id,email,display_name,status,is_agent,seat_type)
            SELECT id,'agent@demo.test','Demo Agent Seat','active',true,'full' FROM workspace LIMIT 1;"
 

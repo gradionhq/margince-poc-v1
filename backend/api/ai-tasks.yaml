@@ -119,9 +119,9 @@ tasks:
     execution_mode: interactive
     on_budget_exhausted: degrade
     status: shipped
-    sites: [reply]
+    sites: [reply, person, account]
     company_context: {scopes: [positioning, sales, proof, market], token_budget: 1400}
-    doc: "One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site."
+    doc: "Three sites, one task: the reply to an activity, the person page's composer, and the company page's first-touch outbound. They differ in what a draft is grounded IN, and share the rules block every drafting surface writes under (compose/draftrules). The reply site alone has two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a fourth site; the composers gain theirs when Voice DNA reaches them."
 
   nl_search:
     ladder: [cheap_cloud, premium]

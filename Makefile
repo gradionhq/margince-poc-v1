@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint ds-spacing space-tokens native-controls fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -47,7 +47,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc check-image-pins ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
+check-backend: check-craft-doc check-image-pins check-host-ports ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -138,6 +138,10 @@ build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test
 check-fe: fe-typecheck-composed
 	@[ -d frontend/node_modules ] || { echo "check-fe: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
 	$(MAKE) frontend-check
+	# The unit screens' own suites. Ordered AFTER frontend-check on purpose: it
+	# is the composed lane, so it costs a composition, and there is no point
+	# paying for it when the core suite is already red.
+	$(MAKE) fe-test-ext
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
 fitness-jurisdiction: no-jurisdiction
 ## gen-types — regenerate the contract types (alias for gen).
@@ -160,6 +164,24 @@ fe-format:
 ## fe-test — frontend unit tests (vitest).
 fe-test:
 	cd frontend && pnpm install --frozen-lockfile && pnpm test
+
+## fe-test-ext — the UNIT SCREENS' own vitest suites
+## (extensions/*/frontend/**/*.test.tsx), which `make check-fe` runs.
+##
+## A second lane rather than files added to `make fe-test`, for the reason
+## fe-typecheck-composed is a second lane: a unit screen reads its copy through
+## "@composition/copy" and calls routes that exist only in the merged contract,
+## so its suite passes only against a COMPOSED tree. Hence the dependency on
+## `composition` and the MARGINCE_COMPOSITION_FRONTEND export — the same switch
+## the composed typecheck and the composed build use.
+##
+## Until this target existed these suites ran in no lane at all: vitest's root is
+## frontend/, so its default include never reached extensions/, and 2230 tests
+## ran with none of them from a unit. They were typechecked and never executed.
+fe-test-ext: composition
+	@[ -f build/composition/frontend/extlocales.gen.ts ] || { echo "fe-test-ext: build/composition/frontend/extlocales.gen.ts is missing after 'make composition' — a unit screen's suite would resolve the empty-tree copy registry and fail on every string" >&2; exit 1; }
+	cd frontend && pnpm install --frozen-lockfile && \
+		MARGINCE_COMPOSITION_FRONTEND=../build/composition/frontend pnpm test:ext
 
 ## ds-purity — design-system token purity (no raw hex/rgb outside tokens.css).
 ds-purity:
@@ -187,6 +209,14 @@ space-tokens:
 ## design-system/select.tsx, which is the ONE select this product renders.
 native-controls:
 	frontend/scripts/check-native-controls.sh
+## ext-imports — a unit screen reaches the core only through the published
+## surface (frontend/package.json's exports map) and npm only through what its
+## own package declares. The frontend has no module boundary of its own, so
+## this script IS the boundary; check-ext-imports.test.sh exercises it.
+ext-imports:
+	frontend/scripts/check-ext-imports.sh
+	bash frontend/scripts/check-ext-imports.test.sh
+
 ## seed-dev — create/refresh the demo workspace (demo-workspace,
 ## admin@demo.test / demo-password-123) through the public API, then seed
 ## demo FX rates (SQL — fx_rate has no API). Stack must be running
@@ -226,6 +256,7 @@ frontend-check:
 	frontend/scripts/check-ds-spacing.sh
 	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
+	frontend/scripts/check-ext-imports.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
 			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
@@ -259,6 +290,12 @@ fe-typecheck-composed: composition
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:composed-types
 	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
 	cd frontend && pnpm exec tsc -p tsconfig.composed.json
+	# And the composed lane's TESTS, which no other project compiles: the app
+	# and node projects exclude src/screens/ext/ (it cannot typecheck there),
+	# and tsconfig.composed.json excludes *.test.*. Without this line a unit
+	# screen's test fixtures are checked by nothing, since vitest transpiles
+	# without typechecking.
+	cd frontend && pnpm exec tsc -p tsconfig.composed-tests.json
 
 ## frontend-e2e — the screen-acceptance harness (AC-<screen>-N + axe WCAG AA
 ## + perceived perf budgets) against the built app over the seed mock.
@@ -349,6 +386,15 @@ test-secret-scan:
 ## because the workflows do; also a CI step, so a pin can't regress.
 check-image-pins:
 	@./scripts/check-image-pins.sh
+
+## check-host-ports — every host port published by infra/docker-compose.dev.yml
+## sits BELOW the ephemeral floor (32768). A published port inside the kernel's
+## ephemeral range can be transiently held as some unrelated process's client
+## port, and `make db-up` then loses the bind and fails the job it was setting
+## up for — a race that reads as a flake in whatever step called it. Enforced
+## rather than commented because the constraint is invisible in the number.
+check-host-ports:
+	@./scripts/check-host-ports.sh
 
 ## ci-doc-parity — every path a workflow filters on is named in the document that
 ## documents it. The lists live in two places and nothing held them together;
@@ -515,7 +561,7 @@ sbom:
 sbom-supplement:
 	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
 	@set -e; cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; \
-	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
+	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/docker/setup-buildx-action":"Apache-2.0","pkg:github/docker/setup-qemu-action":"Apache-2.0","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
 	  jq --argjson m "$$map" '.components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then .licenses = [{"license": {"id": $$m[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
 	  jq --argjson m "$$map" '.packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then (.licenseConcluded = $$m[$$k] | .licenseDeclared = $$m[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
 

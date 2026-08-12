@@ -25,7 +25,7 @@ configurable logger.
 | `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file (bootstrap + auth — organization, bootstrap_admin, seeds, email; strict decoding, secrets as `*_file` references). A missing file boots an existing installation; bootstrapping an empty database requires `organization` + `bootstrap_admin` |
 | `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 |
 | `--addr` | — | `:8080` | listen address |
-| `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
+| `--redis` | `MARGINCE_REDIS` | `localhost:16379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
 | `--metrics-token` | `MARGINCE_METRICS_TOKEN` | — | shared secret `/metrics` requires as a Bearer credential. This is the access control the fleet-wide-exposition note below calls for: unset (the default) `/metrics` answers **404**, rather than serving per-workspace job telemetry to anyone who asks. Set it wherever the scraper can present it |
@@ -296,7 +296,7 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send originated by this role's Surface-B agent run — without it that send refuses rather than emit a forgeable link |
 | `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file; the worker reads it for the `ai.capture_payloads` posture the Surface-B runner honors (capture applies to **both** the api and worker roles — the worker runs the richest content source, the agent runs). A missing file boots with capture off |
-| `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
+| `--redis` | `MARGINCE_REDIS` | `localhost:16379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |

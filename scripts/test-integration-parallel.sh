@@ -142,7 +142,7 @@ done > "$CANDIDATES"
 
 CONSTRAINT_SCOPE="$(mktemp)" LANE_PKGS="$(mktemp)" WORK="$(mktemp)"
 DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
-TIMING="$(mktemp)" WALLCLOCK="$(mktemp)"
+TIMING="$(mktemp)" WALLCLOCK="$(mktemp)" FAILED_PKGS="$(mktemp)"
 # When the lane started, so each package can record WHEN it ran and not only how
 # long its tests took. The per-package cost report deliberately prices tests
 # alone; that leaves everything around them — clone provisioning, compiling a
@@ -156,7 +156,14 @@ TIMING="$(mktemp)" WALLCLOCK="$(mktemp)"
 LANE_T0="$(date +%s)"
 export LANE_T0 WALLCLOCK
 OUTDIR="$(mktemp -d)"
-trap 'rm -f "$CANDIDATES" "$CONSTRAINT_SCOPE" "$LANE_PKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING" "$WALLCLOCK" ${GROUPED:+"$GROUPED"}; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+# Set on the failing path only, and read by the trap below, which then leaves
+# $OUTDIR behind. The per-package logs are the ONLY copy of a failure that is not
+# interleaved with 35 other packages; deleting them on the way out made an
+# intermittent failure permanently undiagnosable — the class of failure that most
+# needs the evidence, because the re-run that would reproduce it usually passes.
+# A green run still cleans up: nobody wants a temp dir per passing run.
+KEEP_LOGS=""
+trap 'rm -f "$CANDIDATES" "$CONSTRAINT_SCOPE" "$LANE_PKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING" "$WALLCLOCK" "$FAILED_PKGS" ${GROUPED:+"$GROUPED"}; [[ -n "$KEEP_LOGS" ]] || rm -rf "$OUTDIR"; rm -rf ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
 
 # The ONE spelling of "which build constraints does this file declare": the
 # region above the `package` clause, one expression per line. Both passes below
@@ -467,7 +474,20 @@ for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   log="$OUTDIR/$base"
   cat "$log"
   ran=$((ran + 1))
-  grep -q "^EXIT 0$" "$log" || fail=1
+  # The package this log belongs to, resolved BEFORE the verdict below rather
+  # than after it: $idx maps straight back through $WORK, so the failing
+  # package's name is in hand at the exact moment the flag is set. It used to be
+  # computed a few lines later and the verdict said only "36 packages", which
+  # left the reader to find the failure by eye in the interleaved output of all
+  # of them.
+  idx="${base%.log}"
+  line="$(sed -n "${idx}p" "$WORK")"
+  d="${line%%|*}" rest="${line#*|}"
+  rel="${rest%%|*}"
+  if ! grep -q "^EXIT 0$" "$log"; then
+    fail=1
+    printf '%s\n' "$d|$rel|$base" >> "$FAILED_PKGS"
+  fi
   # Top-level results only (subtest lines are indented): "rel|TestName" per
   # the package this log belongs to, for the ran==assigned check below.
   #
@@ -475,10 +495,6 @@ for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   # skipping outright a few lines down — omitting it here would report it as
   # "assigned but not run" instead, which names the reconciliation rather than
   # the skip and sends the reader looking for a dead worker.
-  idx="${base%.log}"
-  line="$(sed -n "${idx}p" "$WORK")"
-  d="${line%%|*}" rest="${line#*|}"
-  rel="${rest%%|*}"
   grep -E '^--- (PASS|FAIL|SKIP): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
   # Cost, taken from `go test`'s own trailing "ok <pkg> <n>s" — millisecond
   # precision already in the log, and it excludes the clone provisioning around
@@ -614,7 +630,63 @@ if grep -rq -- '--- SKIP' "$OUTDIR"; then
 fi
 
 if [[ "$fail" -ne 0 ]]; then
-  echo "FAIL: integration tests failed (parallel, $NPKGS packages) — see package logs above"
+  # Name the packages, and keep their logs. "see package logs above" pointed at
+  # the interleaved stdout of every package in the lane — thousands of lines —
+  # for a name this script already held, and the logs that held the assertion
+  # went with the process. Between them, an intermittent failure cost a full
+  # re-run to even locate, and the re-run is precisely what does not reproduce
+  # it.
+  if [[ -s "$FAILED_PKGS" ]]; then
+    echo "FAIL: integration tests failed (parallel, $NPKGS packages):"
+    while IFS='|' read -r d rel base; do
+      printf '  %s (%s)\n' "$rel" "$d"
+    done < "$FAILED_PKGS"
+  else
+    # A red run with no failing EXIT line: one of the reconciliation teeth above
+    # tripped (a missing worker, a discovery/run divergence, a skip) rather than
+    # a test. Say so instead of printing an empty list, which would read as the
+    # naming having broken.
+    echo "FAIL: integration tests failed (parallel, $NPKGS packages) — no package reported a failing exit; the reconciliation above names the reason"
+  fi
+
+  # The logs survive the exit from here on. Printed as a path per failing
+  # package rather than a directory to grep: the point is to answer "what did it
+  # assert" without a re-run.
+  KEEP_LOGS=1
+  echo "  logs kept (this run only, not cleaned up):"
+  if [[ -s "$FAILED_PKGS" ]]; then
+    while IFS='|' read -r d rel base; do
+      printf '    %-44s %s\n' "$rel" "$OUTDIR/$base"
+    done < "$FAILED_PKGS"
+  fi
+  echo "    all $ran package log(s): $OUTDIR"
+
+  # In CI the runner is destroyed at the end of the job, so a kept path there is
+  # a path to nothing. Copy the failing logs into the shard's artifact dir, which
+  # the workflow uploads — the same evidence, by the route that outlives the
+  # runner. Best effort: a failed copy must not change the verdict, which is
+  # already red and already printed.
+  if [[ -n "$SHARD_OUT" ]] && mkdir -p "$SHARD_OUT/failed-logs" 2>/dev/null; then
+    # Written unconditionally on this path, even when no package failed, for two
+    # reasons: it is the one file that says WHY the shard was red when the reason
+    # was a reconciliation tooth rather than a test, and the upload step asserts
+    # its artifact is non-empty — an empty dir would turn one honest red into two.
+    {
+      printf 'shard %s/%s failed\n' "${SHARD_IDX:-0}" "${SHARD_TOTAL:-0}"
+      if [[ -s "$FAILED_PKGS" ]]; then
+        printf 'failing packages:\n'
+        cut -d'|' -f2 "$FAILED_PKGS" | sed 's/^/  /'
+      else
+        printf 'no package reported a failing exit; the reconciliation in the job log names the reason\n'
+      fi
+    } > "$SHARD_OUT/failure-summary.txt" 2>/dev/null || :
+    while IFS='|' read -r d rel base; do
+      # Flatten the package path into the filename: the logs are named 3.log and
+      # 11.log by SLOT, which says nothing once they leave this run.
+      cp "$OUTDIR/$base" "$SHARD_OUT/failed-logs/$(printf '%s' "$rel" | tr '/.' '_')".log 2>/dev/null || :
+    done < "$FAILED_PKGS"
+    echo "    copied to the shard artifact: $SHARD_OUT/"
+  fi
   exit 1
 fi
 

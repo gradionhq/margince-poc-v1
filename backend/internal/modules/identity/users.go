@@ -36,7 +36,7 @@ const (
 	roleAdmin             = "admin"
 )
 
-// The three distinct refusals this surface can answer with. Each WRAPS
+// The distinct refusals this surface can answer with. Each WRAPS
 // apperrors.ErrConflict, so every caller that only asks "was this a conflict?"
 // is unaffected, while a handler can tell them apart and say which one it was:
 // the bare sentinel reaches the operator as the single word "conflict", which
@@ -47,6 +47,13 @@ var (
 	errEmailTaken      = fmt.Errorf("%w: a member with this email already exists", apperrors.ErrConflict)
 	errNotDeactivated  = fmt.Errorf("%w: the member is not deactivated", apperrors.ErrConflict)
 	errLastActiveAdmin = fmt.Errorf("%w: the member is the only active administrator", apperrors.ErrConflict)
+	// The agent seat holds no role, ever. Its authority is the passport granting
+	// it intersected with the human that passport names, so a role on its own
+	// row grants nothing today and is a standing grant nothing bounds tomorrow —
+	// and while it held `admin` it would count toward the last-active-admin
+	// guard below, letting an operator deactivate the final human administrator
+	// on the strength of an identity that can never sign in.
+	errAgentSeatHoldsNoRole = fmt.Errorf("%w: the agent seat holds no role", apperrors.ErrConflict)
 	// A role key nobody defines is a 404 like a missing member, but it is a
 	// DIFFERENT 404: the admin mistyped a role, not a person. Wrapping keeps
 	// the status while letting the handler say which of the two happened.
@@ -182,42 +189,6 @@ func userReactivatedPayload(userID ids.UserID, by ids.UserID) crmcontracts.Publi
 		UserId: openapi_types.UUID(userID.UUID),
 		By:     openapi_types.UUID(by.UUID),
 	}
-}
-
-// lastActiveAdmin reports whether userID is an active admin and the ONLY one —
-// deactivating them would leave the organization with no administrator and no
-// in-app way to recover. Runs inside the caller's row-locked transaction.
-func lastActiveAdmin(ctx context.Context, tx pgx.Tx, userID ids.UserID) (bool, error) {
-	// Serialize the admin-count check+act across the whole workspace: without
-	// this, two transactions each deactivating a DIFFERENT admin would both see
-	// the other still active (their target-row FOR UPDATE lock doesn't cover the
-	// other admin's row) and both commit, leaving zero admins. A transaction
-	// advisory lock keyed on the workspace makes admin-management serial, so the
-	// second transaction re-reads the first's committed change and refuses.
-	if _, err := tx.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtext('margince:admin-guard:' || current_setting('app.workspace_id', true))::bigint)`); err != nil {
-		return false, err
-	}
-	var targetIsAdmin bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM role_assignment ra JOIN role r ON r.id = ra.role_id
-			WHERE ra.user_id = $1 AND r.key = 'admin')`, userID).Scan(&targetIsAdmin); err != nil {
-		return false, err
-	}
-	if !targetIsAdmin {
-		return false, nil
-	}
-	var otherAdmins int
-	if err := tx.QueryRow(ctx, `
-		SELECT count(*) FROM app_user u
-		JOIN role_assignment ra ON ra.user_id = u.id
-		JOIN role r ON r.id = ra.role_id
-		WHERE r.key = 'admin' AND u.status = 'active' AND u.archived_at IS NULL
-		  AND u.id <> $1`, userID).Scan(&otherAdmins); err != nil {
-		return false, err
-	}
-	return otherAdmins == 0, nil
 }
 
 // hasRole is the identity module's own admin gate for the operations
@@ -402,14 +373,20 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 	}
 	ctx = actorCtx(ctx, actor)
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1 AND archived_at IS NULL)`,
-			userID).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
+		// The target is read rather than merely proved to exist, because what it
+		// IS decides the answer: an agent seat holds no role at all.
+		var isAgent bool
+		targetErr := tx.QueryRow(ctx,
+			`SELECT is_agent FROM app_user WHERE id = $1 AND archived_at IS NULL`,
+			userID).Scan(&isAgent)
+		if errors.Is(targetErr, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
+		}
+		if targetErr != nil {
+			return targetErr
+		}
+		if isAgent {
+			return errAgentSeatHoldsNoRole
 		}
 		var roleID ids.UUID
 		err := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, toRole).Scan(&roleID)

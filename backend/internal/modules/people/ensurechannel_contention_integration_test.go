@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -311,8 +310,38 @@ func (e *dedupeEnv) refreshInBackground(ctx context.Context, ci connector.Channe
 //
 // Generous enough that only a genuine miss trips it, short enough that the miss
 // reports itself rather than running into the package timeout, where it would
-// read as a hung suite instead of a stated fact.
-const probeBudget = 60 * time.Second
+// read as a hung suite instead of a stated fact. THAT is the ceiling, and it is
+// arithmetic rather than taste: five call sites in this package can each spend
+// this budget, against the lane's 600s per-package timeout
+// (INTEGRATION_TIMEOUT). At 90s a run in which every one of them misses spends
+// 450s and still reports what it found; at 120s it spends the entire package
+// budget and the last miss is cut off mid-sentence by the timeout, which is the
+// failure this comment exists to prevent. Raise this number and that sum moves
+// with it.
+//
+// 60s was not enough under a twelve-shard lane — two tests on this helper
+// reddened two unrelated PRs in one day, each burning the full budget while the
+// writer never reached its lock (#898). The pacing below is the change that
+// addresses WHY; this is the headroom that covers a merely slow runner.
+const probeBudget = 90 * time.Second
+
+// probeInterval paces the poll, and it is the half of #898 that is about cause
+// rather than headroom.
+//
+// The probe calls pg_blocking_pids, which Postgres documents as needing
+// exclusive access to the lock manager's shared state for a short time and
+// warns against calling frequently. Unpaced, this loop issued ~1,800 of them a
+// second — roughly 109,000 probes in one 60s miss — every one of them taking
+// the very shared state the writer it is waiting for must acquire to register
+// its own lock wait. A watcher that grabs the lock manager 1,800 times a second
+// is not a neutral observer of contention; on a loaded runner it is part of it.
+//
+// 25ms takes it from ~1,800 calls a second to ~40 — a fortyfold cut — while
+// still noticing a block within 25ms of it appearing. That granularity is far
+// finer than anything here needs: every block these tests wait for persists
+// until the holding transaction ends, so it cannot be missed between ticks, and
+// a racer that FINISHES is seen immediately through done rather than on a tick.
+const probeInterval = 25 * time.Millisecond
 
 // waitUntilBlocked returns once a backend in this database is provably waiting
 // on a lock held by pid, or once the racer finishes first — reporting WHICH, so
@@ -327,9 +356,20 @@ const probeBudget = 60 * time.Second
 // proved nothing.
 func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T) (T, bool) {
 	t.Helper()
-	var zero T
 	ctx, cancel := context.WithTimeout(context.Background(), probeBudget)
 	defer cancel()
+	return waitUntilBlockedIn(ctx, t, probe, pid, done)
+}
+
+// waitUntilBlockedIn is the loop with its budget SUPPLIED rather than minted.
+// The split is what lets the boundary case be reproduced instead of raced for:
+// a caller can hand it a context that has already expired and assert what
+// happens to a racer's result that is already waiting.
+func waitUntilBlockedIn[T any](ctx context.Context, t *testing.T, probe pgx.Tx, pid int, done <-chan T) (T, bool) {
+	t.Helper()
+	var zero T
+	pace := time.NewTicker(probeInterval)
+	defer pace.Stop()
 	for probes := 1; ; probes++ {
 		var blocked bool
 		switch err := probe.QueryRow(ctx, `
@@ -338,6 +378,9 @@ func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T)
 			   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
 			pid).Scan(&blocked); {
 		case err != nil && ctx.Err() != nil:
+			if result, finished := racerFinished(done); finished {
+				return result, true
+			}
 			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
 				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
 		case err != nil:
@@ -346,20 +389,41 @@ func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T)
 		if blocked {
 			return zero, false
 		}
+		// One select for all three answers: the racer finished, the budget ran
+		// out, or it is time to look again. Paced rather than spun — see
+		// probeInterval — because this loop and the writer it watches compete
+		// for the same processor AND the same lock-manager state under the
+		// lane's concurrency, and the tight version is one of the ways a loaded
+		// runner starves the very writer whose progress it is waiting on.
 		select {
 		case result := <-done:
 			return result, true
-		default:
-		}
-		if ctx.Err() != nil {
+		case <-ctx.Done():
+			if result, finished := racerFinished(done); finished {
+				return result, true
+			}
 			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
 				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+		case <-pace.C:
 		}
-		// Yield rather than spin. This loop and the goroutine it is waiting for
-		// compete for the same processor under the lane's concurrency, and a
-		// tight loop that never yields is one of the ways a loaded runner starves
-		// the very writer whose progress it is watching for.
-		runtime.Gosched()
+	}
+}
+
+// racerFinished asks once more whether the racer has an answer waiting.
+//
+// It exists for the boundary: when the racer finishes AS the budget expires,
+// both channels are ready and select picks between them arbitrarily, so the
+// timeout branch can be taken while a perfectly good result sits unread. That
+// result is what the callers use to classify the contention setup, and losing
+// it would report a run that DID prove something as one that proved nothing —
+// a false red of exactly the kind this file is being changed to stop producing.
+func racerFinished[T any](done <-chan T) (T, bool) {
+	select {
+	case result := <-done:
+		return result, true
+	default:
+		var zero T
+		return zero, false
 	}
 }
 
@@ -458,5 +522,49 @@ func TestTwoMessagesReportingTheSameRenameAuditItOnce(t *testing.T) {
 	}
 	if n := e.handleUpdatedEventCount(ctx, t, bound.PersonID); n != 1 {
 		t.Errorf("%d person.updated events for one rename, want 1 — every subscriber sees the rename twice", n)
+	}
+}
+
+// The boundary the probe has to get right: the racer finishing AS the budget
+// expires is a run that PROVED something, and must not be reported as one that
+// proved nothing.
+//
+// When both channels are ready, select picks between them arbitrarily, so the
+// timeout branch can be taken while a perfectly good result sits unread — and
+// the callers use that result to classify the contention setup. The scenario is
+// made deterministic here rather than raced for: an already-expired context
+// puts the probe on its timeout path on the first query, with the racer's answer
+// already waiting.
+func TestAFinishedRacerIsNotReportedAsAMissAtTheBudgetBoundary(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	probe, err := e.store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("opening the probe transaction: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := probe.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("releasing the probe transaction: %v", err)
+		}
+	})
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+	done <- nil
+
+	// waitUntilBlocked owns its own budget, so the expiry is reproduced by
+	// handing it a probe whose context is already dead: the first query fails
+	// with ctx.Err() set, which is the branch that must consult done before
+	// declaring the run void.
+	result, finished := waitUntilBlockedIn(expired, t, probe, 0, done)
+	if !finished {
+		t.Fatal("a racer whose result was already waiting was reported as never having finished — " +
+			"the caller classifies the contention setup from that result, so losing it turns a run that " +
+			"proved something into a run that proved nothing")
+	}
+	if result != nil {
+		t.Errorf("racer result = %v, want the nil error it sent", result)
 	}
 }

@@ -49,13 +49,13 @@ repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
 # APP_DSN is the non-superuser role the api connects as (RLS binds it).
-OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:55432/margince}"
-APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:55432/margince}"
-REDIS_PORT="${REDIS_PORT:-56379}"
+OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:15432/margince}"
+APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:15432/margince}"
+REDIS_PORT="${REDIS_PORT:-16379}"
 # The compose MinIO backs the blobstore seam (attachments); minioadmin is the
 # well-known throwaway dev credential the compose stack already ships, never a
 # production secret.
-MINIO_PORT="${MINIO_PORT:-59000}"
+MINIO_PORT="${MINIO_PORT:-29000}"
 
 # Bare `make dev` runs the shared `margince` database on the base ports, so it
 # stays coherent with `make migrate` / `seed-dev` / `verify-boot`. A DEV_SLUG
@@ -309,7 +309,7 @@ up)
       # below connects through OWNER_DSN. Point that elsewhere and --fresh
       # would erase one database and migrate another; refuse rather than
       # rebuild something the caller never named.
-      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:55432/margince" ]]; then
+      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:15432/margince" ]]; then
         # The DSN itself is never echoed: it carries a password, and this
         # branch exists precisely because the caller supplied a real one.
         echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points somewhere else — drop that database yourself, then run make dev" >&2

@@ -18,6 +18,12 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 3's two grounding fields, and the defect they uncovered. A person draft now reads the newest inbound message's BODY rather than its subject line alone (#956) — bounded, headers stripped, inside the untrusted fence, and carrying no claim about WHO wrote it, because an activity reaches a person through `activity_link` (what a message concerns) and the 360 carries no participants, so authorship is not knowable there. Then, verifying against the real Marek thread on a live stack: the body came back correct and the **reasoning chip** beside it read "Follow-up to previous introduction by Romina Medici" — the original defect, in a channel nothing checked, because `draftcore` read the body alone (#958, closing #957). Both channels are checked now. **The phrase list took four passes against a live model, and the failures are the lesson**: "introduction by" missed "introduction to", the noun list missed "introductory", a German-only list missed "shared contact introduction" (a chip is written for the REP, so the model reaches for English under German prose), and a stem with a trailing space missed "Intro-Thema". Final shape is stems at a word boundary across every language, with every observed form a test case. Verified six consecutive live drafts clean where three of five carried an invention before. **Still open**: Wave 2b (`personcontext`, which the plan flags as the first thing to cut), the remaining grounding fields (enriched claims, next meeting, strength/committee — the last two reasoning-only per the privacy table), and the upstream measurement decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Waves 2a, 2c and the first Wave-3 grounding field. `compose/draftcore` is the one correct-and-retry loop all three drafting surfaces share (#951) — 102 lines removed for 33, the logic GONE from each surface rather than merely called from it, and `draft_reply/reply` reached **certified** on that run (all five fixtures, score_min 75). `accountdraft.Input.Dossier` is fed at last (#952): it was declared, advertised in the prompt as a citable kind, and populated by nothing, so both halves were dead — `orgdossier.CachedSections` is the cache-READ-only half, because assembling costs a model call nobody asked for. And an overdue promise of ours now leads a person draft (#954), the archetype the grounding work exists for: the email a rep knows they should send and does not. Three review findings are worth carrying forward as lessons rather than as history: a nil `*Service` wired before its provider passes a nil-interface check and panics later (fixed by construction order AND a nil-receiver guard); a grounding check keyed on the PRESENCE of a dossier let the model tag any claim with the dossier's provenance, so it now checks the dossier's own words; and the commitment rule shipped keyed on `"commitment"`, a claim kind the contract never emits, with tests that fabricated the same missing kind — it could not fire on one real record, and the tests are rewritten to run through the real fold. **Still open**: Wave 2b (`personcontext`, which the plan itself flags as the first thing to cut), the remaining Wave-3 grounding fields (activity bodies, enriched claims, next meeting), and the upstream measurement decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 3, first two items. The reply drafter now knows who it is writing TO (#949, closing #941): `activities.ReplyRecipientFor` reads the counterparty from `activity_participant` BY ROLE — sender of an inbound message, then addressee — falling back to `activity_link` only for rows with no participants, because a link says what a message is *about* and a CC'd colleague is linked too. Gated by the person read grant, the activity's link-walk scope, and capture privacy composed into one predicate (two statements left a TOCTOU). Beside it, `compose/draftcheck`: a deterministic post-generation phrase gate, because three separate prompt rules lost to model reflexes — greeting the sender, "I hope you are doing well" after eight months, inventing a pitch for a first touch. Three band-gated phrase lists with no judgement in them, one retry naming the exact phrase back, and whichever attempt carries less rejected phrasing is served. Certification moved 3-of-5 fixtures certified to **4 of 5**, median 100. The fifth (`replying_to_a_thread_eight_months_old`) still varies between `supported_degraded` and `not_supported` on identical code — model variance against a hard floor, better than it was and not solved. **Waves 2a-2c are still not started** (the shared `draftcore` engine, the one Person360 fold, voice on the composers) and neither is the widened grounding half of Wave 3; Wave 3's measurement half still needs the upstream decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 1 — a draft is now written in the language of the correspondence, knows what time it is, knows who is sending it, and stops inventing a history. **Verified on the real Marek Janetzke thread against a live model**: the draft comes back in German and says "vielen Dank an Marek für die Vermittlung", where the reported defect had it in English with the introduction reversed. Two spec PRs land first (margince-foundation #1272 the correspondence envelope + DRAFT-AC-E-1..7, #1273 the shared-core layering + E-8/E-9 + AIEVAL-32/33), then the code: `shared/kernel/textlang` + `convstate` (#916), `draftfloor` with all four no-model producers on one band×language table (#918), `identity.ActorIdentity` + its ratified RBAC waiver (#919), `compose/draftrules` — the shared prompt block that is the actual fix, since `referred_by` is org→org with no rows anywhere and forbidding the inference is the cure (#922), the person/account certification sites ADR-0074 requires (#926), `WithOperatorMail` + a corrected STATUS line (#937), the sender-is-not-the-recipient rule (#942), and the defect that made it all invisible: a captured mail's own `From:` headers read as a quoted thread, so the language detector saw an empty string and every German draft fell back to English (#945). The paid re-record then landed (#947): 20 of 27 sites current, up from 17; `draft_reply/person` and `draft_reply/account` **certified**; `draft_reply/reply` not_supported on one fixture alone, scoring 30 against a floor of 40 for #941. Open as fast-track-debt: #915 (an English legal footer can outvote a short German reply), #934 (the person page's "Ask for context" button renders enabled and is inert), #936 (the warm-intro drafter has no UI), #941 (the reply payload carries the sender but no recipient, so a nameless body makes the draft greet its own author — fixing it flips the reply site to certified), #943 (a German draft mixes du and Sie). Waves 2 and 3 — the shared `draftcore` engine, the one Person360 fold, voice on the composers, widened grounding — are not started, and Wave 3's measurement half needs an upstream decision (record served drafts everywhere, or measure the reply path only).
+- Shipped 2026-08-11: the account-started send gains its agent tool — `send_account_email`, the 38th on the catalog, 🟡 and governed identically to the reply (ADR-0087 §6, PR #930). The gap #688 named was one `decisionGrants` entry. Left open: **#928** (the REST staging gate stages before it can read the body, so the approver is not bounded by the records the effect concerns — the same shape `book_meeting` already had) and **#929** (the external-SoR refusal runs at staging, not at redemption). Both reviews proposed binding a link as the staged target; the server-side pin makes that unavailable — see the section below before repeating it.
+- Shipped 2026-08-11: bootstrap writes the installation's Agent Runner seat (`is_agent`, no password, no role assignment) and core `0216` backfills the installations that predate it, so a scheduled extension job has an initiator and actually runs on a fresh install (#656). The seat is an identity and not an authority: the one path that could have handed it a credential — the admin-issued set-password link — now refuses it. Left out deliberately: the admin members screen lists the seat with a role selector and a set-password button the API now refuses; its presentation is filed as a follow-up.
 - Shipped 2026-08-11 (batman, follow-up): a same-kind consumer-mail re-add stays on the create grant, so a rep retrying a lost response gets the existing entry instead of a 403 (PR #888, found by the Codex review of #872). Open upstream: spec capture.md CAP-PARAM-5 predates the workspace consumer-mail surface entirely (still says baseline + margince.yaml, no UI) — reconcile in the spec repo.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
 - Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
@@ -80,10 +86,12 @@ arm exists, computed at send time from the timeline. `inquiry`, `in_person` and
 flag. The behaviour under-allows rather than over-allows, so it is safe and
 incomplete.
 
-**No model lane is wired to any of it.** The person brief, the person draft and
-the meeting brief all render their deterministic floor and say so in
-`generated_by`. `WithPersonDraft` exists for the api role; the other two need
-the same treatment.
+**The person brief and the meeting brief have no model lane wired.** Both render
+their deterministic floor and say so in `generated_by`. The person DRAFT does
+have one — `cmd/api/modelwiring.go` binds `WithPersonDraft(modelPath.DraftReply)`
+— so a person-page draft is model-written wherever a model is configured. The
+distinction matters: a stale reading of this line has already led a reviewer to
+assess the drafting work as lower-risk than it was.
 
 **No research provider is registered**, which is the supported configuration
 (ADR-0096 D4): the drawer answers "no data provider yet connected" and writes
@@ -345,11 +353,27 @@ There is still exactly one send. `POST /v1/emails` carries the account-started
 surface; an address belonging to no person the sender can read refuses 422
 `recipient_not_on_file` and names the address.
 
-Left open: the operation is **human-only**. ADR-0087 §6's agent tool needs a
-decision-grant mapping before the verb can honestly be advertised — issue #688
-carries the four fitness tests that are its acceptance criteria. The
-account-started DRAFT (§3: grounded, fenced, auto-starting, writing nothing) is
-not built.
+**The agent tool shipped 2026-08-11 (PR #930, `88c7f07b`)**, so the operation is
+no longer human-only: `send_account_email` is the 38th tool, 🟡, governed
+identically to the reply. What #688 called four failing fitness tests was one
+map entry — the missing `decisionGrants` mapping; the other three failed only
+because the contract declared a verb no registered tool answered.
+
+Left open, and worth reading before touching any staged 🟡 verb:
+
+- **#928 — the REST staging gate stages before it can read the body.** It takes
+  its target from the route, so an operation whose subject lives in the body
+  (this one, `book_meeting`) stages an id-less create: the approver is bounded
+  by read+create on the record TYPE, not by the row scope of the records the
+  effect concerns. A manager whose scope excludes them can release the send and
+  read its proposed text. It cannot be closed from the verb — the version pin is
+  taken server-side from the target pair, and the waiver that declines a pin is
+  reserved for kinds approvals applies itself. Two independent code reviews
+  proposed that unavailable fix; check the constraint before proposing it again.
+- **#929 — the external-system-of-record refusal runs at staging, not at
+  redemption**, for all four staging verbs.
+- The account-started DRAFT (§3: grounded, fenced, auto-starting, writing
+  nothing) is still not built.
 
 **Finance mirror (ADR-0083) — PR #689.** The five tables only:
 `finance_connection`, `finance_external_customer`, `finance_customer_link`,
@@ -365,7 +389,7 @@ ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
 the catalog in typed Go. #521 then moved every reader off the `workspace`
 columns across four slices — quotas and finance (#794), the deals module's
 money reads (#802), name/timezone plus the roll-up and org-360 (#817), and the
-brief ranker, forecast and reset confirmation (#857) — and migration `0209`
+brief ranker, forecast and reset confirmation (#857) — and migration `0211`
 dropped `name`, `base_currency` and `timezone` along with the dual write in
 `UpdateInstallation`.
 
@@ -378,7 +402,7 @@ principal exists to gate anything and the other on the first write, when no row
 exists yet and "nothing is priced against a base that was never set" is the
 honest answer.
 
-`0209` refuses rather than loses: an installation whose settings rows are
+`0211` refuses rather than loses: an installation whose settings rows are
 missing while a live workspace still holds the values fails the migration with
 what to do about it, because dropping the columns would destroy the only copy.
 The one state its repair cannot resolve is several live workspaces, where no

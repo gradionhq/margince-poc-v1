@@ -57,7 +57,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	env.String(fs, &cfg.schemaDSN, "schema-dsn", "MARGINCE_SCHEMA_DSN", "",
 		"Postgres DSN (owner role) for the customfields runtime-DDL pool; unset = the two schema-change operations answer 501")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
-	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:56379", "Redis address (event bus)")
+	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:16379", "Redis address (event bus)")
 	fs.BoolVar(&cfg.inlineRelay, "inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
 	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml; enables the cold-start read-back")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")

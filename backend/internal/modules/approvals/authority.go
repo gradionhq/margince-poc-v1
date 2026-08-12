@@ -86,6 +86,14 @@ var decisionGrants = map[string][]grantRequirement{
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
 	"send_email": {{objectActivity, principal.ActionCreate}},
+	// send_account_email is the same send from the other origin (ADR-0087 §6):
+	// it starts a conversation instead of continuing one, and the effect it
+	// stages is the identical activity write. The records the message is filed
+	// under are named rather than inherited, and those are row-scope probed at
+	// staging and again at insert — they are a question about the STAGER's
+	// reach, not about the approver's, so they add nothing here. Governed
+	// identically to the reply means exactly this grant and no other.
+	"send_account_email": {{objectActivity, principal.ActionCreate}},
 	// send_message is the same effect on a messaging channel: an activity
 	// write, with the consent gate running in the handler whoever approved it.
 	"send_message": {{objectActivity, principal.ActionCreate}},
