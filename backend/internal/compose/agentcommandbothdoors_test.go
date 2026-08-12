@@ -37,6 +37,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	chi "github.com/go-chi/chi/v5"
 
@@ -45,6 +46,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -210,6 +212,63 @@ var bothDoorsFixtures = map[string]bothDoorsFixture{
 			return `{"project_id":"` + primary.String() + `","to_phase":"pursuing"}`
 		},
 	},
+
+	// The four outbound verbs. They are the pairs with the most to lose from a
+	// door-to-door disagreement — an approval bound to the wrong record, or a
+	// sentence naming recipients the other door would not have reached — and
+	// the two mail sends carry a `cc` for that reason: the addressee list is
+	// the operand a human reads and the one both summaries have to spell the
+	// same way.
+	//
+	// The account-started send and the booking name their records in the BODY
+	// on both doors, which is why the route carries no id for either: they are
+	// the two operations whose staged target cannot be read off the path at all.
+	"sendEmail": {
+		rest: func(primary, _ ids.UUID) (*http.Request, []byte) {
+			return doorRequest(http.MethodPost, "/v1/activities/"+primary.String()+"/send-email", primary,
+				`{"to":["buyer@example.test"],"cc":["cfo@example.test"],"subject":"Q3 renewal",`+
+					`"body":"hi","consent_purpose":"sales"}`)
+		},
+		args: func(primary, _ ids.UUID) string {
+			return `{"activity_id":"` + primary.String() + `","to":["buyer@example.test"],` +
+				`"cc":["cfo@example.test"],"subject":"Q3 renewal","body":"hi","consent_purpose":"sales"}`
+		},
+	},
+	"sendMessage": {
+		rest: func(primary, _ ids.UUID) (*http.Request, []byte) {
+			return doorRequest(http.MethodPost, "/v1/activities/"+primary.String()+"/send-message", primary,
+				`{"body":"Sending the deck now","consent_purpose":"support"}`)
+		},
+		args: func(primary, _ ids.UUID) string {
+			return `{"activity_id":"` + primary.String() + `","body":"Sending the deck now",` +
+				`"consent_purpose":"support"}`
+		},
+	},
+	"sendAccountEmail": {
+		rest: func(primary, _ ids.UUID) (*http.Request, []byte) {
+			return doorRequest(http.MethodPost, "/v1/emails", ids.UUID{},
+				`{"to":["buyer@example.test"],"cc":["cfo@example.test"],"subject":"Introduction",`+
+					`"body":"hi","consent_purpose":"sales","links":[{"entity_type":"organization",`+
+					`"entity_id":"`+primary.String()+`"}]}`)
+		},
+		args: func(primary, _ ids.UUID) string {
+			return `{"to":["buyer@example.test"],"cc":["cfo@example.test"],"subject":"Introduction",` +
+				`"body":"hi","consent_purpose":"sales","links":[{"entity_type":"organization",` +
+				`"entity_id":"` + primary.String() + `"}]}`
+		},
+	},
+	"bookMeeting": {
+		rest: func(primary, _ ids.UUID) (*http.Request, []byte) {
+			return doorRequest(http.MethodPost, "/v1/bookings", ids.UUID{},
+				`{"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z","subject":"Renewal review",`+
+					`"links":[{"entity_type":"deal","entity_id":"`+primary.String()+`"}]}`)
+		},
+		args: func(primary, _ ids.UUID) string {
+			return `{"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z",` +
+				`"subject":"Renewal review","links":[{"entity_type":"deal","entity_id":"` +
+				primary.String() + `"}]}`
+		},
+	},
 }
 
 // twinnedOperations is the subject set, derived: an operation whose declared
@@ -242,8 +301,15 @@ func twinnedOperations(served *agents.Registry) map[string]string {
 
 // bothDoorsRegistry is the tool door under test: the production registrations,
 // over the record seam every one of these resolvers reads through and nothing
-// else. The executor seams are nil on purpose — a call that EXECUTED instead of
-// staging would fault here rather than quietly pass.
+// else. The executor seams are nil or refusing on purpose — a call that
+// EXECUTED instead of staging would fault here rather than quietly pass.
+//
+// The comms and scheduling verbs register over a refusing seam rather than
+// being left out, and that is the whole difference between this lane covering
+// the four sends and excusing them: their resolvers read RECORDS (and, for a
+// channel reply, the kind test), never the send machinery, and Invoke stages a
+// refused 🟡 call before Handle is reached at all. A seam that needed a pool to
+// be CONSTRUCTED was what previously kept them out; nothing about staging did.
 //
 // The floor tightens every (verb, record type) it is asked about, which is how
 // a 🟢 verb comes to stage at all. It is the contract's own mechanism (#982),
@@ -256,10 +322,71 @@ func bothDoorsRegistry(staging agents.Approvals) *agents.Registry {
 		agents.WithTierFloor(func(string, string) (mcp.RiskTier, bool) {
 			return mcp.TierConfirmationRequired, true
 		}))
-	agents.RegisterCoreTools(reg, seamRecord{}, nil, nil, nil)
-	agents.RegisterEnrichTool(reg, seamRecord{}, nil)
-	agents.RegisterLifecycleTools(reg, seamRecord{}, nil, nil, nil)
+	agents.RegisterCoreTools(reg, channelAnchor{}, nil, nil, nil)
+	agents.RegisterEnrichTool(reg, channelAnchor{}, nil)
+	agents.RegisterLifecycleTools(reg, channelAnchor{}, nil, nil, nil)
+	agents.RegisterCommsTools(reg, bothDoorsComms{}, channelAnchor{})
 	return reg
+}
+
+// channelAnchor is seamRecord's answer plus the one field a channel reply's
+// guard reads: an activity whose kind IS a messaging conversation, so a
+// send_message names a subject on both doors instead of being refused before
+// either names one.
+//
+// A second fixture rather than a `kind` added to seamRecord, because the other
+// one's silence is load-bearing: TestAChannelReplyOnANonChannelAnchorStagesNothing
+// reaches its refusal precisely because seamRecord carries no kind at all.
+// `telegram` is the one kind activities.IsChannelKind admits today; if that
+// stops being true, the REST door refuses here and the comparison reports it
+// rather than passing on a reply neither door would make.
+type channelAnchor struct{ seamRecord }
+
+func (channelAnchor) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	return datasource.Record{
+		Ref:       ref,
+		Fields:    json.RawMessage(`{"name":"Acme","kind":"telegram"}`),
+		Version:   4,
+		Freshness: datasource.FreshnessInfo{Authoritative: true},
+	}, nil
+}
+
+// errBothDoorsExecuted is what every executor method of the seam below answers.
+// Staging reaches none of them, so reaching one means the tool door ran the
+// send instead of staging it — reported as this lane's own failure rather than
+// as a nil-seam panic somewhere inside a handler.
+var errBothDoorsExecuted = errors.New(
+	"the comms seam executed in a lane that only compares what the two doors stage")
+
+// bothDoorsComms is the comms and scheduling seam with no send machinery behind
+// it. Every EXECUTOR method refuses; the one method that is not an executor —
+// the channel-kind test both doors' guards ask — is answered by production's own
+// reading of it (channelKinds, comms.go), so the two doors cannot come to
+// disagree about a kind because a test double had an opinion.
+type bothDoorsComms struct{ channelKinds }
+
+func (bothDoorsComms) DraftEmail(context.Context, ids.UUID, string) (string, string, error) {
+	return "", "", errBothDoorsExecuted
+}
+
+func (bothDoorsComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (agents.SendEmailResult, error) {
+	return agents.SendEmailResult{}, errBothDoorsExecuted
+}
+
+func (bothDoorsComms) SendAccountEmail(context.Context, []agents.RecordLink, agents.SendEmailArgs) (agents.SendEmailResult, error) {
+	return agents.SendEmailResult{}, errBothDoorsExecuted
+}
+
+func (bothDoorsComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (agents.SendMessageResult, error) {
+	return agents.SendMessageResult{}, errBothDoorsExecuted
+}
+
+func (bothDoorsComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (agents.AvailabilityResult, error) {
+	return agents.AvailabilityResult{}, errBothDoorsExecuted
+}
+
+func (bothDoorsComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawMessage, error) {
+	return nil, errBothDoorsExecuted
 }
 
 // agentDoorCtx is a passport principal holding every cap, so admission turns on
@@ -274,28 +401,7 @@ func agentDoorCtx() context.Context {
 	})
 }
 
-// outOfLaneVerbs are the twinned verbs whose tool cannot be built without a
-// live comms or scheduling seam — both of which need a pool, which is a
-// database, which is not this lane. The claim is CHECKED rather than trusted:
-// the walk asserts each is registered on the production surface and absent from
-// the one built here, so a verb that becomes buildable stops being excused.
-//
-// Their two doors are compared where a database exists:
-// TestBothDoorsStageOneRowForOneOperation (agentcommandstagedrow_integration_test.go)
-// takes the send through the real registry and the real approvals engine.
-var outOfLaneVerbs = gatekit.Waive(map[string]string{
-	"send_email": "a reply send is built over the comms seam, which needs a pool — so this lane compares " +
-		"nothing about the two doors of POST /v1/activities/{id}/send-email",
-	"send_message": "a channel reply is built over the comms seam, which needs a pool — so this lane " +
-		"compares nothing about the two doors of POST /v1/activities/{id}/send-message",
-	"send_account_email": "an account-started send is built over the comms seam, which needs a pool — so " +
-		"this lane compares nothing about the two doors of POST /v1/emails",
-	"book_meeting": "a booking is built over the scheduling seam, which needs a pool — so this lane " +
-		"compares nothing about the two doors of POST /v1/bookings",
-})
-
 func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
-	defer outOfLaneVerbs.AssertAllMatched(t)
 	defer dynamicTierVerbs.AssertAllMatched(t)
 	served := NewRegistry(nil, SendPath{})
 	twins := twinnedOperations(served)
@@ -305,7 +411,7 @@ func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
 	for op, tool := range twins {
 		fixture, written := bothDoorsFixtures[op]
 		if !written {
-			assertVerbIsOutOfLane(t, served, op, tool)
+			assertVerbResolvesItsTierPerCall(t, served, op, tool)
 			continue
 		}
 		t.Run(op, func(t *testing.T) {
@@ -326,31 +432,32 @@ func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
 // against. Ratified rather than waved through in a bare branch: a second verb
 // turning dynamic would otherwise drop out of this gate in silence, and a verb
 // that stops being dynamic is reported stale.
+//
+// It is the ONLY reason a twinned verb may skip a fixture. A verb whose seam
+// this lane cannot build is not one of them — a resolver reads records, never
+// executors, which is what lets the four outbound verbs above be compared here
+// over a seam that refuses every send.
 var dynamicTierVerbs = gatekit.Waive(map[string]string{
 	"advance_deal": "a deal move's tier is decided by reading both endpoints, so an open→open call executes " +
-		"where a close stages — its two doors' agreement is held by agentgatepin_test.go and " +
-		"dealmovepin_integration_test.go instead, which compare the version pin rather than the staged subject",
+		"where a close stages, and this lane's fixture would compare a staged row that only some workspace " +
+		"states produce — what the two doors do share is the command itself, both decoding into " +
+		"AdvanceDealCommand{DealID, ToStageID} (agentcommandlifecycle.go and tools_lifecycle.go), which no " +
+		"test compares door-to-door today",
 })
 
-// assertVerbIsOutOfLane holds an unwritten fixture to a ratified reason: either
-// the verb's tier is resolved per call, or the lane cannot build its tool.
-func assertVerbIsOutOfLane(t *testing.T, served *agents.Registry, op, tool string) {
+// assertVerbResolvesItsTierPerCall holds an unwritten fixture to the one
+// ratified reason for having none: the verb decides its own tier by reading the
+// record, so this lane has no staged row to compare it by.
+func assertVerbResolvesItsTierPerCall(t *testing.T, served *agents.Registry, op, tool string) {
 	t.Helper()
-	if spec, _ := served.Spec(tool); spec.Tier == mcp.TierDynamic {
-		if !dynamicTierVerbs.Waived(t, tool) {
-			t.Errorf("%s is twinned by %s, whose tier is resolved per call, and no entry says where that "+
-				"operation's two doors are compared instead", op, tool)
-		}
-		return
-	}
-	if !outOfLaneVerbs.Waived(t, tool) {
+	if spec, _ := served.Spec(tool); spec.Tier != mcp.TierDynamic {
 		t.Errorf("%s is twinned by the stageable verb %s and has no two-door fixture, so nothing checks that "+
 			"the route and the tool call resolve to one command", op, tool)
 		return
 	}
-	if _, buildable := bothDoorsRegistry(&capturingApprovals{}).Spec(tool); buildable {
-		t.Errorf("%s is excused as unbuildable in this lane, and this lane registers it after all — write "+
-			"%s's fixture instead", tool, op)
+	if !dynamicTierVerbs.Waived(t, tool) {
+		t.Errorf("%s is twinned by %s, whose tier is resolved per call, and no entry says where that "+
+			"operation's two doors are compared instead", op, tool)
 	}
 }
 
@@ -369,7 +476,8 @@ func compareDoors(t *testing.T, op, tool string, fixture bothDoorsFixture) {
 	pol := agentPolicies[agentReachableMutations()[op]]
 
 	req, body := fixture.rest(primary, secondary)
-	call, err := restCommands[op](pol, restCommandDeps{records: seamRecord{}}, req, body)
+	call, err := restCommands[op](pol,
+		restCommandDeps{records: channelAnchor{}, channels: channelKinds{}}, req, body)
 	if err != nil {
 		t.Fatalf("the REST door refused the request its own route declares: %v", err)
 	}
