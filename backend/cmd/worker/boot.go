@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -98,7 +99,7 @@ func resetFlush(path compose.ModelPath) func(ids.UUID) {
 
 // workerLanes is what the event lanes leave behind for the job runner, which
 // schedules against the SAME instances those lanes consume into: one governed
-// registry and one brain per role, ONE deliverer across both outbound-webhook
+// registry and one brain per role, ONE deliverer FACTORY across both outbound-webhook
 // lanes (E10/S-E10.6) — never two that could drift apart — plus the object
 // store the deep-read logo write and the retention purge share.
 type workerLanes struct {
@@ -111,7 +112,7 @@ type workerLanes struct {
 	// only thing that should call either, so the lanes have one shutdown.
 	stop      context.CancelFunc
 	runner    *compose.RunnerService
-	deliverer *webhooks.Deliverer
+	deliverer func(*database.DB) *webhooks.Deliverer
 	blob      blobstore.Store
 }
 
@@ -294,7 +295,9 @@ func startWebhookLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool,
 	}
 	_, _ = fmt.Fprintln(stdout, "worker delivering outbound webhooks (cg:webhooks)")
 	lanes.deliverer = deliverer
-	lanes.background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger, 0) })
+	lanes.background.Go(func() {
+		runSubscriber(ctx, rdb, "cg:webhooks", compose.WebhookEventHandler(pool, deliverer), logger, 0)
+	})
 	return nil
 }
 
