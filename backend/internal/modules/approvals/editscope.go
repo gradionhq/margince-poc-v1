@@ -31,6 +31,7 @@ package approvals
 // is what ADR-0036 §4 is for.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -122,5 +123,45 @@ func assertSameEntityRefs(original, edited json.RawMessage) error {
 	// of a map, and an error message that reorders itself is one a reviewer
 	// cannot diff against the last one.
 	sort.Strings(changed)
+	return &RetargetedEditError{Paths: changed}
+}
+
+// callIdentityMembers are the members of a REST staging that say WHICH CALL was
+// staged rather than what it contains. The transport writes them
+// (compose.canonicalRESTCall) and the redemption re-derives them from the retry's
+// own method and URL, so an edit that changes one moves the effect to a different
+// operation or a different record while every other check still reads the original.
+//
+// They are pinned separately from entityRefs rather than folded into it because
+// entityRefs answers a question about VALUES — is this the same record — by
+// matching strings that parse wholly as a UUID. A path is a string that CONTAINS
+// one, and widening the UUID probe to search inside arbitrary strings would pin
+// every id that ever appears in prose, including a body a human is meant to edit.
+var callIdentityMembers = []string{"operation", "path"}
+
+// assertSameCallIdentity refuses an edit that changes which call was staged.
+//
+// A staging that carries neither member is not a REST staging — the tool door
+// stages tool arguments — and has no call identity to pin here; entityRefs governs
+// it, as it governs the body of this one.
+func assertSameCallIdentity(original, edited json.RawMessage) error {
+	var before, after map[string]json.RawMessage
+	if err := json.Unmarshal(original, &before); err != nil {
+		return fmt.Errorf("approvals: decoding a proposed change to compare its call identity: %w", err)
+	}
+	if err := json.Unmarshal(edited, &after); err != nil {
+		return fmt.Errorf("approvals: decoding an edited change to compare its call identity: %w", err)
+	}
+	var changed []string
+	for _, member := range callIdentityMembers {
+		was, had := before[member]
+		now, has := after[member]
+		if had != has || !bytes.Equal(was, now) {
+			changed = append(changed, "/"+member)
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
 	return &RetargetedEditError{Paths: changed}
 }

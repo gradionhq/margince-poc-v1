@@ -233,6 +233,11 @@ func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edite
 	if err := assertSameEntityRefs(a.ProposedChange, canonical); err != nil {
 		return err
 	}
+	// The same rule for the half entityRefs cannot see: a record named inside the
+	// request path rather than as a field of its own.
+	if err := assertSameCallIdentity(a.ProposedChange, canonical); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE approval SET proposed_change = $2, diff_hash = $3 WHERE id = $1`,
 		id, canonical, editedHash); err != nil {

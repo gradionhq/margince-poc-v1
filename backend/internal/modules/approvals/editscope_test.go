@@ -124,9 +124,44 @@ func TestAnEditMayNotRepointTheRecordNamedInARestPath(t *testing.T) {
 		return json.RawMessage(`{"operation":"advanceDeal","path":"/v1/deals/` + id.String() +
 			`/advance","body":{"to_stage_id":"` + toStageID + `"}}`)
 	}
-	if err := assertSameEntityRefs(rest(staged), rest(other)); err == nil {
+	if err := assertSameCallIdentity(rest(staged), rest(other)); err == nil {
 		t.Fatal("an edit that moved the call from one deal to another was accepted; the approving " +
 			"human judged the first record and the effect would land on the second")
+	}
+}
+
+// Content stays editable — that is what ADR-0036 §4 is for. A staging whose body
+// changes while its call identity holds is exactly the correction a human is
+// invited to make.
+func TestAnEditMayStillCorrectTheBodyOfARestStagedCall(t *testing.T) {
+	deal, path := ids.NewV7(), "/v1/deals/"
+	before := json.RawMessage(`{"operation":"advanceDeal","path":"` + path + deal.String() +
+		`/advance","body":{"note":"as discussed"}}`)
+	after := json.RawMessage(`{"operation":"advanceDeal","path":"` + path + deal.String() +
+		`/advance","body":{"note":"as agreed on the call"}}`)
+	if err := assertSameCallIdentity(before, after); err != nil {
+		t.Errorf("a body correction was refused as a retarget: %v", err)
+	}
+}
+
+// A tool staging carries neither member. It must pass rather than fail closed here,
+// or every MCP-staged approval becomes uneditable.
+func TestAToolStagingHasNoCallIdentityToPin(t *testing.T) {
+	before := json.RawMessage(`{"deal_id":"` + ids.NewV7().String() + `","note":"a"}`)
+	after := json.RawMessage(`{"deal_id":"` + ids.NewV7().String() + `","note":"b"}`)
+	if err := assertSameCallIdentity(before, after); err != nil {
+		t.Errorf("a tool staging with no operation or path was treated as retargeted: %v", err)
+	}
+}
+
+// Dropping the member is a change, not an absence: an edit that deletes `path`
+// leaves a payload the redemption re-derives its own path for, which is the same
+// re-aiming by another route.
+func TestDroppingTheCallIdentityIsARetarget(t *testing.T) {
+	before := json.RawMessage(`{"operation":"advanceDeal","path":"/v1/deals/x/advance","body":{}}`)
+	after := json.RawMessage(`{"operation":"advanceDeal","body":{}}`)
+	if err := assertSameCallIdentity(before, after); err == nil {
+		t.Error("an edit that removed the staged path was accepted")
 	}
 }
 
