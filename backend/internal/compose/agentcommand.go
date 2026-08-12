@@ -102,6 +102,21 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"updateRelationship":        patchCommand,
 	"updateSavedView":           patchCommand,
 	"updateWebhookSubscription": patchCommand,
+
+	// The eight bespoke confirm-first commands (agentcommandoperand.go): none
+	// of them is a whole-record patch, so none belongs above — each targets
+	// the routed record but carries a SECOND operand (a path segment or, for
+	// removeProjectStakeholder, a second path parameter) that a projection
+	// onto update_record's own {record_type, id, fields} arguments cannot
+	// express (gradionhq/margince-poc-v1#928 task 5).
+	"confirmOrganizationFact":         confirmFactCommand,
+	"updateOrganizationFact":          updateFactCommand,
+	"confirmOrganizationProfileField": confirmProfileFieldCommand,
+	"updateOrganizationProfileField":  updateProfileFieldCommand,
+	"retireCustomField":               retireCustomFieldCommand,
+	"updateCustomFieldOptions":        updateCustomFieldOptionsCommand,
+	"setProjectStakeholder":           setStakeholderCommand,
+	"removeProjectStakeholder":        removeStakeholderCommand,
 }
 
 // archiveCommand decodes one DELETE /v1/<collection>/{id} into the archive
