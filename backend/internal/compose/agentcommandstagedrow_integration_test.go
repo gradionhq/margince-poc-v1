@@ -131,7 +131,7 @@ func TestBothDoorsRefuseOneRecordNeitherCallerCanSee(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	stageRefusal(rec, archiveRequestFor(agent, hidden.ID), approvalsAdapter{svc: approvals.NewService(e.Pool)},
+	stageRefusal(rec, archiveRequestFor(agent, hidden.ID), approvalsAdapter{svc: approvals.NewService(e.DB())},
 		restCommandDeps{records: native}, archivePersonPolicy, nil)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("the REST door answered %d for a row outside the agent's scope, want 404", rec.Code)
@@ -199,7 +199,7 @@ func (repSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType
 // row this door writes is written by production's own stager.
 func archiveRegistry(e *integration.Env) *agents.Registry {
 	native := NewProvider(e.Pool)
-	reg := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(e.Pool)}, auth.NewGate(repSeat{e}))
+	reg := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(e.DB())}, auth.NewGate(repSeat{e}))
 	agents.RegisterCoreTools(reg, native, native, nil, fieldOwnership{pool: e.Pool})
 	return reg
 }
@@ -212,7 +212,7 @@ func stageArchiveOverREST(agent context.Context, t *testing.T, e *integration.En
 ) ids.ApprovalID {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	stageRefusal(rec, archiveRequestFor(agent, person), approvalsAdapter{svc: approvals.NewService(e.Pool)},
+	stageRefusal(rec, archiveRequestFor(agent, person), approvalsAdapter{svc: approvals.NewService(e.DB())},
 		restCommandDeps{records: native}, archivePersonPolicy, nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("the REST archive answered %d, want 403 with the redemption instructions", rec.Code)

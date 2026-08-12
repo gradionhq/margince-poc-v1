@@ -124,7 +124,7 @@ func isSeamEntity(recordType string) bool {
 func TestAnArchiveOfARowOutsideTheAgentsScopeStagesNothing(t *testing.T) {
 	e := integration.Setup(t)
 	native := NewProvider(e.Pool)
-	staging := approvalsAdapter{svc: approvals.NewService(e.Pool)}
+	staging := approvalsAdapter{svc: approvals.NewService(e.DB())}
 
 	// Rep3 sits in Team2; the agent below acts for Rep1, in Team1. The person is
 	// OWNED by Rep3 — an ownerless row is workspace-shared and visible at every
