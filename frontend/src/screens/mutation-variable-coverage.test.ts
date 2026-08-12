@@ -162,14 +162,33 @@ function findingsIn(file: string): string[] {
   return findings;
 }
 
+// Vitest's 5s per-test default is sized for an async UI test, not for a
+// synchronous parse of every file that defines a mutation. The work below is
+// bounded and deterministic — only the machine's speed varies — so it states a
+// budget a loaded runner cannot exhaust rather than living on one the default
+// happens to cover on a quiet one. The first version of this gate had no such
+// budget and timed out in CI while passing locally.
+const PARSE_MS = 60_000;
+
 describe("mutation variables", () => {
   it("never refuses on state a mutationFn only closed over", () => {
     const files = sourceFiles(srcRoot);
-    // An empty sweep would pass while checking nothing — the way a source-wide
-    // gate is most likely to fail.
+    // A file with no `mutationFn` in its text cannot hold a finding, and
+    // parsing it anyway is what this gate would otherwise cost: a whole-tree
+    // parse on every run, growing with the SPA rather than with the number of
+    // mutations. The first version did exactly that and timed out on a loaded
+    // CI runner — a source check whose verdict depends on how busy the machine
+    // is, which is the failure this whole change is about.
+    const candidates = files.filter((file) =>
+      readFileSync(file, "utf8").includes("mutationFn"),
+    );
+    // Both counts, because either one reaching zero passes this gate while
+    // comparing nothing — a swept tree that finds no files and a prefilter that
+    // admits none look identical from the outside, and both look like success.
     expect(files.length).toBeGreaterThan(0);
+    expect(candidates.length).toBeGreaterThan(0);
 
-    const findings = files.flatMap(findingsIn);
+    const findings = candidates.flatMap(findingsIn);
     expect(findings, `\n${findings.join("\n")}\n`).toEqual([]);
-  });
+  }, PARSE_MS);
 });
