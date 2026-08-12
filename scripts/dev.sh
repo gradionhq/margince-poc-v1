@@ -495,7 +495,7 @@ up)
   # the api served an enabled unit's routes while the SPA resolved the
   # empty-tree registry, so #/ext/<unit> answered "no extension named …" on the
   # one command the docs tell a developer to run — the whole frontend surface of
-  # the tier was unreachable locally, and only Dockerfile.web set the variable.
+  # the tier was unreachable locally, and only the web image build set the variable.
   # Found by Task 14's UAT (F3).
   #
   # The directory is always present here: gen-composition runs in the boot

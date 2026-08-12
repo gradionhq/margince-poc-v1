@@ -599,9 +599,11 @@ sbom:
 ## sbom-supplement — fill in licenses syft cannot resolve. syft leaves GitHub
 ## Actions unlicensed (anchore/syft#4209) and passes PyPI's ambiguous "BSD"
 ## through for a couple of build-tooling deps, so the license gate would deny
-## them though their real licenses are permissive. This curated purl->SPDX map
-## (key = purl without version, so every pinned action version matches) sets the
-## license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
+## them though their real licenses are permissive. The curated purl->SPDX map
+## lives in sbom-schemas/license-supplement.json (key = purl without version,
+## so every pinned action version matches — and that directory is in the
+## license gate's classifier scope, so editing the map re-runs the gate); it
+## sets the license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
 ## license-bearing SBOMs agree; syft v1.50 emits no per-package license in SPDX
 ## 3.0, so there is nothing to supplement there. SonarSource's action is left
 ## unset on purpose — it is LGPL-3.0-only and ignored in .grant.yaml, not shipped.
@@ -609,9 +611,8 @@ sbom:
 sbom-supplement:
 	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
 	@set -e; cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; \
-	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/docker/setup-buildx-action":"Apache-2.0","pkg:github/docker/setup-qemu-action":"Apache-2.0","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
-	  jq --argjson m "$$map" '.components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then .licenses = [{"license": {"id": $$m[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
-	  jq --argjson m "$$map" '.packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then (.licenseConcluded = $$m[$$k] | .licenseDeclared = $$m[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
+	  jq --slurpfile m sbom-schemas/license-supplement.json '$$m[0] as $$map | .components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$map[$$k] != null then .licenses = [{"license": {"id": $$map[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
+	  jq --slurpfile m sbom-schemas/license-supplement.json '$$m[0] as $$map | .packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$map[$$k] != null then (.licenseConcluded = $$map[$$k] | .licenseDeclared = $$map[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
 
 ## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
 ## tree, the invariant the constellation dist gate enforces. syft scans the export

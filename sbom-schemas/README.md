@@ -9,6 +9,11 @@ validators and the assets in this directory:
 | SPDX 2.2.1 | `pyspdxtools` (spdx/tools-python), structural **and** semantic | `spdx-tools-requirements.txt` |
 | SPDX 3.0.1 | generic JSON-schema validation | `spdx-3.0.1.schema.json` |
 
+`license-supplement.json` is the curated purl→SPDX-license map
+`make sbom-supplement` applies for packages syft cannot license itself
+(GitHub Actions, and PyPI deps whose metadata says only "BSD"). Keys are
+purls without a version, so every pinned action version matches.
+
 `pyspdxtools` is the canonical SPDX 2.x validator; it runs in a digest-pinned
 Python image with the hash-pinned dependency set in `spdx-tools-requirements.txt`,
 so it is as reproducible as the digest-pinned SBOM images (regeneration steps are

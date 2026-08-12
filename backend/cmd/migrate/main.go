@@ -215,7 +215,7 @@ CREATE INDEX IF NOT EXISTS river_job_workspace_arg
 // its own schema_migrations_ext_<name>.
 //
 // The bytes come from the unit's own embedded FS, so this works in the
-// deployed image, where there is no extensions/ tree to read (Dockerfile.api
+// deployed image, where there is no extensions/ tree to read (the api image
 // ships the binary alone).
 //
 // Sorted by unit name. No unit's schema may depend on another's — each owns

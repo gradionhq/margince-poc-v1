@@ -51,7 +51,7 @@ Consequences:
   pattern because the action ORs its patterns: a separate `!infra/**/*.md`
   entry would match every path outside `infra/` and fire the filter on
   everything.
-- A **Dockerfile-only PR** (root `Dockerfile.*`, `.dockerignore`,
+- A **Dockerfile-only PR** (the root `Dockerfile`, `.dockerignore`,
   `docker-bake.hcl`) also matches no scope. The role images are built, pushed
   and digest-pinned into the release by `release.yml` on every push to `main`
   — that build is the gate now, so an image break surfaces in the release run
@@ -267,7 +267,18 @@ Wiring details:
   uploaded), then the three role images are built through the bake file
   (`docker-bake.hcl`, linux/amd64 + linux/arm64 with `mode=max` provenance
   attestations — the builder stages cross-compile natively, only runtime
-  layers run emulated), pushed to the constellation registry
+  layers run emulated). The bake warms up from two Actions caches, because
+  the runner is ephemeral: `CACHE=gha` exports the layer cache per role
+  (its durable win is the dependency-download layer, which busts only on a
+  module-pin change), and buildkit-cache-dance + actions/cache carry the
+  BuildKit cache-mount contents (Go compile cache, pnpm store, Corepack's
+  pnpm download, tsc `.tsbuildinfo`) across runs — mounts are not layers, so no layer cache
+  covers them. Both live in the repo's 10 GB Actions cache, which the CI
+  lanes' Go caches keep near the cap, so entries older than a few hours are
+  routinely LRU-evicted: the caches bridge releases that land close
+  together — the busy-day case where they matter — and a release after a
+  quiet night simply bakes cold. The images are pushed to the constellation
+  registry
   (`registry.test.margince.com/margince/<role>`, authenticated as the
   registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
   the draft as digest-pinned references with `add-artifacts`, and the release

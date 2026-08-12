@@ -36,9 +36,29 @@ variable "PLATFORMS" {
   default = ""
 }
 
+# "gha" exports/imports the layer cache through the GitHub Actions cache, one
+# scope per role. Only the release workflow sets it: type=gha needs the Actions
+# runtime credentials in the builder's environment (release.yml exposes them),
+# so anywhere else the empty default keeps the bake self-contained. mode=max
+# exports the builder stages too — the dependency-download layer is the one
+# worth the upload, the source-dependent layers after it miss on every commit.
+# ignore-error=true on every export: the cache is an optimization, and a cache
+# outage must cost the release a cold bake, never the release itself (the
+# exporter default fails the whole bake on an export error).
+variable "CACHE" {
+  default = ""
+}
+
+# Every role lives in the ONE root Dockerfile as a build target of the same
+# name; the shared Go builder base is spelled once there and built once per
+# bake. A deploy recipe building a role directly says
+# `docker build --target <role> .` (a d13 dockerBuild block: `dockerFile:
+# ./Dockerfile` + `arguments: ["--target", "<role>"]` — d13 has no target
+# key, only pass-through arguments).
 target "role" {
-  context   = "."
-  platforms = PLATFORMS == "" ? [] : split(",", PLATFORMS)
+  context    = "."
+  dockerfile = "Dockerfile"
+  platforms  = PLATFORMS == "" ? [] : split(",", PLATFORMS)
   args = {
     MARGINCE_BUILD_REVISION = MARGINCE_BUILD_REVISION
   }
@@ -46,18 +66,24 @@ target "role" {
 
 target "api" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.api"
+  target     = "api"
   tags       = ["${REPO}/api:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-api"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-api,mode=max,ignore-error=true"] : []
 }
 
 target "web" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.web"
+  target     = "web"
   tags       = ["${REPO}/web:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-web"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-web,mode=max,ignore-error=true"] : []
 }
 
 target "worker" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.worker"
+  target     = "worker"
   tags       = ["${REPO}/worker:${VERSION}"]
+  cache-from = CACHE == "gha" ? ["type=gha,scope=margince-worker"] : []
+  cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-worker,mode=max,ignore-error=true"] : []
 }

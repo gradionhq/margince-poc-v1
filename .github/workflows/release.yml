@@ -117,6 +117,10 @@ jobs:
             base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
           fi
           patch_args=()
+          # The ref name is part of the patch filename; a branch name with a
+          # slash would make it a path into a directory that does not exist
+          # inside the CLI's mount, so flatten the separators.
+          patch_file="${GITHUB_REF_NAME//\//-}-$AFTER.patch"
           if [ -n "$base" ] && ! printf '%s' "$base" | grep -qE '^0+$' \
             && git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
             # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
@@ -134,8 +138,8 @@ jobs:
               -e GIT_CONFIG_KEY_0=safe.directory \
               -e GIT_CONFIG_VALUE_0='*' \
               "$RELEASE_MANAGEMENT_IMAGE" \
-              create-patch -from "$base" -to "$AFTER" -repo . -out "$GITHUB_REF_NAME-$AFTER.patch"
-            patch_args=(-patch "$GITHUB_REF_NAME-$AFTER.patch")
+              create-patch -from "$base" -to "$AFTER" -repo . -out "$patch_file"
+            patch_args=(-patch "$patch_file")
             echo "patched=true" >> "$GITHUB_OUTPUT"
           else
             echo "No ancestor commit to diff from; drafting the release without a patch." >&2
@@ -183,6 +187,46 @@ jobs:
       # metadata file carries no pushed-manifest digest, and the digest is
       # exactly what the release records.
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # The runner is ephemeral, so every bake would otherwise start cold. Two
+      # caches bridge the runs, and they cover different things:
+      #   - CACHE=gha (docker-bake.hcl) exports the LAYER cache — its one
+      #     durable win is the dependency-download layer, which only busts
+      #     when a module pin changes. This step exposes the Actions cache
+      #     credentials buildx needs for type=gha.
+      #   - The cache MOUNTS (the Go compile cache, the pnpm store, corepack's
+      #     pnpm download, tsc's .tsbuildinfo) are not layers and no layer
+      #     cache carries them; actions/cache + buildkit-cache-dance below
+      #     save and restore their contents around the bake.
+      #
+      # Both cache steps carry continue-on-error: they only make the bake
+      # faster, so a cache-service outage or a broken injection must cost this
+      # run a cold bake, never the release. The bake and publish steps after
+      # them stay fatal.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: Restore the BuildKit cache-mount contents
+        id: mount-cache
+        continue-on-error: true
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .buildx-mount-cache
+          # Keyed by commit so every run saves its (grown) caches; the
+          # restore-key makes any previous run's save the starting point.
+          key: buildx-mounts-${{ github.sha }}
+          restore-keys: |
+            buildx-mounts-
+      - name: Inject the cache-mount contents into the builder
+        continue-on-error: true
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          utility-image: ghcr.io/containerd/busybox:1.36@sha256:7b3ccabffc97de872a30dfd234fd972a66d247c8cfc69b0550f276481852627c
+          cache-map: |
+            {
+              ".buildx-mount-cache/go-build": { "target": "/root/.cache/go-build", "id": "margince-gobuild" },
+              ".buildx-mount-cache/pnpm-store": { "target": "/pnpm-store", "id": "margince-pnpm-store" },
+              ".buildx-mount-cache/tsbuildinfo": { "target": "/app/frontend/node_modules/.tmp", "id": "margince-tsbuildinfo" },
+              ".buildx-mount-cache/corepack": { "target": "/root/.cache/node/corepack", "id": "margince-corepack" }
+            }
+          skip-extraction: ${{ steps.mount-cache.outputs.cache-hit }}
       # ghcr only for pulling the private release-management CLI image; the
       # baked images go to the constellation registry, authenticated as the
       # registry publisher (the token-auth realm's reserved identity, whose
@@ -201,6 +245,7 @@ jobs:
           REPO: registry.test.margince.com/margince
           VERSION: ${{ needs.draft.outputs.version }}
           PLATFORMS: linux/amd64,linux/arm64
+          CACHE: gha
           MARGINCE_BUILD_REVISION: ${{ github.sha }}
           MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
         run: |
