@@ -112,7 +112,7 @@ func itoa(n int) string {
 
 // allHumanOwned answers the ownership probe by naming every field the patch
 // touches — the shape that leaves SplitHumanOwned's AutoExecute half empty,
-// so splitOrRedeemUpdate's terminal branch (agentsplit.go: "every touched
+// so splitHumanOwnedUpdate's terminal branch (agentsplit.go: "every touched
 // field is human-owned") is the one under test rather than the mixed one.
 type allHumanOwned struct{}
 
@@ -148,7 +148,7 @@ func TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord(t *testing.T) {
 		t.Fatal("the handler ran — every field was human-owned, so nothing should have auto-executed")
 	})
 
-	splitOrRedeemUpdate(rec, req, next, staging, restCommandDeps{records: mirroredRecord{}}, allHumanOwned{}, pol, body)
+	splitHumanOwnedUpdate(rec, req, next, staging, restCommandDeps{records: mirroredRecord{}}, allHumanOwned{}, pol, body)
 
 	if staging.last.Tool != "" {
 		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — "+
@@ -169,10 +169,10 @@ func TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord(t *testing.T) {
 // is what would happen if upsertPartner were ever added to the map.
 //
 // Run through admitAgentCall — the layer that actually reads
-// actionShapedUpdateOps to decide between splitOrRedeemUpdate and a bare
-// next.ServeHTTP (agentgate.go) — rather than splitOrRedeemUpdate directly,
+// actionShapedUpdateOps to decide between splitHumanOwnedUpdate and a bare
+// next.ServeHTTP (agentgate.go) — rather than splitHumanOwnedUpdate directly,
 // so this test is sensitive to the membership question itself, not only to
-// splitOrRedeemUpdate's own internals. Verified by hand: adding
+// splitHumanOwnedUpdate's own internals. Verified by hand: adding
 // `opUpsertPartner: true` back into actionShapedUpdateOps and rerunning
 // this test fails it — the call takes the bare next.ServeHTTP branch
 // instead, the handler runs, and nothing stages.
@@ -205,7 +205,7 @@ func TestUpsertPartnerStagesAHumanOwnedPartnerField(t *testing.T) {
 
 // mixedHumanOwned answers the ownership probe by naming only ONE field as
 // human-owned, leaving any other touched field to auto-execute — the shape
-// that sends splitOrRedeemUpdate down applyAutoExecuteAndStageResidue's
+// that sends splitHumanOwnedUpdate down applyAutoExecuteAndStageResidue's
 // residue path (split.AutoExecute != nil) rather than allHumanOwned's
 // all-refused terminal branch.
 type mixedHumanOwned struct{ conflict string }

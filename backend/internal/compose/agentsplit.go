@@ -82,20 +82,23 @@ var actionShapedUpdateOps = map[string]bool{
 	opRenameCustomField:   true,
 }
 
-// splitOrRedeemUpdate is the per-field human-edit-precedence split
+// splitHumanOwnedUpdate is the per-field human-edit-precedence split
 // (interfaces.md §2.1) on the REST twin of the 🟢 update_record verb. The
 // body IS the field patch; the route's record_type annotation and {id}
 // name the audited record. Fields whose current value a human last wrote
 // are withheld and staged as a 🟡 approval while the rest of the patch
 // proceeds to the handler in the same request — mirroring the MCP tool,
-// so transport never changes what a human decision protects. An
-// X-Approval-Token redeems a prior staging: the approved retry carries
-// exactly the staged sub-patch, whose hash the staging was bound to.
-func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+// so transport never changes what a human decision protects.
+//
+// A retry presenting an X-Approval-Token never arrives here: the auto-execute
+// arm consumes the token and forwards the released call straight to the handler
+// (runAutoExecuted, agentgate.go), because that retry carries exactly the staged
+// sub-patch whose hash the approval was bound to and re-splitting it would stage
+// a second approval for the overwrite just approved. This function used to
+// redeem the token itself, which is how every OTHER tool's 🟢 arm came to ignore
+// one (gradionhq/margince-poc-v1#812).
+func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	if handled, _ := redeemIfPresented(w, r, next, staging, pol, body); handled {
-		return
-	}
 	raw := chi.URLParam(r, "id")
 	if raw == "" {
 		// Every field-patch twin routes with {id} today; a future route

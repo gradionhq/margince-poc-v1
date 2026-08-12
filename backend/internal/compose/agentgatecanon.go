@@ -7,7 +7,7 @@ package compose
 //
 // Split from agentgate.go on the 500-line cap, along a boundary already
 // implicit in the file: agentgate.go decides admission, and this is the one
-// thing both stageOrRedeem (agentgatestaging.go) and splitOrRedeemUpdate
+// thing both stageOrRedeem (agentgatestaging.go) and splitHumanOwnedUpdate
 // (agentsplit.go) hash a call through — kept together because a caller that
 // diverges on operation, path, headers or body diverges on the identity a
 // staged approval binds to.

@@ -142,7 +142,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	// and for createOffer that shape is provably wrong: the routed id is the
 	// parent deal (gradionhq/margince-poc-v1#1046).
 	// upsertPartner is the one exception: it stages TODAY, through BOTH
-	// splitOrRedeemUpdate branches a human-owned conflict can take —
+	// splitHumanOwnedUpdate branches a human-owned conflict can take —
 	// stageRefusal when every touched field is human-owned, and
 	// applyAutoExecuteAndStageResidue's residue when only some are
 	// (agentsplit.go) — since both resolve their staged target through this

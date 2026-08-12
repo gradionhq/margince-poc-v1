@@ -17,6 +17,7 @@ package compose
 // and headers that a tool call's arguments object has no place for.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -47,37 +48,46 @@ func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, st
 	return false
 }
 
-// redeemIfPresented consumes an X-Approval-Token when the request carries
-// one: a valid token bound to this exact call lets it through to the
-// handler; an invalid one is answered with the failure — asserted
-// authority is validated, never ignored.
+// tokenRedemption is what consuming a presented X-Approval-Token yielded: the
+// context marked as released — the marker the seam's egress backstop reads, and
+// the only proof a human released THIS call — plus the version the approval was
+// granted against.
+type tokenRedemption struct {
+	released context.Context
+	pin      int64
+	pinned   bool
+}
+
+// consumePresentedToken validates and consumes the X-Approval-Token on this
+// request: a valid token bound to this exact call is spent, and an invalid one
+// is answered with the failure — asserted authority is validated, never ignored.
 //
-// It answers TWO things, because they are two different facts and a caller
-// needs both: `handled` says the request has been answered and the caller
-// should stop, `ran` says a handler actually executed. They differ on every
-// refusal path here — a malformed token is handled and ran nothing — and the
-// difference is what decides whether an effect is charged. Reading one off the
-// other (by inspecting the status already written, say) would be a second
-// reading of one value, which is how these two come to disagree.
-func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) (handled, ran bool) {
+// It answers THREE things, because they are three different facts and both arms
+// of the gate need all of them: `presented` says the request asserted an
+// authority at all, `ok` says that assertion held, and the redemption carries
+// what the release proved. Nothing here forwards to a handler — what a released
+// call is then conditioned on differs between the two arms (agentgate.go's
+// pinAutoExecutedWrite and redeemIfPresented below), and folding the dispatch in
+// here is what left one arm redeeming and the other ignoring the same header.
+func consumePresentedToken(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) (redemption tokenRedemption, presented, ok bool) {
 	token := r.Header.Get(approvalTokenHeader)
 	if token == "" {
-		return false, false
+		return tokenRedemption{}, false, false
 	}
 	approvalID, pErr := ids.ParseAs[ids.ApprovalKind](token)
 	if pErr != nil {
 		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true, false
+		return tokenRedemption{}, true, false
 	}
 	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, body, keyBindsTheRetry)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
-		return true, false
+		return tokenRedemption{}, true, false
 	}
 	if staging == nil {
 		httperr.Write(w, r, fmt.Errorf("agent gate: %s presented but this surface has no approvals engine: %w",
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true, false
+		return tokenRedemption{}, true, false
 	}
 	// Redeeming and marking are one step (agents.RedeemAndMark), so this
 	// transport cannot forward an approved call without the released marker the
@@ -85,6 +95,36 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	released, pin, pinned, rErr := agents.RedeemAndMark(r.Context(), staging, approvalID, pol.Tool, diffHash)
 	if rErr != nil {
 		httperr.Write(w, r, rErr)
+		return tokenRedemption{}, true, false
+	}
+	return tokenRedemption{released: released, pin: pin, pinned: pinned}, true, true
+}
+
+// redeemIfPresented is the 🟡 arm's use of the redemption above: a released call
+// goes through to the handler, carrying the approval's pin as its own If-Match.
+//
+// It answers TWO things, because they are two different facts and a caller
+// needs both: `handled` says the request has been answered and the caller
+// should stop, `ran` says a handler actually executed. They differ on every
+// refusal path — a malformed token is handled and ran nothing — and the
+// difference is what decides whether an effect is charged. Reading one off the
+// other (by inspecting the status already written, say) would be a second
+// reading of one value, which is how these two come to disagree.
+//
+// The released pin OVERRIDES a caller's own If-Match here, where the 🟢 arm
+// checks the two against each other instead (pinAutoExecutedWrite). The two
+// arms differ because the caller's header has been proved against something on
+// one and against nothing on the other: a 🟢 admission read the record itself
+// and pinAdmittedWrite already refused an If-Match naming a version it did not
+// read, while a 🟡 call was admitted by a human's decision and this door hashes
+// no If-Match into the identity that decision bound (agentgatecanon.go says
+// why). The approval's own pin is then the only version anything proved.
+func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) (handled, ran bool) {
+	redemption, presented, ok := consumePresentedToken(w, r, staging, pol, body)
+	if !presented {
+		return false, false
+	}
+	if !ok {
 		return true, false
 	}
 	// Redemption commits its OWN transaction, and the handler below opens a
@@ -96,12 +136,12 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	// forward as the request's own If-Match makes the store re-check it
 	// inside the transaction that actually mutates, where a concurrent write
 	// loses to the version compare instead of to timing.
-	if pinned {
-		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
+	if redemption.pinned {
+		r.Header.Set("If-Match", strconv.FormatInt(redemption.pin, 10))
 	}
 	// WithContext shares the header map set just above, so the pin travels with
 	// the released request.
-	next.ServeHTTP(w, r.WithContext(released))
+	next.ServeHTTP(w, r.WithContext(redemption.released))
 	return true, true
 }
 

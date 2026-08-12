@@ -89,9 +89,9 @@ func chargingRegistry(t *testing.T, tool mcp.Tool, opts ...chargeTestOption) (*R
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithQuotaCharger(cfg.charger))
+	r := NewRegistry(cfg.approvals, auth.NewGate(fullSeatAuthority{}), WithQuotaCharger(cfg.charger))
 	if cfg.noCharger {
-		r = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+		r = NewRegistry(cfg.approvals, auth.NewGate(fullSeatAuthority{}))
 	}
 	r.Register(tool)
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
@@ -107,6 +107,7 @@ type chargeTest struct {
 	charger   *countingCharger
 	scope     principal.Scope
 	noCharger bool
+	approvals Approvals
 }
 
 type chargeTestOption func(*chargeTest)
@@ -125,6 +126,12 @@ func withChargerErrorOn(counter agentquota.Counter, err error) chargeTestOption 
 // withScope runs the caller under a scope other than read.
 func withScope(s principal.Scope) chargeTestOption {
 	return func(c *chargeTest) { c.scope = s }
+}
+
+// withApprovals composes the registry with an approvals engine, which is what a
+// call presenting an approval_id needs to be redeemed against at all.
+func withApprovals(a Approvals) chargeTestOption {
+	return func(c *chargeTest) { c.approvals = a }
 }
 
 // withNoCharger composes the registry with no meter at all.
@@ -489,4 +496,55 @@ func TestTheRestChargePointsAreSafeWithNoMeter(t *testing.T) {
 		t.Fatalf("a registry with no meter refused a REST call: %v", err)
 	}
 	r.ChargeEffect(ctx, spec)
+}
+
+// One CALL spends one of the call ceiling, whichever arm carried it — and a
+// call that never ran spends none.
+//
+// The two arms charge at different MOMENTS, and that is what makes the count
+// worth pinning. An unapproved call is charged before dispatch, where nothing
+// has happened yet and an uncountable charge can still refuse it. A call
+// presenting an approval_id skips that point entirely and is charged at the
+// redemption instead, absorbed rather than refusable, because by then the
+// human's approval is consumed and refusing would burn it on a call that never
+// ran. Charging at both would bill one act twice; charging at neither would
+// leave the redeeming arm free, and the REST door mirrors exactly this
+// (compose.TestOneRestCallSpendsOneOfTheCallCeiling).
+func TestOneToolCallSpendsOneOfTheCallCeiling(t *testing.T) {
+	for name, tc := range map[string]struct {
+		tier      mcp.RiskTier
+		presented bool
+		wantCalls int
+		wantErr   error
+	}{
+		"auto-execute, nothing presented":               {tier: mcp.TierAutoExecute, wantCalls: 1},
+		"auto-execute, redeeming a presented approval":  {tier: mcp.TierAutoExecute, presented: true, wantCalls: 1},
+		"confirm-first, redeeming a presented approval": {tier: mcp.TierConfirmationRequired, presented: true, wantCalls: 1},
+		"confirm-first, staged and never run": {
+			tier: mcp.TierConfirmationRequired, wantCalls: 0, wantErr: apperrors.ErrRequiresApproval,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := readToolSpec("update_record")
+			spec.RequiredScope, spec.Tier = principal.ScopeWrite, tc.tier
+			r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec},
+				withScope(principal.ScopeWrite), withApprovals(&recordingApprovals{}))
+
+			args := json.RawMessage(`{}`)
+			if tc.presented {
+				args = json.RawMessage(`{"approval_id":"` + ids.New[ids.ApprovalKind]().String() + `"}`)
+			}
+			_, err := r.Invoke(ctx, spec.Name, args)
+			if tc.wantErr == nil && err != nil {
+				t.Fatalf("the call was refused: %v — this case is not the arm it names", err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("the call answered %v, want %v — this case is not the arm it names", err, tc.wantErr)
+			}
+
+			if got := charger.charged[agentquota.Calls]; got != tc.wantCalls {
+				t.Errorf("the call ceiling was charged %d, want %d", got, tc.wantCalls)
+			}
+		})
+	}
 }
