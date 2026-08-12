@@ -483,7 +483,11 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 
 	t.Run("an unmapped user sees zero rows through the composed dispatcher (existence-hiding)", func(t *testing.T) {
 		unmappedCtx := overlayActorCtx(ws, seedUnmappedAppUser(t, ws))
-		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DB(), overlaybudget.New(nil, nil), nil), e.Pool)
+		// Bound to ws, the workspace the mirror fixture above wrote: a provider
+		// bound to any other one answers not-found for every id, and this arm
+		// asserts not-found — it would pass without ever reaching the rows whose
+		// hiding it exists to prove.
+		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DBFor(ws), overlaybudget.New(nil, nil), nil), e.Pool)
 		if _, err := d.Search(unmappedCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10}); !errors.Is(err, apperrors.ErrNotFound) {
 			t.Fatalf("dispatched Search for an unmapped user = %v, want apperrors.ErrNotFound (existence-hiding, zero rows)", err)
 		}
