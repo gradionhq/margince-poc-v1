@@ -455,6 +455,42 @@ collapses while RLS is still armed, because the tenant-isolation suite staying
 green is the only mechanical proof that an edit of that size stayed faithful,
 and the schema phase deletes that suite. Do not reorder it.
 
+### Step 3 is done except identity — what the handle turned out to mean
+
+`platform/database.DB` is the seam that landed: a pool that knows its
+workspace, with `Tx` spelling the same `WithWorkspaceTx` GUC contract, so RLS
+stayed armed and the isolation suite stayed the proof. Every module but
+`identity` now opens on one.
+
+The sweep's real finding is that there are exactly **three** ways a caller knows
+which tenant it is, and the handle makes the choice visible at the call site
+instead of burying it in a store:
+
+- **resolve** — request paths and bus consumers: `compose.InstallationDB(pool)`;
+- **pin from job args** — fleet passes: `workspaceJobDB`, and inside a store
+  that walks the fleet itself, `DB.ForWorkspace` per tenant;
+- **pin per tenant** — raw-SQL harnesses: `Env.DB()` / `Env.DBFor(ws)`.
+
+Two rules fell out of it and are worth knowing before the next slice:
+
+- **A long-lived service shared by every tenant's pass must re-bind per pass.**
+  The webhook deliverer, the agent scheduler, search's pending rollup and its
+  re-embed all read the tenant off the ctx while their store carried it on its
+  handle — so each swept ONE workspace repeatedly while reporting the fan-out as
+  working. Every one of them was caught by a cross-tenant suite, loudly.
+- **A composed surface says which workspace it was built for.** `NewRegistryFor`,
+  `NewProviderFor` and `NewOverlayProviderFor` are the pinned siblings of the
+  resolving constructors; a suite that seeds a second workspace has no singleton
+  to resolve and names the one it means.
+
+**identity is the one module left**, and it is not a mechanical rename. A
+self-bound handle is legal — `InstallationWorkspace` reads no tenant table, so
+`svc.db = database.Bind(pool, svc.InstallationWorkspace)` is not circular at
+runtime, and it compiles and passes the unit lane. What it does not pass is
+identity's own integration suites plus the CIMD and agent-seat lanes: they drive
+several tenants through ONE service on purpose. Converting it means reworking
+those fixtures tenant by tenant, which is its own slice.
+
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
 Deliberately not a precise count: it moved by eleven while this note was being
