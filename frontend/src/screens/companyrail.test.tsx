@@ -279,6 +279,69 @@ describe("CompanyRail", () => {
     await waitFor(() => expect(patchBody).toMatchObject({ owner_id: "u-2" }));
   });
 
+  it("surfaces the server's refusal on the owner control rather than swallowing it", async () => {
+    // A stale roster entry (a user removed between page load and save) is the
+    // one way an accepted-looking choice still fails: the wire FK on
+    // organization.owner_id (core 0019) rejects it as a reference the server
+    // cannot resolve, and the rail's owner control must show that sentence
+    // next to itself — the same generic refusal path InlineChoice already
+    // proves in design-system/inlinechoice.test.tsx, exercised here through
+    // the shared control this grid now reuses.
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/users": () =>
+        jsonResponse({
+          data: [
+            { id: "u-1", display_name: "Mira Voss" },
+            { id: "u-2", display_name: "Ravi Shah" },
+          ],
+          page: emptyPage,
+        }),
+      "/organizations/o-1": (request) => {
+        if (request.method === "PATCH") {
+          return jsonResponse(
+            {
+              type: "about:blank",
+              title: "Unprocessable Entity",
+              status: 422,
+              code: "reference_not_found",
+              detail: "The referenced record was not found.",
+            },
+            422,
+          );
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Mira Voss")).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Change Owner" }));
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("option", { name: "Ravi Shah" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "The referenced record was not found.",
+      ),
+    );
+    // The picker stays open on the reader's choice rather than snapping back
+    // to the old owner, the same rule InlineChoice keeps for every field.
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+  });
+
   it("shows the account's rating in the Health summary rather than a count", () => {
     stub();
     render(
