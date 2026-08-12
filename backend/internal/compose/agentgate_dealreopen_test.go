@@ -24,6 +24,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -107,6 +110,99 @@ func TestADynamicSpecWithNoDecoderIsRefused(t *testing.T) {
 	resolve := tierInput(r.Context(), spec, unknown, deps, r, []byte(`{}`))
 	if _, err := resolve(); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("an undecodable dynamic operation resolved to %v, want a refusal", err)
+	}
+}
+
+// The three faults advanceDealCommand tells apart keep three ANSWERS, and the
+// answer a client acts on is the machine code — the whole reason this decoder
+// does not share commandBody's single malformed_json. Eleven lines of comment
+// explain why they differ; this is what makes the explanation checkable.
+//
+// Two bodies reach the middle answer, because "valid JSON the shape refuses" is
+// one fault with two spellings: a to_stage_id that is not a UUID, and a body
+// that is not an object at all. Both are fixed by sending an object carrying a
+// canonical UUID there, which is why both name that field rather than the body.
+func TestTheDealAdvanceDecoderAnswersEachFaultOnItsOwnField(t *testing.T) {
+	deps := restCommandDeps{stages: reopenStages{}, records: reopenRecords{}}
+	pol := agentPolicies["POST /v1/deals/{id}/advance"]
+
+	for name, tc := range map[string]struct{ body, field, code string }{
+		"a body that is not JSON":          {body: `{"to_stage_id":`, field: "body", code: "malformed_json"},
+		"a to_stage_id that is not a UUID": {body: `{"to_stage_id":"not-a-uuid"}`, field: "to_stage_id", code: "invalid"},
+		"valid JSON that is not an object": {body: `[1,2]`, field: "to_stage_id", code: "invalid"},
+		"an object omitting to_stage_id":   {body: `{}`, field: "to_stage_id", code: "required"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := advanceDealCommand(pol, deps, requestForDeal(t, ids.NewV7()), []byte(tc.body))
+
+			var detailed *httperr.DetailedError
+			if !errors.As(err, &detailed) {
+				t.Fatalf("the decoder answered %v, which carries no field or code for a client to act on", err)
+			}
+			if len(detailed.Fields) != 1 {
+				t.Fatalf("the decoder named %d fields, want exactly the one at fault", len(detailed.Fields))
+			}
+			if got := detailed.Fields[0]; got.Field != tc.field || got.Code != tc.code {
+				t.Errorf("answered %s/%s, want %s/%s — a client branches on the code, so one fault wearing "+
+					"another's is a fix the caller cannot find", got.Field, got.Code, tc.field, tc.code)
+			}
+		})
+	}
+}
+
+// wellFormedDynamicCalls is one valid request per dynamic-tier operation. It is
+// the half the walk below CANNOT derive — a well-formed body is the operation's
+// own vocabulary — and the walk fails on a dynamic route missing from it, so the
+// half that actually goes stale (which routes are dynamic) is the derived one.
+var wellFormedDynamicCalls = map[string]func(t *testing.T, stage ids.UUID) (*http.Request, []byte){
+	"advanceDeal": func(t *testing.T, stage ids.UUID) (*http.Request, []byte) {
+		t.Helper()
+		return requestForDeal(t, ids.NewV7()), []byte(`{"to_stage_id":"` + stage.String() + `"}`)
+	},
+}
+
+// Every dynamic-tier route must have a command that can ANSWER its tier
+// question. A route without one is refused, for every caller and forever — and
+// that refusal is indistinguishable from a route an agent was never allowed to
+// reach, which is what makes it worth deriving rather than noticing.
+//
+// This is the derived twin of the two synthetic pairings above: those prove the
+// fail-closed refusal fires, this proves it fires only where it should, over the
+// routes the real router can actually produce.
+func TestEveryDynamicTierRouteHasACommandThatAnswersItsTier(t *testing.T) {
+	stage := ids.NewV7()
+	deps := restCommandDeps{
+		stages:  reopenStages{semantics: map[ids.UUID]string{stage: "open"}},
+		records: versionedDeal{stageID: stage, version: 3},
+	}
+	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+	agents.RegisterCoreTools(reg, deps.records, deps.stages, nil, nil)
+
+	checked := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool || pol.Tier != tierDynamic {
+			continue
+		}
+		checked++
+		build, described := wellFormedDynamicCalls[pol.Op]
+		if !described {
+			t.Errorf("%s (%s) declares a dynamic tier and this walk has no well-formed call for it — add "+
+				"one, so the route's own tier answer is proved rather than assumed", route, pol.Op)
+			continue
+		}
+		spec, _, ok := operationSpec(pol, reg)
+		if !ok {
+			t.Errorf("%s (%s): the gate resolves no spec for it", route, pol.Op)
+			continue
+		}
+		r, body := build(t, stage)
+		if _, err := tierInput(r.Context(), spec, pol, deps, r, body)(); err != nil {
+			t.Errorf("%s (%s) cannot answer its own tier question: %v — a dynamic route whose command "+
+				"resolves no tier is refused for every caller", route, pol.Op, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no dynamic-tier route in the generated policy — this walk asserted nothing")
 	}
 }
 

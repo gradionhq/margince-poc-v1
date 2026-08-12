@@ -88,9 +88,10 @@ func (p *probeCounter) HumanOwnedConflicts(context.Context, string, ids.UUID, js
 }
 
 // autoExecutedMove runs one open→open deal move — a move the tier gate admits
-// 🟢 — carrying the token given, and answers what the handler saw plus the
-// status the door replied with.
-func autoExecutedMove(t *testing.T, staging agents.Approvals, token string) (sawRequest, int) {
+// 🟢, reading the deal at version 12 — carrying the token and the caller
+// If-Match given, and answers what the handler saw plus the status the door
+// replied with.
+func autoExecutedMove(t *testing.T, staging agents.Approvals, token, callerIfMatch string) (sawRequest, int) {
 	t.Helper()
 	deal, stage := ids.NewV7(), ids.NewV7()
 	deps := restCommandDeps{
@@ -101,6 +102,9 @@ func autoExecutedMove(t *testing.T, staging agents.Approvals, token string) (saw
 	r := requestForDeal(t, deal)
 	if token != "" {
 		r.Header.Set(approvalTokenHeader, token)
+	}
+	if callerIfMatch != "" {
+		r.Header.Set("If-Match", callerIfMatch)
 	}
 	r = r.WithContext(agentRequestCtx(r.Context()))
 
@@ -129,7 +133,7 @@ func autoExecutedMove(t *testing.T, staging agents.Approvals, token string) (saw
 func TestAnAutoExecutedCallConsumesThePresentedToken(t *testing.T) {
 	staging := &countingRedeemer{pin: 12, pinned: true}
 
-	saw, status := autoExecutedMove(t, staging, ids.New[ids.ApprovalKind]().String())
+	saw, status := autoExecutedMove(t, staging, ids.New[ids.ApprovalKind]().String(), "")
 
 	if staging.redeemed != 1 {
 		t.Fatalf("the token was redeemed %d times, want exactly once — an unread token leaves the "+
@@ -162,7 +166,7 @@ func TestAnAutoExecutedCallRefusesATokenThatDoesNotHold(t *testing.T) {
 		"a surface with no approvals engine": {staging: nil, token: ids.New[ids.ApprovalKind]().String()},
 	} {
 		t.Run(name, func(t *testing.T) {
-			saw, status := autoExecutedMove(t, tc.staging, tc.token)
+			saw, status := autoExecutedMove(t, tc.staging, tc.token, "")
 
 			if status != http.StatusForbidden {
 				t.Errorf("status = %d, want 403 — an assertion of authority that does not hold must be "+
@@ -176,14 +180,47 @@ func TestAnAutoExecutedCallRefusesATokenThatDoesNotHold(t *testing.T) {
 	}
 }
 
-// The released pin and the pin the tier gate read must AGREE. A disagreement
-// means the row moved between the human's approval and this call, so neither
-// version is the one they judged and neither may condition the write.
-func TestAReleasedPinThatDisagreesWithTheAdmittedPinIsSkew(t *testing.T) {
+// A redeemed call takes the SERVER's pin over anything the caller sent, and is
+// never refused for the disagreement.
+//
+// The refusal this replaced looked right and was not: consumePresentedToken has
+// already spent the approval by the time the pin is decided, so a 409 here
+// destroys a human's one-shot yes on a call that never ran and can never be
+// redeemed again — while the 🟡 arm accepts the identical call. Forwarding
+// concedes nothing, because the store re-checks the pin inside the transaction
+// that mutates and refuses there unless the row is at the approved version.
+func TestAReleasedRetryTakesTheServersPinOverTheCallersIfMatch(t *testing.T) {
+	staging := &countingRedeemer{pin: 12, pinned: true}
+
+	saw, status := autoExecutedMove(t, staging, ids.New[ids.ApprovalKind]().String(), "4")
+
+	if status != http.StatusOK || !saw.ran {
+		t.Fatalf("the released retry answered %d and ran=%v — refusing it burns the approval it just "+
+			"consumed on a call that never happened", status, saw.ran)
+	}
+	if saw.ifMatch != "12" {
+		t.Errorf("forwarded If-Match = %q, want \"12\" — the caller's header is a version nothing proved, "+
+			"and this door hashes none into what the human approved", saw.ifMatch)
+	}
+}
+
+// The released pin and the pin the tier gate read disagreeing is a DEFENSIVE
+// assertion, not a case this door meets.
+//
+// Through the real stager it is unreachable: approvals pins server-side only for
+// a concrete, version-checkable target, versions are monotonic, and the gate's
+// read precedes the redemption's — so admitted ≤ current = released, and a row
+// that really moved fails validateRedemptionTarget inside the redemption first.
+// This reaches the branch only because countingRedeemer answers a pin without
+// the target re-check production performs. Whether refusing is even the right
+// answer for a disagreement both doors could only discover after the approval is
+// consumed is gradionhq/margince-poc-v1#1069; what this pins meanwhile is that
+// the branch is live and fails closed rather than picking a version.
+func TestADisagreementBetweenTheTwoServerPinsFailsClosed(t *testing.T) {
 	// versionedDeal reports 12 to the tier gate; the approval was granted at 9.
 	staging := &countingRedeemer{pin: 9, pinned: true}
 
-	saw, status := autoExecutedMove(t, staging, ids.New[ids.ApprovalKind]().String())
+	saw, status := autoExecutedMove(t, staging, ids.New[ids.ApprovalKind]().String(), "")
 
 	if status != http.StatusConflict {
 		t.Errorf("status = %d, want 409 — picking either version would run the write against a state "+
@@ -277,7 +314,7 @@ func (p stagedDeal) Read(_ context.Context, ref datasource.EntityRef) (datasourc
 // sourceSemantic decides the arm: an open source is the 🟢 move, a won one is
 // the 🟡 refusal, and the tool, the route and the policy are identical either
 // way. That is the point: the claim is one charge per CALL, not one per arm.
-func gateCallCharges(t *testing.T, sourceSemantic, token string) (int, int) {
+func gateCallCharges(t *testing.T, sourceSemantic, token string, redeemErr error) (int, int) {
 	t.Helper()
 	deal, current, target := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	stages := reopenStages{semantics: map[ids.UUID]string{current: sourceSemantic, target: "open"}}
@@ -297,7 +334,7 @@ func gateCallCharges(t *testing.T, sourceSemantic, token string) (int, int) {
 	routeCtx.URLParams.Add("id", deal.String())
 	r = r.WithContext(context.WithValue(agentRequestCtx(r.Context()), chi.RouteCtxKey, routeCtx))
 
-	staging := &countingRedeemer{pin: 12, pinned: true}
+	staging := &countingRedeemer{pin: 12, pinned: true, err: redeemErr}
 	recorder := httptest.NewRecorder()
 	gate := agentGate(reg, staging, stages, records, nil, auth.NewGate(fullSeat{}))
 	gate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -307,13 +344,20 @@ func gateCallCharges(t *testing.T, sourceSemantic, token string) (int, int) {
 	return charger.spent[agentquota.Calls], recorder.Code
 }
 
-// The call ceiling counts CALLS, so a call that ran spends exactly one of it
-// whichever arm carried it, and a call that ran nothing spends none. Charging
+// The call ceiling counts CALLS THAT RAN: one apiece whichever arm carried them,
+// and none at all for a call that ran nothing.
+//
+// The last row is the one that costs something to get wrong. Exhausting
+// MCP-SESS-CALLS suspends the Passport for the window, so charging a call whose
+// token opened nothing lets an agent looping one consumed token spend its own
+// credential's whole day — on REST only, since the MCP door refuses to count
+// exactly that (registry.go: "a replayed token that opens nothing"). Charging
 // the redemption on top of the admission would bill a 🟢 retry twice for one
 // act; leaving the 🟡 redemption uncharged would leave the arm that redeems free.
 func TestOneRestCallSpendsOneOfTheCallCeiling(t *testing.T) {
 	for name, tc := range map[string]struct {
 		source, token string
+		redeemErr     error
 		wantCalls     int
 		wantStatus    int
 	}{
@@ -325,9 +369,17 @@ func TestOneRestCallSpendsOneOfTheCallCeiling(t *testing.T) {
 			source: "won", token: ids.New[ids.ApprovalKind]().String(), wantCalls: 1, wantStatus: http.StatusOK,
 		},
 		"confirm-first, staged and never run": {source: "won", wantCalls: 0, wantStatus: http.StatusForbidden},
+		"auto-executed, presenting a token that opens nothing": {
+			source: "open", token: ids.New[ids.ApprovalKind]().String(),
+			redeemErr: apperrors.ErrApprovalTokenInvalid, wantCalls: 0, wantStatus: http.StatusForbidden,
+		},
+		"confirm-first, presenting a token that opens nothing": {
+			source: "won", token: ids.New[ids.ApprovalKind]().String(),
+			redeemErr: apperrors.ErrApprovalTokenInvalid, wantCalls: 0, wantStatus: http.StatusForbidden,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			calls, status := gateCallCharges(t, tc.source, tc.token)
+			calls, status := gateCallCharges(t, tc.source, tc.token, tc.redeemErr)
 			if status != tc.wantStatus {
 				t.Fatalf("status = %d, want %d — this case is not the arm it names", status, tc.wantStatus)
 			}

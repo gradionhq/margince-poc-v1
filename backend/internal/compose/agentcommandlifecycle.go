@@ -97,6 +97,14 @@ func advanceDealCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, bo
 	// The deal is named by the ROUTE — /deals/{id}/advance — and a path segment
 	// that is not an id gets the existence-hiding answer every other decoder here
 	// gives, rather than a validation message about a record nobody proved exists.
+	//
+	// That does put the two credentials at odds on this one input — a session gets
+	// the handler's own 422 on the path parameter, a passport gets 404 — where the
+	// omission rule below deliberately unifies them. The difference is what each
+	// answer is ABOUT: a body field is the caller's own input either way, while a
+	// routed id names a RECORD, and an agent must not learn from a validation
+	// message that an id it guessed is well-formed but invisible to it.
+	// Existence-hiding wins where the two principles meet.
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err

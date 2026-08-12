@@ -58,6 +58,18 @@ type tokenRedemption struct {
 	pinned   bool
 }
 
+// presentedApprovalToken answers the X-Approval-Token this request asserts, or
+// "" when it asserts none.
+//
+// One accessor, because two parts of the gate must agree about whether a call is
+// a redemption and they are far apart: the charge point skips its pre-dispatch
+// charge for one (agentGate, agentgate.go), and this file spends it. Two
+// readings of one header is how the door comes to charge a call it then refuses
+// to run.
+func presentedApprovalToken(r *http.Request) string {
+	return r.Header.Get(approvalTokenHeader)
+}
+
 // consumePresentedToken validates and consumes the X-Approval-Token on this
 // request: a valid token bound to this exact call is spent, and an invalid one
 // is answered with the failure — asserted authority is validated, never ignored.
@@ -70,7 +82,7 @@ type tokenRedemption struct {
 // pinAutoExecutedWrite and redeemIfPresented below), and folding the dispatch in
 // here is what left one arm redeeming and the other ignoring the same header.
 func consumePresentedToken(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) (redemption tokenRedemption, presented, ok bool) {
-	token := r.Header.Get(approvalTokenHeader)
+	token := presentedApprovalToken(r)
 	if token == "" {
 		return tokenRedemption{}, false, false
 	}

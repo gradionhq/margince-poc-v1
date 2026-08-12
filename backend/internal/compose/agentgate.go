@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -75,13 +74,20 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			//
 			// Charged where the MCP door charges: the ceiling before anything
 			// happens (and refusing what it cannot count), the act after it has.
-			// Charged where the call is known to RUN. A plainly-admitted call is
-			// charged here, before anything happens, and may still be refused if
-			// it cannot be counted. A 🟡 retry is charged after its token is
-			// redeemed (stageOrRedeem) — counting it here would let a caller
-			// suspend its own Passport with malformed or replayed tokens that
-			// open nothing.
-			if err == nil {
+			// Charged where the call is known to RUN, which is why the condition
+			// below is the one the MCP door applies (registry.go: `err == nil &&
+			// res.ApprovalID.IsZero()`) spelled for this transport.
+			//
+			// A call asserting an approval is NOT charged here, at EITHER tier.
+			// Its token may be malformed, replayed or expired, and such a call
+			// runs nothing — counting it would let a caller suspend its own
+			// Passport by looping a token that opens nothing, since exhausting
+			// MCP-SESS-CALLS is what suspends it for the window. Both arms charge
+			// after the redemption succeeds instead (ChargeRedeemedCall, in
+			// runAutoExecuted and in admitAgentCall's 🟡 default), where the
+			// charge is absorbed rather than refused because the human's approval
+			// has committed by then.
+			if err == nil && presentedApprovalToken(r) == "" {
 				if chargeErr := reg.ChargeAdmittedCall(ctx, spec); chargeErr != nil {
 					httperr.Write(w, r, chargeErr)
 					return
@@ -248,126 +254,6 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
 		}
 	}
-}
-
-// runAutoExecuted dispatches a call the gate admitted at the auto-execute tier.
-//
-// An X-Approval-Token on such a call is CONSUMED, whatever tool it names. A
-// staged 🟡 call can resolve 🟢 on its retry — the record moved, or the
-// per-field split staged an otherwise auto-execute patch — and the asserted
-// authority is then still an assertion: left unread, the approval stays pending
-// in a human's inbox for work that already happened, and an invalid or replayed
-// token is accepted by being ignored. The MCP door has always redeemed on this
-// arm (registry.go, runClaimed); this door redeemed for update_record alone
-// (gradionhq/margince-poc-v1#812).
-//
-// A REDEEMED call goes straight to the handler: it carries exactly the change a
-// human released, whose identity the diff_hash already bound, so re-running the
-// per-field ownership split over it would stage a second approval for the
-// overwrite that was just approved.
-func runAutoExecuted(w http.ResponseWriter, r *http.Request, next http.Handler, outcome admissionOutcome) {
-	redemption, redeemed, ok := consumePresentedToken(w, r, outcome.staging, outcome.pol, outcome.body)
-	if redeemed && !ok {
-		return
-	}
-	if !pinAutoExecutedWrite(w, r, redemption) {
-		return
-	}
-	if redeemed {
-		// WithContext shares the header map the pin was just set on, so the
-		// released marker and the precondition travel together.
-		r = r.WithContext(redemption.released) //nolint:contextcheck // released is derived from r.Context() inside consumePresentedToken
-	}
-	// The effect is charged on BOTH arms — the field split forwards to the
-	// same handler through its own path — and on NEITHER when the handler
-	// refused. A quota counts what an agent did, so a rejected mutation that
-	// spent a write would let a caller exhaust its own allowance on requests
-	// that changed nothing, which is a bound nobody wrote.
-	// The meter sits OUTSIDE the recorder, so the handler's WriteJSON finds
-	// it by a plain assertion while the recorder still sees every status.
-	// A mutation that answers with the row it changed handed over a record,
-	// and the MCP door charges that record at chargeAnswer whatever the tool
-	// kind — a read-back free on one door and charged on the other is the
-	// same asymmetry this gate exists to close.
-	//
-	// The CALL itself is charged once, before this arm is reached
-	// (ChargeAdmittedCall in agentGate), and a redemption here adds nothing on
-	// top: one call, one charge, whichever arm it took — which is the rule the
-	// MCP door keeps by skipping its own pre-dispatch charge exactly when an
-	// approval_id is presented and charging at the redemption instead.
-	performed := &effectRecorder{ResponseWriter: w}
-	metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
-	if !redeemed && outcome.pol.Tool == toolUpdateRecord && !actionShapedUpdateOps[outcome.pol.Op] {
-		splitHumanOwnedUpdate(metered, r, next, outcome.staging, outcome.commands, outcome.ownership, outcome.pol, outcome.body)
-	} else {
-		next.ServeHTTP(metered, r)
-	}
-	if performed.done() {
-		outcome.registry.ChargeEffect(r.Context(), outcome.spec)
-	}
-}
-
-// pinAutoExecutedWrite conditions an auto-executed agent write on the version
-// the decision it runs under was taken at, by forwarding that version as the
-// request's own If-Match.
-//
-// Three places establish a version, and this is the order of who established it
-// — the same precedence agents.pinForWrite applies on the MCP door.
-//
-// The CALLER's pin wins when it supplied one, and only when it names the version
-// this gate proved something about, which is CHECKED. The caller controls the
-// header, so a version nothing here read is a version nothing proved: a caller
-// naming the version the racing close will PRODUCE walks straight through,
-// because the store's compare then passes on precisely the record the decision
-// does not describe. Preferring the caller unchecked would turn a coin-toss race
-// into an armable one.
-//
-// The RELEASED pin comes next, and the ADMITTED pin last, for the same reason
-// each exists: both readings commit before the handler's own transaction opens,
-// and the agent controls both sides of that window — its own 🟢 call can close a
-// deal between the two. Moving the compare inside the transaction that mutates
-// is what makes a record that changed lose to the version check instead of to
-// timing.
-//
-// Where the two DISAGREE the answer is skew rather than a choice between them.
-// The disagreement means the row moved between the human's approval and this
-// call, so neither version is the one they judged, and silently preferring
-// either would run the write against a state nothing authorized.
-//
-// It reports whether the request may proceed; a refusal has already been
-// written.
-func pinAutoExecutedWrite(w http.ResponseWriter, r *http.Request, redemption tokenRedemption) bool {
-	admitted, gateRead := auth.AutoExecutePin(r.Context())
-	if redemption.pinned && gateRead && redemption.pin != admitted {
-		httperr.Write(w, r, fmt.Errorf(
-			"the approval released this record at version %d and the tier gate read it at %d — it moved "+
-				"between the two, so neither is the version that was judged; re-read it and retry: %w",
-			redemption.pin, admitted, apperrors.ErrVersionSkew))
-		return false
-	}
-	version, pinned := admitted, gateRead
-	if redemption.pinned {
-		version, pinned = redemption.pin, true
-	}
-	if !pinned {
-		return true
-	}
-	if caller := r.Header.Get("If-Match"); caller != "" {
-		// Compared as the numbers they are: the contract's If-Match is a bare
-		// integer version, and two spellings of one number must not read as
-		// disagreement. A caller header this parser refuses is left for the
-		// handler's own IfMatchVersion to answer, which is where that message
-		// already lives.
-		if got, err := strconv.ParseInt(caller, 10, 64); err != nil || got == version {
-			return true
-		}
-		httperr.Write(w, r, fmt.Errorf(
-			"If-Match %s is not the version this call was authorized against (%d) — re-read it and retry: %w",
-			caller, version, apperrors.ErrVersionSkew))
-		return false
-	}
-	r.Header.Set("If-Match", strconv.FormatInt(version, 10))
-	return true
 }
 
 // effectRecorder answers whether the handler behind this door actually
