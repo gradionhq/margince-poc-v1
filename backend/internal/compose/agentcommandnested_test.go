@@ -244,13 +244,17 @@ func TestANestedCommandOfAnUnseeableParentStagesNothing(t *testing.T) {
 
 // canonicalCollectionRoute reports the two route shapes
 // TestEveryAgentReachableCreateOperationDecodesIntoACommand and
-// TestEveryAgentReachablePatchOperationDecodesIntoACommand already cover in
-// full: a bare collection path with no path parameter at all (a top-level
-// create), or a path ending in exactly one {id} (a whole-record patch,
-// PATCH or PUT alike — updateOfferTemplate's PUT is canonical by this
-// shape even though that other test's own filter is PATCH-only). Anything
-// else nests under a parent or reaches a child/membership action, which is
-// this file's seven.
+// TestEveryAgentReachableWholeRecordWriteOperationDecodesIntoACommand
+// already cover in full: a bare collection path with no path parameter at
+// all (a top-level create), or a path ending in exactly one {id} (a
+// whole-record write, PATCH or PUT alike). Anything else nests under a
+// parent or reaches a child/membership action, which is this file's seven.
+//
+// "In full" is now literally true. It was not: the write walk used to filter
+// on PATCH, so updateOfferTemplate's PUT was canonical by THIS shape and
+// invisible to the test excused for covering it — a hole every gate on the
+// surface pointed at each other about. That filter is keyed on shape alone
+// now, which is the only reason this function may go on standing down.
 func canonicalCollectionRoute(route string) bool {
 	if !strings.Contains(route, "{") {
 		return true

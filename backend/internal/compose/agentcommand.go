@@ -55,7 +55,11 @@ type restCommandDeps struct {
 // by family (gradionhq/margince-poc-v1#928).
 //
 // Every create and every whole-record patch route is registered, all
-// twenty-five. Six of the thirteen create record types (custom_field, list,
+// twenty-six — thirteen creates and thirteen whole-record writes. Twelve of
+// those thirteen route as PATCH; updateOfferTemplate is a PUT, a full replace
+// rather than a field patch, and is the same shape for everything this table
+// answers: one routed {id} naming the record the write lands on, and a body
+// that is that record's fields. Six of the thirteen create record types (custom_field, list,
 // offer_template, product, saved_view, tag) create through their own
 // module's handler, never through create_record's own datasource-provider
 // write path — but that asymmetry is not this table's to answer for.
@@ -98,6 +102,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 
 	opRenameCustomField:         patchCommand,
 	"updateActivity":            patchCommand,
+	"updateOfferTemplate":       patchCommand,
 	"updateDeal":                patchCommand,
 	"updateLead":                patchCommand,
 	"updateOffer":               patchCommand,

@@ -39,10 +39,39 @@ var singlePurposeTools = []string{
 	"log_activity", "draft_email", "relink_activity", "run_report",
 }
 
+// contractBodies is each of the sixteen routes' own minimal request body, as
+// crm.yaml declares it — every required member present and nothing else.
+//
+// They are real bodies rather than nil because the walk below asserts that a
+// decoder ACCEPTS the shape its route produces, and commandBody short-circuits
+// an empty body before it decodes anything at all: passing nil would exercise
+// that short-circuit sixteen times and prove nothing about the sixteen structs
+// underneath it. An operation absent from this map declares no body at all
+// (disqualifyLead is a bare DELETE; runReport's plan arguments are optional and
+// nothing here reads them).
+//
+// gatekit:fixture the request body crm.yaml declares for each route — expected input the walk decodes, not a waived cost
+var contractBodies = map[string]string{
+	"sendEmail":           `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales"}`,
+	"sendMessage":         `{"body":"hi","consent_purpose":"support"}`,
+	"sendAccountEmail":    `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales","links":[{"entity_type":"organization","entity_id":"019ff000-0000-7000-8000-000000000001"}]}`,
+	"bookMeeting":         `{"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z","links":[{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000002"}]}`,
+	"promoteLead":         `{"trigger":"inbound_reply"}`,
+	"advanceProjectPhase": `{"to_phase":"pursuing"}`,
+	"advanceDeal":         `{"to_stage_id":"019ff000-0000-7000-8000-000000000003"}`,
+	"mergePerson":         `{"target_id":"019ff000-0000-7000-8000-000000000004"}`,
+	"mergeOrganization":   `{"target_id":"019ff000-0000-7000-8000-000000000005"}`,
+	"scrapeCompany":       `{"url":"https://acme.test/about"}`,
+	"deepReadCompany":     `{"url":"https://acme.test"}`,
+	"logActivity":         `{"kind":"note","body":"hi"}`,
+	"draftEmail":          `{"intent":"polite follow-up"}`,
+	"relinkActivity":      `{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000006"}`,
+}
+
 // Every route these fourteen verbs reach must decode into a command, and the
-// decoder bound to it must accept a well-formed request — a decoder that
-// errors on the shape its own route produces would answer the whole operation
-// as a refusal the moment a tier floor tightened it.
+// decoder bound to it must accept the body its own route declares — a decoder
+// that errored on the shape crm.yaml specifies would answer the whole
+// operation as a refusal the moment a tier floor tightened it.
 //
 // Derived from agentPolicies rather than from a list of sixteen operationIds
 // someone remembered, so a route added upstream for any of these verbs fails
@@ -65,9 +94,11 @@ func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
 				"guessed from the route while the tool door reads it from the call", route, pol.Op, pol.Tool)
 			continue
 		}
-		call, err := decode(pol, restCommandDeps{records: seamRecord{}, channels: channelKinds{}}, syntheticOperandRequest(route, ids.NewV7()), nil)
+		body := []byte(contractBodies[pol.Op])
+		call, err := decode(pol, restCommandDeps{records: seamRecord{}, channels: channelKinds{}},
+			syntheticOperandRequest(route, ids.NewV7()), body)
 		if err != nil {
-			t.Errorf("%s (%s): decoding a well-formed request answered %v", route, pol.Op, err)
+			t.Errorf("%s (%s): decoding the body crm.yaml declares answered %v", route, pol.Op, err)
 			continue
 		}
 		if call == nil {
@@ -77,6 +108,11 @@ func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
 	if checked != 16 {
 		t.Errorf("the policy table carries %d mutating routes for these fourteen verbs, want 16 — if the "+
 			"contract gained or lost one, this seam's coverage moved with it", checked)
+	}
+	if len(contractBodies) != checked-2 {
+		t.Errorf("contractBodies carries %d bodies for %d routes; the two without one are disqualifyLead "+
+			"and runReport, so any other gap means a route is being decoded from nothing",
+			len(contractBodies), checked)
 	}
 }
 

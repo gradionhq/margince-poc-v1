@@ -33,15 +33,24 @@ import (
 //
 // An ABSENT body answers the zero value rather than an error. The two enrich
 // routes declare their body optional in crm.yaml ("With no body the org's own
-// domain is read") and are the pair that actually reaches this branch; for
-// every other route a missing required field is the HANDLER's 422 to write.
-// This decoder's job is to say what an approval would bind to, and a governance
-// layer that refused the request first would answer one mistake with two
-// different machine codes depending on which credential the caller presented.
+// domain is read") and are the pair that reaches this branch legitimately;
+// everywhere else it hands the resolver a command with empty operands and lets
+// the resolver decide.
 //
-// Unreadable JSON is different, and is refused with the code httperr.Decode
-// answers on the session half of the same route — the rule
-// advanceDealTierInput (agentgate.go) already follows for the same reason.
+// That division is the point, and it is not "the gate never refuses a bad
+// request" — several resolvers here refuse an absent operand outright, an
+// empty `to` among them. It is that a DECODER has no standing to. Guards
+// refuses what the EXECUTOR would refuse anyway, deliberately and with the
+// executor's own sentence, so that a human's one-shot approval is not spent
+// discovering it. A decoder erroring on a missing field would instead invent a
+// refusal nobody else makes, for a field no resolver asked about, on the agent
+// door only — and the same mistake would then carry one machine code for a
+// passport and the handler's own for a session.
+//
+// Unreadable JSON is different: no resolver can be handed operands that were
+// never legible. It is refused with the code httperr.Decode answers on the
+// session half of the same route — the rule advanceDealTierInput
+// (agentgate.go) already follows for the same reason.
 func commandBody[T any](body []byte) (T, error) {
 	var into T
 	if len(bytes.TrimSpace(body)) == 0 {
