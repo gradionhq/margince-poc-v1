@@ -249,14 +249,35 @@ const ownHeaderRunes = 400
 // the short German reply on top of it. A reply with no marker keeps its whole
 // text and leans on the LeadRunes window instead.
 //
-// A message that is ONLY quoted text keeps the quote, because then the quote is
-// all the evidence there is and refusing to read it would answer Unknown for a
-// forward whose language is perfectly clear.
+// A signature or legal footer is dropped the same way and for the same reason.
+// It carries no quote marker, so it survives the cut above and its boilerplate
+// lands in the lead window: a long English confidentiality notice under a short
+// German reply can outvote the reply itself.
+//
+// Both cuts share one floor. A message that is ONLY quoted text, or only a
+// footer, keeps it, because then that text is all the evidence there is and
+// refusing to read it would answer Unknown for a forward whose language is
+// perfectly clear.
 func replyText(runes []rune) (text []rune, lead int) {
-	if cut := quoteStart(runes); cut > 0 && WordsWritten(string(runes[:cut])) >= minReplyWords {
-		runes = runes[:cut]
-	}
+	runes = cutAt(runes, quoteStart(runes))
+	runes = cutAt(runes, signatureStart(runes))
 	return runes, min(len(runes), LeadRunes)
+}
+
+// cutAt drops everything from the offset down, unless doing so would leave too
+// little text to read.
+//
+// The floor is what keeps every cut honest. A message that is ONLY a quote, or
+// only a footer, keeps it: then that text is all the evidence there is, and
+// refusing to read it answers Unknown for a forward whose language is perfectly
+// clear. The quote cut learned this the expensive way — twice, from a user
+// report — and the signature cut inherits the same guard rather than rediscover
+// it. A negative offset means nothing announced itself, so nothing is cut.
+func cutAt(runes []rune, offset int) []rune {
+	if offset <= 0 || WordsWritten(string(runes[:offset])) < minReplyWords {
+		return runes
+	}
+	return runes[:offset]
 }
 
 // minReplyWords is how much text has to sit above a quote before that text is
