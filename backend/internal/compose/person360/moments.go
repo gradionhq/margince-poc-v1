@@ -371,18 +371,20 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 // askColleague offers the second play on a quiet relationship: somebody else
 // here may know why it went quiet.
 //
-// It is BLOCKED, and that is the honest state rather than a placeholder. The
-// action needs a surface that answers "who else knows this person", and none of
-// the five destinations exists for it — so an available action would render as
-// an enabled button that does nothing when pressed, which is what shipped and
-// what a rep learns to distrust the page for.
+// It is BLOCKED, and that is the honest state rather than a placeholder. None
+// of the five destinations reaches a screen for asking a colleague, so an
+// available action would render as an enabled button that does nothing when
+// pressed — which is what shipped, and what a rep learns to distrust the page
+// for.
 //
 // Blocked keeps the play visible and says why, which is the difference between
-// a feature that is coming and one that is broken. The read behind it exists
-// (GET /people/{id}/network); what is missing is a screen and a destination
-// value naming it.
+// a feature that is coming and one that is broken. Note what is and is not
+// missing: the rail's "who knows them" card already NAMES the colleagues, from
+// the same GET /people/{id}/network read. What does not exist is the step after
+// that — a screen for asking one of them — so the reason says that, and not
+// that Margince cannot tell who they are. It sits beside a card listing them.
 func askColleague() crmcontracts.PersonMomentAction {
-	reason := "Margince cannot yet tell you which colleague knows this person"
+	reason := "Sending a colleague a request for context is not available yet"
 	return crmcontracts.PersonMomentAction{
 		Kind:          crmcontracts.PersonMomentActionKindAskColleague,
 		Label:         "Ask for context",
