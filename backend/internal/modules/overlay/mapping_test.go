@@ -454,9 +454,14 @@ func TestChildTargetWithoutARowDeclarationIsAnError(t *testing.T) {
 			{From: []string{"email"}, To: "person_email.email", Kind: overlay.TargetChild},
 		},
 	}
-	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "a@b.de"})
+	// The record carries none of the mapped properties, so only a check made
+	// on the declaration itself can catch it.
+	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"})
 	if err == nil {
 		t.Fatal("Apply accepted a child target with no ChildRow; the row it lands on is then undeclared")
+	}
+	if !strings.Contains(err.Error(), "person_email.email") {
+		t.Errorf("error %q does not name the offending target, so it does not say where to look", err)
 	}
 }
 
@@ -479,8 +484,46 @@ func TestChildRowAttributesMayNotShadowTheRowsOwnMembers(t *testing.T) {
 				Child: &overlay.ChildRow{Attrs: map[string]any{s.attr: "shadow"}, Position: 0},
 			}},
 		}
-		if _, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "a@b.de"}); err == nil {
+		// The record carries none of the mapped properties, so only a check
+		// made on the declaration itself can catch it.
+		if _, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"}); err == nil {
 			t.Errorf("Apply accepted an attribute shadowing %s", s.name)
 		}
+	}
+}
+
+// A mapping may declare its rows in any order; the collection it yields is
+// ordered by the positions it declared, because every consumer reads the rows
+// in slice order.
+func TestChildCollectionIsOrderedByDeclaredPosition(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile"}, Position: 1},
+			},
+			{
+				From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work"}, Position: 0},
+			},
+		},
+	}
+	out, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "phone": "+4930111", "mobilephone": "+4917622",
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	rows, ok := out["person_phone"].([]map[string]any)
+	if !ok {
+		t.Fatalf("person_phone = %T, want a []map[string]any collection", out["person_phone"])
+	}
+	if len(rows) != 2 {
+		t.Fatalf("person_phone has %d rows, want 2", len(rows))
+	}
+	if rows[0]["phone_type"] != "work" || rows[1]["phone_type"] != "mobile" {
+		t.Errorf("rows read back %v/%v, want position 0 before position 1 regardless of declaration order",
+			rows[0]["phone_type"], rows[1]["phone_type"])
 	}
 }

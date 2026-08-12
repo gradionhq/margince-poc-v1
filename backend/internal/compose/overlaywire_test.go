@@ -490,3 +490,48 @@ func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
 		}
 	}
 }
+
+// A child row's type and primary flag are the mapping's declaration, and the
+// flip carries them onto the native row rather than assuming them — an
+// imported contact whose mirrored address is a personal, non-primary one must
+// not land as the work primary. A row carrying neither attribute reads as the
+// single primary work address one mapped address means.
+func TestFlipCarriesTheChildRowsDeclaredAttributes(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "Ada@Example.TEST"})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	emails := flipPersonEmails(canonical)
+	if len(emails) != 1 || emails[0].Email != "ada@example.test" {
+		t.Fatalf("emails = %v, want the one mapped address", emails)
+	}
+	if emails[0].EmailType != "work" || !emails[0].IsPrimary {
+		t.Errorf("emails[0] = %+v, want the type and primary flag the mapping declared", emails[0])
+	}
+
+	declared := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{
+		"email": "ada@home.test", "email_type": "personal", "is_primary": false,
+	}}})
+	if len(declared) != 1 || declared[0].EmailType != "personal" || declared[0].IsPrimary {
+		t.Errorf("emails = %+v, want the row's own personal, non-primary declaration", declared)
+	}
+
+	bare := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{"email": "ada@example.test"}}})
+	if len(bare) != 1 || bare[0].EmailType != "work" || !bare[0].IsPrimary {
+		t.Errorf("emails = %+v on a row declaring no attributes, want the primary work address", bare)
+	}
+	if got := flipPersonEmails(map[string]any{}); got != nil {
+		t.Errorf("emails = %+v for a record holding no address, want none", got)
+	}
+
+	domains := flipOrgDomains(map[string]any{"organization_domain": []any{map[string]any{
+		"domain": "acme.io", "is_primary": false,
+	}}})
+	if len(domains) != 1 || domains[0].Domain != "acme.io" || domains[0].IsPrimary {
+		t.Errorf("domains = %+v, want the row's own non-primary declaration", domains)
+	}
+}

@@ -201,10 +201,10 @@ var contactsMapping = overlay.ObjectMapping{
 }
 
 // companiesMapping is the design.md §9 companies→organization subset.
-// `domain` maps into the organization_domain child row — the same 1:N child
-// shape contacts' email → person_email uses — lowercased to the canonical
-// domain spelling (HubSpot's `domain` property is already a bare host: no
-// scheme, no www). The overlay org wire lifts it onto the contract's
+// `domain` maps into a row of the organization_domain child collection — the
+// same 1:N child shape contacts' email → person_email uses — lowercased to
+// the canonical domain spelling (HubSpot's `domain` property is already a bare
+// host: no scheme, no www). The overlay org wire lifts it onto the contract's
 // domains[] so a mirrored company shows its domain like a native one.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,

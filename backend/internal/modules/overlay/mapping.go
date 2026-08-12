@@ -121,8 +121,10 @@ const (
 )
 
 // childPositionKey carries a child row's declared order into the mirror
-// payload, so a collection reads back in the order the mapping fixed rather
-// than in whatever order a consumer reassembles the rows.
+// payload. Apply orders each collection by it, and it survives into the payload
+// so a consumer that regroups the rows — after the jsonb round trip, or across
+// a wire — restores the order the mapping fixed rather than the order it
+// happened to traverse them in.
 const childPositionKey = "position"
 
 // Apply projects a raw incumbent record (a flat properties map, per the
@@ -140,6 +142,7 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 
 	out := map[string]any{}
 	consumed := make(map[string]bool, len(raw))
+	childParents := map[string]bool{}
 
 	if m.ExternalKey != "" {
 		consumed[m.ExternalKey] = true
@@ -173,6 +176,7 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 		constTarget := f.To
 		if f.Kind == TargetChild {
 			constTarget, _, _ = strings.Cut(f.To, ".")
+			childParents[constTarget] = true
 		}
 		if _, clash := m.Const[constTarget]; clash {
 			return nil, nil, fmt.Errorf("overlay: field target %q collides with a const target", f.To)
@@ -180,6 +184,9 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 		if err := applyField(out, f, raw); err != nil {
 			return nil, nil, err
 		}
+	}
+	for parent := range childParents {
+		sortChildRowsByPosition(out, parent)
 	}
 
 	var unmapped []string
@@ -193,30 +200,68 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 	return out, unmapped, nil
 }
 
-// checkChildRowDeclarations rejects a mapping whose child rows collide,
-// independently of what any one record happens to carry. applyField returns
-// early for a property the incumbent did not send, so a check made while
-// projecting would fire only when two colliding rows both happened to be
+// checkChildRowDeclarations rejects a mapping whose child rows are malformed or
+// collide, independently of what any one record happens to carry. applyField
+// returns early for a property the incumbent did not send, so a check made
+// while projecting would fire only when the offending property happened to be
 // populated — a defect that surfaces on particular data only is a defect that
 // reaches production and waits.
 func checkChildRowDeclarations(m ObjectMapping) error {
 	positions := map[string]map[int]bool{}
 	for _, f := range m.Fields {
-		if f.Kind != TargetChild || f.Child == nil {
+		if f.Kind != TargetChild {
 			continue
 		}
-		parent, _, _ := strings.Cut(f.To, ".")
+		parent, err := checkChildRow(f)
+		if err != nil {
+			return err
+		}
 		seen := positions[parent]
 		if seen == nil {
 			seen = map[int]bool{}
 			positions[parent] = seen
 		}
 		if seen[f.Child.Position] {
-			return fmt.Errorf("overlay: two child rows of %q both claim position %d; the collection's order would be arbitrary", parent, f.Child.Position)
+			return fmt.Errorf("overlay: two child rows of %q both claim position %d; the collection's order would be arbitrary — give each row of one parent its own position", parent, f.Child.Position)
 		}
 		seen[f.Child.Position] = true
 	}
 	return nil
+}
+
+// checkChildRow validates one TargetChild field's row declaration and answers
+// the parent collection its row lands in.
+func checkChildRow(f FieldMapping) (string, error) {
+	parent, child, ok := strings.Cut(f.To, ".")
+	if !ok {
+		return "", fmt.Errorf("overlay: child target %q must be \"<parent>.<child column>\"", f.To)
+	}
+	if f.Child == nil {
+		return "", fmt.Errorf("overlay: child target %q declares no ChildRow, so the row it lands on is undeclared; give it a ChildRow with the row's position and its fixed attributes", f.To)
+	}
+	for k := range f.Child.Attrs {
+		if k == child || k == childPositionKey {
+			return "", fmt.Errorf("overlay: child target %q declares an attribute %q that the row already owns; drop it from Attrs and let the mapped column and the declared position supply it", f.To, k)
+		}
+	}
+	return parent, nil
+}
+
+// sortChildRowsByPosition orders one child collection by the position each row
+// declares, so a consumer reading the rows in slice order reads the order the
+// mapping fixed rather than the order the fields happen to be declared in.
+// checkChildRowDeclarations makes the positions unique within a parent, so the
+// order is total.
+func sortChildRowsByPosition(out map[string]any, parent string) {
+	rows, ok := out[parent].([]map[string]any)
+	if !ok {
+		return
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, _ := rows[i][childPositionKey].(int)
+		right, _ := rows[j][childPositionKey].(int)
+		return left < right
+	})
 }
 
 // applyField computes one FieldMapping's projected value and writes it
@@ -236,18 +281,12 @@ func applyField(out map[string]any, f FieldMapping, raw map[string]any) error {
 	case TargetColumn:
 		out[f.To] = val
 	case TargetChild:
-		parent, child, ok := strings.Cut(f.To, ".")
-		if !ok {
-			return fmt.Errorf("overlay: child target %q must be \"<parent>.<child column>\"", f.To)
-		}
-		if f.Child == nil {
-			return fmt.Errorf("overlay: child target %q declares no ChildRow, so the row it lands on is undeclared", f.To)
-		}
+		// Apply validates every child declaration before it projects the first
+		// record, so the target is dotted, the ChildRow is there, and its
+		// attributes claim no member the row already owns.
+		parent, child, _ := strings.Cut(f.To, ".")
 		row := map[string]any{child: val, childPositionKey: f.Child.Position}
 		for k, v := range f.Child.Attrs {
-			if k == child || k == childPositionKey {
-				return fmt.Errorf("overlay: child target %q declares an attribute %q that the row already owns", f.To, k)
-			}
 			row[k] = v
 		}
 		rows, _ := out[parent].([]map[string]any)
