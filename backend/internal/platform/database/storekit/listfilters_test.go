@@ -17,12 +17,14 @@ type listInput struct {
 	Owner  *ids.UserID
 	Status *string
 	Flag   *bool
+	Score  *int
 }
 
 var probeFilters = FilterSet[listInput]{
-	"owner_id": FilterID(func(in *listInput, id *ids.UserID) { in.Owner = id }),
-	"status":   FilterWord(func(in *listInput, v *string) { in.Status = v }),
-	"stalled":  FilterFlag(func(in *listInput, v *bool) { in.Flag = v }),
+	"owner_id":  FilterID(func(in *listInput, id *ids.UserID) { in.Owner = id }),
+	"status":    FilterWord(func(in *listInput, v *string) { in.Status = v }),
+	"stalled":   FilterFlag(func(in *listInput, v *bool) { in.Flag = v }),
+	"min_score": FilterNumber(func(in *listInput, v *int) { in.Score = v }),
 }
 
 // Each binding writes the field it names. A binding that parsed its operand and
@@ -33,9 +35,9 @@ func TestEachBindingNarrowsTheFieldItNames(t *testing.T) {
 	var in listInput
 
 	if err := probeFilters.Apply(&in, map[string]string{
-		"owner_id": owner.String(), "status": "open", "stalled": "true",
+		"owner_id": owner.String(), "status": "open", "stalled": "true", "min_score": "70",
 	}); err != nil {
-		t.Fatalf("applying three filters: %v", err)
+		t.Fatalf("applying four filters: %v", err)
 	}
 
 	if in.Owner == nil || in.Owner.UUID != owner {
@@ -46,6 +48,9 @@ func TestEachBindingNarrowsTheFieldItNames(t *testing.T) {
 	}
 	if in.Flag == nil || !*in.Flag {
 		t.Errorf("stalled bound %v, want true", in.Flag)
+	}
+	if in.Score == nil || *in.Score != 70 {
+		t.Errorf("min_score bound %v, want 70", in.Score)
 	}
 }
 
@@ -67,7 +72,7 @@ func TestAnUnknownFilterIsRefusedRatherThanIgnored(t *testing.T) {
 	if !strings.Contains(err.Error(), "tag") {
 		t.Errorf("the refusal does not name the filter it refused: %v", err)
 	}
-	if in.Status != nil || in.Owner != nil || in.Flag != nil {
+	if in.Status != nil || in.Owner != nil || in.Flag != nil || in.Score != nil {
 		t.Errorf("a refused filter set left a partially narrowed input: %+v", in)
 	}
 }
@@ -78,6 +83,13 @@ func TestAMalformedOperandIsRefusedWithoutEchoingIt(t *testing.T) {
 	for _, tc := range []struct{ name, filter, value string }{
 		{"a reference that is not a uuid", "owner_id", "not-a-uuid"},
 		{"a flag that is not a boolean", "stalled", "sometimes"},
+		{"a threshold that is not a number", "min_score", "seventy"},
+		// Two spellings strconv.Atoi accepts and JSON does not. A caller who
+		// found that either worked would have learned a vocabulary no schema
+		// published, which is the rule FilterFlag already holds boolean
+		// operands to.
+		{"a threshold with a leading plus", "min_score", "+70"},
+		{"a threshold with a leading zero", "min_score", "070"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var in listInput
@@ -101,7 +113,7 @@ func TestAMalformedOperandIsRefusedWithoutEchoingIt(t *testing.T) {
 // a reshuffled list as a contract change, so map order must not reach it.
 func TestTheVocabularyIsOrderedRatherThanMapOrdered(t *testing.T) {
 	names := probeFilters.Names()
-	want := []string{"owner_id", "stalled", "status"}
+	want := []string{"min_score", "owner_id", "stalled", "status"}
 	if len(names) != len(want) {
 		t.Fatalf("Names() = %v, want %v", names, want)
 	}

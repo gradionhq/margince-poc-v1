@@ -13,13 +13,19 @@ package people
 // declared by the contract and answered by no store is offered by neither.
 //
 // A contract parameter absent below is absent on purpose, and absent is not
-// the same as unanswerable. The REST person list narrows by `tag` and the
-// organization list by `domain` — both through link predicates over rows this
-// module holds in another table rather than in a column of its own. What this
-// set decides is narrower: which names a TOOL publishes. Every one of them is
-// rendered into the tool listing each step of a run re-sends, so growing it is
-// the catalog-budget decision, not something a store learning to bind one more
+// the same as unanswerable. What this set decides is narrower than what a store
+// can answer: which names a TOOL publishes. Every one of them is rendered into
+// the tool listing each step of a run re-sends, so growing it is the
+// catalog-budget decision, not something a store learning to bind one more
 // filter settles on its own.
+//
+// `tag` and `domain` narrow through link predicates over rows this module holds
+// in another table rather than through a column of its own, which is why they
+// read as store detail rather than as filters. A caller cannot see the
+// difference, and it is not one the vocabulary makes: what a name has to be is
+// answerable, not cheap to answer. `min_score` is a threshold rather than an
+// equality match, and the only one here — it is why the binding set spells a
+// number at all.
 
 import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -35,13 +41,18 @@ const (
 	filterLifecycle        = "lifecycle"
 	filterRelationshipType = "relationship_type"
 	filterStatus           = "status"
+	filterTag              = "tag"
+	filterDomain           = "domain"
+	filterMinScore         = "min_score"
 )
 
 var personListFilters = storekit.FilterSet[ListPeopleInput]{
 	filterOwnerID: storekit.FilterID(func(in *ListPeopleInput, id *ids.UserID) { in.OwnerID = id }),
+	filterTag:     storekit.FilterWord(func(in *ListPeopleInput, v *string) { in.Tag = v }),
 }
 
 var organizationListFilters = storekit.FilterSet[ListOrganizationsInput]{
+	filterDomain:    storekit.FilterWord(func(in *ListOrganizationsInput, v *string) { in.Domain = v }),
 	filterLifecycle: storekit.FilterWord(func(in *ListOrganizationsInput, v *string) { in.Lifecycle = v }),
 	filterOwnerID:   storekit.FilterID(func(in *ListOrganizationsInput, id *ids.UserID) { in.OwnerID = id }),
 	filterRelationshipType: storekit.FilterWord(
@@ -49,8 +60,9 @@ var organizationListFilters = storekit.FilterSet[ListOrganizationsInput]{
 }
 
 var leadListFilters = storekit.FilterSet[ListLeadsInput]{
-	filterOwnerID: storekit.FilterID(func(in *ListLeadsInput, id *ids.UserID) { in.OwnerID = id }),
-	filterStatus:  storekit.FilterWord(func(in *ListLeadsInput, v *string) { in.Status = v }),
+	filterMinScore: storekit.FilterNumber(func(in *ListLeadsInput, v *int) { in.MinScore = v }),
+	filterOwnerID:  storekit.FilterID(func(in *ListLeadsInput, id *ids.UserID) { in.OwnerID = id }),
+	filterStatus:   storekit.FilterWord(func(in *ListLeadsInput, v *string) { in.Status = v }),
 }
 
 // ListFilters names what SearchEntity can narrow one entity type by. An entity
