@@ -1,50 +1,66 @@
-import { Clock } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { formatDateTime } from "../format/format";
-import { type Locale, useT } from "../i18n";
+import { Avatar, Badge, Disclosure } from "../design-system/atoms";
+import { AvatarStack } from "../design-system/avatarstack";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { Meter } from "../design-system/readings";
+import { formatDate } from "../format/format";
+import { useLocale, useT } from "../i18n";
+import { problemCodeOf, throwProblem } from "./common";
 import {
-  HealthCard,
-  PeopleCard,
   RECORD_ZONE,
-  SectionCard,
-  SignalsCard,
-  SuggestionsSection,
+  SectionPart,
+  type SectionState,
   sectionState,
+  signalKindLabel,
+  worstOf,
 } from "./company360";
+import {
+  HEALTH_DIMENSION_LABEL,
+  HEALTH_RANK,
+  HEALTH_RATING_LABEL,
+  type HealthRating,
+  usePaymentHealth,
+} from "./companylookups";
+import { DetailsGrid } from "./companyraildetails";
+import { SectionSummary, sectionAnswered } from "./companyrailshared";
+import { TagsSection } from "./companyrailtags";
+import { byReach } from "./coverage";
 
-// The record page's right column (mockup State A): the account's context,
-// beside the work rather than under it.
+// The record page's LEFT rail (mockup State A): the account's context,
+// beside the work rather than under it. Passed to RecordView's `rail` slot,
+// so it takes the wider of the two rail shares (record-zones-rail: 3fr/7fr)
+// rather than the narrower `aside` share a right-hand column would get.
 //
-// Every card here is ALSO a section of the one composite read the page already
-// made, except the signals, which run their own query exactly as they did in
-// the grid. Moving them changed where they sit, not what they are — and none
-// of them is repeated in the grid below, because a fact in two places on one
-// page is a fact a reader has to reconcile.
+// Drawn as ONE panel, a details grid at the top then a collapsible section
+// per governed 360 slice, rather than the stack of separate cards the page
+// used to draw: a hairline between two facts about the same account reads
+// as one story with headings, where a gap between two cards reads as two
+// stories that happen to sit beside each other.
+//
+// Every section here is ALSO a slice of the one composite read the page
+// already made, except the signals, which run their own query exactly as
+// they did before: signals are a separately governed surface, not a 360
+// section.
 //
 // The rail is not rendered while the composer is open. That is the page's
-// decision rather than this component's: the drawer opens into this column,
-// and two things in one space is the layout the mockups never draw.
+// decision rather than this component's: the drawer opens over the page as
+// its own overlay, and the rail standing behind it would only be two things
+// competing for the same glance.
 
 type Organization360 = components["schemas"]["Organization360"];
+type Contact = components["schemas"]["Organization360Contact"];
+type Signal = components["schemas"]["Signal"];
 
 export function CompanyRail({
   orgId,
   view,
-  locale,
-  writable,
-  onOpenRecord,
   withPeople,
   composerOpen,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
-  locale: Locale;
-  // An archived account takes no new roles or tags, so its cards show no verb
-  // that would only be refused.
-  writable: boolean;
-  // Where a cited record opens. Owned by the page, because the grid cites the
-  // same records and two owners would mean two receipts open at once.
-  onOpenRecord?: (entityType: string, entityId: string) => void;
   // False where the page's own body is already the roster in full.
   withPeople: boolean;
   // A composer drawer is open in this column. The rail stands down entirely
@@ -52,6 +68,7 @@ export function CompanyRail({
   // broken cards, and no mockup draws the two side by side.
   composerOpen: boolean;
 }>) {
+  const t = useT();
   if (composerOpen) {
     return null;
   }
@@ -60,81 +77,310 @@ export function CompanyRail({
     // second labelled region inside it would give a reader two names for one
     // column.
     <div className="co-rail">
-      {/* What to do next leads the column, as the mockup draws it: the cards
-          below describe the account, this one asks for a move.
-          It renders the reasons the server actually named — the rules are
-          no-reply, stalled, no-next-step and lifecycle-conflict — rather than
-          the task-like titles the mockup illustrates, which no field carries. */}
-      <SuggestionsSection
-        orgId={orgId}
-        view={view}
-        onOpenRecord={onOpenRecord}
-      />
-      <HealthCard health={view?.health} orgId={orgId} />
-      {withPeople && (
-        <PeopleCard view={view} writable={writable} orgId={orgId} />
-      )}
-      <SignalsCard orgId={orgId} />
-      <RecentActivityCard view={view} locale={locale} />
+      <Panel title={t("co.details.title")}>
+        <PanelBody>
+          <DetailsGrid organization={view?.organization} />
+        </PanelBody>
+        <HealthSection view={view} orgId={orgId} />
+        {withPeople && <PeopleSection view={view} />}
+        <SignalsSection orgId={orgId} />
+        <TagsSection view={view} orgId={orgId} />
+      </Panel>
     </div>
   );
 }
 
-// How many entries the rail's chronology carries. The full history is the
-// History tab; this is the "what happened lately" a reader wants without
-// leaving the overview.
-const RECENT_LIMIT = 5;
+// The meter's tone follows the same low-is-bad reading the badges elsewhere
+// on this page use: "strong" is left untoned (flat) so the gradient does not
+// paint a good reading as a warning creeping in.
+const HEALTH_METER_TONE: Partial<Record<HealthRating, "warn" | "danger">> = {
+  at_risk: "danger",
+  good: "warn",
+};
+
+const HEALTH_BADGE_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
+  at_risk: "danger",
+  good: "warn",
+  strong: "success",
+};
 
 /**
- * The last few things that happened with this account.
- *
- * Reads the SAME activities section the Today card's last-exchange tile reads,
- * so the two cannot disagree about what happened most recently. It shows more
- * than one and does not filter by kind: this is the chronology, where a task
- * logged against the account is part of the story, and the tile above is the
- * single reading of what was last SAID.
+ * HealthSection is the account's health as one verdict over three named
+ * dimensions, each drawn as a meter rather than the badge-and-sentence row
+ * HealthCard used: the shape this rail's other sections do not have, since
+ * a rating is not a count.
  */
-function RecentActivityCard({
+function HealthSection({
   view,
-  locale,
-}: Readonly<{ view?: Organization360; locale: Locale }>) {
+  orgId,
+}: Readonly<{ view?: Organization360; orgId?: string }>) {
   const t = useT();
-  // Every logged activity, not only the ones with a subject. A call or a note
-  // often has none, and filtering them out here would both under-report the
-  // chronology and — because the count below feeds sectionState — draw
-  // "nothing logged with them yet" on an account that has been called five
-  // times. Absence of a subject is a fact about the ROW, never about the
-  // account.
-  const logged = view?.activities?.data ?? [];
-  const entries = logged.slice(0, RECENT_LIMIT);
+  const health = view?.health;
+  const payment = usePaymentHealth(orgId);
+  const { overall, rated } = worstOf([
+    health?.relationship,
+    health?.commercial,
+    payment,
+  ]);
+  const lines: string[] = [];
+  if (health?.days_since_last_inbound != null) {
+    lines.push(
+      t("co.health.sinceInbound", { days: health.days_since_last_inbound }),
+    );
+  }
+  if (health?.reply_balance != null) {
+    lines.push(
+      t("co.health.replyBalance", {
+        percent: Math.round(health.reply_balance * 100),
+      }),
+    );
+  }
+  if (health?.active_contacts != null) {
+    lines.push(
+      t("co.health.activeContacts", { count: health.active_contacts }),
+    );
+  }
+  if (health?.open_commitments != null && health.open_commitments > 0) {
+    lines.push(
+      t("co.health.openCommitments", { count: health.open_commitments }),
+    );
+  }
+  const state = sectionState(
+    view,
+    "health",
+    Boolean(health),
+    lines.length + rated,
+  );
+  const dimensions = [
+    ["relationship", health?.relationship],
+    ["commercial", health?.commercial],
+    ["payment", payment],
+  ] as const;
   return (
-    <SectionCard
-      title={t("co.recent.title")}
-      state={sectionState(
-        view,
-        "activities",
-        Boolean(view?.activities),
-        logged.length,
-      )}
-      emptyLabel={t("co.recent.empty")}
+    <Disclosure
+      className="co-sect"
+      open
+      summary={
+        <span className="co-sect-summary">
+          {t("co.health.title")}
+          {overall && (
+            <Badge tone={HEALTH_BADGE_TONE[overall]}>
+              {t(HEALTH_RATING_LABEL[overall])}
+            </Badge>
+          )}
+        </span>
+      }
     >
-      <ul className="co-list">
-        {entries.map((entry) => (
-          <li key={entry.id} className="co-row">
-            <span className="co-row-main">
-              <Clock size={14} aria-hidden="true" />
-              {/* The same fallback the timeline uses: a subjectless row still
-                  has something to show, so it is never a blank line. */}
-              {entry.subject || entry.body || entry.kind}
-            </span>
-            {entry.occurred_at && (
-              <span className="co-row-meta">
-                {formatDateTime(entry.occurred_at, locale, RECORD_ZONE)}
+      {state === "ready" ? (
+        <PanelBody>
+          {dimensions.map(([name, dimension]) =>
+            dimension?.rating ? (
+              <div className="co-health-meter" key={name}>
+                <span className="t-caption">
+                  {t(HEALTH_DIMENSION_LABEL[name])}
+                </span>
+                <Meter
+                  value={HEALTH_RANK.indexOf(dimension.rating) + 1}
+                  max={HEALTH_RANK.length}
+                  tone={HEALTH_METER_TONE[dimension.rating]}
+                  flat={!(dimension.rating in HEALTH_METER_TONE)}
+                  label={t(HEALTH_DIMENSION_LABEL[name])}
+                />
+                <span className="co-row-meta">{dimension.reason}</span>
+              </div>
+            ) : null,
+          )}
+          {lines.map((line) => (
+            <p className="co-row-meta" key={line}>
+              {line}
+            </p>
+          ))}
+          {health?.single_threaded && (
+            <p className="co-row-meta">
+              <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>
+            </p>
+          )}
+        </PanelBody>
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("co.health.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Disclosure>
+  );
+}
+
+/**
+ * PeopleSection is a glance at the roster: who is here, how they have
+ * answered, and, where the graph read supports it, the colleagues already in
+ * contact with them. The set-role and route-in verbs stay on the People tab's
+ * own roster rather than being rebuilt here a second time.
+ */
+function PeopleSection({ view }: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const contacts = [...(view?.people?.data ?? [])].sort(byReach);
+  const state = sectionState(
+    view,
+    "people",
+    Boolean(view?.people),
+    contacts.length,
+  );
+  return (
+    <Disclosure
+      className="co-sect"
+      open
+      summary={
+        <SectionSummary
+          title={t("co.people.title")}
+          count={sectionAnswered(state) ? contacts.length : undefined}
+        />
+      }
+    >
+      {state === "ready" ? (
+        contacts.map((contact) => (
+          <PanelRow key={contact.person_id} className="co-person-row">
+            <PersonRow contact={contact} />
+          </PanelRow>
+        ))
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("co.people.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Disclosure>
+  );
+}
+
+function PersonRow({ contact }: Readonly<{ contact: Contact }>) {
+  const colleagues = contact.routes?.top ?? [];
+  return (
+    <>
+      <Avatar name={contact.full_name} tinted />
+      <span className="co-person-id">
+        <span className="co-person-name">{contact.full_name}</span>
+        {contact.title && (
+          <span className="co-person-role">{contact.title}</span>
+        )}
+      </span>
+      {colleagues.length > 0 && (
+        <span className="co-person-routes">
+          {/* The stack has no text of its own, so the names it draws as
+              faces are read again here for anyone not reading them as
+              monograms. A plain <span> carries no accessible name for an
+              aria-label to attach to. */}
+          <span className="sr-only">
+            {colleagues.map((route) => route.display_name).join(", ")}
+          </span>
+          <AvatarStack
+            people={colleagues.map((route) => ({ name: route.display_name }))}
+          />
+        </span>
+      )}
+    </>
+  );
+}
+
+// The severity vocabulary a signal's dot is drawn in, mirroring SignalsCard's
+// own SIGNAL_TONE (company360.tsx), copied rather than imported for the same
+// reason the health tables above are: this module is on the other side of
+// that one's import.
+const SIGNAL_DOT_TONE: Record<string, "warn" | "danger" | undefined> = {
+  info: undefined,
+  warn: "warn",
+  urgent: "danger",
+};
+
+// Own-property only: `severity` arrives as a wire string, and a value named
+// `toString` would otherwise find something on Object's prototype and type as
+// a tone.
+function signalDotTone(severity: string): "warn" | "danger" | undefined {
+  return Object.hasOwn(SIGNAL_DOT_TONE, severity)
+    ? SIGNAL_DOT_TONE[severity]
+    : undefined;
+}
+
+/**
+ * SignalsSection reads the account-filtered signals, same endpoint and same
+ * withheld/failed handling SignalsCard used. Signals are a separately
+ * governed surface, not a 360 section, so this runs its own query rather
+ * than reading a slice of `view`.
+ */
+function SignalsSection({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const query = useQuery({
+    queryKey: ["signals", "organization", orgId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/signals", {
+        params: {
+          query: { organization_id: orgId, status: "open", limit: 10 },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data.data;
+    },
+  });
+  const signals: Signal[] = query.data ?? [];
+  const withheld =
+    query.isError && problemCodeOf(query.error) === "permission_denied";
+  let state: SectionState = "ready";
+  if (withheld) {
+    state = "withheld";
+  } else if (query.isError) {
+    state = "failed";
+  } else if (query.isPending) {
+    state = "loading";
+  } else if (signals.length === 0) {
+    state = "empty";
+  }
+  return (
+    <Disclosure
+      className="co-sect"
+      open
+      summary={
+        <SectionSummary
+          title={t("co.signals.title")}
+          count={sectionAnswered(state) ? signals.length : undefined}
+        />
+      }
+    >
+      {state === "ready" ? (
+        signals.map((signal) => (
+          <PanelRow key={signal.id} className="co-signal-row">
+            <span
+              className={`co-dot${signalDotTone(signal.severity) ? ` co-dot-${signalDotTone(signal.severity)}` : ""}`}
+              aria-hidden="true"
+            />
+            <span className="co-signal-body">
+              <span className="co-signal-title">
+                {signalKindLabel(signal.kind, t)}
               </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </SectionCard>
+              <span className="co-signal-summary">{signal.summary}</span>
+            </span>
+            <span className="co-row-meta">
+              {formatDate(signal.detected_at, locale, RECORD_ZONE)}
+            </span>
+          </PanelRow>
+        ))
+      ) : (
+        <PanelBody>
+          <SectionPart
+            state={state}
+            emptyLabel={t("co.signals.empty")}
+            detail={
+              state === "failed" ? { onRetry: () => void query.refetch() } : {}
+            }
+          >
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Disclosure>
   );
 }

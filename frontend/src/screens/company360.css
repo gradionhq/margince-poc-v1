@@ -13,15 +13,7 @@
   padding: 12px 14px;
 }
 
-/* The overview's card grid (mockup State D). Three columns on a wide screen,
-   two when the page loses its third, one on a phone — the same two thresholds
-   RecordView's own zones fold at (design-system/composed.css), so the page
-   never re-columns at a width the shell around it does not.
-
-   `auto-fit` with a minimum rather than a fixed count: a card narrower than
-   ~300px stops being able to hold a two-column table or a labelled figure, and
-   below that the row should become shorter, not tighter. */
-/* The right rail: the account's context beside the work (mockup State A).
+/* The left rail: the account's context beside the work (mockup State A).
    One column of stacked cards — it never becomes a grid, because a rail that
    re-columns is a second body rather than a margin. */
 .co-rail {
@@ -30,136 +22,19 @@
   gap: var(--space-4);
   align-items: stretch;
 }
-/* Each card owns the rail's width and its own height, so a short one does not
-   stretch to match a tall neighbour. */
-.co-rail > .card {
-  margin-bottom: 0;
-  width: 100%;
-}
 
-.co-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+/* The overview's own main column: one vertical stack of same-shaped panels. */
+.co-overview-stack {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
-  align-items: start;
   margin-bottom: var(--space-4);
 }
-/* A card in the grid owns its cell's full height, so a row of three does not
-   leave two of them floating against a taller neighbour. */
-.co-grid > .card {
+/* What this account is worth to us, boxed like every panel beside it rather
+   than standing bare in the column. GrowthFitPanel draws its own heading
+   (co-part-label) inside, so this wrapper carries no title of its own. */
+.co-worth > .co-growth-fit {
   margin-bottom: 0;
-  height: 100%;
-}
-/* A folded disclosure in the grid takes the same chrome as the cards beside
-   it. Without it the summary row sits in the cell as bare text and reads as a
-   card that failed to render rather than as one that is closed. The padding
-   is .co-card's, inherited rather than restated so the two cannot drift. */
-.co-grid > .disclosure {
-  height: 100%;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-}
-.co-grid > .disclosure > .disclosure-summary,
-.co-grid > .disclosure > .disclosure-body {
-  padding-inline: var(--space-3);
-}
-.co-grid > .disclosure > .disclosure-summary {
-  padding-block: var(--space-3);
-}
-/* Below the grid's own minimum there is one column, and a card that tries to
-   keep a fixed width there overflows the page rather than the cell. */
-@media (max-width: 720px) {
-  .co-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* "Today on this account" (mockup State D): the tiles on the left, the verbs
-   they lead to in a column on the right. The verbs keep their own column so a
-   reader looking for something to press has one place to look, rather than
-   hunting for a link inside whichever tile happens to carry one. */
-.today-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-5);
-  align-items: start;
-}
-.today-tiles {
-  display: grid;
-  /* Three across at full width and fewer as it narrows. A tile below ~200px
-     cannot hold a name and a date on one line, and the row should lose a
-     column rather than crush all of them.
-
-     `auto-fill`, not `auto-fit`: auto-fit collapses the empty tracks and
-     stretches the surviving tiles across the whole row, so an account with
-     two tiles draws two 540px-wide ones. The tiles keep the width they would
-     have in a full row and the rest of the row stays empty. */
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-4) var(--space-5);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.today-tile {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  align-items: flex-start;
-  padding-inline-start: var(--space-5);
-  border-inline-start: 1px solid var(--borderSubtle);
-}
-/* The first tile of each row opens the row rather than continuing one, so it
-   carries no divider. `1` covers a one-column layout and `3n + 1` the
-   three-column one; a two-column fallback keeps a leading rule on every other
-   tile, which is the cost of doing this without container queries. */
-.today-tile:nth-child(3n + 1),
-.today-tile:first-child {
-  padding-inline-start: 0;
-  border-inline-start: none;
-}
-.today-tile-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--textMeta);
-  font-size: 12px;
-}
-.today-headline {
-  font-weight: 600;
-  font-size: 13.5px;
-}
-.today-headline-warn {
-  color: var(--warn);
-}
-.today-headline-danger {
-  color: var(--danger);
-}
-.today-detail {
-  color: var(--textMeta);
-  font-size: 12.5px;
-}
-.today-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 190px;
-}
-.today-withheld {
-  margin-top: var(--space-3);
-  color: var(--textMeta);
-  font-size: 12.5px;
-  font-style: italic;
-}
-/* On a phone the verbs go under the tiles: a 190px column beside them leaves
-   neither enough width to read. */
-@media (max-width: 720px) {
-  .today-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .today-actions {
-    min-width: 0;
-  }
 }
 
 /* Lifecycle and owner, stacked at the top right of the header. Right-aligned
@@ -255,6 +130,39 @@
   border-radius: var(--r-sm);
 }
 
+/* A contact row: the avatar and the identity it names on the left, coverage
+   and the verbs that touch this person on the right — a person is a face and
+   a name first, and everything the page can tell or do about them second. */
+.co-person-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.co-person-avatar {
+  flex: 0 0 auto;
+}
+.co-person-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.co-person-name {
+  font-weight: var(--fw-semibold);
+}
+.co-person-sub {
+  font-size: 12px;
+  color: var(--textMeta);
+}
+.co-person-end {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* ds:ignore matches .co-row-meta, the same row-end chip rhythm */
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 /* The two absent states read differently on purpose: "there is none" is
    ordinary meta text, "you may not see this" is set apart so a rep never
    mistakes a permission boundary for an empty account. */
@@ -309,8 +217,12 @@
   margin: 8px 0;
 }
 
+/* No margin of its own. The bar is the last child of the record's band, whose
+   gap already sets the interval above it and whose bottom margin sets the one
+   below — a margin here is counted a second time and opens a trough between
+   the bar and the columns it labels. */
 .co-tabs {
-  margin-bottom: var(--space-4);
+  margin-bottom: 0;
 }
 
 /* A card holding two independently-governed sections labels each one, so a
@@ -337,9 +249,10 @@
    citations inline rather than as a footer of chips, and is set wider and
    quieter than the cards around it — meant to be read top to bottom once,
    not scanned. */
-.co-brief {
-  padding: var(--space-4);
-  margin-bottom: var(--space-3);
+/* Set narrower than the panel it sits in and read top to bottom once, not
+   scanned — the account's own statement about itself, not a metric. */
+.co-brief-body {
+  max-width: 64ch;
 }
 .co-brief-lines {
   list-style: none;
@@ -392,24 +305,106 @@
   color: var(--textMeta);
 }
 
-/* "Worth doing next": one row per suggestion, the reason carrying the weight.
-   The kind is a lead-in label, not a badge — a badge would compete with the
-   reason for the eye, and the reason is the part a rep judges. */
-.co-suggest {
-  padding: 12px 14px;
-  margin-bottom: var(--space-3);
+/* "Worth doing next": the overview's lead panel, tinted so it reads as the
+   one card asking for a move rather than one more card that reports state. */
+.co-lead {
+  border-color: var(--accentMed);
 }
-.co-suggest-kind {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.co-lead > .panel-head {
+  background: var(--accentLight);
+  border-bottom-color: var(--accentMed);
+}
+.co-lead > .panel-head h2 {
+  color: var(--accent);
+}
+.co-lead > .panel-foot,
+.co-move {
+  border-top-color: var(--accentMed);
+}
+
+/* One move: the ask at the row's loudest weight, the reason under it — the
+   reason is the part a rep judges, and everything else is chrome around it. */
+.co-move {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  /* .panel-row already sets the padding and the hairline border (none on
+     the first row); this only lays the row's own content out. */
+}
+.co-move:hover {
+  background: var(--accentLight);
+}
+.co-move-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.co-move-ask {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--textContent);
+}
+.co-move-why {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--textMeta);
 }
-.co-suggest-reason {
-  font-size: 13.5px;
-  color: var(--textContent);
+.co-move-do {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.co-move-cites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.co-move-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* An open task: the tick at the row's own weight (it IS the primary verb,
+   not a badge on the row), title and due date next, everything else — snooze
+   — behind a reveal so the list reads by title and date first. */
+.co-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.co-task-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: var(--space-1);
+  accent-color: var(--accent);
+}
+.co-task-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.co-task-verbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  opacity: 0;
+}
+.co-task-row:hover .co-task-verbs,
+.co-task-row:focus-within .co-task-verbs {
+  opacity: 1;
 }
 
 /* Ask Margince: the questions sit on one wrapping row above the answer, and
@@ -513,6 +508,19 @@
    wraps stops reading as one comparison.
    Below the point where six slots stop being legible it becomes two rows of
    three, which is a deliberate fold rather than an accidental one. */
+/* The strip itself withheld, rather than absent: one line where six slots
+   would be, so the row's disappearance reads as a permission boundary rather
+   than as an account with nothing to report. */
+.co-strip-withheld {
+  margin-block-end: 0.9rem;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
+}
+.co-strip-withheld .co-restricted {
+  margin-top: 0;
+}
 .co-strip {
   display: grid;
   /* The column count follows the SLOTS, set by the component that knows how
@@ -553,30 +561,22 @@
   margin: 0;
 }
 
-/* The money is the headline. Both mockups draw these figures at roughly twice
-   the size of the label above them — it is the reading the page is opened for,
-   and at a form label's size it competes with the label instead of leading it.
+/* The money is the headline, set larger than the label above it. ONE size for
+   every slot in the row: some carry a figure and some carry a sentence — how
+   the account pays, where the relationship stands — and a slot that sizes
+   itself to its own content stops the row from reading as one comparison.
    Scoped to the strip: StatCard is shared, and a dashboard tile is not a
    record page's headline number. */
 .co-strip .stat-card-value {
   /* Sized to the SLOT, not to the mockup's absolute pixels. Six slots share
      roughly 830px here — the mockup's strip is wider because its page has no
-     left nav at this width — so a figure set at the mockup's ~30px either
-     wraps mid-number or clips. Both are worse readings than a smaller one:
-     "€201,099.0" is a different number.
-     The clamp lets the figure shrink with the column instead. */
-  font-size: clamp(20px, 1.55vw, 24px);
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-
-/* The last two slots carry WORDS rather than a figure — how they pay, and
-   where the relationship stands. A sentence set at the figures' size takes
-   three lines in a 137px column, which makes the whole strip twice as tall to
-   say what the mockup fits on one. The number leads; the sentence explains. */
-.co-strip > *:nth-last-child(-n + 2) .stat-card-value {
+     left nav at this width — and the size also has to hold a full sentence
+     ("typically 4 days early") on one line in the narrowest slot without
+     wrapping to three, so it sits below the money-only size the figures alone
+     could have carried. The clamp lets it shrink with the column instead. */
   font-size: clamp(14px, 1.05vw, 17px);
   line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
 /* A strip slot is narrower than a free-standing stat card, so the source badge
@@ -595,6 +595,10 @@
 }
 
 .co-brief-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--textMeta);
   margin-block-end: 0.2rem;
 }
@@ -648,17 +652,6 @@
 .co-part-error {
   margin-top: var(--space-2);
   color: var(--danger);
-}
-
-/* The dossier: what the company IS, above the fit that judges it. Set like the
-   brief — prose, read top to bottom once — because it answers a question rather
-   than reporting a metric. */
-.co-dossier {
-  padding: var(--space-4);
-  margin-bottom: var(--space-3);
-}
-.co-dossier-section {
-  margin-top: var(--space-3);
 }
 
 /* The receipt behind one cited value. Read as a short record, not as prose:
@@ -767,23 +760,25 @@
   }
 }
 
-/* The finance card. The three figures read across, because a reader compares
-   them — invoiced against open against overdue — rather than reading them one
-   at a time. */
-.fin-figures {
+/* The shared figure-block anatomy: a small-caps eyebrow, then the figure
+   itself set large and tabular, then a one-line note where the caller has
+   one. Both the Commercial panel and the Finance panel draw their headline
+   numbers through this one shape, so a reader learns it once. */
+.co-figures {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-4);
+  gap: var(--space-5);
   margin-bottom: var(--space-3);
 }
-.fin-figure {
+.co-figure {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
-.fin-value {
-  font-weight: 600;
-  font-size: 15px;
+.co-figure-value {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
 }
 /* Overdue money is the one reading on this card that is bad news simply by
    being present. */
@@ -791,9 +786,6 @@
   color: var(--danger);
 }
 .fin-behaviour {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
   margin-bottom: var(--space-3);
 }
 .fin-table {
@@ -826,37 +818,43 @@
   margin-top: var(--space-3);
 }
 
-/* The health card's rated rows: name, rating, and the sentence it was read
-   from. A grid rather than a flex row so the ratings line up down the card —
-   three dimensions a reader scans vertically, not three sentences. */
-.co-health-rows {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-3);
-  padding: 0;
-  list-style: none;
-}
-
-.co-health-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--space-1) var(--space-2);
+/* One open deal in the overview's Commercial panel: the name carries the row,
+   with the close date underneath it as a quiet second line rather than
+   competing with the stage badge and the amount on the same line. */
+.co-commercial-row {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.co-commercial-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  min-width: 0;
+}
+.co-commercial-title {
+  font-weight: var(--fw-semibold);
+}
+.co-commercial-sub {
+  font-size: var(--fs-sm);
+  color: var(--textMeta);
 }
 
-/* The reason runs under its rating, across both columns: it qualifies the
-   badge rather than competing with it for the row. */
-.co-health-row > .co-row-meta {
-  grid-column: 1 / -1;
+/* The overview's chronology: a day heading above the run of entries that
+   happened on it, so several messages read as how one day went rather than
+   as an undifferentiated list. */
+.co-timeline-day + .co-timeline-day {
+  margin-top: var(--space-4);
 }
-
-/* The verdict is separated from what it was read from, because it is a
-   different KIND of statement — a conclusion, not an input. */
-.co-health-overall {
-  margin-block-start: var(--space-1);
-  padding-block-start: var(--space-2);
-  border-block-start: 1px solid var(--borderSubtle);
+.co-timeline-day-heading {
+  padding: var(--space-3) var(--space-5) 0;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
 }
 
 /* The growth-fit bars: the band taken apart, one row per dimension. The reason
@@ -888,4 +886,297 @@
 .co-growth-fit-score-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+   The record page's own voice.
+
+   Hung on .co-card and the page's own classes rather than on .section-header
+   or .card, which the whole app shares. SectionCard is drawn only by the
+   company screens, so this dresses every card of THIS record — the rail, the
+   business grid, the tab bodies — and reaches no other screen. One page, one
+   card style: a page where half the cards carry a quiet header and half shout
+   reads as two designs that met by accident.
+   ========================================================================= */
+
+/* A card title NAMES its card; it is not competing with the record's name.
+   The shared .section-header h2 is 15px/600 in --textPrimary — the page's
+   loudest voice, spent once per panel. */
+.co-card .section-header h2,
+.co-assistant .section-header h2 {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--textContent);
+}
+
+/* One radius and one padding for every card on the record, whichever
+   component drew it. */
+.co-card,
+.co-assistant {
+  border-radius: var(--r-sm);
+  padding: var(--space-5);
+}
+
+/* Figures read in the body face with tabular figures. The mono face was doing
+   two jobs, aligning columns and shouting; only the first is wanted, and
+   tabular-nums delivers it without the typewriter voice. */
+.co-card .t-mono,
+.co-rail .t-mono {
+  font-family: var(--f-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A badge marks an EXCEPTION. At 600 on every row it marks nothing, so the
+   weight comes down to sit with the rest of the page. */
+.co-card .badge,
+.co-rail .badge {
+  font-weight: var(--fw-medium);
+}
+
+/* The rail's own anatomy: one continuous panel, its groups told apart by a
+   hairline rather than by a gap between cards (a disclosure's default inset
+   border in atoms.css would leave a margin either side of that line, which
+   reads as a card floating inside the panel rather than a division of it). */
+.co-rail .co-sect {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: 0;
+  margin-bottom: 0;
+}
+.co-rail .co-sect > summary {
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--textMeta);
+  transition: background 0.15s;
+}
+.co-rail .co-sect > summary:hover {
+  background: var(--bgHover);
+}
+/* `t-label` (design-system/atoms.tsx) is a plain span wrapping the whole
+   `summary` prop, so it has to grow to fill the row before .co-sect-summary's
+   own flex has anywhere to push the trailing badge into. */
+.co-rail .co-sect > summary .t-label {
+  flex: 1;
+  min-width: 0;
+}
+.co-rail .co-sect > summary .badge {
+  margin-left: auto;
+}
+.co-rail .co-sect .disclosure-body {
+  margin-top: 0;
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+/* The summary's own row: the section name, then whatever it carries (a count,
+   Health's rating) pushed to the far end. */
+.co-sect-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* Health's per-dimension reading: the name the meter is measuring, the bar
+   itself, then the sentence it was read from underneath (the band taken
+   apart into one row per dimension, same rhythm as .co-growth-fit-scores). */
+.co-health-meter {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+.co-health-meter + .co-health-meter {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+/* A roster row: the monogram, the name over the title, and, where the graph
+   read supports it, who here already talks to them, pushed to the far end. */
+.co-person-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* Stacked blocks, not a flex gap: the two lines are close enough that the
+   scale's own floor (--space-1) would push them apart, and the font's own
+   leading already separates them. */
+.co-person-id {
+  min-width: 0;
+}
+.co-person-name,
+.co-person-role {
+  display: block;
+}
+.co-person-name {
+  font-size: var(--fs-sm);
+  color: var(--textPrimary);
+}
+.co-person-role {
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}
+.co-person-routes {
+  margin-left: auto;
+}
+
+/* A signal row: a coloured dot the row's severity comes from, the finding,
+   then when it was seen. Mirrors person360.css's own .pe-signal/.pe-dot pair,
+   the same shape under this screen's own prefix. */
+.co-signal-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+.co-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px; /* ds:ignore optical centring of an 8px dot on a 13px line */
+  border-radius: var(--r-full);
+  background: var(--textTertiary);
+}
+.co-dot-warn {
+  background: var(--warn);
+}
+.co-dot-danger {
+  background: var(--danger);
+}
+/* Stacked blocks, not a flex gap, same reasoning as .co-person-id above. */
+.co-signal-body {
+  min-width: 0;
+}
+.co-signal-title {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--textPrimary);
+}
+.co-signal-summary {
+  display: block;
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}
+/* The brief's context reads as a SENTENCE, not as a second table. The strip
+   directly above it is already a grid of label-over-value tiles, and a second
+   grid of the same shape under it reads as one table split in half — nothing
+   tells the reader why a reading sits in the upper block rather than the
+   lower one. Two jobs, two shapes: the strip states what the account IS, in a
+   grid; the brief says what is true TODAY, in a line. */
+.today-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) var(--space-5);
+}
+.today-tile {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The separator belongs to the reading that FOLLOWS it, so a line that wraps
+   never leaves a dot stranded at its end. */
+.today-tile + .today-tile::before {
+  content: "·";
+  color: var(--textTertiary);
+}
+/* Sentence case, at reading size. Caps earn their place in a GRID, where a
+   label owns its column and must be told apart from the value beneath it. Set
+   inline, four capitalised labels beside four capitalised qualifiers put eight
+   shouting runs in one line and the line stops reading as a line. The label is
+   the quiet half: the reading beside it is what the reader came for. */
+.today-tile-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
+  letter-spacing: var(--tracking-normal);
+  text-transform: none;
+  color: var(--textMeta);
+}
+.today-tile-label svg {
+  flex: none;
+}
+.today-tile-label > :not(svg) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.today-headline {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--textContent);
+  overflow-wrap: anywhere;
+}
+/* The claim-kind is a footnote to its reading — checkable without being read.
+   Every reading carries one, fact included: a qualifier that appeared only on
+   the judgements would teach the reader that an unlabelled one is unexamined.
+   In a line this dense it has to be the quietest thing in it, which is why it
+   sheds the Badge's pill entirely rather than only its fill. */
+.today-tile > .badge {
+  padding: 0;
+  background: none;
+  border: 0;
+  text-transform: lowercase;
+  letter-spacing: var(--tracking-normal);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
+  color: var(--textTertiary);
+}
+/* Each reading keeps its date and its reason in the record it came from. Here
+   the detail is what would turn the sentence back into a table. */
+.today-detail {
+  display: none;
+}
+/* The tiles carry their own inset, so the body around them adds none. */
+.co-lead .panel-body:has(.today-tiles) {
+  padding: 0;
+}
+
+/* A move is one line: the ask, its reason, and the verb at the row's end. The
+   ask reads at body weight rather than as a heading — the panel already
+   announces itself, and four headings under one header is the page saying the
+   same thing twice. */
+.co-lead .co-move {
+  align-items: center;
+}
+.co-lead .co-move-ask {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+}
+.co-lead .co-move-body {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+.co-lead .co-move-why {
+  flex: 1 1 24ch;
+}
+.co-lead > .panel-head {
+  gap: var(--space-2);
+}
+.co-lead > .panel-head h2 {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+/* Every verb sits at the row's end, whether or not the move gave a reason.
+   Left to the body's own flow, a move with nothing to explain puts its button
+   directly against the ask while its neighbour's sits at the far margin, and
+   a column of buttons that starts in a different place on each row reads as
+   an accident. */
+.co-lead .co-move-do {
+  margin-left: auto;
+}
+.co-lead > .panel-head {
+  gap: var(--space-2);
+}
+/* The header names the account's own day, so it carries the date the reading
+   was taken rather than leaving it to a footer nobody reaches. */
+.co-lead > .panel-head h2 {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
 }

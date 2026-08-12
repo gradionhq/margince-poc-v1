@@ -3,11 +3,12 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryStates, throwProblem } from "./common";
-import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
+import { RECORD_ZONE, SectionPart, type SectionState } from "./company360";
 
 // The account's documents: the contracts, offers and legal files a rep goes
 // looking for before a call.
@@ -94,49 +95,51 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
     },
   });
   const documents = query.data ?? [];
+  // Its own endpoint, so its own state — not a 360 section, and
+  // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
+  // an empty one is EMPTY: "this account has no contracts" and "we could not
+  // find out" are different sentences and only one is about the account.
+  const state = documentsState(
+    query.isPending,
+    query.isError,
+    documents.length,
+    category !== "",
+  );
+  const present = state === "ready" || state === "empty";
 
   return (
-    <SectionCard
-      title={t("docs.title")}
-      // Its own endpoint, so its own state — not a 360 section, and
-      // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
-      // an empty one is EMPTY: "this account has no contracts" and "we could not
-      // find out" are different sentences and only one is about the account.
-      state={documentsState(
-        query.isPending,
-        query.isError,
-        documents.length,
-        category !== "",
-      )}
-      emptyLabel={t("docs.empty")}
-    >
-      <div className="docs-filters">
-        <Button small onClick={() => setCategory("")}>
-          {t("docs.category.all")}
-        </Button>
-        {(Object.keys(CATEGORY_LABELS) as Category[]).map((key) => (
-          <Button
-            key={key}
-            small
-            aria-pressed={category === key}
-            onClick={() => setCategory(category === key ? "" : key)}
-          >
-            {t(CATEGORY_LABELS[key])}
+    <Panel title={t("docs.title")}>
+      {present && (
+        <PanelBody className="docs-filters">
+          <Button small onClick={() => setCategory("")}>
+            {t("docs.category.all")}
           </Button>
-        ))}
-      </div>
-      <QueryStates query={query}>
-        {documents.length === 0 ? (
-          // The filter found nothing, which is different from the account having
-          // no documents at all — and only one of those is worth clearing a
-          // filter over.
-          <EmptyState>
-            {t(category ? "docs.noneInCategory" : "docs.empty")}
-          </EmptyState>
-        ) : (
-          <ul className="docs-list">
-            {documents.map((doc) => (
-              <li key={doc.id} className="docs-row">
+          {(Object.keys(CATEGORY_LABELS) as Category[]).map((key) => (
+            <Button
+              key={key}
+              small
+              aria-pressed={category === key}
+              onClick={() => setCategory(category === key ? "" : key)}
+            >
+              {t(CATEGORY_LABELS[key])}
+            </Button>
+          ))}
+        </PanelBody>
+      )}
+      {present ? (
+        <QueryStates query={query}>
+          {documents.length === 0 ? (
+            // The filter found nothing, which is different from the account
+            // having no documents at all — and only one of those is worth
+            // clearing a filter over.
+            <PanelBody>
+              <EmptyState>
+                {t(category ? "docs.noneInCategory" : "docs.empty")}
+              </EmptyState>
+            </PanelBody>
+          ) : (
+            documents.map((doc) => (
+              <PanelRow key={doc.id} className="docs-row">
                 {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
                 {/* The title if somebody gave it one, else the filename. A
                     display name is what a reader looks for; the filename is
@@ -154,12 +157,18 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
                   {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
                 </span>
                 <DownloadState doc={doc} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </QueryStates>
-    </SectionCard>
+              </PanelRow>
+            ))
+          )}
+        </QueryStates>
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("docs.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Panel>
   );
 }
 

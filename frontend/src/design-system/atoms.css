@@ -842,13 +842,30 @@
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
-  background: var(--bgCard);
+  background: var(--bgElevated);
   min-width: 0;
 }
 
+/* A free-standing StatCard is its own bordered tile, but a row of them
+   (mockup State A's KPI band) reads as four separate cards rather than one
+   row of readings without a divider between neighbours. The first carries
+   none, since there is no neighbour on its left to divide from. Scoped to an
+   adjacent sibling rather than the card's own border-left so a card rendered
+   alone — or the FIRST of a row — never draws a rule with nothing on the
+   other side of it.
+   `.co-strip` draws its own hairlines with a background-filled grid gap
+   (company360.css) and resets every child's border to 0 for it — excluded
+   here so this rule can't fight that reset on specificity and draw a second,
+   redundant line inside the strip's cells. */
+.stat-card + .stat-card:not(.co-strip > .stat-card) {
+  border-left: 1px solid var(--borderSubtle);
+}
+
+/* --textMeta, not --textMuted: this is 11-13px meta/caption text, and
+ * --textMeta is the token tuned to hold AA contrast at that size. */
 .stat-card-label,
 .stat-card-detail {
-  color: var(--textMuted);
+  color: var(--textMeta);
 }
 
 /* The label owns the row, and the source badge sits at its far end — beside

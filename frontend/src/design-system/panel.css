@@ -1,0 +1,62 @@
+/* Panel — the titled-card shape Card does not offer: a fixed-height header,
+ * full-bleed rows, and an optional footer band. No gradient, no glass, no
+ * backdrop-filter on the header — a flat surface, same as every other card. */
+.panel {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+/* One height for every header, whether it carries a title alone or a title
+ * with a badge or a button beside it — a fixed min-height with centred
+ * content, so the row does not grow by exactly the button's height. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.panel-head h2 {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--textContent);
+}
+/* Whatever comes after the title — a badge, a button — sits at the far end
+ * of the row rather than crowding the title. */
+.panel-head > :last-child:not(h2) {
+  margin-left: auto;
+}
+
+.panel-body {
+  padding: var(--space-5);
+}
+
+/* A hairline row that runs full-bleed against the panel's own edges and
+ * highlights on hover — the shape every list inside a panel wants. No border
+ * on the first row: the header above it already draws that line. */
+.panel-row {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--borderSubtle);
+  transition: background 0.15s;
+}
+.panel-row:hover {
+  background: var(--bgHover);
+}
+.panel-row:first-child {
+  border-top: 0;
+}
+
+.panel-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--borderSubtle);
+  font-size: var(--fs-sm);
+  color: var(--textMeta);
+}

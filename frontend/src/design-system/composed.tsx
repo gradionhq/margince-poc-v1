@@ -355,7 +355,9 @@ export function RecordView({
   pulse,
   actions,
   controls,
+  band,
   rail,
+  railLabel,
   aside,
   asideLabel,
   timeline,
@@ -392,7 +394,16 @@ export function RecordView({
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
   // to the single column every existing caller already renders.
+  // Full-width content between the identity and the columns: the account's
+  // readings and its tab bar. Absent on a record that has neither.
+  band?: ReactNode;
   rail?: ReactNode;
+  // What the rail column IS, on the same rule as asideLabel below: it defaults
+  // to the record's profile because that is what a rail usually holds, and a
+  // page whose rail holds something else names it. A record page that also has
+  // a Profile TAB is exactly that case — two regions called "Profile", one of
+  // them wrong, is a dead end for anyone navigating by landmark.
+  railLabel?: string;
   aside?: ReactNode;
   // What the aside column IS, for a reader navigating by landmark. Defaults to
   // the record's context; a page whose aside holds something else names it,
@@ -458,9 +469,18 @@ export function RecordView({
         )}
       </header>
       {actions && !controls && <div className="record-actions">{actions}</div>}
+      {/* The band runs the full width of the record, between the identity and
+          the columns. What describes the WHOLE account — its readings, the bar
+          that chooses which part of it to read — belongs here rather than in
+          the work column, where it would sit beside the rail as though it were
+          one more thing to read rather than the frame around all of them. */}
+      {band && <div className="record-band">{band}</div>}
       <div className={zones}>
         {rail && (
-          <aside className="record-rail" aria-label={t("record.profile")}>
+          <aside
+            className="record-rail"
+            aria-label={railLabel ?? t("record.profile")}
+          >
             {rail}
           </aside>
         )}

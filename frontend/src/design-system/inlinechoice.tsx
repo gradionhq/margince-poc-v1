@@ -25,6 +25,7 @@ import { Select, type SelectOption } from "./select";
 
 export function InlineChoice({
   label,
+  hideLabel,
   value,
   options,
   canEdit,
@@ -35,6 +36,13 @@ export function InlineChoice({
   // Names the field, for the reader and for assistive tech. A bare value in a
   // header row reads as one more fact among many.
   label: string;
+  // Suppresses the VISIBLE "label: " prefix without touching the accessible
+  // name: `label` still drives the change button's aria-label and the edit
+  // form's own label, both read to assistive tech, sr-only rather than
+  // dropped. For a caller whose surrounding layout already prints the field's
+  // name once (FieldGrid's own label column) — printing it a second time here
+  // is the field naming itself twice, not a second fact.
+  hideLabel?: boolean;
   value: string;
   options: readonly SelectOption[];
   canEdit: boolean;
@@ -62,7 +70,7 @@ export function InlineChoice({
   if (!canEdit || !editing) {
     return (
       <span>
-        {label}:{" "}
+        {!hideLabel && <>{label}: </>}
         {canEdit ? (
           <button
             type="button"
@@ -71,7 +79,10 @@ export function InlineChoice({
             // without this a screen reader announces "Not assessed, button" —
             // the state, with no hint that pressing it changes anything. title
             // does not override content for the accessible name; aria-label
-            // does, and stays as the tooltip for a pointer.
+            // does, and stays as the tooltip for a pointer. Carried
+            // regardless of `hideLabel`: the visible prefix is what a sighted
+            // reader does not need twice, not the accessible name a screen
+            // reader needs at all.
             aria-label={t("inlineChoice.change", { field: label })}
             title={t("inlineChoice.change", { field: label })}
             onClick={() => {
@@ -114,7 +125,10 @@ export function InlineChoice({
 
   return (
     <span>
-      <label htmlFor={fieldId}>{label}: </label>
+      <label className={hideLabel ? "sr-only" : undefined} htmlFor={fieldId}>
+        {label}
+        {!hideLabel && ": "}
+      </label>
       <Select
         id={fieldId}
         value={chosen}
@@ -178,9 +192,16 @@ export function InlineText({
   if (!canEdit || !editing) {
     const shown = value || placeholder;
     if (!canEdit) {
+      // `placeholder` is written for someone about to press it ("Add legal
+      // name") — showing it plain to a viewer who cannot edit reads as an
+      // instruction aimed at them. `field.unset` is the neutral fact instead,
+      // the same fallback the grid's own read-only rows (owner, domain,
+      // address) already use, so an empty field never reads as either an
+      // invitation this viewer cannot act on or a blank the row forgot to
+      // fill.
       return (
         <span className="inlinetext" title={readOnlyReason}>
-          {value}
+          {value || t("field.unset")}
         </span>
       );
     }

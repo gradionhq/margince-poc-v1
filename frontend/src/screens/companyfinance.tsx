@@ -1,7 +1,7 @@
 import { Landmark } from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
-import { Sparkline } from "../design-system/readings";
+import { Panel, PanelBody } from "../design-system/panel";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -9,7 +9,7 @@ import { problemCodeOf, useFinanceSummary } from "./common";
 import {
   medianDaysLabel,
   RECORD_ZONE,
-  SectionCard,
+  SectionPart,
   type SectionState,
 } from "./company360";
 
@@ -96,9 +96,13 @@ export function CompanyFinanceCard({
       : t("finance.title");
   if (query.isPending) {
     return (
-      <SectionCard title={title} state="loading" emptyLabel={t("finance.none")}>
-        {null}
-      </SectionCard>
+      <Panel title={title}>
+        <PanelBody>
+          <SectionPart state="loading" emptyLabel={t("finance.none")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      </Panel>
     );
   }
   if (query.isError) {
@@ -107,32 +111,49 @@ export function CompanyFinanceCard({
     // fails teaches them the card is broken.
     const withheld = problemCodeOf(query.error) === "permission_denied";
     return (
-      <SectionCard
-        title={title}
-        state={withheld ? "withheld" : "failed"}
-        emptyLabel={t("finance.none")}
-        detail={withheld ? {} : { onRetry: () => void query.refetch() }}
-      >
-        {null}
-      </SectionCard>
+      <Panel title={title}>
+        <PanelBody>
+          <SectionPart
+            state={withheld ? "withheld" : "failed"}
+            emptyLabel={t("finance.none")}
+            detail={withheld ? {} : { onRetry: () => void query.refetch() }}
+          >
+            {null}
+          </SectionPart>
+        </PanelBody>
+      </Panel>
     );
   }
   const summary = query.data;
+  const cardState = CARD_STATE[summary.state];
+  // `stale` and `partial` still carry real rows, so the figures and the
+  // provenance footer belong with them — a stale figure from this morning is
+  // still a figure, with its `as of` beside it.
+  const present =
+    cardState === "ready" ||
+    cardState === "empty" ||
+    cardState === "stale" ||
+    cardState === "partial";
   return (
-    <SectionCard
+    <Panel
       title={title}
-      state={CARD_STATE[summary.state]}
-      emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
-      detail={{
-        onRetry: () => void query.refetch(),
-        staleAsOf: summary.last_synced_at
-          ? formatDate(summary.last_synced_at, locale, RECORD_ZONE)
-          : undefined,
-      }}
-      footer={<FinanceProvenance summary={summary} />}
+      footer={present ? <FinanceProvenance summary={summary} /> : undefined}
     >
-      <FinanceBody summary={summary} />
-    </SectionCard>
+      <PanelBody>
+        <SectionPart
+          state={cardState}
+          emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
+          detail={{
+            onRetry: () => void query.refetch(),
+            staleAsOf: summary.last_synced_at
+              ? formatDate(summary.last_synced_at, locale, RECORD_ZONE)
+              : undefined,
+          }}
+        >
+          <FinanceBody summary={summary} />
+        </SectionPart>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -149,7 +170,7 @@ function FinanceBody({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const { locale } = useLocale();
   return (
     <>
-      <div className="fin-figures">
+      <div className="co-figures">
         <FinanceFigure
           label={t("finance.netInvoiced")}
           value={amountOf(summary.net_invoiced, locale)}
@@ -198,32 +219,32 @@ function FinanceFigure({
   tone,
 }: Readonly<{ label: string; value?: string; tone?: "danger" }>) {
   return (
-    <div className="fin-figure">
-      <span className="t-caption">{label}</span>
-      <span className={tone ? `fin-value fin-value-${tone}` : "fin-value"}>
+    <div className="co-figure">
+      <span className="co-part-label">{label}</span>
+      <span
+        className={
+          tone ? `co-figure-value fin-value-${tone}` : "co-figure-value"
+        }
+      >
         {value ?? "—"}
       </span>
     </div>
   );
 }
 
-// How they pay, as a shape and a number. Both are absent together: the server
-// withholds them under the same sample floor, because a line drawn from one
-// settled invoice states a habit the number beside it refuses to.
+// How they pay, as a number. No sparkline: `payment_behaviour`'s series is
+// its own reading and nothing on this panel draws a shape from it — the
+// median line beside it is the figure the panel actually backs.
 function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const t = useT();
-  const series = summary.payment_behaviour ?? [];
   if (summary.median_days_after_due == null) {
     return null;
   }
   return (
-    <div className="fin-behaviour">
-      <span className="t-caption">{t("finance.behaviour")}</span>
-      <Sparkline points={series} label={t("finance.behaviour")} />
-      <span className="t-caption">
-        {medianDaysLabel(summary.median_days_after_due, t)}
-      </span>
-    </div>
+    <p className="fin-behaviour">
+      <span className="co-part-label">{t("finance.behaviour")}</span>{" "}
+      {medianDaysLabel(summary.median_days_after_due, t)}
+    </p>
   );
 }
 

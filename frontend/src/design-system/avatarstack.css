@@ -1,0 +1,22 @@
+/* AvatarStack — overlapping monograms. Each face after the first is pulled
+ * left by the same amount its border is wide, so the ring reads as one
+ * continuous edge rather than a gap between two circles. */
+.avatar-stack {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
+  align-items: center;
+}
+.avatar-stack-item {
+  display: block;
+  border-radius: var(--r-full);
+  border: 2px solid var(--bgElevated);
+}
+.avatar-stack-item + .avatar-stack-item {
+  margin-left: calc(var(--space-2) * -1);
+}
+.avatar-stack-more {
+  margin-left: var(--space-2);
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}

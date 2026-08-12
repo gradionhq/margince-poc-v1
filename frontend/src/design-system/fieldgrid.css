@@ -1,0 +1,45 @@
+/* FieldGrid — a two-column label/value grid. The label column is a FIXED
+ * rung (112px, matched to the prototype), not `auto`: an auto column sizes to
+ * the longest label in the grid, so the values' left edge moves as fields
+ * arrive, and moves AGAIN per locale (German labels run longer than English).
+ * A fixed rung is what lets every value in the grid, on every record, in
+ * every language, start at the same x — that one shared edge is the entire
+ * point of a key/value grid. This tier is exempt from the raw-px spacing
+ * gate (it DEFINES the scale rather than consuming it), so the rung is a
+ * literal px measure, same as the prototype's. */
+.fieldgrid {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  /* A dense reference surface reads as a compact block, not a spaced-out
+     form — the row gap matches the prototype's tighter rhythm rather than
+     the wider `--space-2`/`--space-3` this grid used before it carried the
+     Details panel's full field set. */
+  gap: 6px var(--space-3);
+  font-size: var(--fs-sm);
+}
+.fieldgrid-label {
+  color: var(--textMeta);
+}
+.fieldgrid-value {
+  color: var(--textContent);
+  min-width: 0;
+  /* The hover target is a comfortable box, not the bare text: padding grows
+     it, and the matching negative margin pulls the box back by the same
+     amount so the TEXT still lands on the grid's shared left edge — without
+     the offset, adding padding would shift every value right of where its
+     label lines up. */
+  padding: var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border-radius: var(--r-sm);
+}
+/* Scoped to a cell that actually holds a clickable edit trigger
+   (InlineText/InlineChoice's own `.link-button`, drawn only while
+   `canEdit`): a read-only fact — owner, domain, address — gets no box and no
+   text cursor, because hovering it cannot open anything. The affordance says
+   "this is editable" only where that is true. */
+.fieldgrid-value:has(.link-button):hover {
+  background: var(--bgHover);
+  box-shadow: inset 0 0 0 1px var(--borderSubtle);
+  cursor: text;
+}

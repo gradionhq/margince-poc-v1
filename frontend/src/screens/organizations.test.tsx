@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AssistantPanel } from "./assistant";
-import { AccountBrief } from "./company360";
+import { SuggestionsSection } from "./company360";
 import {
   CompaniesScreen,
   CompanyScreen,
@@ -213,6 +213,14 @@ async function openHistory() {
   await userEvent.click(await screen.findByRole("button", { name: "History" }));
 }
 
+// openProfile switches to the tab that carries the account's own reference
+// material — the dossier, its filed fields, its facts, who it is connected to
+// and the one-off tools (enrichment, the deep read, the hierarchy roll-up).
+// All of it used to render under every tab; it is Profile-only now.
+async function openProfile() {
+  await userEvent.click(await screen.findByRole("button", { name: "Profile" }));
+}
+
 describe("company-360 enrichment", () => {
   it("stages an evidence-backed proposal: human labels, confidence, confirm-first banner", async () => {
     stubApi(() => jsonResponse(proposal));
@@ -220,6 +228,7 @@ describe("company-360 enrichment", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openProfile();
     await userEvent.click(screen.getByRole("button", { name: "Read now" }));
     await waitFor(() =>
       expect(screen.getByText("Value proposition")).toBeTruthy(),
@@ -244,6 +253,7 @@ describe("company-360 enrichment", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openProfile();
     await userEvent.click(screen.getByRole("button", { name: "Read now" }));
     await waitFor(() =>
       expect(
@@ -330,6 +340,7 @@ async function startDeepRead(calls: string[]) {
   await waitFor(() =>
     expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
   );
+  await openProfile();
   await userEvent.click(screen.getByRole("button", { name: "Read full site" }));
   await waitFor(() =>
     expect(
@@ -361,6 +372,8 @@ describe("company-360 deep read", () => {
     try {
       render(<CompanyScreen id="o-1" />);
       await flush();
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Profile" }));
       await flush();
       fireEvent.click(screen.getByRole("button", { name: "Read full site" }));
       await flush();
@@ -479,6 +492,7 @@ describe("company-360 deep read", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openProfile();
     await userEvent.click(
       screen.getByRole("button", { name: "Read full site" }),
     );
@@ -495,6 +509,7 @@ describe("company-360 deep read", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openProfile();
     await userEvent.click(
       screen.getByRole("button", { name: "Read full site" }),
     );
@@ -839,6 +854,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() =>
       expect(screen.getByText("What they promise")).toBeTruthy(),
@@ -870,6 +886,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() =>
       expect(screen.getByText(/Nothing read yet/)).toBeTruthy(),
@@ -921,6 +938,7 @@ describe("CompanyScreen — facts card (B6)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() =>
       expect(screen.getByText("Facts read from the site")).toBeTruthy(),
@@ -1199,10 +1217,7 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    await openProfile();
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1234,9 +1249,7 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    await openProfile();
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1288,6 +1301,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       { rollup },
     );
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
@@ -1311,6 +1325,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() =>
       expect(
@@ -1340,6 +1355,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openProfile();
 
     await waitFor(() =>
       expect(
@@ -1458,9 +1474,7 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await user.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    await user.click(await screen.findByRole("button", { name: "Profile" }));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1624,12 +1638,11 @@ const stalledSuggestion = {
 // here directly rather than through the company page, which renders neither.
 // This matters for the "the card is absent" cases below: asserted against a
 // page that never mounts one, they would hold no matter what the card did.
-function renderBriefFor(three60: unknown) {
+function renderSuggestionsFor(three60: unknown) {
   render(
-    <AccountBrief
+    <SuggestionsSection
       orgId="o-1"
       view={three60 as never}
-      enabled
       onOpenRecord={() => {}}
       onPerform={() => {}}
     />,
@@ -1640,7 +1653,7 @@ describe("CompanyScreen — next-step suggestions", () => {
   it("leads each suggestion with the reason the rule fired, and cites the record", async () => {
     const three60 = { ...org360, suggestions: [stalledSuggestion] };
     stubFetch(companyBackstop, { org360: three60 });
-    renderBriefFor(three60);
+    renderSuggestionsFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1657,7 +1670,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       suggestions_dropped: 3,
     };
     stubFetch(companyBackstop, { org360: three60 });
-    renderBriefFor(three60);
+    renderSuggestionsFor(three60);
 
     // A truncated list with no count reads as "that is everything".
     await waitFor(() =>
@@ -1674,7 +1687,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       suggestions_dropped: 0,
     };
     stubFetch(companyBackstop, { org360: three60 });
-    renderBriefFor(three60);
+    renderSuggestionsFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1691,7 +1704,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       suggestions_dropped: undefined,
     };
     stubFetch(companyBackstop, { org360: three60 });
-    renderBriefFor(three60);
+    renderSuggestionsFor(three60);
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1701,7 +1714,7 @@ describe("CompanyScreen — next-step suggestions", () => {
 
   it("says nothing at all when the account needs nothing", async () => {
     stubFetch(companyBackstop);
-    renderBriefFor(org360);
+    renderSuggestionsFor(org360);
 
     // "No advice" is not something a rep acts on, so the card is absent
     // rather than empty. Asserted against a MOUNTED brief: on a page that
@@ -1718,7 +1731,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       sections_omitted: ["suggestions"],
     };
     stubFetch(companyBackstop, { org360: three60 });
-    renderBriefFor(three60);
+    renderSuggestionsFor(three60);
 
     await waitFor(() =>
       expect(screen.queryByText("Worth doing next")).toBeNull(),
@@ -1737,7 +1750,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
+    renderSuggestionsFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1762,7 +1775,7 @@ describe("CompanyScreen — next-step suggestions", () => {
       },
       { org360: { ...org360, suggestions: [stalledSuggestion] } },
     );
-    renderBriefFor({ ...org360, suggestions: [stalledSuggestion] });
+    renderSuggestionsFor({ ...org360, suggestions: [stalledSuggestion] });
 
     await waitFor(() =>
       expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
@@ -1871,50 +1884,62 @@ describe("CompanyScreen — Ask Margince", () => {
   });
 });
 
-// ONE column, and a grid of cards inside it (mockup State D). The page had a
-// work column and a context column beside it; the context column is gone,
-// because that is the space the composer drawer opens into and no mockup shows
-// both. Its cards moved into the grid, which is the obligation these cases
-// keep: a layout change must not become an availability change.
+// ONE column beside the left rail (mockup State D). The page had a work
+// column and a context column beside it; the context column moved to the
+// LEFT rail so the story keeps the wider share, and the composer opens as its
+// own overlay drawer rather than into a column. Tags and lists moved into the
+// rail's own panel too — the business grid that used to hold them is gone,
+// which is the obligation these cases keep: a layout change must not become
+// an availability change.
 describe("CompanyScreen — State D's one column and its card grid", () => {
-  it("puts the account's context beside the work, and no rail on the left", async () => {
+  it("puts the account's context on the left, beside the work", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
     await waitFor(() =>
-      expect(container.querySelector(".co-grid")).toBeTruthy(),
+      expect(container.querySelector(".co-overview-stack")).toBeTruthy(),
     );
-    // Two columns, not three: the work and the context beside it. A LEFT rail
-    // would be a third place to look, and the mockups draw none.
-    expect(container.querySelector(".record-aside")).toBeTruthy();
+    // Two columns, not three: the context beside the work. A right-hand
+    // aside would be a third place to look, and the mockups draw none.
+    expect(container.querySelector(".record-rail")).toBeTruthy();
     expect(container.querySelector(".co-rail")).toBeTruthy();
-    expect(container.querySelector(".record-rail")).toBeNull();
+    expect(container.querySelector(".record-aside")).toBeNull();
   });
 
   // Every card is still ON the page, wherever it sits. Named individually
   // rather than counted: a count passes on a layout that lost one card and
   // grew another, and moving a card between columns must never be the way one
-  // disappears.
-  it("carries every business card across its two columns", async () => {
+  // disappears. The pipeline moved off the grid onto its own Deals tab, and
+  // tags/lists moved into the rail, so both are asserted there rather than in
+  // an Overview grid that no longer exists.
+  it("carries every panel of the overview stack, and files what is left in the rail", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
-    const grid = await screen.findByRole("complementary", { name: "Business" });
-    // The business of the account: what is running, and the paperwork.
-    for (const card of ["Deals", "Documents"]) {
-      expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
+    // The overview stack: the account, what it is worth, the pipeline's own
+    // figures, and the money. "Worth doing next" is not asserted here — it is
+    // advice, and this fixture's account has none to give; the suggestions
+    // suite above exercises its own presence.
+    const stack = container.querySelector(".co-overview-stack");
+    expect(stack).toBeTruthy();
+    for (const panel of ["The account, in short", "Commercial", "Finance"]) {
+      expect(stack?.textContent).toContain(panel);
     }
-    // Filing metadata stays folded, and stays in the grid: tags and lists are
-    // governed 360 sections like the cards above them, so a withheld half has
-    // to say so where the reader is looking for it.
-    expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+    expect(stack?.textContent).not.toContain("Lists & tags");
 
-    // The relationship around it moved to the rail rather than off the page.
+    // The pipeline and the commercial picture have their own tab too.
+    await userEvent.click(screen.getByRole("button", { name: "Deals" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Deals" })).toBeTruthy(),
+    );
+
+    // The relationship around it, and how the account is filed, both live in
+    // the rail rather than off the page.
     const rail = container.querySelector(".co-rail");
     expect(rail).toBeTruthy();
-    for (const card of ["People", "Signals"]) {
+    for (const card of ["People", "Signals", "Lists & tags"]) {
       expect(rail?.textContent).toContain(card);
     }
   });
@@ -1963,9 +1988,11 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
-    const rail = container.querySelector(".co-rail");
-    await waitFor(() => expect(rail?.textContent).toContain("Recent activity"));
-    expect(rail?.textContent).not.toContain("Nothing logged with them yet");
+    const stack = container.querySelector(".co-overview-stack");
+    await waitFor(() =>
+      expect(stack?.textContent).toContain("Recent activity"),
+    );
+    expect(stack?.textContent).not.toContain("Nothing logged with them yet");
   });
 
   // None of the reference cards comes from the 360 — each runs its own read —
@@ -1987,6 +2014,7 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
 
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
+    await openProfile();
 
     // Asserted on the disclosure summaries a reader actually clicks: these
     // words also appear in the app's navigation, so a bare text match would
@@ -2132,5 +2160,251 @@ describe("CompanyScreen — the timeline filter does not follow you", () => {
     await openHistory();
 
     await waitFor(() => expect(pressed("Activities")).toBe("true"));
+  });
+});
+
+describe("CompanyScreen — the active tab is scoped to the account being read", () => {
+  it("opens on Overview when another company is opened", async () => {
+    stubFetch(async (url) =>
+      /\/organizations\/o-\d$/.test(new URL(url).pathname)
+        ? jsonResponse(org)
+        : emptyPage(),
+    );
+    // One QueryClient across both renders, with BOTH records already cached:
+    // that is what keeps the record component mounted across the swap, the
+    // same setup the chronology filter's own test above uses.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["organization", "o-1"], org);
+    client.setQueryData(["organization", "o-2"], { ...org, id: "o-2" });
+    const page = (id: string) => (
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <CompanyScreen id={id} />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = rtlRender(page("o-1"));
+    const pressed = (name: string) =>
+      screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Documents" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Documents" }));
+    await waitFor(() => expect(pressed("Documents")).toBe("true"));
+
+    rerender(page("o-2"));
+
+    await waitFor(() => expect(pressed("Overview")).toBe("true"));
+  });
+});
+
+describe("CompanyScreen — the Partner tab is scoped to the account being read", () => {
+  // An org with a programme carries "partner" in relationship_types
+  // (ADR-0079/A124); one without it must never offer the tab, and must never
+  // inherit it from whichever account was open before.
+  const partnerOrg = { ...org, relationship_types: ["partner"] as const };
+  const nonPartnerOrg = { ...org, id: "o-2" };
+
+  function stubTwoOrgs() {
+    stubFetch(async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname.endsWith("/organizations/o-1")) {
+        return jsonResponse(partnerOrg);
+      }
+      if (pathname.endsWith("/organizations/o-2")) {
+        return jsonResponse(nonPartnerOrg);
+      }
+      return emptyPage();
+    });
+  }
+
+  // One QueryClient across both renders, with BOTH records already cached —
+  // that is what keeps the record component mounted across the swap rather
+  // than remounting it, the one condition under which a leak would show
+  // (the same setup the chronology filter's own cross-record test uses).
+  function renderTwoOrgs() {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["organization", "o-1"], partnerOrg);
+    client.setQueryData(["organization", "o-2"], nonPartnerOrg);
+    const page = (id: string) => (
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <CompanyScreen id={id} />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    return { ...rtlRender(page("o-1")), page };
+  }
+
+  it("does not carry the Partner tab to an account with no programme", async () => {
+    stubTwoOrgs();
+    const { rerender, page } = renderTwoOrgs();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Partner" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Partner" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+
+    rerender(page("o-2"));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Overview" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
+  });
+
+  // The carveout that keeps the tab reachable — companyTabsFor's
+  // `tab === "partner"` branch — has to survive the fix above: a check that
+  // only proved the leak was gone could equally be satisfied by removing the
+  // reader's only way to a first partner row.
+  it("still opens the set-up-partner form on an account with no programme", async () => {
+    stubFetch(companyBackstop);
+    render(<CompanyScreen id="o-1" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Set up partner programme",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Partner" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+  });
+});
+
+// One open, dated task, as the 360 serves it on the Tasks tab.
+const openTask = {
+  activity_id: "a-1",
+  subject: "Follow up on contract renewal",
+  due_at: "2026-08-20T00:00:00Z",
+  overdue: false,
+  assignee_id: null,
+  linked_deal_id: null,
+  linked_person_id: null,
+};
+
+async function openTasksTab() {
+  await userEvent.click(await screen.findByRole("button", { name: "Tasks" }));
+}
+
+describe("CompanyScreen — the Tasks tab", () => {
+  it("completes a task without leaving the account", async () => {
+    let patched: unknown;
+    stubFetch(
+      async (url, method, request) => {
+        if (method === "PATCH" && url.endsWith("/activities/a-1")) {
+          patched = await request.json();
+          return jsonResponse({});
+        }
+        return companyBackstop(url);
+      },
+      {
+        org360: {
+          ...org360,
+          next_steps: { ...org360.next_steps, data: [openTask] },
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+    await openTasksTab();
+
+    await waitFor(() =>
+      expect(screen.getByText(openTask.subject)).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("checkbox", { name: "Done" }));
+
+    await waitFor(() => expect(patched).toEqual({ is_done: true }));
+  });
+
+  it("says the section is withheld rather than rendering it as empty", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        next_steps: undefined,
+        sections_omitted: ["next_steps"],
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+    await openTasksTab();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Hidden — your role cannot read this"),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("No open task on this account.")).toBeNull();
+  });
+
+  it("shows no task-completing verb on an archived account", async () => {
+    // The server refuses a write on an archived account, so the tab omits the
+    // verb rather than offering a button that can only 404.
+    stubFetch(
+      async (url) => {
+        if (url.endsWith("/organizations/o-1")) {
+          return jsonResponse({ ...org, archived_at: "2026-07-13T00:00:00Z" });
+        }
+        if (url.endsWith("/activities/a-1")) {
+          return jsonResponse({
+            id: openTask.activity_id,
+            organization_id: "o-1",
+            type: "task",
+            subject: openTask.subject,
+            occurred_at: "2026-08-01T09:00:00Z",
+            due_at: openTask.due_at,
+            is_done: false,
+            captured_by: "human:u1",
+            source: "manual",
+            version: 1,
+          });
+        }
+        return emptyPage();
+      },
+      {
+        org360: {
+          ...org360,
+          next_steps: { ...org360.next_steps, data: [openTask] },
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+    await openTasksTab();
+
+    await waitFor(() =>
+      expect(screen.getByText(openTask.subject)).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
+
+    // The same withheld verb holds inside the detail modal, not only the row.
+    await userEvent.click(screen.getByText(openTask.subject));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", { name: openTask.subject }),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
 });

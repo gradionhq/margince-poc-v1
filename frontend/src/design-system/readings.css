@@ -24,6 +24,12 @@
 .meterbar-danger span {
   background: var(--danger);
 }
+/* Same reasoning as the tone variants above: a caller can want the accent
+ * without the fade to `--away`, which reads as a warning creeping into a
+ * bar that has no low-is-bad meaning at all. */
+.meterbar-flat span {
+  background: var(--accent);
+}
 
 /* Sparkline — the shape of a short series, no axes and no grid. `none` on the
  * fill keeps the polyline a line; `preserveAspectRatio: none` lets it stretch
@@ -52,7 +58,7 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
   background: var(--bgElevated);
-  color: var(--text);
+  color: var(--textContent);
   font-size: 13px;
   line-height: 1.2;
   white-space: nowrap;

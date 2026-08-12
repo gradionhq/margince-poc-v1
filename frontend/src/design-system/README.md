@@ -29,12 +29,14 @@ arrive through props, translated by the caller with `t()`.
 | `Button` | The one button: `primary` / `ghost` / `danger`, `small` | `atoms.tsx` | ✅ |
 | `Badge` | A status pill in the six tones | `atoms.tsx` | ✅ |
 | `Avatar` | A person's or company's chip: monogram, optional logo, optional per-name tint | `atoms.tsx` | ✅ |
+| `AvatarStack` | A group of people as overlapping monograms, folding past `max` into a "+N" chip rather than running the row wide. Expects a non-empty list: every caller guards `people.length > 0` before rendering it, so there is no "0 people" state to draw | `avatarstack.tsx` | ✅ |
 | `TextInput` | The one text field | `atoms.tsx` | ✅ |
 | `SearchField` | A text field with the search affordance | `atoms.tsx` | ✅ |
 | `Textarea` | The one multi-line field | `atoms.tsx` | ✅ |
 | **`Select`** | **The one dropdown: a button trigger plus a portalled listbox. Never a `<select>`** | **`select.tsx`** | ✅ |
 | `Checkbox` / `Radio` | A tick with its label as the other half of the click target | `atoms.tsx` | ✅ |
 | `Field` | The label-above-control row every form is built from; owns the id and hands the control `{ id, required, aria-describedby }` | `atoms.tsx` | ✅ |
+| `FieldGrid` / `FieldRow` | The two-column label/value grid around a record's fields: the grid AROUND a value, not the value itself. Fixed-width label column (not `auto`), so every value's left edge sits at the same x on every record and every locale — a `FieldRow`'s `label` is always required and always drawn there. A read-only row takes a plain node; an editable one wraps `InlineText`/`InlineChoice` as `FieldRow`'s children rather than this component reimplementing hover-to-edit. `InlineText` draws no visible label of its own (its `label` prop is screen-reader- and aria-only), so pass `FieldRow`'s own `label` as usual there. `InlineChoice` DOES draw its own "label: value" inline, closed or open — pass it `hideLabel` to suppress that visible half so `FieldRow`'s label is the only one on screen, while the value still sits in the grid's shared value column rather than escaping it | `fieldgrid.tsx` | ✅ |
 | `MoneyInput` | An amount with its currency, formatted at the presentation edge | `moneyinput.tsx` | ✅ |
 | `SegmentedControl` | A small closed set of options, all visible at once | `atoms.tsx` | ✅ |
 | `RecordPicker` | Search → candidates → pick, for choosing an existing record | `recordpicker.tsx` | ✅ |
@@ -44,6 +46,7 @@ arrive through props, translated by the caller with `t()`.
 | `OverflowMenu` | The verbs a record offers but a reader rarely wants | `atoms.tsx` | ✅ |
 | `Disclosure` | A section the reader opens when they want it | `atoms.tsx` | ✅ |
 | `Card` / `EmptyState` / `SectionHeader` / `Skeleton` / `Kbd` | Page furniture: surface, nothing-here, heading row, loading placeholder, key cap | `atoms.tsx` | ✅ |
+| `Panel` / `PanelBody` / `PanelRow` | The titled-card shape `Card` does not offer: a fixed-height header (a title alone, or a title with a badge or a button, all the same height), full-bleed rows under it, and an optional footer band for a figure that belongs to the whole panel. `PanelBody` is its own component rather than a prop on `Panel`, because the header's rhythm, the body's padding and a row that wants to touch the panel's own edges are three different things living in one box: a caller needing both padded text and full-bleed rows nests `PanelBody` and `PanelRow` as siblings instead of fighting one slot that tries to be both | `panel.tsx` | ✅ |
 | `StatCard` / `AttainmentRing` | One reading with the basis it was drawn from; the server's attainment band as an arc | `atoms.tsx` | ✅ |
 | `Meter` / `Sparkline` / `Chip` | A proportion as a bar (pass `value` and `max`, never a percentage), a short series as a bare polyline, and one attribute of a record as an icon pill — a `Chip` is a fact, a `Badge` is a status | `readings.tsx` | ✅ |
 | `DataTable` | A simple column/row table with optional row navigation | `atoms.tsx` | ✅ |

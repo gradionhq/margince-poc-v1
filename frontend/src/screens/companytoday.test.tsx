@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -35,17 +36,25 @@ function show(
     loading?: boolean;
     failed?: boolean;
     onDraftTo?: (personId: string) => void;
+    onPrepareMeeting?: (activityId: string) => void;
   } = {},
 ) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <LocaleProvider initial="en">
-      <TodayOnThisAccount
-        view={view}
-        loading={opts.loading ?? false}
-        failed={opts.failed ?? false}
-        onDraftTo={opts.onDraftTo}
-      />
-    </LocaleProvider>,
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">
+        <TodayOnThisAccount
+          orgId="o-1"
+          view={view}
+          loading={opts.loading ?? false}
+          failed={opts.failed ?? false}
+          onDraftTo={opts.onDraftTo}
+          onPrepareMeeting={opts.onPrepareMeeting}
+        />
+      </LocaleProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -114,7 +123,7 @@ describe("what needs a person on this account today", () => {
     expect(screen.getByText(/Hidden from you/).textContent).toContain(
       "what was said",
     );
-    expect(screen.queryByText("Last meaningful interaction")).toBeNull();
+    expect(screen.queryByText("Last exchange")).toBeNull();
   });
 
   it("distinguishes a failed read from a quiet account", () => {
@@ -204,7 +213,7 @@ describe("the tiles, and which record each one picks", () => {
       },
     });
 
-    expect(screen.getByText("Last meaningful interaction")).toBeTruthy();
+    expect(screen.getByText("Last exchange")).toBeTruthy();
     expect(
       screen.getByText("Questions about implementation capacity"),
     ).toBeTruthy();
@@ -300,10 +309,15 @@ describe("the tiles, and which record each one picks", () => {
       ...BASE,
       activities: { data: [], page: { has_more: false, next_cursor: null } },
     });
-    expect(screen.queryByText("Last meaningful interaction")).toBeNull();
+    expect(screen.queryByText("Last exchange")).toBeNull();
   });
 
-  it("names the head of the next-steps list, which the server already ordered", () => {
+  // What is owed lives in the panel's FOOTER now (nextCommitmentLine,
+  // company360.tsx), not as a context tile — the count and the subject stay
+  // out of it for the same reason the retired tile did: the next-steps card
+  // renders the subject with a due-date edit and a complete button, and a
+  // second flat copy here would be the weaker of the two.
+  it("says how many are overdue in the footer, never the subject", () => {
     show({
       ...BASE,
       next_steps: {
@@ -319,16 +333,12 @@ describe("the tiles, and which record each one picks", () => {
         page: { has_more: false, next_cursor: null },
       },
     });
-    // The COUNT and the deadline, never the subject: the next-steps card
-    // below renders that with a due-date edit and a complete button, and a
-    // second flat copy here is the weaker of the two.
     expect(screen.getByText("1 overdue")).toBeTruthy();
-    expect(screen.getByText(/Overdue since/)).toBeTruthy();
     expect(screen.queryByText("Send the revised proposal")).toBeNull();
     expect(screen.queryByText("Later thing")).toBeNull();
   });
 
-  it("says a commitment has no due date rather than implying one", () => {
+  it("says how many are open when none is overdue", () => {
     show({
       ...BASE,
       next_steps: {
@@ -336,7 +346,6 @@ describe("the tiles, and which record each one picks", () => {
         page: { has_more: false, next_cursor: null },
       },
     });
-    expect(screen.getByText("No due date")).toBeTruthy();
     expect(screen.getByText("1 open")).toBeTruthy();
   });
 
@@ -380,71 +389,9 @@ describe("the tiles, and which record each one picks", () => {
     expect(screen.getByText(/2 other colleagues/)).toBeTruthy();
   });
 
-  it("picks the largest open deal, and ranks an unpriced one last", () => {
-    show({
-      ...BASE,
-      deals: {
-        data: [
-          {
-            deal_id: "d-1",
-            name: "Small",
-            status: "open" as const,
-            stalled: false,
-            amount: { amount_minor: 100000, currency: "EUR" },
-          },
-          {
-            deal_id: "d-2",
-            name: "Unpriced",
-            status: "open" as const,
-            stalled: false,
-          },
-          {
-            deal_id: "d-3",
-            name: "Expansion Phase 2",
-            status: "open" as const,
-            stalled: false,
-            amount: { amount_minor: 9500000, currency: "EUR" },
-          },
-        ],
-        page: { has_more: false, next_cursor: null },
-        won_lifetime: { amount_minor: 0, currency: "EUR" },
-        lost_count: 0,
-      },
-    });
-    expect(screen.getByText(/Expansion Phase 2/)).toBeTruthy();
-  });
-
-  // A deal's amount is in its OWN currency with no base conversion, so ranking
-  // across currencies would compare 100 JPY against 100 EUR.
-  it("refuses to rank deals in different currencies and says why", () => {
-    show({
-      ...BASE,
-      deals: {
-        data: [
-          {
-            deal_id: "d-1",
-            name: "In yen",
-            status: "open" as const,
-            stalled: false,
-            amount: { amount_minor: 9000000, currency: "JPY" },
-          },
-          {
-            deal_id: "d-2",
-            name: "In euro",
-            status: "open" as const,
-            stalled: false,
-            amount: { amount_minor: 100000, currency: "EUR" },
-          },
-        ],
-        page: { has_more: false, next_cursor: null },
-        won_lifetime: { amount_minor: 0, currency: "EUR" },
-        lost_count: 0,
-      },
-    });
-    expect(screen.getByText("2 open deals")).toBeTruthy();
-    expect(screen.getByText(/different currencies/)).toBeTruthy();
-    expect(screen.queryByText(/In yen/)).toBeNull();
-  });
+  // The largest-open-deal reading moved to the Commercial panel
+  // (organizations.tsx) alongside the full open-deals list, so this file no
+  // longer picks or ranks a deal of its own.
 
   it("repeats the strip's signal rather than forming a second verdict", () => {
     show({
@@ -463,6 +410,26 @@ describe("the tiles, and which record each one picks", () => {
     ).toBeTruthy();
     // A threshold someone chose is an assessment, not an observation.
     expect(screen.getByText("Assessment")).toBeTruthy();
+  });
+
+  // Whose move it is used to be the strip's own tile ("Whose move"); it moved
+  // here because it is a DATED reading, and the strip now carries only the
+  // account's standing state. Lifted rather than reimplemented — the words
+  // and the tone are `co.strip.engagement.*`, unchanged.
+  it("names whose move it is, from the same engagement field the strip used to draw", () => {
+    show({
+      ...BASE,
+      state_strip: {
+        account: { lifecycle: "customer", relationship_types: [] },
+        engagement: {
+          state: "waiting_on_them",
+          last_inbound_at: null,
+          last_outbound_at: "2026-07-20T09:00:00Z",
+        },
+      },
+    });
+    expect(screen.getByText("Waiting on them")).toBeTruthy();
+    expect(screen.getByText(/never/)).toBeTruthy();
   });
 
   // The button names the recipient it will write to, and hands that person to
@@ -495,8 +462,48 @@ describe("the tiles, and which record each one picks", () => {
       },
       { onDraftTo: drafted },
     );
-    fireEvent.click(screen.getByRole("button", { name: /Draft follow-up/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Draft" }));
     expect(drafted).toHaveBeenCalledWith(CONTACT.person_id);
+  });
+
+  // The MOVES half of the merged brief: a booked meeting's own verb renders
+  // as a full-bleed row alongside whatever advice the account has, rather
+  // than as a sidebar button beside the context tiles.
+  it("offers to prepare a booked meeting as a move row", () => {
+    const prepared = vi.fn();
+    show(
+      {
+        ...BASE,
+        next_meeting: {
+          activity_id: "a-1",
+          starts_at: "2026-08-12T09:00:00Z",
+          subject: "Renewal review",
+          participants: [{ person_id: "p-1", display_name: "Dana Buyer" }],
+        },
+      },
+      { onPrepareMeeting: prepared },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare meeting" }));
+    expect(prepared).toHaveBeenCalledWith("a-1");
+  });
+
+  // "Worth doing next"'s own rows are the OTHER half of the moves section —
+  // merged into this one panel rather than a second card repeating the
+  // account's own advice.
+  it("carries the account's suggestions as moves alongside the context band", () => {
+    show({
+      ...BASE,
+      suggestions: [
+        {
+          kind: "no_reply",
+          fingerprint: "f-1",
+          reason: "You reached out 15 days ago and nobody has come back.",
+          evidence: [],
+        },
+      ],
+    });
+    expect(screen.getByText(/nobody has come back/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
   });
 });
 
@@ -523,31 +530,6 @@ describe("a page is not the account", () => {
     });
     expect(screen.getByText("1+ overdue")).toBeTruthy();
     expect(screen.queryByText("1 overdue")).toBeNull();
-  });
-
-  // The deals page is ordered NEWEST first, not by amount, so past the cap the
-  // largest deal may sit on page two. A figure a rep would repeat in a
-  // forecast is the worst place to be quietly wrong.
-  it("refuses to name the largest deal when the page was capped", () => {
-    show({
-      ...BASE,
-      deals: {
-        data: [
-          {
-            deal_id: "d-1",
-            name: "Visible deal",
-            status: "open" as const,
-            stalled: false,
-            amount: { amount_minor: 100000, currency: "EUR" },
-          },
-        ],
-        page: { has_more: true, next_cursor: "c" },
-        won_lifetime: { amount_minor: 0, currency: "EUR" },
-        lost_count: 0,
-      },
-    });
-    expect(screen.getByText("1+ open deals")).toBeTruthy();
-    expect(screen.queryByText(/Visible deal/)).toBeNull();
   });
 
   it("says the best route is the best of the contacts it could see", () => {

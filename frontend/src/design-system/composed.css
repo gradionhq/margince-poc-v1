@@ -311,6 +311,20 @@
   }
 }
 
+/* The full-width band between the identity and the columns: the account's
+   readings, then the bar that chooses which part of it to read. It spans both
+   columns because it FRAMES them — inside the work column it would sit beside
+   the rail as one more card, its cells squeezed to a third of the page.
+   Its own gap is the one that sets the record's vertical rhythm, so it is
+   stated here rather than left to whatever margins its children happen to
+   carry. */
+.record-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
 /* The record page's zones: what is happening in the work column, the business
    around it beside. A page may still pass both a rail and an aside, but the
    company page passes only the aside (plan §4). The work column is the one

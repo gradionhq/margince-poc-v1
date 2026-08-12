@@ -4,20 +4,22 @@ import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge } from "../design-system/atoms";
+import { PanelBody } from "../design-system/panel";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { throwProblem } from "./common";
-import { RECORD_ZONE, SectionCard, sectionState } from "./company360";
+import { RECORD_ZONE } from "./company360";
 
-// The commercial relationship: what is running with this account, and what we
-// last put in front of them.
+// The commercial relationship: what we last put in front of this account,
+// read from the SAME open deals the Deals tab already lists — so it is
+// content inside that Panel (the `extra` slot on `DealsCard`), not a card of
+// its own with a duplicate deal list under a different heading.
 //
-// TWO BLOCKS, NOT FOUR. The mockup draws an active contract with its value and
-// number, and a renewal countdown beside it. Margince has no concept of a
-// contract: nothing stores a contract value, a contract number or a renewal
-// date, so both blocks would have to be invented. Deriving them from an
-// accepted offer was considered and refused — an accepted offer is not a
-// signed contract, it carries no renewal date, and a card that calls one the
+// ONE BLOCK, NOT the contract-plus-renewal pair the mockup draws. Margince
+// has no concept of a contract: nothing stores a contract value, a contract
+// number or a renewal date, so that block would have to be invented. Deriving
+// it from an accepted offer was considered and refused — an accepted offer is
+// not a signed contract, it carries no renewal date, and calling one the
 // other is the kind of small lie that costs the reader trust in every other
 // figure on the page.
 //
@@ -28,103 +30,24 @@ type Organization360 = components["schemas"]["Organization360"];
 type Deal = NonNullable<Organization360["deals"]>["data"][number];
 type Offer = components["schemas"]["Offer"];
 
-export function CompanyCommercialCard({
+/**
+ * CompanyLastOffer is the `extra` handed into the Deals tab's `DealsCard`
+ * Panel: the last offer put in front of this account, read off its leading
+ * open deal — an offer hangs off a deal rather than off a company, so there
+ * is no account-wide offer read, and the alternative (one request per open
+ * deal) would cost a page load to answer a single line. The deal it came
+ * from is NAMED, so a reader can tell which offer they are looking at rather
+ * than assuming it is the only one. Nothing to say draws nothing — a section
+ * with no offer to name is not a section, and an empty block under the deal
+ * rows would read as a missing feature rather than as "there is none".
+ */
+export function CompanyLastOffer({
   view,
 }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
+  const { locale } = useLocale();
   const deals = view?.deals?.data ?? [];
-  const state = sectionState(view, "deals", Boolean(view?.deals), deals.length);
-  // Both this card and the deals card read the SAME section, so both would
-  // otherwise print the same "hidden from you" line. One notice is the answer;
-  // two teach the reader that the page repeats itself. The deals card carries
-  // it, because it is the one that names the section.
-  if (state === "withheld" || state === "unavailable") {
-    return null;
-  }
-  return (
-    <SectionCard
-      title={t("commercial.title")}
-      state={state}
-      emptyLabel={t("commercial.noneOpen")}
-    >
-      <OpenOpportunities deals={deals} />
-      <LastOffer
-        deals={deals}
-        truncated={view?.deals?.page?.has_more === true}
-      />
-    </SectionCard>
-  );
-}
-
-function OpenOpportunities({ deals }: Readonly<{ deals: readonly Deal[] }>) {
-  const t = useT();
-  const { locale } = useLocale();
-  return (
-    <div className="com-block">
-      <span className="t-caption">{t("commercial.openOpportunities")}</span>
-      <ul className="co-list">
-        {deals.map((deal) => (
-          <li key={deal.deal_id} className="co-row">
-            <button
-              type="button"
-              className="co-rowlink"
-              onClick={() => navigate({ screen: "deals", id: deal.deal_id })}
-            >
-              {deal.name}
-            </button>
-            <span className="co-row-meta">
-              {deal.stage_name && <Badge>{deal.stage_name}</Badge>}
-              {/* An unpriced deal says so rather than showing nothing: the
-                  gap between "nobody has costed this" and "this line has no
-                  amount column" is the whole point. */}
-              <span>
-                {dealAmount(deal, locale) ?? t("commercial.unpriced")}
-              </span>
-              {deal.expected_close_date && (
-                <span>
-                  {t("commercial.closes", {
-                    when: formatDate(
-                      deal.expected_close_date,
-                      locale,
-                      RECORD_ZONE,
-                    ),
-                  })}
-                </span>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function dealAmount(
-  deal: Deal,
-  locale: ReturnType<typeof useLocale>["locale"],
-): string | undefined {
-  // Both halves or nothing. An amount with no currency cannot be rendered
-  // without picking one, and a guessed symbol on a real figure is worse than
-  // no figure.
-  if (deal.amount?.amount_minor == null || !deal.amount.currency) {
-    return undefined;
-  }
-  return formatMoney(deal.amount.amount_minor, deal.amount.currency, locale);
-}
-
-// The last offer we put in front of them.
-//
-// Read off the account's leading open deal, because an offer hangs off a deal
-// rather than off a company: there is no account-wide offer read, and the
-// alternative — one request per open deal — would cost a page load to answer
-// a single line. The deal it came from is NAMED, so a reader can tell which
-// offer they are looking at rather than assuming it is the only one.
-function LastOffer({
-  deals,
-  truncated,
-}: Readonly<{ deals: readonly Deal[]; truncated: boolean }>) {
-  const t = useT();
-  const { locale } = useLocale();
+  const truncated = view?.deals?.page?.has_more === true;
   // Offers are their own RBAC object: a reader who may see deals may not see
   // what we quoted. Without this the request is fired to be refused, and the
   // refusal renders as "no offer" — which is a claim about the account rather
@@ -152,7 +75,7 @@ function LastOffer({
     return null;
   }
   return (
-    <div className="com-block">
+    <PanelBody className="com-block">
       <span className="t-caption">
         {t("commercial.lastOffer", { deal: leading.name })}
       </span>
@@ -176,7 +99,7 @@ function LastOffer({
           </span>
         )}
       </span>
-    </div>
+    </PanelBody>
   );
 }
 

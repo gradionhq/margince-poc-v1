@@ -157,7 +157,13 @@ async function patchCompanyField(
 // record, the list it appears in and the 360 that summarizes it all read the
 // value being changed, so all three are refetched rather than left showing the
 // old one until something else happens to invalidate them.
-function useCompanyFieldPatch(org: Organization) {
+//
+// Exported so the rail's own Details grid (companyrail.tsx) wires its inline
+// edits to the SAME PATCH shape and the SAME three-key invalidation rather
+// than keeping a second copy: one inline organization edit and another that
+// silently invalidates a different set of caches is the drift this file
+// already exists to prevent within its own component.
+export function useCompanyFieldPatch(org: Organization) {
   const queryClient = useQueryClient();
   return async (body: UpdateOrganizationRequest) => {
     await patchCompanyField(org, body);
@@ -178,7 +184,14 @@ function useCompanyFieldPatch(org: Organization) {
 // companyReadOnlyReason says why this record cannot be edited, when there is
 // something worth saying. Archived first: it is the one a reader can act on
 // (restore it), where the overlay case is a property of the installation.
-function useCompanyReadOnlyReason(org: Organization): string | undefined {
+//
+// Exported for the same reason as useCompanyFieldPatch above: the rail's
+// Details grid gates its own edit affordances on `writable`, and the reason
+// an archived or overlay-mirrored account is read-only is a fact about the
+// RECORD, not about which component happens to be drawing it.
+export function useCompanyReadOnlyReason(
+  org: Organization,
+): string | undefined {
   const t = useT();
   const overlay = useSorMode() === "overlay";
   if (org.archived_at) {
@@ -482,10 +495,17 @@ export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
   const readOnlyReason = useCompanyReadOnlyReason(org);
   const patch = useCompanyFieldPatch(org);
   const value = org.description ?? "";
-  // Nothing written and nothing the reader could write: the line is not
-  // rendered at all rather than as an empty row with a placeholder they
-  // cannot act on.
-  if (!value && (!canUpdate || readOnlyReason)) {
+  // The line is drawn only when it says something the chips below it do not.
+  // Nothing written earns no prompt: the chips already answer what this
+  // company does, so an invitation here asks the reader for what the header
+  // states one row down. A description that merely repeats the industry earns
+  // no line either — a reader who sees the same words twice reads the second
+  // copy as a different fact and looks for the difference. Enrichment writes
+  // this field from the same source the industry comes from, so the two
+  // matching is the common case, not a freak one. The field stays writable
+  // where a reader goes to fill fields in — the record's details.
+  const industry = org.industry?.trim().toLowerCase() ?? "";
+  if (!value || value.trim().toLowerCase() === industry) {
     return null;
   }
   return (
