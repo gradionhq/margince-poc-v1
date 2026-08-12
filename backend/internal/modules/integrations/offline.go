@@ -148,9 +148,18 @@ func (p *OfflineProvider) Submit(ctx context.Context, cred provider.Credential, 
 		// whether this landed, so the run must not be retried.
 		return provider.Submission{Outcome: provider.OutcomeAmbiguous, SafeStatusCode: "submission_timeout"}, nil
 	}
+	// The job handle carries the scenario, because the poll that resolves this
+	// run happens in another process with only the handle to go on. Keying it
+	// off the correlation id alone lost the subject, which made `no_match`
+	// unreachable through the real pipeline — the fake could produce it in a
+	// unit test and never where it mattered.
+	handle := "offline-" + req.CorrelationID
+	if scenarioFor(req.Identifiers) == scenarioNoMatch {
+		handle = "offline-nomatch-" + req.CorrelationID
+	}
 	return provider.Submission{
 		Outcome:       provider.OutcomeAccepted,
-		ProviderJobID: "offline-" + req.CorrelationID,
+		ProviderJobID: handle,
 	}, nil
 }
 

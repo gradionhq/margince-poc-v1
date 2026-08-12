@@ -39,7 +39,15 @@ func (s *Store) reserve(ctx context.Context, tx pgx.Tx, desc provider.Descriptor
 		return "", nil
 	}
 
-	for _, pool := range provider.PoolsInLockOrder(cost) {
+	// Every pool is CHECKED before any pool is written. Locking and deciding
+	// in one pass, then inserting in a second, is what makes the reservation
+	// genuinely all-or-nothing: a run refused on its second pool would
+	// otherwise leave the first pool's credits held against a skipped run that
+	// will never spend them, quietly shrinking the customer's ceiling for the
+	// rest of the month. The locks taken in the first pass are held until the
+	// transaction ends, so nothing can move underneath the second.
+	pools := provider.PoolsInLockOrder(cost)
+	for _, pool := range pools {
 		budget, err := s.lockPool(ctx, tx, conn.id, string(pool))
 		if err != nil {
 			return "", err
@@ -65,9 +73,12 @@ func (s *Store) reserve(ctx context.Context, tx pgx.Tx, desc provider.Descriptor
 				return provider.SkipLowBalance, nil
 			}
 		}
+	}
+
+	for _, pool := range pools {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO provider_run_reservation (run_id, pool, reserved_credits)
-			VALUES ($1, $2, $3)`, runID, string(pool), want); err != nil {
+			VALUES ($1, $2, $3)`, runID, string(pool), cost[pool]); err != nil {
 			return "", fmt.Errorf("integrations: reserving %s credits: %w", pool, err)
 		}
 	}

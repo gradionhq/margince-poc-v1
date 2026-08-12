@@ -92,6 +92,9 @@ func (s *Store) QueueRun(ctx context.Context, in provider.QueueInput) (provider.
 	if s.fence == nil || s.identifiers == nil {
 		return provider.Run{}, errors.New("integrations: no owning domain is bound, so no subject can be fenced")
 	}
+	if s.enqueueSubmit == nil {
+		return provider.Run{}, errors.New("integrations: no submit enqueue is bound, so a queued run would never execute")
+	}
 	name := in.Provider
 	if name == "" {
 		return provider.Run{}, provider.ErrNotConnected
@@ -103,6 +106,15 @@ func (s *Store) QueueRun(ctx context.Context, in provider.QueueInput) (provider.
 
 	var out provider.Run
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The ROW gate, not just the object gate. auth.Require above answers
+		// "may this role read people at all"; this answers "may this caller
+		// see THIS person". Without it a rep could name any person id and buy
+		// data on a record outside their scope — spending the installation's
+		// credits to create data they are not allowed to look at. Existence-
+		// hiding: an invisible subject answers 404, never 403.
+		if err := auth.EnsureVisible(ctx, tx, "person", uuidOf(&in.PersonID)); err != nil {
+			return err
+		}
 		conn, err := s.admit(ctx, tx, name, in.Trigger)
 		if err != nil {
 			return err
@@ -253,16 +265,19 @@ func (s *Store) queueOne(ctx context.Context, tx pgx.Tx, desc provider.Descripto
 		return s.readRun(ctx, tx, runID)
 	}
 
-	// 7. The durable hand-off. Committed with the run, so a crash cannot
-	//    leave a queued run nobody will ever submit.
-	if s.enqueueSubmit != nil {
-		ws, err := s.db.Workspace(ctx)
-		if err != nil {
-			return provider.Run{}, fmt.Errorf("integrations: resolving the workspace for the submit job: %w", err)
-		}
-		if err := s.enqueueSubmit(ctx, tx, runID, ws.String()); err != nil {
-			return provider.Run{}, fmt.Errorf("integrations: scheduling the submission: %w", err)
-		}
+	// 7. The durable hand-off, committed with the run. It is REQUIRED, not
+	//    optional: a queued run with no job is not a run. It would sit in the
+	//    live-run index forever, blocking every later attempt at the same
+	//    subject while nothing ever executed it — the failure capture's
+	//    StartBackfill documents for exactly the same shape. A missing
+	//    enqueue is a wiring bug, so it fails here rather than committing a
+	//    row that looks queued and is inert.
+	ws, err := s.db.Workspace(ctx)
+	if err != nil {
+		return provider.Run{}, fmt.Errorf("integrations: resolving the workspace for the submit job: %w", err)
+	}
+	if err := s.enqueueSubmit(ctx, tx, runID, ws.String()); err != nil {
+		return provider.Run{}, fmt.Errorf("integrations: scheduling the submission: %w", err)
 	}
 	if _, err := storekit.Audit(ctx, tx, "queue", "provider_run", uuidOf(&runID),
 		nil, map[string]any{"provider": in.Provider, "trigger": string(in.Trigger)}); err != nil {

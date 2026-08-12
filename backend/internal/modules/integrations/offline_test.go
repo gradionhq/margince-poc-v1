@@ -174,3 +174,29 @@ func TestOfflineDescriptorPricesTheCascade(t *testing.T) {
 		t.Errorf("with the fallback: %v, want email 3 (1 + 2) / mobile 1", cost)
 	}
 }
+
+// The no-match case has to survive the hand-off from submit to poll, because
+// that is the only route it takes in production: the run is submitted in one
+// process and resolved in another, with nothing but the job handle between
+// them. A fake that could only produce no_match by being asked directly would
+// leave the real path untested.
+func TestOfflineNoMatchSurvivesSubmitThenPoll(t *testing.T) {
+	p := NewOfflineProvider(0, fixedClock())
+	ctx := context.Background()
+
+	sub, err := p.Submit(ctx, provider.Credential("k"), person("Nomatch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Outcome != provider.OutcomeAccepted {
+		t.Fatalf("submit -> %s, want accepted", sub.Outcome)
+	}
+
+	st, err := p.Poll(ctx, provider.Credential("k"), sub.ProviderJobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Outcome != provider.OutcomeNoMatch {
+		t.Errorf("poll of a no-match job -> %s, want no_match", st.Outcome)
+	}
+}
