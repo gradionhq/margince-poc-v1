@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // DuplicateEmailError carries the existing person for the 409 dedupe
@@ -71,13 +72,13 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
 		return crmcontracts.Person{}, err
 	}
-	if err := parsePersonContacts(in.Emails, in.Phones); err != nil {
-		return crmcontracts.Person{}, err
-	}
-	by, err := storekit.CapturedBy(ctx)
+	by, err := s.readyPersonCreate(ctx, in)
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
+	// The store-opened path reads the catalog through the unexported helper,
+	// not ActivePersonColumns: that one takes person:read on the caller's
+	// behalf, and a seat may hold create without it.
 	active, err := s.activeColumns(ctx, "person")
 	if err != nil {
 		return crmcontracts.Person{}, err
@@ -85,51 +86,94 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 
 	var out crmcontracts.Person
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensurePersonEmailsUnclaimed(ctx, tx, in.Emails); err != nil {
-			return err
-		}
-
-		match, err := manualDedupePerson(ctx, tx, in)
-		if err != nil {
-			return err
-		}
-
-		id, err := createPerson(ctx, tx, match, PersonSpec{
-			FullName:     in.FullName,
-			FirstName:    in.FirstName,
-			LastName:     in.LastName,
-			Title:        in.Title,
-			OwnerID:      in.OwnerID,
-			Address:      in.Address,
-			Social:       in.Social,
-			Emails:       in.Emails,
-			Phones:       in.Phones,
-			Source:       in.Source,
-			CapturedBy:   by,
-			CustomFields: in.CustomFields,
-			Active:       active,
-		})
-		if err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "person", id.UUID, nil, map[string]any{"full_name": in.FullName})
-		if err != nil {
-			return fmt.Errorf("audit person create: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: in.FullName}); err != nil {
-			return fmt.Errorf("emit person.created: %w", err)
-		}
-		if err := match.recordIfReview(ctx, tx, id, in.FullName, in.Source, by); err != nil {
-			return err
-		}
-
-		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
-			return fmt.Errorf("read created person: %w", err)
-		}
-		return nil
+		var err error
+		out, err = createPersonInTx(ctx, tx, in, by, active)
+		return err
 	})
 	return out, err
+}
+
+// CreatePersonTx is CreatePerson for a caller that already opened a
+// transaction — one whose own write must land with this person or not at all.
+// Same gates in the same order; only the transaction is borrowed.
+//
+// Custom fields are refused rather than dropped: the catalog they are matched
+// against is read in a transaction of its own, which is exactly the second
+// connection this seam exists to avoid taking.
+func (s *Store) CreatePersonTx(ctx context.Context, tx pgx.Tx, in CreatePersonInput) (crmcontracts.Person, error) {
+	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	if err := refuseCustomFields(in.CustomFields); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	by, err := s.readyPersonCreate(ctx, in)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+	return createPersonInTx(ctx, tx, in, by, nil)
+}
+
+// readyPersonCreate runs what a create settles BEFORE any transaction opens —
+// the contact parse and the captured-by resolution — and answers the
+// attribution the write shape stamps. Both entry points call it, so neither
+// can drift from the other's validation.
+func (s *Store) readyPersonCreate(ctx context.Context, in CreatePersonInput) (string, error) {
+	if err := parsePersonContacts(in.Emails, in.Phones); err != nil {
+		return "", err
+	}
+	return storekit.CapturedBy(ctx)
+}
+
+// createPersonInTx is CreatePerson's transactional body, shared by the
+// store-opened and caller-opened entry points.
+func createPersonInTx(ctx context.Context, tx pgx.Tx, in CreatePersonInput, by string,
+	active []fieldcatalog.Column,
+) (crmcontracts.Person, error) {
+	if err := ensurePersonEmailsUnclaimed(ctx, tx, in.Emails); err != nil {
+		return crmcontracts.Person{}, err
+	}
+
+	match, err := manualDedupePerson(ctx, tx, in)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+
+	id, err := createPerson(ctx, tx, match, PersonSpec{
+		FullName:     in.FullName,
+		FirstName:    in.FirstName,
+		LastName:     in.LastName,
+		Title:        in.Title,
+		OwnerID:      in.OwnerID,
+		Address:      in.Address,
+		Social:       in.Social,
+		Emails:       in.Emails,
+		Phones:       in.Phones,
+		Source:       in.Source,
+		CapturedBy:   by,
+		CustomFields: in.CustomFields,
+		Active:       active,
+	})
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "create", "person", id.UUID, nil, map[string]any{"full_name": in.FullName})
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("audit person create: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: in.FullName}); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("emit person.created: %w", err)
+	}
+	if err := match.recordIfReview(ctx, tx, id, in.FullName, in.Source, by); err != nil {
+		return crmcontracts.Person{}, err
+	}
+
+	out, err := readPerson(ctx, tx, id, storekit.LiveOnly, active)
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("read created person: %w", err)
+	}
+	return out, nil
 }
 
 // GetPerson returns one person with child rows; archived rows resolve

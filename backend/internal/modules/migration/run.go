@@ -225,23 +225,39 @@ func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
-			ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
-			sourceSystem, object, externalID, nativeID, runID)
-		if storekit.IsForeignKeyViolation(err) {
-			// The composite FK is the row-scope boundary here: the run id
-			// belongs to another workspace. That is a scope miss, so it
-			// answers like every other one — not found, rather than a
-			// constraint name telling the caller the run exists elsewhere.
-			return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
-		}
-		if err != nil {
-			return fmt.Errorf("migration: recording the %s %s identity: %w", object, externalID, err)
-		}
-		return nil
+		return recordIdentityInTx(ctx, tx, runID, sourceSystem, object, externalID, nativeID)
 	})
+}
+
+// RecordIdentityTx is RecordIdentity for a caller that already opened a
+// transaction — the writer that landed the native row and must map it in the
+// same commit, so a crash cannot leave a record the resume has no name for.
+// Same gate, same statement; only the transaction is borrowed.
+func (s *RunStore) RecordIdentityTx(ctx context.Context, tx pgx.Tx, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
+	if err := auth.Require(ctx, importRunObject, principal.ActionCreate); err != nil {
+		return err
+	}
+	return recordIdentityInTx(ctx, tx, runID, sourceSystem, object, externalID, nativeID)
+}
+
+// recordIdentityInTx is the statement both entry points run.
+func recordIdentityInTx(ctx context.Context, tx pgx.Tx, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+		ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
+		sourceSystem, object, externalID, nativeID, runID)
+	if storekit.IsForeignKeyViolation(err) {
+		// The composite FK is the row-scope boundary here: the run id
+		// belongs to another workspace. That is a scope miss, so it
+		// answers like every other one — not found, rather than a
+		// constraint name telling the caller the run exists elsewhere.
+		return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("migration: recording the %s %s identity: %w", object, externalID, err)
+	}
+	return nil
 }
 
 // IdentityPair is one source-record → native-record binding.

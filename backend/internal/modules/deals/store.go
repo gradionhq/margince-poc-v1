@@ -146,6 +146,18 @@ type CustomColumns struct {
 	cols []fieldcatalog.Column
 }
 
+// ErrCustomFieldsNeedTheStoresOwnTransaction refuses custom-field values on a
+// caller-opened create.
+//
+// The catalog those values are matched against is read in a transaction of its
+// own, so a caller-opened write cannot obtain it without taking the second
+// connection these seams exist to avoid — and a write that dropped the values
+// silently would be worse than one that refuses: the deal would come back
+// created, missing what the caller sent, with nothing saying why. The
+// store-opened entry point beside it carries custom fields exactly as before.
+var ErrCustomFieldsNeedTheStoresOwnTransaction = errors.New(
+	"deals: a caller-opened create cannot carry custom fields — the store-opened entry point reads the catalog before it opens its transaction")
+
 // ActiveDealColumns is the caller-side half of UpdateDealTx: a caller that
 // opens the transaction itself does this read BEFORE opening it, then threads
 // the answer in. That is the same order every store-opened entry point uses;
