@@ -164,7 +164,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 // startWorkflowLane starts the cg:workflows dispatcher. It needs nothing the job
 // runner builds, so it belongs with the other event lanes rather than after it.
 func startWorkflowLane(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger, stdout io.Writer) {
-	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
+	workflows := compose.NewWorkflowEngineWithReplyDraft(compose.InstallationDB(pool), modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 }

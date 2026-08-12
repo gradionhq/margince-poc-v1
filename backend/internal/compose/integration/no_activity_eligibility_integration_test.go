@@ -243,7 +243,7 @@ func TestCleanupMigrationArchivesGeneratedRemindersOnly(t *testing.T) {
 func runEligibilityScan(t *testing.T, e *Env) {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	scanner := compose.NewTimeScannerWithClock(e.Pool, func() time.Time { return eligibilityScanNow }, quiet)
+	scanner := compose.NewTimeScannerWithClock(e.DB(), func() time.Time { return eligibilityScanNow }, quiet)
 	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
 		t.Fatalf("time-scan pass: %v", err)
 	}

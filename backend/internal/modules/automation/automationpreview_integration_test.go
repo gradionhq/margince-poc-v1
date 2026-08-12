@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -65,7 +66,7 @@ func seedDealBoard(t *testing.T, fx *autoFixture) dealFixture {
 
 func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	fx := setupAutomationDB(t)
-	store := NewAutomationStore(fx.pool)
+	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
 	autoID := fx.seedAutomation(t, "stage_change_create_task")
 	board := seedDealBoard(t, fx)
 
@@ -124,7 +125,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 
 func TestPreviewDraftOverrideAndValidation(t *testing.T) {
 	fx := setupAutomationDB(t)
-	store := NewAutomationStore(fx.pool)
+	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
 	autoID := fx.seedAutomation(t, "stage_change_create_task")
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeOwn)
 

@@ -84,7 +84,7 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 	e := SetupSearch(t)
 	enableLeadRouting(t, e, map[string]any{"owners": []string{e.Rep1.String()}})
 	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 
 	env := kevents.Envelope{
 		EventID:     ids.NewV7(),
@@ -153,7 +153,7 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 // on the very next event (no cache) with its params applied.
 func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	e := SetupSearch(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 
 	dispatch := func(leadID ids.UUID) {
 		t.Helper()
@@ -245,7 +245,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
 		t.Fatal(err)
 	}
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 
 	closedPayload, _ := json.Marshal(map[string]string{"to_status": "won"})
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
