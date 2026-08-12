@@ -7,15 +7,12 @@ export const en = {
     "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
-  // The account menu's theme row: the value it is set to NOW, and the action that
-  // names the row for a screen reader. The two labels above stay the names of the
-  // ICON-ONLY control on sign-in and onboarding, where the surrounding row has no
-  // room for a sentence; in a menu the action is spelled out, so it reads in
-  // parallel with the language row beside it ("Switch to German").
+  // The two themes as the options of a choice — Settings → Account offers both at
+  // once, so each is named by what it IS rather than by what picking it does. The
+  // two labels above stay the names of the ICON-ONLY control on sign-in and
+  // onboarding, where one button stands for the theme it switches to.
   "theme.light": "Light",
   "theme.dark": "Dark",
-  "theme.switchToDark": "Switch to dark theme",
-  "theme.switchToLight": "Switch to light theme",
 
   "section.surfaces": "Surfaces",
   "section.accentAi": "Accent & AI",
@@ -98,12 +95,22 @@ export const en = {
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
-  "shell.accountSettings": "Account settings",
+  "shell.account": "Account",
   "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
   "shell.unknownPage": "Not found",
   "shell.closeMenu": "Close",
+  // The sidebar's second level. The control READS one word at every depth; its
+  // accessible name says where it leads, and the level of destinations needs a
+  // name of its own to be led back to.
+  "shell.navBack": "Back",
+  "shell.navBackTo": "Back to {name}",
+  "shell.navTop": "Destinations",
+  // At phone width a section's entries are reached from the page head. The
+  // control READS the entry it is on; the name says what pressing it does and
+  // keeps that word inside itself (WCAG 2.5.3).
+  "shell.sectionSwitch": "{name} — change section",
   "agent.title": "Margince AI",
   "agent.regionAria": "Margince AI status",
   "agent.configured": "Configured",
@@ -1671,6 +1678,8 @@ export const en = {
   "ai.paletteHint": "Ask from anywhere with",
 
   "settings.identity": "You",
+  "settings.preferences": "Preferences",
+  "settings.preferencesSub": "Theme and language, for this browser.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Rep",
@@ -1757,6 +1766,8 @@ export const en = {
   "audit.onBehalfOfYou": "on behalf of you",
   "audit.onBehalfOfTeammate": "on behalf of a teammate",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
+  "settings.auditFilters": "Filters",
+  "settings.auditEntries": "Entries",
   "settings.auditActor": "Actor",
   "settings.auditEntity": "Entity type",
   "settings.auditEntityId": "Entity id",
@@ -3344,7 +3355,6 @@ export const en = {
   "settings.customFieldsSub":
     "Add a typed field to a core object — no code, no deploy.",
   "settings.openCustomFields": "Open custom fields",
-  "settings.navAria": "Settings sections",
   "settings.tab.account": "Account",
   "settings.tab.company": "Company context",
   "settings.tab.ai": "AI & autonomy",
@@ -3356,7 +3366,7 @@ export const en = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrations",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Your settings",
+  "settings.group.you": "You",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":
@@ -3468,6 +3478,7 @@ export const en = {
   "settings.voice.addSource": "Add sample",
   "settings.voice.addFirstLabel": "Your first writing sample",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
+  "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -3492,10 +3503,12 @@ export const en = {
   "extAccess.openUnit": "Open the {name} page",
   "extAccess.noPage":
     "{name} is composed into the API, but this build of the app has no page for it — the app is probably older than the server.",
+  "extAccess.brings.heading": "What this unit brings",
   "extAccess.brings.objects": "Permission objects",
   "extAccess.brings.routes": "Routes",
   "extAccess.brings.jobs": "Background jobs",
   "extAccess.brings.none": "None",
+  "extAccess.grants.heading": "Who may use it",
   "extAccess.noObjects":
     "This unit registers no permission objects, so there is nothing to grant.",
   "extAccess.roleColumn": "Role",
@@ -3515,6 +3528,14 @@ export const en = {
   "users.sub": "Invite members, set roles, and deactivate access. Admin-only.",
   "users.empty": "No members yet.",
   "users.adminOnly": "Managing members is available to admins only.",
+  "users.inviteTitle": "Invite a member",
+  "users.inviteSub":
+    "Add someone to this installation and pick the role they start with.",
+  "users.membersTitle": "Members",
+  "users.membersSub":
+    "Everyone who holds a seat here, deactivated accounts included.",
+  "users.memberCount.one": "{count} member",
+  "users.memberCount.other": "{count} members",
   "users.emailLabel": "New member's email",
   "users.nameLabel": "New member's full name",
   "users.emailPlaceholder": "name@company.com",
@@ -3801,9 +3822,12 @@ export const en = {
 
   "settings.tab.installation": "Installation",
   "settings.tab.capture": "Capture",
-  "installationSettings.title": "Installation",
-  "installationSettings.sub":
-    "What this installation is called, and the zone and currency every report is computed in.",
+  "installationSettings.orgTitle": "Organization",
+  "installationSettings.orgSub":
+    "What this installation is called, and the zone every reporting period is computed in.",
+  "installationSettings.currencyTitle": "Currency",
+  "installationSettings.currencySub":
+    "The one currency every roll-up converts amounts to.",
   "installationSettings.name": "Organization name",
   "installationSettings.nameHint":
     "Shown wherever the product names your organization.",
@@ -3824,6 +3848,7 @@ export const en = {
     "When on, each new company created from captured mail gets an automatic web dossier — its site is read and its profile filled in. Runs under a daily limit.",
   "captureSettings.adminOnly": "Only an admin or ops can change this.",
 
+  "ownDomains.companyTitle": "Company domains",
   "ownDomains.title": "Own email domains",
   "ownDomains.sub":
     "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",

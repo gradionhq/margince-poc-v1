@@ -741,8 +741,8 @@
     display: block;
   }
   .coverage-table tr {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
+    border: 1px solid var(--borderSubtle);
+    border-radius: var(--r-sm);
     padding: var(--space-3);
     margin-bottom: var(--space-3);
   }
@@ -750,7 +750,7 @@
   .coverage-table tbody th[scope="row"] {
     font-weight: 600;
     padding: 0 0 var(--space-2);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--borderSubtle);
     margin-bottom: var(--space-2);
   }
   .coverage-table td {
@@ -763,7 +763,7 @@
   .coverage-table td::before {
     content: attr(data-label);
     color: var(--textSecondary);
-    font-size: var(--fs-caption);
+    font-size: var(--fs-meta);
   }
 }
 

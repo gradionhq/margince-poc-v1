@@ -1,17 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
-import { Button, SectionHeader, TextInput } from "../design-system/atoms";
+import { Button, Card, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
-// The workspace own-domain card (CAP-WIRE-2a, ADR-0082/A127): which domains
+// The workspace own-domain surface (CAP-WIRE-2a, ADR-0082/A127): which domains
 // this installation treats as its own, and therefore whose mail it does not
 // store. Every role reads it — a rep should be able to see why a thread is
 // missing — and only admin/ops may change it, so the controls are disabled
 // rather than hidden, like the capture-settings card beside it.
+//
+// Two cards, because the two lists answer to different owners: the company
+// profile claims the first set and this screen cannot touch them, while the
+// second is curated here. One card put a read-only list and an editable one
+// under a single heading, which reads as one list with an inconsistent remove
+// button.
+
+// The row shape comes from the generated contract rather than being restated
+// here: a hand-written copy would drift the first time the contract gains a
+// field, and drift silently, since nothing compares the two.
+type WorkspaceEmailDomain = components["schemas"]["WorkspaceEmailDomain"];
 
 function useOwnDomains() {
   return useQuery({
@@ -65,161 +77,155 @@ export function OwnDomainsCard() {
   const t = useT();
   const canManage = useCanWrite("capture_settings", "update");
   const query = useOwnDomains();
+  // The company card reads the anchor list off the same query the curated card
+  // gates on — one request feeds both. It stays out of the gate because a card
+  // whose whole content is a list nobody may edit has nothing to say while the
+  // read is in flight, and nothing at all when the company claims no domain.
+  const anchors = query.data?.anchor_domains ?? [];
+  return (
+    <>
+      {anchors.length > 0 && (
+        <Card
+          className="card-stack"
+          title={t("ownDomains.companyTitle")}
+          sub={t("ownDomains.fromCompany")}
+        >
+          <ul
+            className="t-small"
+            data-testid="own-domains-from-company"
+            style={{ margin: 0, paddingLeft: "var(--space-4)" }}
+          >
+            {anchors.map((domain) => (
+              <li key={domain}>{domain}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <Card
+        className="card-stack"
+        title={t("ownDomains.title")}
+        sub={t("ownDomains.sub")}
+      >
+        <QueryGate query={query}>
+          {(list) => <CuratedDomains list={list.data} canManage={canManage} />}
+        </QueryGate>
+      </Card>
+    </>
+  );
+}
+
+// The curated half: the domains this screen owns, plus the two verbs that
+// change them. The irreversibility note lives here rather than beside the
+// company list because it describes what adding and removing do — the acts
+// only this card offers.
+function CuratedDomains({
+  list,
+  canManage,
+}: Readonly<{ list: WorkspaceEmailDomain[]; canManage: boolean }>) {
+  const t = useT();
   const add = useAddOwnDomain();
   const remove = useRemoveOwnDomain();
   const [draft, setDraft] = useState("");
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader title={t("ownDomains.title")} sub={t("ownDomains.sub")} />
-      <QueryGate query={query}>
-        {(list) => (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-3)",
-            }}
-          >
-            <p
-              style={{
-                color: "var(--text-muted)",
-                fontSize: "var(--text-sm)",
-                margin: 0,
-              }}
-            >
-              {t("ownDomains.irreversible")}
-            </p>
+    <div className="form-stack">
+      <p className="t-small">{t("ownDomains.irreversible")}</p>
 
-            {(list.anchor_domains ?? []).length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-1)",
-                }}
-              >
-                <span style={{ fontSize: "var(--text-sm)" }}>
-                  <Building2 aria-hidden size={14} />{" "}
-                  {t("ownDomains.fromCompany")}
-                </span>
-                <ul
-                  data-testid="own-domains-from-company"
-                  style={{ margin: 0, paddingLeft: "var(--space-4)" }}
-                >
-                  {(list.anchor_domains ?? []).map((domain) => (
-                    <li key={domain} style={{ fontSize: "var(--text-sm)" }}>
-                      {domain}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+      {list.length === 0 ? (
+        <p className="t-small" data-testid="own-domains-empty">
+          {t("ownDomains.empty")}
+        </p>
+      ) : (
+        <ul
+          data-testid="own-domains-list"
+          style={{ listStyle: "none", margin: 0, padding: 0 }}
+        >
+          {list.map((domain) => (
+            <DomainRow
+              key={domain.domain}
+              domain={domain}
+              disabled={!canManage || remove.isPending}
+              onRemove={() => remove.mutate(domain.domain)}
+            />
+          ))}
+        </ul>
+      )}
 
-            {list.data.length === 0 ? (
-              <p
-                data-testid="own-domains-empty"
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: "var(--text-sm)",
-                  margin: 0,
-                }}
-              >
-                {t("ownDomains.empty")}
-              </p>
-            ) : (
-              <ul
-                data-testid="own-domains-list"
-                style={{ listStyle: "none", margin: 0, padding: 0 }}
-              >
-                {list.data.map((domain) => (
-                  <li
-                    key={domain.domain}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "var(--space-2)",
-                      padding: "var(--space-2) 0",
-                    }}
-                  >
-                    <span>
-                      {domain.domain}
-                      <span
-                        style={{
-                          color: "var(--text-muted)",
-                          fontSize: "var(--text-sm)",
-                          marginLeft: "var(--space-2)",
-                        }}
-                      >
-                        {domain.verified
-                          ? t("ownDomains.confirmed")
-                          : t("ownDomains.candidate")}
-                      </span>
-                    </span>
-                    <Button
-                      variant="ghost"
-                      aria-label={t("ownDomains.remove", {
-                        domain: domain.domain,
-                      })}
-                      disabled={!canManage || remove.isPending}
-                      onClick={() => remove.mutate(domain.domain)}
-                    >
-                      <Trash2 aria-hidden size={16} />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
+      <form
+        style={{ display: "flex", gap: "var(--space-2)" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const domain = draft.trim();
+          if (!domain) {
+            return;
+          }
+          add.mutate(domain, { onSuccess: () => setDraft("") });
+        }}
+      >
+        <TextInput
+          value={draft}
+          aria-label={t("ownDomains.addLabel")}
+          placeholder={t("ownDomains.placeholder")}
+          disabled={!canManage || add.isPending}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!canManage || add.isPending || draft.trim() === ""}
+        >
+          {t("ownDomains.add")}
+        </Button>
+      </form>
 
-            <form
-              style={{ display: "flex", gap: "var(--space-2)" }}
-              onSubmit={(event) => {
-                event.preventDefault();
-                const domain = draft.trim();
-                if (!domain) {
-                  return;
-                }
-                add.mutate(domain, { onSuccess: () => setDraft("") });
-              }}
-            >
-              <TextInput
-                value={draft}
-                aria-label={t("ownDomains.addLabel")}
-                placeholder={t("ownDomains.placeholder")}
-                disabled={!canManage || add.isPending}
-                onChange={(event) => setDraft(event.target.value)}
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={!canManage || add.isPending || draft.trim() === ""}
-              >
-                {t("ownDomains.add")}
-              </Button>
-            </form>
+      {!canManage && (
+        <span className="t-small">{t("captureSettings.adminOnly")}</span>
+      )}
+      {(add.isError || remove.isError) && (
+        <span role="alert" className="form-error">
+          {(add.error ?? remove.error)?.message}
+        </span>
+      )}
+    </div>
+  );
+}
 
-            {!canManage && (
-              <span
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: "var(--text-sm)",
-                }}
-              >
-                {t("captureSettings.adminOnly")}
-              </span>
-            )}
-            {(add.isError || remove.isError) && (
-              <span
-                role="alert"
-                style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
-              >
-                {(add.error ?? remove.error)?.message}
-              </span>
-            )}
-          </div>
-        )}
-      </QueryGate>
-    </section>
+function DomainRow({
+  domain,
+  disabled,
+  onRemove,
+}: Readonly<{
+  domain: WorkspaceEmailDomain;
+  disabled: boolean;
+  onRemove: () => void;
+}>) {
+  const t = useT();
+  return (
+    <li
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "var(--space-2)",
+        padding: "var(--space-2) 0",
+      }}
+    >
+      <span>
+        {domain.domain}
+        <span className="t-small" style={{ marginLeft: "var(--space-2)" }}>
+          {domain.verified
+            ? t("ownDomains.confirmed")
+            : t("ownDomains.candidate")}
+        </span>
+      </span>
+      <Button
+        variant="ghost"
+        aria-label={t("ownDomains.remove", { domain: domain.domain })}
+        disabled={disabled}
+        onClick={onRemove}
+      >
+        <Trash2 aria-hidden size={16} />
+      </Button>
+    </li>
   );
 }

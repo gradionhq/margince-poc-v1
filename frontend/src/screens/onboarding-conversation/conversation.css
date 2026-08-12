@@ -3357,13 +3357,13 @@
   width: 100%;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--borderSubtle);
-  border-radius: var(--radius-2);
-  background: var(--surfaceRaised);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
   color: var(--textContent);
   font: var(--fw-regular) var(--fs-body) / var(--lh-normal) var(--f-body);
 }
 
 .ob-conv-field input:focus-visible {
-  outline: 2px solid var(--focusRing);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

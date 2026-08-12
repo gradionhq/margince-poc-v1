@@ -1,63 +1,7 @@
-/* Settings tab layout — a sticky left section nav + the active tab's content.
-   Layout only; the cards keep the atom look. Colours read design tokens (the
-   ds-purity gate). Mirrors corpus/design/mockups/settings.html's .set-grid. */
-
-.set-grid {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 22px;
-  align-items: start;
-  margin-top: 14px;
-}
-
-@media (max-width: 720px) {
-  .set-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.set-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: sticky;
-  top: 14px;
-}
-
-.set-nav a {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 12px;
-  border-radius: var(--r-sm);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--textSecondary);
-  text-decoration: none;
-  border: 1px solid transparent;
-  transition: 0.12s;
-}
-
-.set-nav a:hover {
-  background: var(--bgHover);
-  color: var(--textPrimary);
-}
-
-.set-nav a.active {
-  background: var(--accentLight);
-  color: var(--accent);
-  border-color: var(--accentMed);
-}
-
-.set-nav a svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-}
-
-.set-content {
-  min-width: 0;
-}
+/* Settings surfaces. The section nav that used to float in this column is the
+   sidebar's second navigation level (app/shell.css), so what is left here is the
+   tabs' own content: this sheet owns the cards, never the navigation between
+   them. */
 
 .company-context-shell {
   display: flex;
@@ -80,7 +24,7 @@
     var(--accentLight),
     var(--bgElevated) 58%
   );
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
 }
 
 .company-context-hero::after {
@@ -125,7 +69,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--warning);
+  color: var(--warn);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -147,7 +91,7 @@
   gap: 9px;
   padding: 11px 14px;
   color: var(--textSecondary);
-  background: var(--bgSubtle);
+  background: var(--bgCard);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
 }
@@ -167,7 +111,7 @@
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
 }
 
 .company-context-form,
@@ -274,11 +218,11 @@
   border: 1px solid var(--borderSubtle);
   border-left: 3px solid var(--accentMed);
   border-radius: var(--r-md);
-  background: var(--bgSubtle);
+  background: var(--bgCard);
 }
 
 .company-context-comparison.is-human_conflict {
-  border-left-color: var(--warning);
+  border-left-color: var(--warn);
 }
 
 .company-context-comparison-title,
@@ -346,19 +290,6 @@
   .company-context-coverage {
     align-items: flex-start;
   }
-}
-
-/* Grouped settings nav: a per-group label above the group's tabs. */
-.set-nav-group + .set-nav-group {
-  margin-top: var(--space-3);
-}
-.set-nav-grouplabel {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 0 var(--space-2);
-  margin-bottom: var(--space-1);
 }
 
 /* Tool console's passport-scope filter (AgentToolsCard): the gap between the

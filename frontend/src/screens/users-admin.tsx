@@ -6,8 +6,8 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -66,44 +66,77 @@ export function UsersAdminCard() {
   // email works, the invite mail carries the link and this action would only
   // ever 409 — so it is not rendered at all.
   const canIssueLink = me.data?.admin_password_link ?? false;
-  return (
-    <section className="card">
-      <SectionHeader title={t("users.title")} sub={t("users.sub")} />
-      {/* Gate on the role probe itself so the admin-only notice appears only
-          once /me has actually answered — never as a flash while it loads. */}
-      <QueryGate query={me}>
-        {() =>
-          isAdmin ? (
-            <>
-              <InviteForm canIssueLink={canIssueLink} />
-              <QueryGate query={members}>
-                {(list) =>
-                  list.length === 0 ? (
-                    <EmptyState>
-                      <p className="t-small">{t("users.empty")}</p>
-                    </EmptyState>
-                  ) : (
-                    <ul className="users-list">
-                      {list.map((u) => (
-                        <MemberRow
-                          key={u.id}
-                          member={u}
-                          canIssueLink={canIssueLink}
-                        />
-                      ))}
-                    </ul>
-                  )
-                }
-              </QueryGate>
-            </>
-          ) : (
+  // Everything below the role probe is admin surface, so a caller who is not
+  // (yet) known to be an admin gets exactly one card: the page's own heading
+  // over the loading, error or admins-only state. Gating on the probe itself is
+  // what keeps the notice from flashing while /me is still in flight.
+  if (!isAdmin) {
+    return (
+      <Card title={t("users.title")} sub={t("users.sub")}>
+        <QueryGate query={me}>
+          {() => (
             <EmptyState>
               <p className="t-small">{t("users.adminOnly")}</p>
             </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
+  }
+  return (
+    <div className="users-stack">
+      <InviteForm canIssueLink={canIssueLink} />
+      <MembersCard members={members} canIssueLink={canIssueLink} />
+    </div>
+  );
+}
+
+function MembersCard({
+  members,
+  canIssueLink,
+}: Readonly<{
+  members: ReturnType<typeof useMembers>;
+  canIssueLink: boolean;
+}>) {
+  const t = useT();
+  const roster = members.data;
+  return (
+    <Card
+      title={t("users.membersTitle")}
+      sub={t("users.membersSub")}
+      // The count states what the roster holds, deactivated members included —
+      // the read opts into them, and a roster of twelve with three switched off
+      // is not a roster of nine. Nothing to count is said by the empty state
+      // below instead, so a "0 members" badge never doubles it.
+      actions={
+        roster && roster.length > 0 ? (
+          <Badge>
+            {t(
+              roster.length === 1
+                ? "users.memberCount.one"
+                : "users.memberCount.other",
+              { count: roster.length },
+            )}
+          </Badge>
+        ) : undefined
+      }
+    >
+      <QueryGate query={members}>
+        {(list) =>
+          list.length === 0 ? (
+            <EmptyState>
+              <p className="t-small">{t("users.empty")}</p>
+            </EmptyState>
+          ) : (
+            <ul className="users-list">
+              {list.map((u) => (
+                <MemberRow key={u.id} member={u} canIssueLink={canIssueLink} />
+              ))}
+            </ul>
           )
         }
       </QueryGate>
-    </section>
+    </Card>
   );
 }
 
@@ -152,8 +185,13 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    <form
-      className="users-invite"
+    // The card IS the form: submitting it is the only thing this surface does,
+    // so there is no inner element for the browser to associate the Enter key
+    // with other than the one carrying the heading.
+    <Card
+      as="form"
+      title={t("users.inviteTitle")}
+      sub={t("users.inviteSub")}
       onSubmit={(e) => {
         e.preventDefault();
         if (canInvite) {
@@ -161,35 +199,37 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         }
       }}
     >
-      <TextInput
-        aria-label={t("users.emailLabel")}
-        placeholder={t("users.emailPlaceholder")}
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-      <TextInput
-        aria-label={t("users.nameLabel")}
-        placeholder={t("users.namePlaceholder")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <Select
-        aria-label={t("users.roleLabel")}
-        value={role}
-        onChange={(value) => {
-          if (isOption(value, ROLES)) setRole(value);
-        }}
-        options={roleOptions(t)}
-      />
-      <Button variant="primary" small type="submit" disabled={!canInvite}>
-        <UserPlus aria-hidden /> {t("users.invite")}
-      </Button>
-      {error && (
-        <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
-          {error}
-        </p>
-      )}
+      <div className="users-invite">
+        <TextInput
+          aria-label={t("users.emailLabel")}
+          placeholder={t("users.emailPlaceholder")}
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <TextInput
+          aria-label={t("users.nameLabel")}
+          placeholder={t("users.namePlaceholder")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Select
+          aria-label={t("users.roleLabel")}
+          value={role}
+          onChange={(value) => {
+            if (isOption(value, ROLES)) setRole(value);
+          }}
+          options={roleOptions(t)}
+        />
+        <Button variant="primary" small type="submit" disabled={!canInvite}>
+          <UserPlus aria-hidden /> {t("users.invite")}
+        </Button>
+        {error && (
+          <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
+            {error}
+          </p>
+        )}
+      </div>
       {invited && (
         <PasswordLinkModal
           memberName={invited.name}
@@ -204,7 +244,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           }}
         />
       )}
-    </form>
+    </Card>
   );
 }
 

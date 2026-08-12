@@ -9,6 +9,7 @@ import { ENTITY, ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import {
   Badge,
+  Card,
   EmptyState,
   SearchField,
   SectionHeader,
@@ -99,7 +100,7 @@ function SearchGroups({ results }: Readonly<{ results: SearchResult[] }>) {
     <div className="search-groups">
       {GROUP_ORDER.filter((type) => results.some((r) => r.type === type)).map(
         (type) => (
-          <section key={type} className="card search-group">
+          <Card key={type} className="search-group">
             <h2 className="t-label">{t(GROUP_KEY[type])}</h2>
             <ul className="search-hits">
               {results
@@ -108,7 +109,7 @@ function SearchGroups({ results }: Readonly<{ results: SearchResult[] }>) {
                   <SearchHit key={`${hit.type}:${hit.id}`} hit={hit} />
                 ))}
             </ul>
-          </section>
+          </Card>
         ),
       )}
     </div>

@@ -11,12 +11,12 @@ import { isOption } from "../app/options";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   EmptyState,
   Field,
   Modal,
   SearchField,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
@@ -520,11 +520,10 @@ export function RelationshipsTab({
   });
 
   return (
-    <section className="card">
-      <div className="list-head">
-        <SectionHeader title={t("tab.relationships")} />
-        <AddRelationshipAction scope={scope} />
-      </div>
+    <Card
+      title={t("tab.relationships")}
+      actions={<AddRelationshipAction scope={scope} />}
+    >
       <QueryGate query={query}>
         {(rows) =>
           rows.length === 0 ? (
@@ -657,6 +656,6 @@ export function RelationshipsTab({
           </Button>
         </div>
       </Modal>
-    </section>
+    </Card>
   );
 }

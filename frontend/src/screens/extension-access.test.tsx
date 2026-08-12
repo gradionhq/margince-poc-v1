@@ -198,16 +198,18 @@ function backend(
   });
 }
 
-const render = (ui: ReactNode) => {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return rtlRender(
+const renderWith = (client: QueryClient, ui: ReactNode) =>
+  rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
-};
+
+const render = (ui: ReactNode) =>
+  renderWith(
+    new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    ui,
+  );
 
 // The matrix for one object, found by the caption naming it — the only thing
 // that distinguishes two tables of identically-labelled columns.
@@ -258,6 +260,40 @@ describe("ExtensionAccessCard", () => {
 
     // A unit that registers nothing says so instead of rendering an empty grid.
     expect(screen.getByText(/registers no permission objects/i)).toBeTruthy();
+  });
+
+  it("gives every unit a card of its own, headed by the unit name", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    // The page's own heading stays on the lead card, which carries the seat and
+    // inventory states and never a unit's grants.
+    expect(
+      screen.getByRole("heading", { name: /Extensions & access/i }),
+    ).toBeTruthy();
+
+    const unit = screen
+      .getByRole("heading", { name: "notes" })
+      .closest("article");
+    if (!(unit instanceof HTMLElement)) {
+      throw new Error("the notes unit is not a card of its own");
+    }
+    // Version and page link ride the card's heading row rather than its body.
+    expect(within(unit).getByText("Version 0.3.1")).toBeTruthy();
+    expect(
+      within(unit).getByRole("link", { name: "Open the notes page" }),
+    ).toBeTruthy();
+    // The two blocks inside are named, so the inventory of what the unit brought
+    // cannot be read as part of the grants underneath it …
+    expect(
+      within(unit).getByRole("heading", { name: /What this unit brings/i }),
+    ).toBeTruthy();
+    expect(
+      within(unit).getByRole("heading", { name: /Who may use it/i }),
+    ).toBeTruthy();
+    // … and each registered object keeps a matrix of its own within the card.
+    expect(within(unit).getAllByRole("table").length).toBe(2);
   });
 
   it("links to the page of a unit the SPA registry resolves, naming the unit in the link", async () => {
@@ -460,6 +496,43 @@ describe("ExtensionAccessCard", () => {
 
     await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
     expect(screen.queryByText("notes")).toBeNull();
+  });
+
+  // `enabled: false` stops the next request; it does not forget the last one. A
+  // seat that held admin earlier in the session has the whole inventory and every
+  // role's grants sitting in the cache, and rendering a unit card from that cache
+  // after the role is gone discloses exactly what the notice above it refuses.
+  it("renders nothing from a cache the reader may no longer read", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    // What an admin visit leaves behind, seeded through the keys the screen reads.
+    client.setQueryData(
+      ["extension-access", "extensions"],
+      EXTENSIONS.extensions,
+    );
+    client.setQueryData(["extension-access", "roles"], ROLES.roles);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ roles: ["rep"] }));
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      }),
+    );
+    renderWith(client, <ExtensionAccessCard />);
+
+    await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: "notes" })).toBeNull();
+    expect(screen.queryByText("ext_notes_note")).toBeNull();
+    // And the cache itself is emptied, so a later render cannot resurrect it.
+    expect(
+      client.getQueryData(["extension-access", "extensions"]),
+    ).toBeUndefined();
+    expect(client.getQueryData(["extension-access", "roles"])).toBeUndefined();
   });
 
   it("disables every toggle for a read seat while still showing the grants", async () => {

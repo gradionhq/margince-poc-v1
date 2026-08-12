@@ -12,6 +12,19 @@ import {
   Zap,
 } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
+import type { Route } from "./router";
+import { type NavSection, type NavTrailLevel, navTrail } from "./subnav";
+
+// The level registry lives beside this list and is reached through it: a caller
+// asking where the sidebar can go has one module to import.
+export type {
+  NavCounts,
+  NavLevelEntry,
+  NavLevelGroup,
+  NavSection,
+  NavTrailLevel,
+} from "./subnav";
+export { navLevelHref, navLevelRoute } from "./subnav";
 
 // The canonical 10-item nav (00-design-language.md §nav, A72/ADR-0035 Am.1
 // promoted Automations to primary nav). Order is normative and shell.test.tsx
@@ -95,3 +108,34 @@ export const RAIL_LESS_SCREENS: ReadonlySet<string> = new Set([
   "preferences",
   "oauth-consent",
 ]);
+
+// The destinations as a LEVEL, so the renderer that walks a trail treats level
+// one exactly like any level below it — same rows, same tooltips, same active
+// rule, one place where a nav row is spelled. The badge and phone-bar sets ride
+// the level for the same reason: a row asks its level which ids badge rather
+// than reaching for a module-scope set of its own.
+//
+// It prints no heading: the navigation landmark names it, and its GROUPS are the
+// level-2 headings the sidebar promises.
+const PRIMARY_LEVEL: NavTrailLevel = {
+  groups: NAV_GROUPS.map((group) => ({
+    headingKey: group.headingKey,
+    items: group.items.map((item) => ({
+      id: item.screen,
+      labelKey: item.labelKey,
+      icon: item.icon,
+    })),
+  })),
+  path: [],
+  badgeIds: BADGE_SCREENS,
+  barIds: MOBILE_PRIMARY,
+};
+
+// The levels the sidebar shows for a route: the destinations, then whatever the
+// screen on that route published under them.
+export function railTrail(
+  route: Route,
+  section?: NavSection,
+): readonly NavTrailLevel[] {
+  return navTrail(PRIMARY_LEVEL, route, section);
+}

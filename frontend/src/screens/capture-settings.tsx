@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
-import { SectionHeader } from "../design-system/atoms";
+import { Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
@@ -49,11 +49,11 @@ export function CaptureSettingsCard() {
   const update = useUpdateCaptureSettings();
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader
-        title={t("captureSettings.title")}
-        sub={t("captureSettings.sub")}
-      />
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("captureSettings.title")}
+      sub={t("captureSettings.sub")}
+    >
       <QueryGate query={query}>
         {(settings) => (
           <label
@@ -90,8 +90,8 @@ export function CaptureSettingsCard() {
               </span>
               <span
                 style={{
-                  color: "var(--text-muted)",
-                  fontSize: "var(--text-sm)",
+                  color: "var(--textMeta)",
+                  fontSize: "var(--fs-sm)",
                 }}
               >
                 {t("captureSettings.autoEnrich.help")}
@@ -99,8 +99,8 @@ export function CaptureSettingsCard() {
               {!canManage && (
                 <span
                   style={{
-                    color: "var(--text-muted)",
-                    fontSize: "var(--text-sm)",
+                    color: "var(--textMeta)",
+                    fontSize: "var(--fs-sm)",
                   }}
                 >
                   {t("captureSettings.adminOnly")}
@@ -109,7 +109,7 @@ export function CaptureSettingsCard() {
               {update.isError && (
                 <span
                   role="alert"
-                  style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
+                  style={{ color: "var(--danger)", fontSize: "var(--fs-sm)" }}
                 >
                   {problemMessageOf(update.error, t)}
                 </span>
@@ -118,6 +118,6 @@ export function CaptureSettingsCard() {
           </label>
         )}
       </QueryGate>
-    </section>
+    </Card>
   );
 }

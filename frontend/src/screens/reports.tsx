@@ -381,17 +381,14 @@ export function ReportsScreen() {
                 </Button>
               </div>
               {explain && (
-                <section
-                  className="card"
-                  style={{ marginTop: 10 }}
-                  aria-label={t("explain.title")}
+                <Card
+                  style={{ marginTop: "var(--space-3)" }}
+                  ariaLabel={t("explain.title")}
+                  title={t("explain.title")}
+                  sub={
+                    derivationQuery.data?.definition ?? t("reports.planNote")
+                  }
                 >
-                  <SectionHeader
-                    title={t("explain.title")}
-                    sub={
-                      derivationQuery.data?.definition ?? t("reports.planNote")
-                    }
-                  />
                   {derivationUrl == null && (
                     <p className="t-caption" style={{ marginTop: 8 }}>
                       {t("common.empty")}
@@ -449,7 +446,7 @@ export function ReportsScreen() {
                         </div>
                       );
                     })()}
-                </section>
+                </Card>
               )}
             </div>
           );

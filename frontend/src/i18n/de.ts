@@ -10,14 +10,12 @@ export const de = {
     "Ledger Green (ADR-0040) — die kanonischen Werte spiegeln die Spec-Mockups; Tests pinnen sie.",
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
-  // Die Design-Zeile im Kontomenü: worauf es JETZT steht, und die Aktion, die die
-  // Zeile für einen Screenreader benennt. Die beiden Labels darüber bleiben die
-  // Namen des reinen Icon-Schalters auf Anmeldung und Onboarding, wo kein Satz
-  // in die Zeile passt.
+  // Die beiden Designs als Optionen einer Auswahl: Einstellungen → Konto zeigt
+  // beide gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
+  // ein Klick tut. Die beiden Labels darüber bleiben die Namen des reinen
+  // Icon-Schalters auf Anmeldung und Onboarding.
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
-  "theme.switchToDark": "Auf dunkles Design umschalten",
-  "theme.switchToLight": "Auf helles Design umschalten",
 
   "section.surfaces": "Flächen",
   "section.accentAi": "Akzent & KI",
@@ -100,12 +98,16 @@ export const de = {
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
-  "shell.accountSettings": "Kontoeinstellungen",
+  "shell.account": "Konto",
   "shell.theme": "Design",
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
   "shell.unknownPage": "Nicht gefunden",
   "shell.closeMenu": "Schließen",
+  "shell.navBack": "Zurück",
+  "shell.navBackTo": "Zurück zu {name}",
+  "shell.navTop": "Bereiche",
+  "shell.sectionSwitch": "{name} — Bereich wechseln",
   "agent.title": "Margince KI",
   "agent.regionAria": "Margince-KI-Status",
   "agent.configured": "Konfiguriert",
@@ -1681,6 +1683,8 @@ export const de = {
   "ai.paletteHint": "Frag von überall mit",
 
   "settings.identity": "Du",
+  "settings.preferences": "Voreinstellungen",
+  "settings.preferencesSub": "Design und Sprache, für diesen Browser.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Vertrieb",
@@ -1768,6 +1772,8 @@ export const de = {
   "audit.onBehalfOfYou": "in deinem Auftrag",
   "audit.onBehalfOfTeammate": "im Auftrag eines Teammitglieds",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
+  "settings.auditFilters": "Filter",
+  "settings.auditEntries": "Einträge",
   "settings.auditActor": "Akteur",
   "settings.auditEntity": "Entitätstyp",
   "settings.auditEntityId": "Entitäts-ID",
@@ -3350,7 +3356,6 @@ export const de = {
   "settings.customFieldsSub":
     "Füge einem Kernobjekt ein typisiertes Feld hinzu — ohne Code, ohne Deploy.",
   "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
-  "settings.navAria": "Einstellungsbereiche",
   "settings.tab.account": "Konto",
   "settings.tab.company": "Firmenkontext",
   "settings.tab.ai": "KI & Autonomie",
@@ -3362,7 +3367,7 @@ export const de = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrationen",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Deine Einstellungen",
+  "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",
   "settings.rates.fxIntro":
@@ -3476,6 +3481,7 @@ export const de = {
   "settings.voice.addSource": "Probe hinzufügen",
   "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
+  "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",
   "settings.voice.buildNeedsWords":
@@ -3502,10 +3508,12 @@ export const de = {
   "extAccess.openUnit": "Seite {name} öffnen",
   "extAccess.noPage":
     "{name} ist in die API eingebunden, aber dieser Build der App hat keine Seite dafür — die App ist vermutlich älter als der Server.",
+  "extAccess.brings.heading": "Was diese Einheit mitbringt",
   "extAccess.brings.objects": "Berechtigungsobjekte",
   "extAccess.brings.routes": "Routen",
   "extAccess.brings.jobs": "Hintergrundjobs",
   "extAccess.brings.none": "Keine",
+  "extAccess.grants.heading": "Wer sie nutzen darf",
   "extAccess.noObjects":
     "Diese Einheit registriert keine Berechtigungsobjekte — es gibt nichts zu vergeben.",
   "extAccess.roleColumn": "Rolle",
@@ -3526,6 +3534,14 @@ export const de = {
     "Mitglieder einladen, Rollen setzen und Zugriff deaktivieren. Nur für Admins.",
   "users.empty": "Noch keine Mitglieder.",
   "users.adminOnly": "Mitglieder verwalten können nur Admins.",
+  "users.inviteTitle": "Mitglied einladen",
+  "users.inviteSub":
+    "Jemanden zu dieser Installation hinzufügen und die Rolle wählen, mit der sie oder er startet.",
+  "users.membersTitle": "Mitglieder",
+  "users.membersSub":
+    "Alle mit einem Platz in dieser Installation, deaktivierte Konten eingeschlossen.",
+  "users.memberCount.one": "{count} Mitglied",
+  "users.memberCount.other": "{count} Mitglieder",
   "users.emailLabel": "E-Mail des neuen Mitglieds",
   "users.nameLabel": "Vollständiger Name des neuen Mitglieds",
   "users.emailPlaceholder": "name@firma.de",
@@ -3813,9 +3829,12 @@ export const de = {
 
   "settings.tab.installation": "Installation",
   "settings.tab.capture": "Erfassung",
-  "installationSettings.title": "Installation",
-  "installationSettings.sub":
-    "Wie diese Installation heißt und in welcher Zeitzone und Währung jede Auswertung berechnet wird.",
+  "installationSettings.orgTitle": "Organisation",
+  "installationSettings.orgSub":
+    "Wie diese Installation heißt und in welcher Zeitzone jede Auswertungsperiode berechnet wird.",
+  "installationSettings.currencyTitle": "Währung",
+  "installationSettings.currencySub":
+    "Die eine Währung, in die jede Auswertung alle Beträge umrechnet.",
   "installationSettings.name": "Name der Organisation",
   "installationSettings.nameHint":
     "Wird überall dort angezeigt, wo das Produkt Ihre Organisation benennt.",
@@ -3838,6 +3857,7 @@ export const de = {
   "captureSettings.adminOnly":
     "Nur ein Administrator oder Ops kann dies ändern.",
 
+  "ownDomains.companyTitle": "Unternehmens-Domains",
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
     "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für Sie.",

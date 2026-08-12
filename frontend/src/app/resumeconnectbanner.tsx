@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useState } from "react";
-import { Button } from "../design-system/atoms";
+import { Button, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import {
   clearPendingAuthorize,
@@ -30,9 +30,10 @@ export function ResumeConnectBanner() {
   }
 
   return (
-    <div
+    <Card
+      as="div"
+      inset
       role="status"
-      className="card card-inset"
       style={{
         marginBottom: "var(--space-4)",
         display: "flex",
@@ -70,6 +71,6 @@ export function ResumeConnectBanner() {
           {t("consent.resumeDismiss")}
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }

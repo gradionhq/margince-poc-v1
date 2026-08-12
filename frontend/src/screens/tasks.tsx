@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
@@ -141,7 +142,7 @@ function TaskRow({
   const t = useT();
   const { locale } = useLocale();
   return (
-    <div className="card" style={{ marginBottom: 8 }}>
+    <Card as="div" style={{ marginBottom: "var(--space-2)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ flex: 1 }}>
           <strong>{task.subject ?? ""}</strong>
@@ -163,7 +164,7 @@ function TaskRow({
           </Button>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
