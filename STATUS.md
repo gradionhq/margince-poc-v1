@@ -533,6 +533,49 @@ checks, meter keys, blob path segments, cache keys. The big consumer is
 SCHEMA phase. So the honest order is: do §8's phases, and let `principal` fall
 out where its referents go, rather than churning 600 call sites twice.
 
+### Phase A is done — and it found nineteen queries whose scope was RLS's
+
+All 139 tenant-isolation policies and both flags are gone (#1067), along with
+the gates and suites that asserted the mechanism. The precondition — re-reading
+every `rbacgate_test.go` waiver that leaned on RLS — landed first (#1053).
+
+**The finding that matters for phases B–D.** ADR-0091 §4 named this class but
+nobody could enumerate it: a statement whose workspace predicate was the
+DATABASE's, not its own. Nineteen turned up, every one found by a failing test,
+every one a real defect — two of them data loss (the own-domain `Remove` deleted
+the domain from every workspace that had registered it; the retention sweep
+anonymized other tenants' records) and one a cross-tenant disclosure
+(`matchingSubscriptions` POSTed one tenant's event payload to another tenant's
+`target_url`, and `loadTarget` handed back that delivery's sealed signing
+secret).
+
+Two lessons to carry:
+
+- **A per-workspace UNIQUE index does not mean a scoped query.** The lead
+  email probe sat above exactly such an index, so the ROW could never have
+  collided — only the probe could, and RLS was what kept the probe honest.
+- **The tests were the only detector, and they only cover what they cover.**
+  There is no gate for this class. Six of the nineteen were found by CodeRabbit
+  reading the diff, not by the suite. Anything phases B–D touch deserves the
+  same reading.
+
+**The harnesses had to change with it.** 179 tests across 19 packages depended
+on deny-on-unset, because a package's tests share ONE database and RLS kept
+their rows apart. The fix is the reset `compose/integration` already did —
+**once per TEST, not per call**, so suites that seed a second workspace on
+purpose keep both. Getting that wrong silently disarms a tenant-fence test, and
+did: fixing it is what surfaced `import_run`'s two unscoped reads.
+
+**What the pre-flight does and does not promise.** It refuses more than one LIVE
+workspace, matching ADR-0061 §3's own definition — archiving is the affordance
+the product gives for resolving to one. An archived tenant's rows therefore
+survive and are readable after the drop. That is written into 0217 rather than
+left to be discovered.
+
+**Next: phases B → C → D**, sequenced by dependency across the whole schema (B
+for a referenced table must precede C for its referrer), with A and D fanning
+out. `check-rls-store-path.sh` stays until §5 collapses the two `Tx` helpers.
+
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
 Deliberately not a precise count: it moved by eleven while this note was being
