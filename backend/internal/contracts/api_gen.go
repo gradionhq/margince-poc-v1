@@ -6294,6 +6294,186 @@ func (e PromoteLeadRequestTrigger) Valid() bool {
 	}
 }
 
+// Defines values for Provider.
+const (
+	Surfe Provider = "surfe"
+)
+
+// Valid indicates whether the value is a known member of the Provider enum.
+func (e Provider) Valid() bool {
+	switch e {
+	case Surfe:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderConnectionMode.
+const (
+	AutomaticOnCreate ProviderConnectionMode = "automatic_on_create"
+	OnDemand          ProviderConnectionMode = "on_demand"
+)
+
+// Valid indicates whether the value is a known member of the ProviderConnectionMode enum.
+func (e ProviderConnectionMode) Valid() bool {
+	switch e {
+	case AutomaticOnCreate:
+		return true
+	case OnDemand:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderConnectionStatus.
+const (
+	Connected           ProviderConnectionStatus = "connected"
+	Disconnected        ProviderConnectionStatus = "disconnected"
+	InsufficientCredits ProviderConnectionStatus = "insufficient_credits"
+	InvalidCredentials  ProviderConnectionStatus = "invalid_credentials"
+	ProviderError       ProviderConnectionStatus = "provider_error"
+	RateLimited         ProviderConnectionStatus = "rate_limited"
+	Validating          ProviderConnectionStatus = "validating"
+)
+
+// Valid indicates whether the value is a known member of the ProviderConnectionStatus enum.
+func (e ProviderConnectionStatus) Valid() bool {
+	switch e {
+	case Connected:
+		return true
+	case Disconnected:
+		return true
+	case InsufficientCredits:
+		return true
+	case InvalidCredentials:
+		return true
+	case ProviderError:
+		return true
+	case RateLimited:
+		return true
+	case Validating:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderRunSkipReason.
+const (
+	ProviderRunSkipReasonAlreadyFresh              ProviderRunSkipReason = "already_fresh"
+	ProviderRunSkipReasonBudgetExhausted           ProviderRunSkipReason = "budget_exhausted"
+	ProviderRunSkipReasonDuplicateSubjectCandidate ProviderRunSkipReason = "duplicate_subject_candidate"
+	ProviderRunSkipReasonLessThannil               ProviderRunSkipReason = "<nil>"
+	ProviderRunSkipReasonLowBalance                ProviderRunSkipReason = "low_balance"
+	ProviderRunSkipReasonNotEligible               ProviderRunSkipReason = "not_eligible"
+	ProviderRunSkipReasonRateLimited               ProviderRunSkipReason = "rate_limited"
+	ProviderRunSkipReasonSuppressed                ProviderRunSkipReason = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the ProviderRunSkipReason enum.
+func (e ProviderRunSkipReason) Valid() bool {
+	switch e {
+	case ProviderRunSkipReasonAlreadyFresh:
+		return true
+	case ProviderRunSkipReasonBudgetExhausted:
+		return true
+	case ProviderRunSkipReasonDuplicateSubjectCandidate:
+		return true
+	case ProviderRunSkipReasonLessThannil:
+		return true
+	case ProviderRunSkipReasonLowBalance:
+		return true
+	case ProviderRunSkipReasonNotEligible:
+		return true
+	case ProviderRunSkipReasonRateLimited:
+		return true
+	case ProviderRunSkipReasonSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderRunState.
+const (
+	ProviderRunStateCancelled         ProviderRunState = "cancelled"
+	ProviderRunStateCompleted         ProviderRunState = "completed"
+	ProviderRunStateFailed            ProviderRunState = "failed"
+	ProviderRunStateInProgress        ProviderRunState = "in_progress"
+	ProviderRunStateNoMatch           ProviderRunState = "no_match"
+	ProviderRunStateQueued            ProviderRunState = "queued"
+	ProviderRunStateSkipped           ProviderRunState = "skipped"
+	ProviderRunStateSubmissionUnknown ProviderRunState = "submission_unknown"
+	ProviderRunStateSubmitting        ProviderRunState = "submitting"
+)
+
+// Valid indicates whether the value is a known member of the ProviderRunState enum.
+func (e ProviderRunState) Valid() bool {
+	switch e {
+	case ProviderRunStateCancelled:
+		return true
+	case ProviderRunStateCompleted:
+		return true
+	case ProviderRunStateFailed:
+		return true
+	case ProviderRunStateInProgress:
+		return true
+	case ProviderRunStateNoMatch:
+		return true
+	case ProviderRunStateQueued:
+		return true
+	case ProviderRunStateSkipped:
+		return true
+	case ProviderRunStateSubmissionUnknown:
+		return true
+	case ProviderRunStateSubmitting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderRunSubjectKind.
+const (
+	ProviderRunSubjectKindPerson ProviderRunSubjectKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the ProviderRunSubjectKind enum.
+func (e ProviderRunSubjectKind) Valid() bool {
+	switch e {
+	case ProviderRunSubjectKindPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderRunTrigger.
+const (
+	ProviderRunTriggerAutomaticCreate  ProviderRunTrigger = "automatic_create"
+	ProviderRunTriggerAutomaticImport  ProviderRunTrigger = "automatic_import"
+	ProviderRunTriggerManual           ProviderRunTrigger = "manual"
+	ProviderRunTriggerScheduledRefresh ProviderRunTrigger = "scheduled_refresh"
+)
+
+// Valid indicates whether the value is a known member of the ProviderRunTrigger enum.
+func (e ProviderRunTrigger) Valid() bool {
+	switch e {
+	case ProviderRunTriggerAutomaticCreate:
+		return true
+	case ProviderRunTriggerAutomaticImport:
+		return true
+	case ProviderRunTriggerManual:
+		return true
+	case ProviderRunTriggerScheduledRefresh:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PutOnboardingStateRequestSourceMode.
 const (
 	PutOnboardingStateRequestSourceModeLessThannil PutOnboardingStateRequestSourceMode = "<nil>"
@@ -7802,25 +7982,25 @@ func (e VoiceBuildStage) Valid() bool {
 
 // Defines values for VoiceBuildStatus.
 const (
-	Deferred  VoiceBuildStatus = "deferred"
-	Failed    VoiceBuildStatus = "failed"
-	Queued    VoiceBuildStatus = "queued"
-	Running   VoiceBuildStatus = "running"
-	Succeeded VoiceBuildStatus = "succeeded"
+	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
+	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
+	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
+	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
+	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
 func (e VoiceBuildStatus) Valid() bool {
 	switch e {
-	case Deferred:
+	case VoiceBuildStatusDeferred:
 		return true
-	case Failed:
+	case VoiceBuildStatusFailed:
 		return true
-	case Queued:
+	case VoiceBuildStatusQueued:
 		return true
-	case Running:
+	case VoiceBuildStatusRunning:
 		return true
-	case Succeeded:
+	case VoiceBuildStatusSucceeded:
 		return true
 	default:
 		return false
@@ -7829,31 +8009,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -11253,6 +11433,15 @@ type ConnectConnectorResponse struct {
 	Connection *CaptureConnection `json:"connection,omitempty"`
 }
 
+// ConnectProviderRequest defines model for ConnectProviderRequest.
+type ConnectProviderRequest struct {
+	// ApiKey Used in memory for verification then sealed; never serialized back.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// Configuration Omit for automatic-on-create + Full enrichment defaults.
+	Configuration *ProviderConfiguration `json:"configuration,omitempty"`
+}
+
 // ConsentEvent An append-only proof row (Art. 7 demonstrability). Never updated or deleted.
 type ConsentEvent struct {
 	ActorId     *string                `json:"actor_id,omitempty"`
@@ -11709,6 +11898,12 @@ type CreateOrganizationRequest struct {
 
 // CreateOrganizationRequestSizeBand defines model for CreateOrganizationRequest.SizeBand.
 type CreateOrganizationRequestSizeBand string
+
+// CreatePersonEnrichmentRunRequest defines model for CreatePersonEnrichmentRunRequest.
+type CreatePersonEnrichmentRunRequest struct {
+	// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
+	Provider Provider `json:"provider"`
+}
 
 // CreatePersonRequest defines model for CreatePersonRequest.
 type CreatePersonRequest struct {
@@ -15893,6 +16088,190 @@ type PromoteLeadResponse struct {
 	Person Person `json:"person"`
 }
 
+// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
+type Provider string
+
+// ProviderCategorySelection Resolved per-category choices, keyed by the connected provider's declared category
+// vocabulary (its descriptor — for Surfe, PI-PARAM-7). A key the provider does not offer is
+// rejected; at least one selected category is required. Keys are not enumerated here because
+// they belong to the provider, not to the contract.
+type ProviderCategorySelection map[string]bool
+
+// ProviderConfiguration defines model for ProviderConfiguration.
+type ProviderConfiguration struct {
+	// AutomaticImport Still requires import preview, maximum-credit estimate and explicit confirmation.
+	AutomaticImport           bool `json:"automatic_import"`
+	AutomaticIndividualCreate bool `json:"automatic_individual_create"`
+
+	// Budgets Per-pool ceilings keyed by the provider's declared credit pools.
+	Budgets *map[string]ProviderPoolBudget `json:"budgets,omitempty"`
+
+	// Categories Resolved per-category choices, keyed by the connected provider's declared category
+	// vocabulary (its descriptor — for Surfe, PI-PARAM-7). A key the provider does not offer is
+	// rejected; at least one selected category is required. Keys are not enumerated here because
+	// they belong to the provider, not to the contract.
+	Categories    ProviderCategorySelection `json:"categories"`
+	DailyRunLimit *int                      `json:"daily_run_limit,omitempty"`
+	Mode          ProviderConnectionMode    `json:"mode"`
+
+	// Preset A named shortcut the connected provider's descriptor declares (Surfe offers `full`,
+	// `professional_only` and `custom` — PI-PARAM-7). Presentation convenience only: the resolved
+	// per-category choices are authoritative, and the descriptor validates the value, so a second
+	// provider may declare different presets without a contract change.
+	Preset           ProviderPreset `json:"preset"`
+	RefreshAfterDays *int           `json:"refresh_after_days,omitempty"`
+}
+
+// ProviderConfigurationPatch defines model for ProviderConfigurationPatch.
+type ProviderConfigurationPatch struct {
+	AutomaticImport           *bool                          `json:"automatic_import,omitempty"`
+	AutomaticIndividualCreate *bool                          `json:"automatic_individual_create,omitempty"`
+	Budgets                   *map[string]ProviderPoolBudget `json:"budgets,omitempty"`
+
+	// Categories Resolved per-category choices, keyed by the connected provider's declared category
+	// vocabulary (its descriptor — for Surfe, PI-PARAM-7). A key the provider does not offer is
+	// rejected; at least one selected category is required. Keys are not enumerated here because
+	// they belong to the provider, not to the contract.
+	Categories    *ProviderCategorySelection `json:"categories,omitempty"`
+	DailyRunLimit *int                       `json:"daily_run_limit,omitempty"`
+	Mode          *ProviderConnectionMode    `json:"mode,omitempty"`
+
+	// Preset A named shortcut the connected provider's descriptor declares (Surfe offers `full`,
+	// `professional_only` and `custom` — PI-PARAM-7). Presentation convenience only: the resolved
+	// per-category choices are authoritative, and the descriptor validates the value, so a second
+	// provider may declare different presets without a contract change.
+	Preset           *ProviderPreset `json:"preset,omitempty"`
+	RefreshAfterDays *int            `json:"refresh_after_days,omitempty"`
+}
+
+// ProviderConnection defines model for ProviderConnection.
+type ProviderConnection struct {
+	Configuration ProviderConfiguration `json:"configuration"`
+	ConnectedAt   *time.Time            `json:"connected_at,omitempty"`
+	CreatedAt     time.Time             `json:"created_at"`
+
+	// CredentialPresent The only credential fact ever returned; no key prefix/suffix or vault reference.
+	CredentialPresent bool `json:"credential_present"`
+
+	// Credits Remaining provider-side balance per credit pool, keyed by the provider's declared pools.
+	// Read from the provider, never authoritative for Margince ceilings.
+	Credits ProviderCredits `json:"credits"`
+
+	// EffectiveConstraints Named deployment/provider ceilings that make behavior stricter than the saved policy.
+	EffectiveConstraints *[]string  `json:"effective_constraints,omitempty"`
+	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
+	LastVerifiedAt       *time.Time `json:"last_verified_at,omitempty"`
+
+	// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
+	Provider       Provider                 `json:"provider"`
+	SafeStatusCode *string                  `json:"safe_status_code,omitempty"`
+	Status         ProviderConnectionStatus `json:"status"`
+	UpdatedAt      time.Time                `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+}
+
+// ProviderConnectionMode defines model for ProviderConnectionMode.
+type ProviderConnectionMode string
+
+// ProviderConnectionStatus defines model for ProviderConnectionStatus.
+type ProviderConnectionStatus string
+
+// ProviderCredits Remaining provider-side balance per credit pool, keyed by the provider's declared pools.
+// Read from the provider, never authoritative for Margince ceilings.
+type ProviderCredits struct {
+	Pools  map[string]*int `json:"pools"`
+	ReadAt *time.Time      `json:"read_at,omitempty"`
+}
+
+// ProviderPoolBudget Ceilings for one of the provider's credit pools (Surfe meters `email` and `mobile`
+// separately). Reservation is atomic per connection per pool (PI-PARAM-6).
+type ProviderPoolBudget struct {
+	MonthlyCeiling    *int `json:"monthly_ceiling,omitempty"`
+	PauseBelowBalance *int `json:"pause_below_balance,omitempty"`
+}
+
+// ProviderPreset A named shortcut the connected provider's descriptor declares (Surfe offers `full`,
+// `professional_only` and `custom` — PI-PARAM-7). Presentation convenience only: the resolved
+// per-category choices are authoritative, and the descriptor validates the value, so a second
+// provider may declare different presets without a contract change.
+type ProviderPreset = string
+
+// ProviderRun defines model for ProviderRun.
+type ProviderRun struct {
+	// ClaimsUnwritten True when a paid terminal result could not be handed to the owning domain within
+	// the bounded retry (PI-PARAM-10). The spend is real and the claims are absent; an
+	// operator sees the gap rather than discovering it as missing data (PI-AC-12).
+	ClaimsUnwritten       bool                  `json:"claims_unwritten"`
+	CompletedAt           *time.Time            `json:"completed_at,omitempty"`
+	ConfigurationSnapshot ProviderConfiguration `json:"configuration_snapshot"`
+	ConnectionVersion     int64                 `json:"connection_version"`
+	CreatedAt             time.Time             `json:"created_at"`
+	Id                    openapi_types.UUID    `json:"id"`
+
+	// PersonId Populated exactly when `subject_kind` is `person`, and null otherwise. Each supported
+	// subject kind has its own typed id field; the pairing is enforced by the shape check on
+	// `provider_run` (PI-DDL-2), not by this schema.
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+
+	// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
+	Provider            Provider `json:"provider"`
+	RequestedCategories []string `json:"requested_categories"`
+
+	// Reservations Maximum credits held per pool before submission, reconciled to actual spend on a terminal result (PI-FORM-1).
+	Reservations []struct {
+		ActualCredits   *int   `json:"actual_credits,omitempty"`
+		Pool            string `json:"pool"`
+		ReservedCredits int    `json:"reserved_credits"`
+	} `json:"reservations"`
+
+	// SafeStatusCode Closed product reason only; never a provider body or person value.
+	SafeStatusCode *string `json:"safe_status_code,omitempty"`
+
+	// SkipReason Why a `skipped` run sent nothing. Null for every other state.
+	// `duplicate_subject_candidate` means the subject looked like a duplicate of an
+	// already-enriched record, so no provider call was made (PI-PARAM-9).
+	// `rate_limited` means the connection's daily run ceiling was already reached
+	// (PI-PARAM-13). `already_fresh` means a completed run for this subject is newer
+	// than the connection's refresh window, so an automatic trigger declined to buy
+	// the same data twice (PI-PARAM-14) — nothing failed and no budget was consumed.
+	SkipReason *ProviderRunSkipReason `json:"skip_reason,omitempty"`
+	State      ProviderRunState       `json:"state"`
+
+	// SubjectKind The kind of record this run enriches, drawn from the canonical EntityType vocabulary
+	// (DM-CONV-17). Only `person` is supported today; the matching typed id field below is
+	// populated for that kind (PI-DDL-2).
+	SubjectKind ProviderRunSubjectKind `json:"subject_kind"`
+	SubmittedAt *time.Time             `json:"submitted_at,omitempty"`
+	Trigger     ProviderRunTrigger     `json:"trigger"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+// ProviderRunSkipReason Why a `skipped` run sent nothing. Null for every other state.
+// `duplicate_subject_candidate` means the subject looked like a duplicate of an
+// already-enriched record, so no provider call was made (PI-PARAM-9).
+// `rate_limited` means the connection's daily run ceiling was already reached
+// (PI-PARAM-13). `already_fresh` means a completed run for this subject is newer
+// than the connection's refresh window, so an automatic trigger declined to buy
+// the same data twice (PI-PARAM-14) — nothing failed and no budget was consumed.
+type ProviderRunSkipReason string
+
+// ProviderRunState defines model for ProviderRun.State.
+type ProviderRunState string
+
+// ProviderRunSubjectKind The kind of record this run enriches, drawn from the canonical EntityType vocabulary
+// (DM-CONV-17). Only `person` is supported today; the matching typed id field below is
+// populated for that kind (PI-DDL-2).
+type ProviderRunSubjectKind string
+
+// ProviderRunTrigger defines model for ProviderRun.Trigger.
+type ProviderRunTrigger string
+
 // PutOnboardingStateRequest defines model for PutOnboardingStateRequest.
 type PutOnboardingStateRequest struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
@@ -17116,6 +17495,11 @@ type UpdateProjectRequest struct {
 	StartedAt            *openapi_types.Date    `json:"started_at,omitempty"`
 	TargetEndDate        *openapi_types.Date    `json:"target_end_date,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// UpdateProviderConnectionRequest defines model for UpdateProviderConnectionRequest.
+type UpdateProviderConnectionRequest struct {
+	Configuration ProviderConfigurationPatch `json:"configuration"`
 }
 
 // UpdateQuotaRequest Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted. Switching a quota between owner- and team-scoped is archive-and-recreate: merge-PATCH cannot express the null clear (omitted and null are the same wire shape), so a PATCH can only reassign within the side the row already carries.
@@ -19735,6 +20119,25 @@ type DraftPersonEmailJSONBody struct {
 	Intent *string `json:"intent,omitempty"`
 }
 
+// CreatePersonEnrichmentRunParams defines parameters for CreatePersonEnrichmentRun.
+type CreatePersonEnrichmentRunParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // MergePersonJSONBody defines parameters for MergePerson.
 type MergePersonJSONBody struct {
 	// TargetId The surviving person (B). This row (A) is archived.
@@ -20057,6 +20460,51 @@ type RemoveProjectStakeholderParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// UpdateProviderConnectionParams defines parameters for UpdateProviderConnection.
+type UpdateProviderConnectionParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ConnectProviderParams defines parameters for ConnectProvider.
+type ConnectProviderParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // BookPublicMeetingJSONBody defines parameters for BookPublicMeeting.
@@ -21147,6 +21595,9 @@ type IssueDoubleOptInJSONRequestBody IssueDoubleOptInJSONBody
 // DraftPersonEmailJSONRequestBody defines body for DraftPersonEmail for application/json ContentType.
 type DraftPersonEmailJSONRequestBody DraftPersonEmailJSONBody
 
+// CreatePersonEnrichmentRunJSONRequestBody defines body for CreatePersonEnrichmentRun for application/json ContentType.
+type CreatePersonEnrichmentRunJSONRequestBody = CreatePersonEnrichmentRunRequest
+
 // MergePersonJSONRequestBody defines body for MergePerson for application/json ContentType.
 type MergePersonJSONRequestBody MergePersonJSONBody
 
@@ -21179,6 +21630,12 @@ type AdvanceProjectPhaseJSONRequestBody = AdvanceProjectPhaseRequest
 
 // SetProjectStakeholderJSONRequestBody defines body for SetProjectStakeholder for application/json ContentType.
 type SetProjectStakeholderJSONRequestBody = SetProjectStakeholderRequest
+
+// UpdateProviderConnectionJSONRequestBody defines body for UpdateProviderConnection for application/json ContentType.
+type UpdateProviderConnectionJSONRequestBody = UpdateProviderConnectionRequest
+
+// ConnectProviderJSONRequestBody defines body for ConnectProvider for application/json ContentType.
+type ConnectProviderJSONRequestBody = ConnectProviderRequest
 
 // BookPublicMeetingJSONRequestBody defines body for BookPublicMeeting for application/json ContentType.
 type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
@@ -27664,6 +28121,12 @@ type ServerInterface interface {
 	// Draft an email to this person, grounded in their record.
 	// (POST /people/{id}/draft-email)
 	DraftPersonEmail(w http.ResponseWriter, r *http.Request, id Id)
+	// Queue an on-demand person-data enrichment run.
+	// (POST /people/{id}/enrichment-runs)
+	CreatePersonEnrichmentRun(w http.ResponseWriter, r *http.Request, id Id, params CreatePersonEnrichmentRunParams)
+	// Read one asynchronous enrichment run and its safe status.
+	// (GET /people/{id}/enrichment-runs/{run_id})
+	GetPersonEnrichmentRun(w http.ResponseWriter, r *http.Request, id Id, runId openapi_types.UUID)
 	// Who around this contact could open a door, and through whom.
 	// (GET /people/{id}/graph)
 	GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id)
@@ -27745,6 +28208,21 @@ type ServerInterface interface {
 	// Detach a person from a project (archives the edge).
 	// (DELETE /projects/{id}/stakeholders/{person_id})
 	RemoveProjectStakeholder(w http.ResponseWriter, r *http.Request, id Id, personId openapi_types.UUID, params RemoveProjectStakeholderParams)
+	// Read licensed person-data connection state and effective policy.
+	// (GET /provider-connections)
+	ListProviderConnections(w http.ResponseWriter, r *http.Request)
+	// Disconnect a provider and destroy its sealed credential.
+	// (DELETE /provider-connections/{provider})
+	DisconnectProvider(w http.ResponseWriter, r *http.Request, provider Provider)
+	// Change the future trigger, fetch scope, refresh, or budget policy.
+	// (PATCH /provider-connections/{provider})
+	UpdateProviderConnection(w http.ResponseWriter, r *http.Request, provider Provider, params UpdateProviderConnectionParams)
+	// Validate, seal and connect a customer-owned person-data provider key.
+	// (PUT /provider-connections/{provider})
+	ConnectProvider(w http.ResponseWriter, r *http.Request, provider Provider, params ConnectProviderParams)
+	// Delete retained provider claims and identifying run metadata.
+	// (DELETE /provider-connections/{provider}/data)
+	DeleteProviderData(w http.ResponseWriter, r *http.Request, provider Provider)
 	// Book a meeting from the public page (anonymous) — captures the booker + mandatory consent.
 	// (POST /public/booking/{host_slug})
 	BookPublicMeeting(w http.ResponseWriter, r *http.Request, hostSlug string, params BookPublicMeetingParams)
@@ -29374,6 +29852,18 @@ func (_ Unimplemented) DraftPersonEmail(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Queue an on-demand person-data enrichment run.
+// (POST /people/{id}/enrichment-runs)
+func (_ Unimplemented) CreatePersonEnrichmentRun(w http.ResponseWriter, r *http.Request, id Id, params CreatePersonEnrichmentRunParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read one asynchronous enrichment run and its safe status.
+// (GET /people/{id}/enrichment-runs/{run_id})
+func (_ Unimplemented) GetPersonEnrichmentRun(w http.ResponseWriter, r *http.Request, id Id, runId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Who around this contact could open a door, and through whom.
 // (GET /people/{id}/graph)
 func (_ Unimplemented) GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id) {
@@ -29533,6 +30023,36 @@ func (_ Unimplemented) SetProjectStakeholder(w http.ResponseWriter, r *http.Requ
 // Detach a person from a project (archives the edge).
 // (DELETE /projects/{id}/stakeholders/{person_id})
 func (_ Unimplemented) RemoveProjectStakeholder(w http.ResponseWriter, r *http.Request, id Id, personId openapi_types.UUID, params RemoveProjectStakeholderParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read licensed person-data connection state and effective policy.
+// (GET /provider-connections)
+func (_ Unimplemented) ListProviderConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect a provider and destroy its sealed credential.
+// (DELETE /provider-connections/{provider})
+func (_ Unimplemented) DisconnectProvider(w http.ResponseWriter, r *http.Request, provider Provider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change the future trigger, fetch scope, refresh, or budget policy.
+// (PATCH /provider-connections/{provider})
+func (_ Unimplemented) UpdateProviderConnection(w http.ResponseWriter, r *http.Request, provider Provider, params UpdateProviderConnectionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Validate, seal and connect a customer-owned person-data provider key.
+// (PUT /provider-connections/{provider})
+func (_ Unimplemented) ConnectProvider(w http.ResponseWriter, r *http.Request, provider Provider, params ConnectProviderParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete retained provider claims and identifying run metadata.
+// (DELETE /provider-connections/{provider}/data)
+func (_ Unimplemented) DeleteProviderData(w http.ResponseWriter, r *http.Request, provider Provider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40101,6 +40621,103 @@ func (siw *ServerInterfaceWrapper) DraftPersonEmail(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// CreatePersonEnrichmentRun operation middleware
+func (siw *ServerInterfaceWrapper) CreatePersonEnrichmentRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePersonEnrichmentRunParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePersonEnrichmentRun(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersonEnrichmentRun operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonEnrichmentRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "run_id" -------------
+	var runId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonEnrichmentRun(w, r, id, runId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonGraph operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonGraph(w http.ResponseWriter, r *http.Request) {
 
@@ -41563,6 +42180,221 @@ func (siw *ServerInterfaceWrapper) RemoveProjectStakeholder(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveProjectStakeholder(w, r, id, personId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProviderConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListProviderConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviderConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectProvider operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider Provider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectProvider(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProviderConnection operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProviderConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider Provider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateProviderConnectionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProviderConnection(w, r, provider, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectProvider operation middleware
+func (siw *ServerInterfaceWrapper) ConnectProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider Provider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ConnectProviderParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectProvider(w, r, provider, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProviderData operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProviderData(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider Provider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProviderData(w, r, provider)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -46474,6 +47306,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/people/{id}/draft-email", wrapper.DraftPersonEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/enrichment-runs", wrapper.CreatePersonEnrichmentRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/enrichment-runs/{run_id}", wrapper.GetPersonEnrichmentRun)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/graph", wrapper.GetPersonGraph)
 	})
 	r.Group(func(r chi.Router) {
@@ -46553,6 +47391,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/projects/{id}/stakeholders/{person_id}", wrapper.RemoveProjectStakeholder)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/provider-connections", wrapper.ListProviderConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/provider-connections/{provider}", wrapper.DisconnectProvider)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/provider-connections/{provider}", wrapper.UpdateProviderConnection)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/provider-connections/{provider}", wrapper.ConnectProvider)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/provider-connections/{provider}/data", wrapper.DeleteProviderData)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/booking/{host_slug}", wrapper.BookPublicMeeting)

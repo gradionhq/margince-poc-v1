@@ -79,6 +79,7 @@ const (
 	objectQuota         = "quota"
 	objectOfferTemplate = "offer_template"
 	objectProduct       = "product"
+	objectIntegrations  = "integrations"
 )
 
 // Reasons that recur across entries. Named so the same claim reads as one
@@ -209,6 +210,24 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/approvals/{id}/approve": {objectNote: "the approval row IS the authority object (ADR-0036); the approvals engine gates it", moduleProbe: probeApproval, pathParam: "id"},
 	"POST /v1/data-subject-requests":  {objectNote: "DSR intake is gated by the privacy module's own case rules", rowNote: "a DSR case row, not a domain record"},
 	"PUT /v1/onboarding/state":        {objectNote: "per-workspace onboarding progress, gated by session membership in identity", rowNote: "workspace progress, not a record"},
+
+	// The provider connection is installation-wide configuration: one row per
+	// provider, no tenant record to scope, gated by the integrations object.
+	"PUT /v1/provider-connections/{provider}":   {object: objectIntegrations, rowNote: "the installation's single connection for one provider — one row per provider, so there is no record to scope"},
+	"PATCH /v1/provider-connections/{provider}": {object: objectIntegrations, rowNote: "the installation's single connection for one provider — one row per provider, so there is no record to scope"},
+
+	// Replay matters more here than anywhere else in this map: the body queues
+	// a PAID provider call, so a retry that re-executed would buy the same
+	// answer twice. The one-live-run index already makes a duplicate a no-op;
+	// this makes the retry return the same run rather than race that index.
+	//
+	// The body is a ProviderRun: a spend-ledger row, not a row-scoped record.
+	// It carries no person values — only a state, a cost and the categories
+	// that were requested — so there is nothing in it that a person's row
+	// scope would protect. The person grant still gates the ORIGINAL request
+	// through the handler's own EnsureVisible; what a replay hands back is the
+	// receipt, which names no subject.
+	"POST /v1/people/{id}/enrichment-runs": {object: tablePerson, rowNote: "a run receipt: state, cost and requested categories, carrying no person values to scope"},
 }
 
 // replayProbe answers whether the caller may still see one record, for the

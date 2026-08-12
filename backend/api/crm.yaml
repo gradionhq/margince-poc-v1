@@ -101,6 +101,8 @@ security:
 tags:
   - name: Webhooks
     description: Outbound webhook subscriptions (E10/S-E10.6) — signed, retried delivery of published domain events to a tenant-owned HTTPS endpoint.
+  - name: Integrations
+    description: Licensed data-provider connections and the runs they execute (ADR-0101) — an installation-owned connection per provider, a metered run ledger, and the person-scoped enrichment runs domain surfaces queue against it.
   - name: People
     description: Person (contact) records, their emails and phones.
   - name: Organizations
@@ -1305,6 +1307,182 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RelationshipStrength' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------ /provider-connections --------------------------
+  /provider-connections:
+    get:
+      tags: [Integrations]
+      operationId: listProviderConnections
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Read licensed person-data connection state and effective policy.
+      description: |
+        Returns non-secret installation product state for Settings → Integrations. All signed-in
+        users may read it; mutations below require Admin or Ops/Integrations. Credential material
+        and the vault reference never appear. An operator/deployment ceiling may make the effective
+        policy stricter than the saved policy and is named, never silently applied.
+      responses:
+        '200':
+          description: Person-data connections (Surfe is the first provider).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ProviderConnection' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /provider-connections/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Provider' }
+    put:
+      tags: [Integrations]
+      operationId: connectProvider
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Validate, seal and connect a customer-owned person-data provider key.
+      description: |
+        Admin/Ops only. `api_key` is write-only and is committed only after the provider credits
+        read succeeds. Omitted configuration resolves to automatic-on-create + Full enrichment.
+        The response exposes only `credential_present=true`. Idempotency covers the Margince
+        mutation; it does not make a provider enrichment POST replay-safe.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectProviderRequest' }
+      responses:
+        '200':
+          description: Verified and connected.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderConnection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Integrations]
+      operationId: updateProviderConnection
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Change the future trigger, fetch scope, refresh, or budget policy.
+      description: |
+        Admin/Ops only. Sparse update with optimistic concurrency. Saving increments the connection
+        version and affects new runs only; every queued/in-flight run retains its immutable effective
+        configuration snapshot. API-key rotation uses PUT, never this body.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProviderConnectionRequest' }
+      responses:
+        '200':
+          description: Updated complete effective configuration.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderConnection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Integrations]
+      operationId: disconnectProvider
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Disconnect a provider and destroy its sealed credential.
+      description: |
+        Stops new egress and cancels unsubmitted work. Existing dated provider snapshots remain;
+        deleting them is the separate data operation below. Idempotent when already disconnected.
+      responses:
+        '204': { description: Disconnected and credential destruction scheduled/completed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /provider-connections/{provider}/data:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Provider' }
+    delete:
+      tags: [Integrations]
+      operationId: deleteProviderData
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Delete retained provider claims and identifying run metadata.
+      description: Admin/Ops-only data-lifecycle action, separate from disconnect and itself audited.
+      responses:
+        '204': { description: Provider data deleted (or already absent). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /people/{id}/enrichment-runs:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Integrations]
+      operationId: createPersonEnrichmentRun
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Queue an on-demand person-data enrichment run.
+      description: |
+        Returns after the durable run is committed; no provider call occurs on this request path.
+        The run freezes the effective connection configuration. A second request for the same live
+        person/provider/input/configuration fingerprint returns that run rather than another paid
+        submission. This human operation does not re-tier the agent `enrich` verb (ADR-0099).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePersonEnrichmentRunRequest' }
+      responses:
+        '202':
+          description: Durable run queued or existing live run returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/enrichment-runs/{run_id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Integrations]
+      operationId: getPersonEnrichmentRun
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Read one asynchronous enrichment run and its safe status.
+      responses:
+        '200':
+          description: Run state. Provider bodies, person values and credentials are never diagnostic fields.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderRun' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -12084,6 +12262,289 @@ components:
         inbound_90d: { type: integer, minimum: 0, description: Count of qualifying inbound interactions in the trailing 90-day window. }
         outbound_90d: { type: integer, minimum: 0, description: Count of qualifying outbound interactions in the trailing 90-day window. }
 
+    Provider:
+      type: string
+      enum: [surfe]
+      description: Licensed provider adapter key; the domain/run contract remains provider-neutral.
+
+    ProviderConnectionStatus:
+      type: string
+      enum: [disconnected, validating, connected, invalid_credentials, insufficient_credits, rate_limited, provider_error]
+
+    ProviderConnectionMode:
+      type: string
+      enum: [automatic_on_create, on_demand]
+
+    ProviderPreset:
+      type: string
+      description: |
+        A named shortcut the connected provider's descriptor declares (Surfe offers `full`,
+        `professional_only` and `custom` — PI-PARAM-7). Presentation convenience only: the resolved
+        per-category choices are authoritative, and the descriptor validates the value, so a second
+        provider may declare different presets without a contract change.
+
+    ProviderCategorySelection:
+      type: object
+      description: |
+        Resolved per-category choices, keyed by the connected provider's declared category
+        vocabulary (its descriptor — for Surfe, PI-PARAM-7). A key the provider does not offer is
+        rejected; at least one selected category is required. Keys are not enumerated here because
+        they belong to the provider, not to the contract.
+      minProperties: 1
+      additionalProperties: { type: boolean }
+      x-constraint: |
+        At least one category must be selected (true) — `minProperties` only bounds how many keys
+        are present, so a map whose values are all false is rejected by the connection service, not
+        by JSON Schema (PI-PARAM-7, PI-AC-1).
+
+    ProviderPoolBudget:
+      type: object
+      description: |
+        Ceilings for one of the provider's credit pools (Surfe meters `email` and `mobile`
+        separately). Reservation is atomic per connection per pool (PI-PARAM-6).
+      properties:
+        monthly_ceiling: { type: [integer, 'null'], minimum: 0 }
+        pause_below_balance: { type: [integer, 'null'], minimum: 0 }
+
+    ProviderConfiguration:
+      type: object
+      required:
+        - mode
+        - preset
+        - automatic_individual_create
+        - automatic_import
+        - categories
+      properties:
+        mode: { $ref: '#/components/schemas/ProviderConnectionMode' }
+        preset: { $ref: '#/components/schemas/ProviderPreset' }
+        automatic_individual_create: { type: boolean, default: true }
+        automatic_import:
+          type: boolean
+          default: false
+          description: Still requires import preview, maximum-credit estimate and explicit confirmation.
+        categories: { $ref: '#/components/schemas/ProviderCategorySelection' }
+        refresh_after_days: { type: [integer, 'null'], minimum: 1 }
+        daily_run_limit: { type: [integer, 'null'], minimum: 1 }
+        budgets:
+          type: object
+          description: Per-pool ceilings keyed by the provider's declared credit pools.
+          additionalProperties: { $ref: '#/components/schemas/ProviderPoolBudget' }
+
+    ProviderConfigurationPatch:
+      type: object
+      minProperties: 1
+      properties:
+        mode: { $ref: '#/components/schemas/ProviderConnectionMode' }
+        preset: { $ref: '#/components/schemas/ProviderPreset' }
+        automatic_individual_create: { type: boolean }
+        automatic_import: { type: boolean }
+        categories: { $ref: '#/components/schemas/ProviderCategorySelection' }
+        refresh_after_days: { type: [integer, 'null'], minimum: 1 }
+        daily_run_limit: { type: [integer, 'null'], minimum: 1 }
+        budgets:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ProviderPoolBudget' }
+
+    ProviderCredits:
+      type: object
+      description: |
+        Remaining provider-side balance per credit pool, keyed by the provider's declared pools.
+        Read from the provider, never authoritative for Margince ceilings.
+      required: [pools]
+      properties:
+        pools:
+          type: object
+          additionalProperties: { type: [integer, 'null'], minimum: 0 }
+        read_at: { type: [string, 'null'], format: date-time }
+
+    ProviderConnection:
+      type: object
+      required: [provider, status, credential_present, configuration, credits, version, created_at, updated_at]
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+        status: { $ref: '#/components/schemas/ProviderConnectionStatus' }
+        credential_present:
+          type: boolean
+          description: The only credential fact ever returned; no key prefix/suffix or vault reference.
+        configuration: { $ref: '#/components/schemas/ProviderConfiguration' }
+        effective_constraints:
+          type: array
+          description: Named deployment/provider ceilings that make behavior stricter than the saved policy.
+          items: { type: string }
+        credits: { $ref: '#/components/schemas/ProviderCredits' }
+        connected_at: { type: [string, 'null'], format: date-time }
+        last_verified_at: { type: [string, 'null'], format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        safe_status_code: { type: [string, 'null'] }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ConnectProviderRequest:
+      type: object
+      required: [api_key]
+      properties:
+        api_key:
+          type: string
+          minLength: 1
+          writeOnly: true
+          description: Used in memory for verification then sealed; never serialized back.
+        configuration:
+          description: Omit for automatic-on-create + Full enrichment defaults.
+          allOf: [{ $ref: '#/components/schemas/ProviderConfiguration' }]
+
+    UpdateProviderConnectionRequest:
+      type: object
+      required: [configuration]
+      properties:
+        configuration: { $ref: '#/components/schemas/ProviderConfigurationPatch' }
+
+    CreatePersonEnrichmentRunRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+
+    ProviderRun:
+      type: object
+      required: [id, subject_kind, provider, trigger, state, claims_unwritten, connection_version, configuration_snapshot, requested_categories, reservations, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        subject_kind:
+          type: string
+          enum: [person]
+          description: |
+            The kind of record this run enriches, drawn from the canonical EntityType vocabulary
+            (DM-CONV-17). Only `person` is supported today; the matching typed id field below is
+            populated for that kind (PI-DDL-2).
+        person_id:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            Populated exactly when `subject_kind` is `person`, and null otherwise. Each supported
+            subject kind has its own typed id field; the pairing is enforced by the shape check on
+            `provider_run` (PI-DDL-2), not by this schema.
+        provider: { $ref: '#/components/schemas/Provider' }
+        trigger: { type: string, enum: [automatic_create, automatic_import, scheduled_refresh, manual] }
+        state: { type: string, enum: [queued, submitting, in_progress, completed, no_match, skipped, submission_unknown, failed, cancelled] }
+        skip_reason:
+          type: [string, 'null']
+          enum: [budget_exhausted, low_balance, suppressed, not_eligible, duplicate_subject_candidate, rate_limited, already_fresh, null]
+          description: |
+            Why a `skipped` run sent nothing. Null for every other state.
+            `duplicate_subject_candidate` means the subject looked like a duplicate of an
+            already-enriched record, so no provider call was made (PI-PARAM-9).
+            `rate_limited` means the connection's daily run ceiling was already reached
+            (PI-PARAM-13). `already_fresh` means a completed run for this subject is newer
+            than the connection's refresh window, so an automatic trigger declined to buy
+            the same data twice (PI-PARAM-14) — nothing failed and no budget was consumed.
+        connection_version: { type: integer, format: int64, minimum: 1 }
+        configuration_snapshot: { $ref: '#/components/schemas/ProviderConfiguration' }
+        requested_categories: { type: array, uniqueItems: true, items: { type: string } }
+        reservations:
+          type: array
+          description: Maximum credits held per pool before submission, reconciled to actual spend on a terminal result (PI-FORM-1).
+          items:
+            type: object
+            required: [pool, reserved_credits]
+            properties:
+              pool: { type: string }
+              reserved_credits: { type: integer, minimum: 0 }
+              actual_credits: { type: [integer, 'null'], minimum: 0 }
+        claims_unwritten:
+          type: boolean
+          default: false
+          description: |
+            True when a paid terminal result could not be handed to the owning domain within
+            the bounded retry (PI-PARAM-10). The spend is real and the claims are absent; an
+            operator sees the gap rather than discovering it as missing data (PI-AC-12).
+        submitted_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        safe_status_code:
+          type: [string, 'null']
+          description: Closed product reason only; never a provider body or person value.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PersonProviderEmail:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string, format: email }
+        email_type:
+          type: [string, 'null']
+          enum: [professional, personal, null]
+          description: May be classified from the frozen requested cascade when Surfe omits `emailType`.
+        email_type_source:
+          type: [string, 'null']
+          enum: [provider, requested_cascade, null]
+          description: Prevents a request-context label from masquerading as a provider-returned type.
+        validation_status:
+          type: [string, 'null']
+          description: "Surfe's returned validation status, displayed without relabelling every value ‘verified’."
+
+    PersonProviderPhone:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+
+    PersonProviderEmployment:
+      type: object
+      properties:
+        company_name: { type: [string, 'null'] }
+        company_domain: { type: [string, 'null'] }
+        job_title: { type: [string, 'null'] }
+
+    PersonProviderJobHistory:
+      type: object
+      required: [company_name]
+      properties:
+        company_name: { type: string }
+        job_title: { type: [string, 'null'] }
+        started_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
+        linkedin_url: { type: [string, 'null'], format: uri }
+
+    PersonProviderProfile:
+      type: object
+      description: |
+        Separate “Provided by Surfe” snapshot for the Person360 response. Provider provenance is
+        not an underlying webpage citation; these values never silently overwrite canonical fields.
+      required: [state, categories_not_requested, emails, mobile_phones, job_history, departments, seniorities]
+      properties:
+        state:
+          type: string
+          enum: [not_connected, not_eligible, never_run, queued, in_progress, completed, no_match, stale, invalid_credentials, insufficient_credits, rate_limited, provider_error, submission_unknown, completed_claims_unwritten]
+        provider: { $ref: '#/components/schemas/Provider' }
+        retrieved_at: { type: [string, 'null'], format: date-time }
+        safe_status_code: { type: [string, 'null'] }
+        categories_not_requested: { type: array, uniqueItems: true, items: { type: string } }
+        emails: { type: array, items: { $ref: '#/components/schemas/PersonProviderEmail' } }
+        mobile_phones: { type: array, items: { $ref: '#/components/schemas/PersonProviderPhone' } }
+        linkedin_url: { type: [string, 'null'], format: uri }
+        current_employment: { $ref: '#/components/schemas/PersonProviderEmployment' }
+        job_history: { type: array, items: { $ref: '#/components/schemas/PersonProviderJobHistory' } }
+        location: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        region:
+          type: [string, 'null']
+          description: |
+            Geographic state/province as the provider returned it. Named `region` because
+            `state` on this schema is the run lifecycle state above; a duplicate key here
+            silently dropped the lifecycle field until ADR-0101 Decision 6.
+        country: { type: [string, 'null'] }
+        departments: { type: array, items: { type: string } }
+        seniorities: { type: array, items: { type: string } }
+        latest_run: { $ref: '#/components/schemas/ProviderRun' }
+        contributing_runs:
+          type: array
+          description: |
+            Every retained completed run whose claims contribute to this snapshot. Normally the
+            single latest run; after a merge it spans both sides so purchased values stay visible
+            rather than merely stored (PI-AC-11).
+          items: { $ref: '#/components/schemas/ProviderRun' }
     Person:
       type: object
       description: A contact. Mirrors the `person` table.
@@ -16403,7 +16864,7 @@ components:
          automation, voice_profile, product, offer, signal, saved_view, custom_field,
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
-         channel_connection, import_run, installation_settings, finance]
+         channel_connection, import_run, installation_settings, finance, integrations]
 
     RbacAction:
       type: string
