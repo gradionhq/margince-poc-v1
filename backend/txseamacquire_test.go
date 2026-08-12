@@ -61,6 +61,13 @@ var connectionAcquirers = map[string]string{
 	"activeColumns":    "reads the custom-field catalog, which opens a transaction of its own",
 	"activeColumnsFor": "reads the custom-field catalog, which opens a transaction of its own",
 	"ActiveColumns":    "reads the custom-field catalog through the fieldcatalog seam, which opens a transaction of its own",
+	// The stores' own catalog reads, which a composite calls by name. They
+	// exist precisely so the answer can be fetched above a transaction, so
+	// calling one from inside a borrowed transaction reinstates the defect
+	// they were introduced to remove.
+	"ActivePersonColumns":       "reads the person custom-field catalog, which opens a transaction of its own",
+	"ActiveOrganizationColumns": "reads the organization custom-field catalog, which opens a transaction of its own",
+	"ActiveDealColumns":         "reads the deal custom-field catalog, which opens a transaction of its own",
 }
 
 func TestATxAcceptingFunctionAcquiresNoConnectionOfItsOwn(t *testing.T) {
@@ -260,7 +267,7 @@ func TestTheGateSeesAnAcquireInsideATransactionCallback(t *testing.T) {
 func (s *Service) Assemble(ctx context.Context, id ids.PersonID) (Person, error) {
 	var out Person
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		active, err := s.people.ActiveColumns(ctx, "person")
+		active, err := s.people.ActivePersonColumns(ctx)
 		if err != nil {
 			return err
 		}
@@ -270,11 +277,11 @@ func (s *Service) Assemble(ctx context.Context, id ids.PersonID) (Person, error)
 	return out, err
 }
 `
-	assertGateReads(t, assembler, "Assemble's transaction callback", "ActiveColumns")
+	assertGateReads(t, assembler, "Assemble's transaction callback", "ActivePersonColumns")
 
 	const repaired = fixtureImports + `
 func (s *Service) Assemble(ctx context.Context, id ids.PersonID) (Person, error) {
-	active, err := s.people.ActiveColumns(ctx, "person")
+	active, err := s.people.ActivePersonColumns(ctx)
 	if err != nil {
 		return Person{}, err
 	}
