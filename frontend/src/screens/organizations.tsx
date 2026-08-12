@@ -2143,6 +2143,7 @@ function CompanyPage({
         org={org}
         view={view}
         overlay={overlay}
+        loading={loading}
         failed={failed}
         tab={tab}
         onTab={onTab}
@@ -2278,6 +2279,7 @@ function CompanyRecordBody({
   org,
   view,
   overlay,
+  loading,
   failed,
   tab,
   onTab,
@@ -2296,6 +2298,10 @@ function CompanyRecordBody({
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
+  // The composite read's own pending flag, threaded to every card below that
+  // reads `view` directly with no skeleton guard of its own — see
+  // sectionState's own doc for why "undefined view" is not one fact.
+  loading: boolean;
   failed: boolean;
   tab: CompanyTab;
   onTab: (next: CompanyTab) => void;
@@ -2332,6 +2338,7 @@ function CompanyRecordBody({
           org={org}
           view={view}
           overlay={overlay}
+          loading={loading}
           readOnly={readOnly}
           onAllDeals={() => onTab("deals")}
           onOpenHistory={onOpenHistory}
@@ -2368,7 +2375,12 @@ function CompanyRecordBody({
           copy stands down while it is open — the same roster twice, side by
           side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
-        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
+        <PeopleCard
+          view={view}
+          writable={!org.archived_at}
+          orgId={org.id}
+          loading={loading}
+        />
       )}
       {/* Files get the whole column on their own tab, which is what the mockup
           gives them. The grid keeps its compact card for the reader who only
@@ -2417,6 +2429,7 @@ function CompanyOverviewStack({
   org,
   view,
   overlay,
+  loading,
   readOnly,
   onAllDeals,
   onOpenHistory,
@@ -2425,6 +2438,8 @@ function CompanyOverviewStack({
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
+  // The composite read's own pending flag — see CompanyRecordBody's own doc.
+  loading: boolean;
   // An archived company takes no new deal, task or role, so the panels below
   // show no verb that would only be refused.
   readOnly: boolean;
@@ -2470,12 +2485,17 @@ function CompanyOverviewStack({
               )
             }
             onAllDeals={onAllDeals}
+            loading={loading}
           />
           {/* The money. Absent entirely on an account we have never billed —
               CompanyFinanceCard's own FIN-AC-3 gate. */}
           <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
           {/* What happened lately, grouped by day. */}
-          <RecentActivityPanel view={view} onOpenHistory={onOpenHistory} />
+          <RecentActivityPanel
+            view={view}
+            onOpenHistory={onOpenHistory}
+            loading={loading}
+          />
         </>
       )}
     </div>

@@ -725,6 +725,53 @@ describe("company view — next steps", () => {
   });
 });
 
+describe("company view — a section still loading is not one that failed", () => {
+  // The composite read hands every section the SAME undefined `view` while
+  // it is still in flight and once it has actually failed — sectionState's
+  // whole job is telling those two apart, and this pins the distinction it
+  // is for: a read that has not answered yet draws a skeleton, and only a
+  // read that answered with an error draws "could not be loaded".
+  it("draws a skeleton while the composite read is still in flight, not a failure", async () => {
+    let resolve360: (() => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          // Hangs until the assertions below have looked at the still-loading
+          // page, then resolves so cleanup does not leave a dangling fetch.
+          await new Promise<void>((resolve) => {
+            resolve360 = resolve;
+          });
+          return jsonResponse(view());
+        }
+        if (pathname.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ allow: { organization: ["read"] } }));
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({ data: [], page: emptyPage });
+      }),
+    );
+    renderCompany();
+
+    await screen.findByText("Brandt Automotive GmbH");
+    const heading = screen.getByRole("heading", { name: "Commercial" });
+    const panel = heading.closest("section");
+    if (!panel) {
+      throw new Error("the Commercial panel has no section wrapper");
+    }
+    await waitFor(() => expect(panel.querySelector(".skeleton")).toBeTruthy());
+    expect(within(panel).queryByText(/Could not be loaded/)).toBeNull();
+
+    resolve360?.();
+    await waitFor(() =>
+      expect(within(panel).queryByText(/Could not be loaded/)).toBeNull(),
+    );
+  });
+});
+
 describe("company view — a failed read is not an empty account", () => {
   it("says the page is partial instead of drawing a bare account", async () => {
     stub({ title: "Internal", detail: "boom" }, 500);

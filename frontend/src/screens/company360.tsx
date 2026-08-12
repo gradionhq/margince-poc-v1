@@ -312,19 +312,33 @@ export type SectionState =
  * sectionState classifies one 360 section. `present` is whether the payload
  * carried it at all, which is a different question from whether it had rows.
  *
- * No payload at all — the composite read failed — makes every section
- * unavailable. The cards take an optional view for exactly this reason: a
- * fabricated empty payload would have to claim an as_of it does not have,
- * and would be indistinguishable from a real answer one refactor later.
+ * No payload at all is two different facts, not one, and `loading` is what
+ * tells them apart: the composite read still in flight and the composite
+ * read that failed both hand every card an undefined `view`, and without
+ * `loading` this function could not see the difference — every section on
+ * every record page reads UNAVAILABLE, "some of this page could not be
+ * loaded", for as long as the read is still running. On a slow connection
+ * that is not a flash, it is the page calling itself broken while its own
+ * data is on the way. The cards take an optional view for exactly this
+ * reason: a fabricated empty payload would have to claim an as_of it does
+ * not have, and would be indistinguishable from a real answer one refactor
+ * later.
  */
 export function sectionState(
   view: Organization360 | undefined,
   section: Section,
   present: boolean,
   count: number,
+  // Whether the read that would carry `view` is still running. Defaults to
+  // false rather than being required so a caller wired to a query that has
+  // no pending state of its own (NextSteps, CompanyTasksTab's own withheld
+  // check — both only ever call this once their OWN guard has already
+  // proven `view` defined) is not forced to invent one; a caller reading
+  // straight off the composite `view` MUST pass its query's own `isPending`.
+  loading = false,
 ): SectionState {
   if (!view) {
-    return "unavailable";
+    return loading ? "loading" : "unavailable";
   }
   if (omitted(view, section)) {
     return "withheld";
@@ -616,10 +630,15 @@ export function PeopleCard({
   // The account whose connection graph a route-in asks about. Absent on the
   // loading skeleton, where there is no account to ask about yet.
   orgId,
+  // The composite read's own pending flag, so an undefined `view` reads as
+  // "still loading" rather than "could not be loaded" for as long as the
+  // read is actually running.
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   writable?: boolean;
   orgId?: string;
+  loading?: boolean;
 }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
@@ -654,6 +673,7 @@ export function PeopleCard({
         "people",
         Boolean(view?.people),
         contacts.length,
+        loading,
       )}
       emptyLabel={t("co.people.empty")}
       footer={
@@ -1157,6 +1177,7 @@ export function DealsCard({
   view,
   actions,
   extra,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   // The verbs that change this section, rendered under it. Absent on an
@@ -1167,6 +1188,12 @@ export function DealsCard({
   // the two readings that both start from "this account's open deals" stop
   // reading as two different sections.
   extra?: ReactNode;
+  // The composite read's own pending flag — see sectionState's own doc. The
+  // Deals tab already gates its own skeleton on `!view && !failed` before
+  // this ever renders, so `view` is always defined by the time this call
+  // runs; passed anyway so the card is correct on its own terms rather than
+  // depending on a caller's guard it cannot see.
+  loading?: boolean;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1177,6 +1204,7 @@ export function DealsCard({
     "deals",
     Boolean(deals),
     deals?.data.length ?? 0,
+    loading,
   );
   const present = state === "ready" || state === "empty";
   return (
@@ -1262,11 +1290,14 @@ export function CommercialPanel({
   view,
   titleAction,
   onAllDeals,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   // The "new deal" verb, gated by the caller on the record being writable.
   titleAction?: ReactNode;
   onAllDeals?: () => void;
+  // The composite read's own pending flag — see sectionState's own doc.
+  loading?: boolean;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1276,6 +1307,7 @@ export function CommercialPanel({
     "deals",
     Boolean(deals),
     deals?.data.length ?? 0,
+    loading,
   );
   const present = state === "ready" || state === "empty";
   // The section is a page of `deals.data` with `has_more` beside it — past
@@ -1400,6 +1432,7 @@ export function TagsCard({
   view,
   listAction,
   tagAction,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   // One verb per SECTION, not one per card. The two halves are governed by
@@ -1408,6 +1441,8 @@ export function TagsCard({
   // already applies to what it displays.
   listAction?: ReactNode;
   tagAction?: ReactNode;
+  // The composite read's own pending flag — see sectionState's own doc.
+  loading?: boolean;
 }>) {
   const t = useT();
   const tags = view?.tags ?? [];
@@ -1417,8 +1452,15 @@ export function TagsCard({
     "list_memberships",
     Boolean(view?.list_memberships),
     lists.length,
+    loading,
   );
-  const tagState = sectionState(view, "tags", Boolean(view?.tags), tags.length);
+  const tagState = sectionState(
+    view,
+    "tags",
+    Boolean(view?.tags),
+    tags.length,
+    loading,
+  );
   // Present means read and answered — ready or empty. A withheld section says
   // the caller may not see it, and an unavailable one says nobody knows; a
   // verb on either offers a write whose refusal would be the first the reader
@@ -1500,11 +1542,14 @@ function groupByDay(entries: readonly TimelineEntry[], locale: Locale) {
 export function RecentActivityPanel({
   view,
   onOpenHistory,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   // Where the header's link leads. Absent for a caller with no History tab
   // of its own (the stories file).
   onOpenHistory?: () => void;
+  // The composite read's own pending flag — see sectionState's own doc.
+  loading?: boolean;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1519,6 +1564,7 @@ export function RecentActivityPanel({
     "activities",
     Boolean(view?.activities),
     logged.length,
+    loading,
   );
   const days = groupByDay(
     activityTimeline(logged.slice(0, RECENT_ACTIVITY_LIMIT), viewerId),
