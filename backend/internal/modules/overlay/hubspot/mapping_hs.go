@@ -232,6 +232,13 @@ var contactsMapping = overlay.ObjectMapping{
 // the canonical domain spelling (HubSpot's `domain` property is already a bare
 // host: no scheme, no www). The overlay org wire lifts it onto the contract's
 // domains[] so a mirrored company shows its domain like a native one.
+//
+// createdate carries the incumbent's own create instant, for the same reason
+// contacts' does: a mirrored company otherwise reports when we mirrored it. Its
+// last-modified counterpart needs no FieldMapping — Baseline already lands
+// hs_lastmodifieddate on the canonical last_synced_at. The two spellings differ
+// by object class: a company has hs_lastmodifieddate where a contact has
+// lastmodifieddate, while createdate is the same property name on both.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
 	Target:         organizationTarget,
@@ -247,6 +254,7 @@ var companiesMapping = overlay.ObjectMapping{
 			Kind:      overlay.TargetColumn,
 			Transform: "employees_to_size_band",
 		},
+		{From: []string{"createdate"}, To: "created_at", Kind: overlay.TargetColumn},
 		{
 			From:      []string{propDomain},
 			To:        "organization_domain.domain",

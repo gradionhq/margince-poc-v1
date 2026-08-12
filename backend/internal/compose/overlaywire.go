@@ -11,12 +11,12 @@ package compose
 // `source: overlay`, the FULL canonical payload rides `raw` (nothing the
 // mapper landed is dropped just because a typed slot doesn't exist for
 // it), and a timestamp is the incumbent's own wherever the mapping mirrors
-// one: a person's created_at is the incumbent's create instant and its
-// updated_at the incumbent's last-modified instant, each falling back to the
-// mirror's own last-synced instant — the only time the mirror can claim for
-// itself — where the incumbent stamped none. The other four entities read
-// the mirror's own last-synced instant into both slots, even where the
-// mapping landed the incumbent's (#1016).
+// one: a person's and an organization's created_at is the incumbent's create
+// instant and its updated_at the incumbent's last-modified instant, each
+// falling back to the mirror's own last-synced instant — the only time the
+// mirror can claim for itself — where the incumbent stamped none. The other
+// three entities read the mirror's own last-synced instant into both slots,
+// even where the mapping landed the incumbent's (#1016).
 
 import (
 	"context"
@@ -126,6 +126,8 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 // mirror record. size_band rides only when it lands on the contract's
 // own enum (the mapper's transform already targets those band labels);
 // an off-enum value stays in raw rather than shipping an invalid enum.
+// The address is the mapper's own address_json assembly, already spelled in
+// the contract's member vocabulary, so it is shaped rather than re-derived.
 func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcontracts.Organization, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {
@@ -142,8 +144,9 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 		CapturedBy:  ptrString(overlayCapturedByValue),
 		DisplayName: displayName,
 		Industry:    fieldStringPtr(fields, "industry"),
-		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
+		Address:     overlayAddress(fields),
+		CreatedAt:   overlayTimeOr(fields, "created_at", syncedAt),
+		UpdatedAt:   overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:         &fields,
 		// Stated rather than omitted: a mirror-backed organization is one of
 		// the incumbent's accounts, and the installation's own company is a
