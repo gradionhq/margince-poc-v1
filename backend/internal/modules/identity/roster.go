@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -150,7 +149,7 @@ func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, 
 	if in.IncludeInactive {
 		plain, filtered = listUsersAllQuery, listUsersAllFilteredQuery
 	}
-	return listRosterPage(ctx, s.db.Pool(), in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
+	return listRosterPage(ctx, s.db, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
 		plain:     plain,
 		filtered:  filtered,
 		leadArgs:  []any{in.WithRoles},
@@ -211,7 +210,7 @@ func scanTeam(r pgx.Row) (teamRow, error) {
 // teams (row-scoped by RLS) with each team's active-membership count,
 // optionally filtered by in.Q.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
-	return listRosterPage(ctx, s.db.Pool(), in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
+	return listRosterPage(ctx, s.db, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
 		plain:     listTeamsQuery,
 		filtered:  listTeamsFilteredQuery,
 		scan:      scanTeam,
@@ -263,7 +262,7 @@ type rosterQuery[T userRow | teamRow] struct {
 // a page + continuation cursor. Generic over the row type so ListUsers and
 // ListTeams share this instead of carrying two copies of the same plumbing.
 func listRosterPage[T userRow | teamRow](
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, db *database.DB,
 	q, cursor *string, limitIn *int,
 	spec rosterQuery[T],
 ) ([]T, storekit.Page, error) {
@@ -274,7 +273,7 @@ func listRosterPage[T userRow | teamRow](
 	}
 
 	var pageRows []T
-	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err = db.Tx(ctx, func(tx pgx.Tx) error {
 		var rows pgx.Rows
 		var err error
 		if q != nil && *q != "" {
