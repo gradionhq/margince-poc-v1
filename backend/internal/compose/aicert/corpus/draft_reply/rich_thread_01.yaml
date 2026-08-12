@@ -11,6 +11,7 @@ fixture:
     now: '2026-08-12T09:00:00Z'
     sender_name: Anna Krüger
     sender_email: anna.krueger@example.com
+    thread: inbound_mail
     recipient: Priya
     register: du
     subject: Corvia CRM - erstes Feedback

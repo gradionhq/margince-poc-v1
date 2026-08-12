@@ -132,6 +132,7 @@ func (d replyDrafter) completeChecked(ctx context.Context, data replyActivityDat
 		// The reply site returns no reasoning: its schema is subject and body
 		// alone, so there is no second channel to judge here.
 		func(draft replyDraft) (string, []string) { return draft.Body, nil },
+		func(draft replyDraft) (string, bool) { return draft.Subject, data.Threaded() },
 		draftRetryLog{log: d.logger()},
 	)
 }

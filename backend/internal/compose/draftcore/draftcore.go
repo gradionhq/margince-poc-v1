@@ -62,6 +62,12 @@ type Observer interface {
 // folding it in would let a phrase banned in prose hide there.
 type TextOf[D any] func(D) (body string, reasoning []string)
 
+// SubjectOf reads a draft's subject line and whether a real inbound thread
+// earns it a reply prefix. Separate from TextOf because a subject fails
+// differently — its worst failure is a CLAIM ("Re:" says a thread exists)
+// rather than a phrase — and because a surface with no subject supplies none.
+type SubjectOf[D any] func(D) (subject string, threaded bool)
+
 // CorrectOnce writes a draft, checks it against the correspondence it was
 // written into, and gives the model exactly one chance to fix what it got wrong.
 //
@@ -79,12 +85,17 @@ type TextOf[D any] func(D) (body string, reasoning []string)
 // only evidence available without asking a model to judge its own output.
 func CorrectOnce[D any](
 	ctx context.Context, lang textlang.Lang, band convstate.Band,
-	write Writer[D], textOf TextOf[D], observe Observer,
+	write Writer[D], textOf TextOf[D], subjectOf SubjectOf[D], observe Observer,
 ) (D, error) {
 	check := func(draft D) []draftcheck.Finding {
 		body, reasoning := textOf(draft)
-		return append(draftcheck.Body(body, lang, band),
+		findings := append(draftcheck.Body(body, lang, band),
 			draftcheck.Reasoning(reasoning, lang, band)...)
+		if subjectOf != nil {
+			subject, threaded := subjectOf(draft)
+			findings = append(findings, draftcheck.Subject(subject, lang, band, threaded)...)
+		}
+		return findings
 	}
 
 	draft, err := write(ctx, "")

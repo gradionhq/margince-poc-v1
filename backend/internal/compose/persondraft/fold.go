@@ -365,3 +365,10 @@ func stamp(at *time.Time) string {
 	}
 	return at.UTC().Format(time.RFC3339)
 }
+
+// Threaded reports whether a real inbound message earns this draft a reply
+// prefix. Only a message THEY sent counts: our own last outbound carries a
+// subject too, and "Re:" on it replies to ourselves.
+func (in Input) Threaded() bool {
+	return len(in.Recent) > 0 && in.Recent[0].Inbound && in.Recent[0].Subject != ""
+}

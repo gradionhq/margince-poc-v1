@@ -361,3 +361,53 @@ func TestTheStaleThreadPhrasingsAreCaught(t *testing.T) {
 		}
 	}
 }
+
+// A subject fails differently from a body: it is one line, it is read before
+// anything else, and its worst failure is a CLAIM rather than a phrase.
+func TestASubjectMayNotClaimAThreadThatDoesNotExist(t *testing.T) {
+	for _, subject := range []string{"Re: Angebot", "AW: Angebot", "Fwd: Angebot", "WG: Angebot"} {
+		if f := draftcheck.Subject(subject, textlang.German, convstate.BandFresh, false); len(f) == 0 {
+			t.Errorf("%q claims an inbound thread that was never received", subject)
+		}
+		if f := draftcheck.Subject(subject, textlang.German, convstate.BandFresh, true); len(f) != 0 {
+			t.Errorf("%q is correct when a real thread stands behind it, got %+v", subject, f)
+		}
+	}
+}
+
+// At band none there is nothing to follow up ON, so a subject saying so is a
+// claim about a message that does not exist.
+func TestAFirstTouchSubjectMayNotReferBack(t *testing.T) {
+	for lang, subject := range map[textlang.Lang]string{
+		textlang.English: "Follow-up on our conversation",
+		textlang.German:  "Nachfassen zum Angebot",
+	} {
+		if f := draftcheck.Subject(subject, lang, convstate.BandNone, false); len(f) == 0 {
+			t.Errorf("%s: %q refers back on a first message", lang, subject)
+		}
+		// The same words are honest once there IS something behind them.
+		if f := draftcheck.Subject(subject, lang, convstate.BandWeeks, false); len(f) != 0 {
+			t.Errorf("%s: %q is fine when a history exists, got %+v", lang, subject, f)
+		}
+	}
+}
+
+// A subject the client truncates loses the part that carried the meaning.
+func TestAnOverlongSubjectIsCaught(t *testing.T) {
+	long := "Unser Angebot zur Schnittstelle, zum Zeitplan, zur Abnahme und zu den " +
+		"weiteren Schritten im Projekt"
+
+	if f := draftcheck.Subject(long, textlang.German, convstate.BandFresh, false); len(f) == 0 {
+		t.Errorf("a %d-rune subject should be caught at %d", len([]rune(long)), draftcheck.SubjectMaxRunes)
+	}
+	if f := draftcheck.Subject("Angebot Schnittstelle", textlang.German, convstate.BandFresh, false); len(f) != 0 {
+		t.Errorf("a short subject should pass, got %+v", f)
+	}
+}
+
+// An empty subject arrives looking like spam.
+func TestAnEmptySubjectIsCaught(t *testing.T) {
+	if f := draftcheck.Subject("   ", textlang.German, convstate.BandFresh, false); len(f) != 1 {
+		t.Errorf("an empty subject should be caught exactly once, got %+v", f)
+	}
+}

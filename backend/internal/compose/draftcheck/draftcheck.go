@@ -379,6 +379,90 @@ func boundary(text string, i int) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\''
 }
 
+// SubjectMaxRunes is where a subject line stops being read.
+//
+// Mail clients truncate around here, and a subject that needs more than this
+// is a first sentence rather than a label. The number is the conventional one
+// rather than any client's exact cut, because every client's differs and the
+// point is to stay short of all of them.
+const SubjectMaxRunes = 70
+
+// replyPrefixes are the ways a client marks a subject as a reply, in the
+// languages this product writes.
+var replyPrefixes = []string{"re:", "aw:", "fwd:", "wg:", "antw:"}
+
+// Subject reads a draft's subject line against the correspondence it belongs to.
+//
+// Separate from Body because a subject fails differently: it is one line, it is
+// read before anything else, and its worst failure is a claim rather than a
+// phrase. "Re:" says a thread exists. A follow-up subject says there was a
+// previous message. Both are checkable facts the envelope already holds, which
+// is why they are refused here rather than explained in a prompt.
+func Subject(subject string, lang textlang.Lang, band convstate.Band, threaded bool) []Finding {
+	trimmed := strings.TrimSpace(subject)
+	lowered := strings.ToLower(trimmed)
+	var findings []Finding
+
+	if trimmed == "" {
+		return []Finding{{
+			Rule:   "empty-subject",
+			Phrase: "",
+			Why:    "a message with no subject line arrives looking like spam",
+		}}
+	}
+
+	for _, prefix := range replyPrefixes {
+		if !strings.HasPrefix(lowered, prefix) {
+			continue
+		}
+		if !threaded {
+			findings = append(findings, Finding{
+				Rule:   "unearned-reply-prefix",
+				Phrase: strings.TrimSuffix(prefix, ":"),
+				Why: "there is no inbound thread with this subject, so the prefix claims " +
+					"a message that was never received",
+			})
+		}
+		break
+	}
+
+	// A follow-up subject at band none says there was something before this.
+	// There was not: this is the first message.
+	if band == convstate.BandNone {
+		for _, phrase := range append(append([]string{},
+			assumedMemory[lang]...), firstTouchSubjects[lang]...) {
+			if contains(lowered, phrase) {
+				findings = append(findings, Finding{
+					Rule:   "invented-history-subject",
+					Phrase: phrase,
+					Why:    "this is a first message, so the subject cannot refer back to anything",
+				})
+				break
+			}
+		}
+	}
+
+	if n := len([]rune(trimmed)); n > SubjectMaxRunes {
+		findings = append(findings, Finding{
+			Rule:   "long-subject",
+			Phrase: trimmed[:40] + "…",
+			Why: "a subject this long is truncated by the client that shows it, so the " +
+				"part that carries the meaning may never be read",
+		})
+	}
+	return findings
+}
+
+// firstTouchSubjects are the subject-line formulas that imply a previous
+// message. They overlap the body's assumed-memory list and are not the same:
+// a subject is a label, so "Follow-up" alone is a claim there where it needs a
+// sentence around it to be one in prose.
+var firstTouchSubjects = map[textlang.Lang][]string{
+	textlang.English:    {"follow-up", "follow up", "checking in", "touching base", "reminder"},
+	textlang.German:     {"nachfassen", "nachfrage", "erinnerung", "wiedervorlage"},
+	textlang.Vietnamese: {"nhắc lại", "tiếp theo"},
+}
+
 // Feedback turns findings into the correction a regeneration prompt carries.
 // One line per finding, naming the phrase and why it is wrong here, because a
 // model told only "try again" produces the same draft with different adjectives.
