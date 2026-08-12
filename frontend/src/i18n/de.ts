@@ -724,16 +724,8 @@ export const de = {
   "record.profile": "Profil",
   "record.context": "Kontext",
   "record.accountContext": "Account-Kontext",
-  "co.pulse.strongestLead": "Zugang \u00fcber",
-  "co.pulse.strengthTail.one": "\u2014 der einzige Kontakt hier",
-  "co.pulse.strengthTail.other": "\u2014 von {count} Kontakten hier",
-  "co.pulse.noStrength": "Noch keine Interaktionen erfasst",
-  // Zwei Zeitpunkte, nie zu einem "letzter Kontakt" verschmolzen: wer zuletzt
-  // geschrieben hat, ist die eigentliche Frage.
-  "co.pulse.lastInbound": "Sie schrieben {when}",
-  "co.pulse.lastOutbound": "Wir schrieben {when}",
-  "co.pulse.noInbound": "Sie haben nie geschrieben",
-  "co.pulse.noOutbound": "Wir haben nie geschrieben",
+  "co.pulse.created": "Erstellt {when}",
+  "co.pulse.lastExchange": "Letzter Austausch {when}",
   "co.pulse.neverTouched": "Noch nie kontaktiert",
   "co.pulse.owner": "Betreut von",
   "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",

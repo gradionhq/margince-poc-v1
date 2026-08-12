@@ -115,14 +115,28 @@ function stub(overrides: Record<string, (req: Request) => Response> = {}) {
 describe("CompanyRail", () => {
   it("renders nothing while the composer holds the column", () => {
     stub();
-    render(<CompanyRail orgId="o-1" view={view()} withPeople composerOpen />);
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen
+      />,
+    );
     expect(screen.queryByText("Details")).not.toBeInTheDocument();
   });
 
   it("draws the details grid from the fields the record actually carries", async () => {
     stub();
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     expect(screen.getByText("Brandt Automotive GmbH")).toBeInTheDocument();
     expect(screen.getByText("Automotive")).toBeInTheDocument();
@@ -152,6 +166,7 @@ describe("CompanyRail", () => {
       <CompanyRail
         orgId="o-1"
         view={view({ organization: bare })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -183,6 +198,7 @@ describe("CompanyRail", () => {
             relationship: { rating: "good", reason: "Replying steadily." },
           },
         })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -198,6 +214,7 @@ describe("CompanyRail", () => {
       <CompanyRail
         orgId="o-1"
         view={view({ sections_omitted: ["health", "people"] })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -248,6 +265,7 @@ describe("CompanyRail", () => {
             page: emptyPage,
           },
         })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -285,7 +303,13 @@ describe("CompanyRail", () => {
         }),
     });
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     await waitFor(() =>
       expect(screen.getByText("No reply in three weeks.")).toBeInTheDocument(),
@@ -309,6 +333,7 @@ describe("CompanyRail", () => {
             },
           ],
         })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -320,7 +345,13 @@ describe("CompanyRail", () => {
   it("offers the add-tag and add-to-list verbs once each half has answered, on a writable record", async () => {
     stub();
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     // Both halves answered `empty` (view()'s tags/list_memberships default to
     // []), so both verbs render beside the half they act on.
@@ -340,6 +371,7 @@ describe("CompanyRail", () => {
         view={view({
           organization: { ...org, archived_at: "2026-06-02T00:00:00Z" },
         })}
+        loading={false}
         withPeople
         composerOpen={false}
       />,
@@ -354,5 +386,53 @@ describe("CompanyRail", () => {
         screen.queryByRole("button", { name: /add tag/i }),
       ).not.toBeInTheDocument();
     });
+  });
+
+  // sectionState (company360.tsx) reads an undefined `view` as "loading" only
+  // when told the composite read is still running — otherwise it reads the
+  // exact same undefined `view` as "unavailable", the words a real outage
+  // shows. Before `loading` was threaded through, every ordinary page open
+  // flashed "could not be loaded" on Health/People/Tags for as long as the
+  // read was in flight. Pinned here as two DIFFERENT renders rather than one
+  // happy-path check, because a fix that only makes the loading case not
+  // crash is not the fix — it has to render DIFFERENTLY from the failed case.
+  it("reads an in-flight composite read as loading, not unavailable", () => {
+    stub();
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={undefined}
+        loading={true}
+        withPeople
+        composerOpen={false}
+      />,
+    );
+    // The skeleton placeholder, not the "could not be loaded" sentence.
+    expect(
+      screen.queryByText(
+        "Could not be loaded — this may not be the whole picture",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reads a failed composite read (view undefined, not loading) as unavailable", () => {
+    stub();
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={undefined}
+        loading={false}
+        withPeople
+        composerOpen={false}
+      />,
+    );
+    // The SAME undefined `view` as the loading test above, but with
+    // `loading={false}` — the honest "could not be loaded" sentence, not a
+    // skeleton pretending a read is still running.
+    expect(
+      screen.getAllByText(
+        "Could not be loaded — this may not be the whole picture",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });

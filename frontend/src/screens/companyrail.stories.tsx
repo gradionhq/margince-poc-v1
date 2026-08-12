@@ -113,7 +113,13 @@ function Rail({ view }: Readonly<{ view: View }>) {
   return (
     <StoryProviders>
       <div style={{ maxWidth: 340 }}>
-        <CompanyRail orgId="o-1" view={view} withPeople composerOpen={false} />
+        <CompanyRail
+          orgId="o-1"
+          view={view}
+          loading={false}
+          withPeople
+          composerOpen={false}
+        />
       </div>
     </StoryProviders>
   );

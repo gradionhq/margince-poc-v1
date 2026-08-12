@@ -246,6 +246,14 @@
   margin: 12px 0 16px;
 }
 
+/* `actionsInline`: the verbs sit on the SAME baseline as the identity block
+   rather than in their own row underneath it — pushed to the header's far
+   end by the auto margin, the same row the mockup draws. */
+.record-actions-inline {
+  margin: 0 0 0 auto;
+  flex-shrink: 0;
+}
+
 /* On a phone the record's verbs stick to the bottom of the viewport (plan
  * §10.3). A rep scrolling an account's story is several screens from the
  * header by the time they decide to write; an action row that scrolled away
@@ -293,6 +301,15 @@
      right, like the bar on every other record. */
   .record-head-wide .record-controls .record-actions {
     width: 100%;
+    justify-content: flex-start;
+  }
+  /* Same fold as the controls column above: the header already wraps at
+     this width (record-head-wide, above), so the inline actions drop to
+     their own full-width line rather than staying pinned to the header's
+     far end with nothing beside them. */
+  .record-actions-inline {
+    flex-basis: 100%;
+    margin-left: 0;
     justify-content: flex-start;
   }
   /* The bar floats over the end of the page while scrolling, so the record

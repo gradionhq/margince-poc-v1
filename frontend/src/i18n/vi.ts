@@ -718,17 +718,8 @@ export const vi = {
   "record.profile": "Hồ sơ",
   "record.context": "Bối cảnh",
   "record.accountContext": "Bối cảnh tài khoản",
-  "co.pulse.strongestLead": "Đường tiếp cận",
-  "co.pulse.strengthTail.one": "— contact duy nhất ở đây",
-  "co.pulse.strengthTail.other": "— trong {count} contact ở đây",
-  "co.pulse.noStrength": "Chưa ghi nhận tương tác nào",
-  // Two timestamps, never folded into one "last touch": which side wrote
-  // last is the question. Mailed a fortnight ago with no reply, and wrote
-  // to us this morning, are the same date and opposite situations.
-  "co.pulse.lastInbound": "Họ viết {when}",
-  "co.pulse.lastOutbound": "Bên mình viết {when}",
-  "co.pulse.noInbound": "Họ chưa bao giờ viết",
-  "co.pulse.noOutbound": "Bên mình chưa bao giờ viết",
+  "co.pulse.created": "Tạo {when}",
+  "co.pulse.lastExchange": "Trao đổi gần nhất {when}",
   "co.pulse.neverTouched": "Chưa từng liên hệ",
   "co.pulse.owner": "Người phụ trách",
   "co.owner.notInRoster":

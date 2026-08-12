@@ -76,9 +76,8 @@ import {
   CompanyActionBadges,
   CompanyChips,
   CompanyDescription,
+  CompanyIdentityLine,
   CompanyPrimaryActions,
-  CompanyPulse,
-  CompanyStanding,
 } from "./companyheader";
 import {
   LIFECYCLE_LABELS,
@@ -2026,6 +2025,11 @@ function CompanyPage({
     <CompanyRail
       orgId={org.id}
       view={view}
+      // The composite read still in flight vs. it having failed: without
+      // this the rail's own sections cannot tell the two apart from an
+      // undefined `view` alone, and both drawing the loading skeleton is not
+      // the same defect as both drawing "could not be loaded".
+      loading={loading}
       // The People tab IS the roster in full, so the rail's summary of it
       // stands down rather than repeating it beside itself.
       withPeople={tab !== "people"}
@@ -2069,9 +2073,10 @@ function CompanyPage({
         />
       }
       pulse={
-        <CompanyPulse
+        <CompanyIdentityLine
           org={org}
           view={view}
+          loading={loading}
           // The chip opens the queue, so it appears only where the queue can:
           // a count you cannot act on from here is a dead end.
           onOpenDecisions={
@@ -2089,10 +2094,11 @@ function CompanyPage({
           onComposerOpen={setWritingEmail}
         />
       }
-      // Lifecycle and owner, at the top right beside the verbs. Passing this
-      // also moves the action row up into the header, which is the company
-      // page's shape and no other record's.
-      controls={<CompanyStanding org={org} />}
+      // Lifecycle and owner read as part of the account's own line rather than
+      // as a column beside it, so they travel with the identity in `pulse`
+      // and this record passes no `controls` at all. The verbs still sit on
+      // the identity's own row, which is what `actionsInline` asks for.
+      actionsInline
       band={
         <CompanyBand
           org={org}
@@ -2100,7 +2106,6 @@ function CompanyPage({
           overlay={overlay}
           loading={loading}
           failed={failed}
-          tabs={tabs}
           t={t}
           onOpenRecord={receipt.open}
           onOpenTasks={() => onTab("tasks")}
@@ -2143,7 +2148,9 @@ function CompanyPage({
         org={org}
         view={view}
         overlay={overlay}
+        loading={loading}
         failed={failed}
+        tabs={tabs}
         tab={tab}
         onTab={onTab}
         t={t}
@@ -2192,7 +2199,6 @@ function CompanyBand({
   overlay,
   loading,
   failed,
-  tabs,
   t,
   onOpenRecord,
   onOpenTasks,
@@ -2205,7 +2211,6 @@ function CompanyBand({
   overlay: boolean;
   loading: boolean;
   failed: boolean;
-  tabs: ReactNode;
   t: ReturnType<typeof useT>;
   onOpenRecord: (entityType: string, entityId: string) => void;
   onOpenTasks: () => void;
@@ -2261,12 +2266,6 @@ function CompanyBand({
           onOpenTasks={onOpenTasks}
         />
       )}
-      {/* The tab bar sits UNDER the strip and the brief. The readings describe
-          the account itself, so they are read before the reader is asked
-          which part of it to open, and a bar above them would read as though
-          the strip or the brief belonged to whichever tab happens to be
-          selected. */}
-      {tabs}
     </>
   );
 }
@@ -2278,7 +2277,9 @@ function CompanyRecordBody({
   org,
   view,
   overlay,
+  loading,
   failed,
+  tabs,
   tab,
   onTab,
   t,
@@ -2296,7 +2297,12 @@ function CompanyRecordBody({
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
+  // The composite read's own pending flag, threaded to every card below that
+  // reads `view` directly with no skeleton guard of its own — see
+  // sectionState's own doc for why "undefined view" is not one fact.
+  loading: boolean;
   failed: boolean;
+  tabs: ReactNode;
   tab: CompanyTab;
   onTab: (next: CompanyTab) => void;
   t: ReturnType<typeof useT>;
@@ -2313,6 +2319,11 @@ function CompanyRecordBody({
 }>) {
   return (
     <>
+      {/* The bar that chooses which part of the account to read sits at the
+          top of the column it governs, not across the page: the readings and
+          the brief above it describe the ACCOUNT, and a bar spanning them
+          reads as though they belonged to whichever tab is selected. */}
+      {tabs}
       {/* Overlay refuses the whole company page, not one tab of it: the
           partner extension and the field history are native records the
           mirror does not hold, so switching tabs must not walk around the
@@ -2332,6 +2343,7 @@ function CompanyRecordBody({
           org={org}
           view={view}
           overlay={overlay}
+          loading={loading}
           readOnly={readOnly}
           onAllDeals={() => onTab("deals")}
           onOpenHistory={onOpenHistory}
@@ -2368,7 +2380,12 @@ function CompanyRecordBody({
           copy stands down while it is open — the same roster twice, side by
           side, is the duplication this page's own rule forbids. */}
       {tab === "people" && (
-        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
+        <PeopleCard
+          view={view}
+          writable={!org.archived_at}
+          orgId={org.id}
+          loading={loading}
+        />
       )}
       {/* Files get the whole column on their own tab, which is what the mockup
           gives them. The grid keeps its compact card for the reader who only
@@ -2417,6 +2434,7 @@ function CompanyOverviewStack({
   org,
   view,
   overlay,
+  loading,
   readOnly,
   onAllDeals,
   onOpenHistory,
@@ -2425,6 +2443,8 @@ function CompanyOverviewStack({
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
+  // The composite read's own pending flag — see CompanyRecordBody's own doc.
+  loading: boolean;
   // An archived company takes no new deal, task or role, so the panels below
   // show no verb that would only be refused.
   readOnly: boolean;
@@ -2470,12 +2490,17 @@ function CompanyOverviewStack({
               )
             }
             onAllDeals={onAllDeals}
+            loading={loading}
           />
           {/* The money. Absent entirely on an account we have never billed —
               CompanyFinanceCard's own FIN-AC-3 gate. */}
           <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
           {/* What happened lately, grouped by day. */}
-          <RecentActivityPanel view={view} onOpenHistory={onOpenHistory} />
+          <RecentActivityPanel
+            view={view}
+            onOpenHistory={onOpenHistory}
+            loading={loading}
+          />
         </>
       )}
     </div>
