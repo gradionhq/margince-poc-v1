@@ -19,7 +19,7 @@ import {
 } from "../screens/story-utils";
 import type { NavSection } from "./nav";
 import { CommandPalette, useBuiltinCommands } from "./palette";
-import { Shell, WorkspaceRail } from "./shell";
+import { PageHead, Shell, WorkspaceRail } from "./shell";
 
 // fullscreen: the shell sizes itself to the viewport, so Storybook's default
 // canvas padding would clip the sidebar foot and misrepresent the layout — and
@@ -245,17 +245,15 @@ const SETTINGS_SECTION: NavSection = {
 // where the story put it. Each depth below is therefore a story of its own,
 // which is also how a reviewer sees them side by side.
 //
-// A level takes the rail's head for its rows: no brand words, no search row. The
-// palette is left unmounted for that reason — with no row to open it, a wired
-// seam here would be a control nobody can reach, and the shell's own stories
-// above are where that seam belongs.
-const noSearchRow = () => undefined;
-
+// A level takes the brand's words for its rows and nothing else: the search row
+// is still there, so the palette is wired here exactly as it is above — a row
+// that opened nothing would misrepresent the one visible way to search.
 function LevelExample({
   initiallyCollapsed,
   tab = "audit",
 }: Readonly<{ initiallyCollapsed: boolean; tab?: string }>) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+  const { openSearch, palette } = usePaletteSeam();
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
       <WorkspaceRail
@@ -264,11 +262,12 @@ function LevelExample({
         counts={{ inbox: 12, tasks: 4 }}
         collapsed={collapsed}
         onToggle={() => setCollapsed((current) => !current)}
-        onOpenSearch={noSearchRow}
+        onOpenSearch={openSearch}
       />
       <main className="main">
         <div className="scroll" />
       </main>
+      {palette}
     </div>
   );
 }
@@ -282,11 +281,11 @@ function LevelStory({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-// The labeled level: the logomark, the way back up, the section's name, then its
-// two groups. The ten destinations are GONE rather than pushed below a second
-// list — 252px carrying both levels reads as a list of twenty places to go — and
-// the head is down to the mark alone, so the entries start where the brand words
-// and the search row used to sit.
+// The labeled level: the logomark, the search row, the way back up, the section's
+// name, then its two groups. The ten destinations are GONE rather than pushed
+// below a second list — 252px carrying both levels reads as a list of twenty
+// places to go — while the head keeps the mark and the search row, and gives up
+// only the brand's words.
 export const SectionLevel: Story = {
   name: "second level — expanded",
   render: () => (
@@ -321,11 +320,17 @@ export const ThirdLevel: Story = {
 };
 
 /**
- * The level at phone width: a bar of two controls — the way back up, and More
- * opening the sheet at the level the panel is showing, so the section's entries
- * stay one tap away and the destinations one tap behind the back row. The sheet
- * carries the same reduced head the sidebar does: the mark and the entries, no
- * search row.
+ * A section at phone width, where the sidebar does NOT hand its bar over.
+ *
+ * The bar keeps the four destinations plus More on a section route — handing them
+ * to a section's entries lost the whole product's navigation and left two
+ * controls floating in a card — so the section lives in the PAGE HEAD here: the
+ * heading names it, and the switcher under the heading names the entry the reader
+ * is on and opens the rest as a sheet.
+ *
+ * Rendered from the parts rather than through `Shell`, because the real settings
+ * section is published from live grants: the rail and the head are both handed the
+ * fixture, which is what keeps this a picture of the CHROME.
  *
  * One thing about the viewport tool is worth knowing before trusting a picture
  * of this: it is applied by the MANAGER, which resizes the preview iframe. These
@@ -334,12 +339,36 @@ export const ThirdLevel: Story = {
  * gate renders, gets the harness's own width and draws the SIDEBAR. Review this
  * one in Storybook itself, or by narrowing the browser.
  */
-export const SectionLevelPhone: Story = {
-  name: "second level — phone bar and sheet",
+function PhoneSectionExample() {
+  const route = { screen: "settings", id: "audit" };
+  const { openSearch, palette } = usePaletteSeam();
+  return (
+    <div className="app railexpanded">
+      <WorkspaceRail
+        route={route}
+        section={SETTINGS_SECTION}
+        counts={{ inbox: 12, tasks: 4 }}
+        onOpenSearch={openSearch}
+      />
+      <main className="main">
+        <PageHead route={route} section={SETTINGS_SECTION} />
+        <div className="scroll">
+          <div className="wrap">
+            <div className="card">Content</div>
+          </div>
+        </div>
+      </main>
+      {palette}
+    </div>
+  );
+}
+
+export const SectionPhone: Story = {
+  name: "a section — phone bar and the head's switcher",
   globals: { viewport: { value: "phone" } },
   render: () => (
     <LevelStory>
-      <LevelExample initiallyCollapsed={false} />
+      <PhoneSectionExample />
     </LevelStory>
   ),
 };

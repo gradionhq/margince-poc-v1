@@ -656,12 +656,12 @@ describe("SettingsScreen tab layout", () => {
       expect(screen.getByRole("link", { name: /Data model/i })).toBeTruthy(),
     );
     // The two groups the level carries, under its own title rather than beside
-    // it — the outline reads Settings → Your settings / Organization.
+    // it — the outline reads Settings → You / Organization.
     expect(
       within(nav)
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent),
-    ).toEqual(["Your settings", "Organization"]);
+    ).toEqual(["You", "Organization"]);
     for (const label of [
       "Account",
       "Voice DNA",

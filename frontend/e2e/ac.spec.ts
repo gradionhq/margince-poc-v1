@@ -71,9 +71,12 @@ test("AC-shell-1: the rail renders the canonical 10 items in order", async ({
   await page.goto("/#/home");
   // evaluateAll never waits — anchor on the rendered count first, or the
   // read races the auth splash and sees an empty rail.
-  await expect(page.locator("nav.rail a.navitem")).toHaveCount(10);
+  // Scoped to the level the panel is showing: the DESTINATIONS are its rows,
+  // while the foot's Settings door rides the same `.navitem` geometry without
+  // being one of them.
+  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(10);
   const labels = await page
-    .locator("nav.rail a.navitem")
+    .locator("nav.rail .navlevel a.navitem")
     .evaluateAll((links) =>
       links.map((link) => link.getAttribute("aria-label")),
     );
@@ -166,7 +169,7 @@ test("AC-shell-7: the sidebar's search row opens the palette", async ({
   ).toBeVisible();
   // And it is not an eleventh destination — the ten links AC-shell-1 counts
   // are unchanged by search moving into the sidebar.
-  await expect(rail.locator("a.navitem")).toHaveCount(10);
+  await expect(rail.locator(".navlevel a.navitem")).toHaveCount(10);
 });
 
 test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", async ({

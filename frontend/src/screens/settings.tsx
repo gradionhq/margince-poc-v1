@@ -341,9 +341,11 @@ function useVisibleSettingsTabs(tab?: string) {
  *
  * The shell asks for this and renders it as the second navigation level; it
  * never learns what a grant is. The two groups are the ones this screen has
- * always had — "Your settings" is per-user work, "Organization" is posture an
- * admin curates — and a group with no visible member is dropped rather than
- * printed empty.
+ * always had — "You" is per-user work, "Organization" is posture an admin
+ * curates — and a group with no visible member is dropped rather than printed
+ * empty. They are named for the SUBJECT rather than repeating the word the level
+ * above them already carries: "Settings / Your settings / …" said it twice in a
+ * 200px column.
  */
 export function useSettingsSection(tab?: string): NavSection {
   const { tabs, active } = useVisibleSettingsTabs(tab);
