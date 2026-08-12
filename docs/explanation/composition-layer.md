@@ -151,7 +151,7 @@ Each binary composes only what its role needs, all through this one layer:
 | The MCP registry | `internal/compose/registry.go` |
 | The REST admission middleware | `internal/compose/agentgate.go`, `idempotency.go` |
 | Background wiring | `internal/compose/{jobs,jobs_*,dispatch,jobregistry,jobschedule,runnerservice,workflows,capture}.go` — see [job-fleet.md](job-fleet.md) |
-| The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,deepreadtransport,deepreadbudget,onboardingstate}.go` |
+| The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,replydraftvoice,deepreadtransport,deepreadbudget,onboardingstate}.go` |
 | The AI certification lane | `internal/compose/aicert/` (corpus, runner, records; report tool in `aicert/reportcmd`) |
 | The AI cost pre-flight estimator | `internal/compose/costestimate/` (backfill preview cost; reads `ai` + `activities` + `capture`, prices with `ai.PriceCall`) |
 | Generated (never edit) | `internal/compose/{stubs_gen,agentpolicy_gen}.go` |

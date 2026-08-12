@@ -21,9 +21,12 @@ import (
 // replydraft.go because that file is the drafting call itself — the prompt, the
 // schema, the retry, the validation — and this is the profile layered over it.
 //
-// Every failure here degrades to the plain draft rather than propagating: a voice
-// read or a signal write that breaks must not take reply drafting down with it,
-// which is why the returns are values and the errors go to the log.
+// Two different failure contracts live here, and they are worth telling apart.
+// The voice READ and the two signal WRITES are best-effort: they answer with
+// values, log what broke, and cost the voice or the signal but never the draft.
+// completeVoiced is not — it returns its error, and the degrade belongs to its
+// caller, DraftEmailWithProvenance in replydraft.go, which answers with the
+// DETERMINISTIC draft rather than retrying without the profile.
 
 // voiceContext is the loaded active profile a voiced draft injects.
 type voiceContext struct {
@@ -73,7 +76,13 @@ func (d replyDrafter) completeVoiced(ctx context.Context, anchor ids.UUID, data 
 			return block(fence) + voiceViolationFeedback(violations)
 		}
 		retried, retryErr := d.complete(ctx, data, withFeedback)
-		if retryErr == nil {
+		if retryErr != nil {
+			// The first draft still stands, so this is not fatal — but it is the
+			// one failure on this path that changes nothing the caller can see,
+			// and unlogged it makes a draft that kept its violations look like
+			// one that had none.
+			d.logger().WarnContext(ctx, "voice violation retry did not complete; keeping the first draft", "err", retryErr)
+		} else {
 			draft = retried
 		}
 	}
@@ -142,12 +151,3 @@ func (d replyDrafter) recordVoiceRejection(ctx context.Context, voice voiceConte
 		d.logger().WarnContext(ctx, "voice rejection signal not recorded", "err", err)
 	}
 }
-
-// replyDraftVoiceSystem replaces the no-voice guard when a profile block is
-// supplied: the profile controls expression, never facts.
-const replyDraftVoiceSystem = `Draft a professional email reply on behalf of the CRM user's company, written in the user's own voice.
-Return ONLY a JSON object: {"subject":"...","body":"..."}.
-- The activity and stated intent are the authoritative reason for this reply.
-- The supplied voice profile controls expression — rhythm, vocabulary, directness, structure — never facts.
-- Use only facts present in the supplied data. Never invent customers, outcomes, prices, commitments, or capabilities.
-- Obey the profile's avoid rules and the universal anti-AI rules; treat its style metrics as limits, not targets.`

@@ -40,6 +40,15 @@ Return ONLY a JSON object: {"subject":"...","body":"..."}.
 - Use only facts present in the supplied data. Never invent customers, outcomes, prices, commitments, or capabilities.
 - Do not claim a personal writing style or voice unless a separate voice profile is supplied.`
 
+// replyDraftVoiceSystem replaces the no-voice guard when a profile block is
+// supplied: the profile controls expression, never facts.
+const replyDraftVoiceSystem = `Draft a professional email reply on behalf of the CRM user's company, written in the user's own voice.
+Return ONLY a JSON object: {"subject":"...","body":"..."}.
+- The activity and stated intent are the authoritative reason for this reply.
+- The supplied voice profile controls expression — rhythm, vocabulary, directness, structure — never facts.
+- Use only facts present in the supplied data. Never invent customers, outcomes, prices, commitments, or capabilities.
+- Obey the profile's avoid rules and the universal anti-AI rules; treat its style metrics as limits, not targets.`
+
 var replyDraftSchema = json.RawMessage(`{
   "type":"object",
   "additionalProperties":false,
