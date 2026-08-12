@@ -301,3 +301,36 @@ func TestVietnameseIsDecidedByAccentDensityNotStopwords(t *testing.T) {
 			"vietnamese diacritics", got)
 	}
 }
+
+// A forwarded mail is stored as its envelope headers and then the whole
+// original with EVERY line quoted. Cutting at the quote leaves the address
+// lines and nothing else — 53 runes of a 1180-rune German mail on the record
+// this reproduces — so the language resolved to Unknown and the draft came out
+// in English. Reported twice, on two different contacts.
+func TestAForwardedMailIsReadRatherThanCutToItsHeaders(t *testing.T) {
+	forwarded := "From: lars@gradion.com\nTo: frank.miller@straight.de\n\n" +
+		"> Moin moin Frank,\n> \n" +
+		"> hier wie versprochen ein kurzer Stand zu Margince. Wir sind tief in der\n" +
+		"> Entwicklung und arbeiten mit Hochdruck an einer ersten Version. Viele Dinge,\n" +
+		"> die Margince automatisch machen soll, wurden so noch nie umgesetzt.\n"
+
+	if got := textlang.Detect(forwarded); got != textlang.German {
+		t.Fatalf("Detect(forwarded german mail) = %q, want German: cutting at the quote "+
+			"leaves only the addresses, and the message is what somebody wrote", got)
+	}
+}
+
+// The cut still happens when there IS a reply above the quote — that is the
+// case it exists for, and it is what keeps a long English chain from outvoting
+// a short German reply.
+func TestAQuoteIsStillCutWhenSomethingWasWrittenAboveIt(t *testing.T) {
+	reply := "From: lars@gradion.com\nTo: marek@example.de\n\n" +
+		"Hallo Marek,\n\ndas passt gut, ich melde mich bei Ihnen mit einer Antwort " +
+		"und schicke die Unterlagen mit.\n\n"
+	quoted := strings.Repeat("> The team has reviewed this and would like to move "+
+		"forward with the proposal as it stands.\n", 12)
+
+	if got := textlang.Detect(reply + quoted); got != textlang.German {
+		t.Fatalf("Detect(german reply over english quote) = %q, want German", got)
+	}
+}
