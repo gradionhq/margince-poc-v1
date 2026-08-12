@@ -51,7 +51,7 @@ const (
 // for a reply — the variant that can issue all three calls.
 func replyDraftVoicedFixture() replyDraftFixture {
 	return replyDraftFixture{
-		Activity: replyActivityData{
+		Activity: replyActivityData{Thread: "inbound_mail",
 			Subject: "Heat recovery commissioning",
 			Body:    "We need commissioning in September. Can you confirm the window?",
 			Intent:  "Confirm the delivery window",

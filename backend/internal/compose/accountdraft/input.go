@@ -341,3 +341,8 @@ func (in Input) String() string {
 	return fmt.Sprintf("accountdraft{company:%q to:%q deal:%v}",
 		in.Company, in.Recipient.Name, in.Deal != nil)
 }
+
+// Threaded is always false here, and that is what this surface IS: it opens a
+// new conversation, so no subject it writes can be a reply to anything. The
+// method exists so the shared check reads the same shape from every surface.
+func (Input) Threaded() bool { return false }

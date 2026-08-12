@@ -52,7 +52,16 @@ type replyActivityData struct {
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body,omitempty"`
 	Intent  string `json:"intent,omitempty"`
+	// Thread carries whether a real INBOUND mail thread stands behind this
+	// subject, as a string because the whole payload decodes as a flat string
+	// map for the certification bound check. Only that earns a reply prefix:
+	// "Re:" on a meeting title, or on our own last outbound, claims a message
+	// nobody sent us.
+	Thread string `json:"thread,omitempty"`
 }
+
+// Threaded reads the flag back as the bool the checks want.
+func (d replyActivityData) Threaded() bool { return d.Thread == "inbound_mail" }
 
 type replyDrafter struct {
 	brain completer
@@ -135,6 +144,7 @@ func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.U
 		// the only ones that come from a text column rather than being
 		// server-derived and fixed-shape.
 		Envelope:  envelope,
+		Thread:    threadFlag(threaded),
 		Recipient: boundedRunes(recipient, recipientMaxRunes),
 		Subject:   boundedRunes(topic, replyActivityMaxRunes),
 		Body:      boundedRunes(body, replyActivityMaxRunes),
@@ -219,4 +229,14 @@ func (d replyDrafter) conversationState(activity crmcontracts.Activity) convstat
 		return convstate.Classify(d.envelope.Now(), occurred, time.Time{})
 	}
 	return convstate.Classify(d.envelope.Now(), time.Time{}, occurred)
+}
+
+// threadFlag spells the thread state for the flat payload. A named value rather
+// than "true"/"false": the prompt reads this field, and "inbound_mail" says what
+// it means where a bare true does not.
+func threadFlag(threaded bool) string {
+	if threaded {
+		return "inbound_mail"
+	}
+	return ""
 }

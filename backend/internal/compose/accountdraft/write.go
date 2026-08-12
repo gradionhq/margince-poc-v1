@@ -123,6 +123,7 @@ func writeChecked(ctx context.Context, lane Completer, in Input) (Draft, error) 
 			return writeWithModel(ctx, lane, in, correction)
 		},
 		func(d Draft) (string, []string) { return d.Body, reasonLabels(d.Reasoning) },
+		func(d Draft) (string, bool) { return d.Subject, in.Threaded() },
 		// No observer: this package holds no logger, and a retry that does not
 		// help still returns a real draft. The reply surface, which has one,
 		// reports it.

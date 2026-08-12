@@ -127,7 +127,7 @@ func TestVoicedDraftInjectsTheProfileAndStampsTheVersion(t *testing.T) {
 	drafter := replyDrafter{brain: brain}
 
 	draft, version, _, err := drafter.completeVoiced(context.Background(), ids.NewV7(),
-		replyActivityData{Subject: "plan"}, testVoiceContext())
+		replyActivityData{Subject: "plan", Thread: "inbound_mail"}, testVoiceContext())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestVoicedDraftRetriesOnceOnAntiAIViolations(t *testing.T) {
 	drafter := replyDrafter{brain: brain}
 
 	draft, version, _, err := drafter.completeVoiced(context.Background(), ids.NewV7(),
-		replyActivityData{Subject: "plan"}, testVoiceContext())
+		replyActivityData{Subject: "plan", Thread: "inbound_mail"}, testVoiceContext())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestVoicedDraftFallsBackToPlainWhenViolationsSurvive(t *testing.T) {
 	drafter := replyDrafter{brain: brain}
 
 	draft, version, _, err := drafter.completeVoiced(context.Background(), ids.NewV7(),
-		replyActivityData{Subject: "plan"}, testVoiceContext())
+		replyActivityData{Subject: "plan", Thread: "inbound_mail"}, testVoiceContext())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestVoicedDraftWithoutAProfileIsThePlainPath(t *testing.T) {
 	}}
 	drafter := replyDrafter{brain: brain}
 	_, version, _, err := drafter.completeVoiced(context.Background(), ids.NewV7(),
-		replyActivityData{Subject: "plan"}, voiceContext{})
+		replyActivityData{Subject: "plan", Thread: "inbound_mail"}, voiceContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
