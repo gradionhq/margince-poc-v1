@@ -142,7 +142,7 @@ func TestAnOrdinaryOrganizationPatchStillRunsUnattended(t *testing.T) {
 // registryWithGate rather than NewRegistry so the tier floor arrives the way
 // production supplies it.
 func composedRegistry(e *integration.Env) *agents.Registry {
-	return registryWithGate(e.Pool, auth.NewGate(adminSeat{}), nil, nil,
+	return registryWithGate(e.DB(), auth.NewGate(adminSeat{}), nil, nil,
 		SendPath{}, companyEnricher{}, nil)
 }
 
