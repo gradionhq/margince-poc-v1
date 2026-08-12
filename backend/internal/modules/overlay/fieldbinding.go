@@ -70,38 +70,21 @@ func BindingsFor(entity string) (EntityBinding, bool) {
 	return EntityBinding{}, false
 }
 
-// personBindings disposition every contract Person field. Armed: the coverage
-// gate holds this entity to accounting for every field the contract publishes
-// on it, in both directions.
-//
-//nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
-var personBindings = EntityBinding{
-	Entity: "person",
-	Armed:  true,
-	Bindings: []FieldBinding{
-		{WireSlot: "first_name", CanonicalKey: "first_name", Incumbent: []string{"firstname"}, Disposition: DispositionMapped},
-		{WireSlot: "last_name", CanonicalKey: "last_name", Incumbent: []string{"lastname"}, Disposition: DispositionMapped},
-		{WireSlot: "full_name", CanonicalKey: "full_name", Incumbent: []string{"firstname", "lastname", "email"}, Transform: "full_name", Disposition: DispositionMapped},
-		{WireSlot: "title", CanonicalKey: "title", Incumbent: []string{"jobtitle"}, Disposition: DispositionMapped},
-		{WireSlot: "address", CanonicalKey: "address", Incumbent: []string{"address", "city", "state", "zip", "country"}, Transform: "address_json", Disposition: DispositionMapped},
-		{WireSlot: "emails", CanonicalKey: "person_email", Incumbent: []string{"email"}, Transform: "lowercase", Disposition: DispositionMapped},
-		{WireSlot: "phones", CanonicalKey: "person_phone", Incumbent: []string{"phone", "mobilephone"}, Disposition: DispositionMapped},
-		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
-		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"lastmodifieddate"}, Disposition: DispositionMapped},
-
+// mirrorStructuralBindings are the contract fields whose disposition follows
+// from what a mirror IS, not from which entity is being mirrored: an identity
+// bridged from the incumbent's object id, the provenance stamp the overlay
+// writes on everything it serves, an incumbent owner id nothing resolves to an
+// app_user, and the native machinery — versioning, merge, derived strength —
+// that acts on native rows a mirror does not have. Every mirrored entity owes
+// the same answer, so it is stated once: declared per entity, two entities
+// could answer one structural question two ways and both look deliberate.
+func mirrorStructuralBindings() []FieldBinding {
+	return []FieldBinding{
 		{
 			WireSlot: "owner_id", Disposition: DispositionDeferred,
 			Reason:   "The mirror holds the incumbent's own owner id, which row visibility is projected from; nothing joins it through mirror_user_map to the app_user the contract's uuid slot names.",
 			IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/994",
 		},
-		{WireSlot: "social", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/985"},
-		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/986"},
-
-		{
-			WireSlot: "consent", Disposition: DispositionUnmappable,
-			Reason: "Consent is per-purpose and demonstrable from this installation's own proof log; an incumbent's flag cannot stand in for it.",
-		},
-
 		{
 			WireSlot: "id", Disposition: DispositionNativeOnly,
 			Reason: "Bridged from the incumbent's own object id by externalIDToUUID, not carried as a mirrored field.",
@@ -127,10 +110,6 @@ var personBindings = EntityBinding{
 			Reason: "An optimistic-concurrency counter over native rows; the mirror holds no row to version.",
 		},
 		{
-			WireSlot: "reachability", Disposition: DispositionNativeOnly,
-			Reason: "Read-only, derived from this installation's own channel identities.",
-		},
-		{
 			WireSlot: "strength", Disposition: DispositionNativeOnly,
 			Reason: "Derived from captured interactions; the mirror holds no interaction history.",
 		},
@@ -138,29 +117,63 @@ var personBindings = EntityBinding{
 			WireSlot: "merged_into_id", Disposition: DispositionNativeOnly,
 			Reason: "Merge is a native operation over native rows; a mirrored record is never merged away.",
 		},
+	}
+}
+
+// personBindings disposition every contract Person field. Armed: the coverage
+// gate holds this entity to accounting for every field the contract publishes
+// on it, in both directions.
+//
+//nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
+var personBindings = EntityBinding{
+	Entity: "person",
+	Armed:  true,
+	Bindings: append([]FieldBinding{
+		{WireSlot: "first_name", CanonicalKey: "first_name", Incumbent: []string{"firstname"}, Disposition: DispositionMapped},
+		{WireSlot: "last_name", CanonicalKey: "last_name", Incumbent: []string{"lastname"}, Disposition: DispositionMapped},
+		{WireSlot: "full_name", CanonicalKey: "full_name", Incumbent: []string{"firstname", "lastname", "email"}, Transform: "full_name", Disposition: DispositionMapped},
+		{WireSlot: "title", CanonicalKey: "title", Incumbent: []string{"jobtitle"}, Disposition: DispositionMapped},
+		{WireSlot: "address", CanonicalKey: "address", Incumbent: []string{"address", "city", "state", "zip", "country"}, Transform: "address_json", Disposition: DispositionMapped},
+		{WireSlot: "emails", CanonicalKey: "person_email", Incumbent: []string{"email"}, Transform: "lowercase", Disposition: DispositionMapped},
+		{WireSlot: "phones", CanonicalKey: "person_phone", Incumbent: []string{"phone", "mobilephone"}, Disposition: DispositionMapped},
+		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
+		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"lastmodifieddate"}, Disposition: DispositionMapped},
+
+		{WireSlot: "social", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/985"},
+		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/986"},
+
+		{
+			WireSlot: "consent", Disposition: DispositionUnmappable,
+			Reason: "Consent is per-purpose and demonstrable from this installation's own proof log; an incumbent's flag cannot stand in for it.",
+		},
+
+		{
+			WireSlot: "reachability", Disposition: DispositionNativeOnly,
+			Reason: "Read-only, derived from this installation's own channel identities.",
+		},
 		{
 			WireSlot: "converted_from_lead_id", Disposition: DispositionNativeOnly,
 			Reason: "Lead conversion is a native operation; a mirrored person has no native lead to point back to.",
 		},
-	},
+	}, mirrorStructuralBindings()...),
 }
 
 // organizationBindings disposition every contract Organization field. Armed,
 // on the same terms personBindings is.
 //
-// Eight fields the incumbent could fill are deferred rather than mapped, and
-// each names the reason it is not a one-line addition: two need a projection
-// that does not exist yet (an association sweep for the parent, a mirror_user_map
-// join for the owner), four need a decision the mapping cannot make on its own
-// (a length rule, a URL normalization, two remaps onto vocabularies this product
-// defines on its own axes), and two need a read the adapter does not perform
-// (the archive flag, the primary-domain derivation).
+// Seven fields the incumbent could fill are deferred rather than mapped, and
+// each names the reason it is not a one-line addition: one needs a projection
+// that does not exist yet (an association sweep for the parent), four need a
+// decision the mapping cannot make on its own (a length rule, a URL
+// normalization, two remaps onto vocabularies this product defines on its own
+// axes), and two need a read the adapter does not perform (the archive flag,
+// the primary-domain derivation).
 //
 //nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" and "industry" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
 var organizationBindings = EntityBinding{
 	Entity: "organization",
 	Armed:  true,
-	Bindings: []FieldBinding{
+	Bindings: append([]FieldBinding{
 		{WireSlot: "display_name", CanonicalKey: "display_name", Incumbent: []string{"name"}, Disposition: DispositionMapped},
 		{WireSlot: "industry", CanonicalKey: "industry", Incumbent: []string{"industry"}, Disposition: DispositionMapped},
 		{WireSlot: "size_band", CanonicalKey: "size_band", Incumbent: []string{"numberofemployees"}, Transform: "employees_to_size_band", Disposition: DispositionMapped},
@@ -169,11 +182,6 @@ var organizationBindings = EntityBinding{
 		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
 		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"hs_lastmodifieddate"}, Disposition: DispositionMapped},
 
-		{
-			WireSlot: "owner_id", Disposition: DispositionDeferred,
-			Reason:   "The mirror holds the incumbent's own owner id, which row visibility is projected from; nothing joins it through mirror_user_map to the app_user the contract's uuid slot names.",
-			IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/994",
-		},
 		{WireSlot: "parent_org_id", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1023"},
 		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1024"},
 		{WireSlot: "website_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1025"},
@@ -188,32 +196,8 @@ var organizationBindings = EntityBinding{
 		},
 
 		{
-			WireSlot: "id", Disposition: DispositionNativeOnly,
-			Reason: "Bridged from the incumbent's own object id by externalIDToUUID, not carried as a mirrored field.",
-		},
-		{
-			WireSlot: "workspace_id", Disposition: DispositionNativeOnly,
-			Reason: "Stamped from the request's own workspace; the mirror row's workspace is that workspace by construction.",
-		},
-		{
 			WireSlot: "is_anchor", Disposition: DispositionNativeOnly,
 			Reason: "A mirrored company is one of the incumbent's accounts; this installation's own company is a native row never among them.",
-		},
-		{
-			WireSlot: "source", Disposition: DispositionNativeOnly,
-			Reason: "Always the overlay provenance stamp; a mirrored record has exactly one source.",
-		},
-		{
-			WireSlot: "captured_by", Disposition: DispositionNativeOnly,
-			Reason: "Always connector:overlay — a mirror record carries no incumbent identity to name instead.",
-		},
-		{
-			WireSlot: "raw", Disposition: DispositionNativeOnly,
-			Reason: "The full canonical payload itself; it cannot be one field within that payload.",
-		},
-		{
-			WireSlot: "version", Disposition: DispositionNativeOnly,
-			Reason: "An optimistic-concurrency counter over native rows; the mirror holds no row to version.",
 		},
 		{
 			WireSlot: "computed_fields", Disposition: DispositionNativeOnly,
@@ -228,18 +212,10 @@ var organizationBindings = EntityBinding{
 			Reason: "The getOrganizationLogo path for this record, which streams a resolved asset out of this installation's own object storage; the mirror holds no asset there.",
 		},
 		{
-			WireSlot: "strength", Disposition: DispositionNativeOnly,
-			Reason: "Derived from captured interactions; the mirror holds no interaction history.",
-		},
-		{
 			WireSlot: "partner", Disposition: DispositionNativeOnly,
 			Reason: "A native partner extension row; a mirrored company has none.",
 		},
-		{
-			WireSlot: "merged_into_id", Disposition: DispositionNativeOnly,
-			Reason: "Merge is a native operation over native rows; a mirrored record is never merged away.",
-		},
-	},
+	}, mirrorStructuralBindings()...),
 }
 
 // dealBindings is unarmed: pipeline and stage are this product's own
