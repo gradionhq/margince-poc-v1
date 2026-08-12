@@ -14,7 +14,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -45,7 +44,7 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, c
 	}
 	var out []memberRow
 	var page storekit.Page
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := ensureListVisible(ctx, tx, listID); err != nil {
 			return err
 		}
@@ -139,7 +138,7 @@ func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType str
 	}
 	actor, _ := principal.Actor(ctx)
 	var out memberRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := ensureListVisible(ctx, tx, listID); err != nil {
 			return err
 		}

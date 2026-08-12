@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -61,7 +60,7 @@ func (g *Gate) RequireGrantedForRecipients(ctx context.Context, recipients []con
 		}
 	}
 	purposeKey = strings.TrimSpace(strings.ToLower(purposeKey))
-	return database.WithWorkspaceTx(ctx, g.store.pool, func(tx pgx.Tx) error {
+	return g.store.db.Tx(ctx, func(tx pgx.Tx) error {
 		var purpose PurposeRow
 		err := tx.QueryRow(ctx,
 			`SELECT id, key, label, class, requires_double_opt_in

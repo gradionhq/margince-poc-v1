@@ -35,7 +35,7 @@ import (
 func TestAStagedViewArchiveIsDecidableByItsOwnerAlone(t *testing.T) {
 	e := Setup(t)
 	svc := approvals.NewService(e.Pool)
-	views := collections.NewStore(e.Pool)
+	views := collections.NewStore(e.DB())
 
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
 	view, err := views.CreateSavedView(owner, collections.CreateSavedViewInput{

@@ -85,7 +85,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 		// nothing here and would hide a regression that let the send get far
 		// enough to ask about attachments at all.
 		nil,
-		consent.NewGate(consent.NewStore(e.Pool)),
+		consent.NewGate(consent.NewStore(e.DB())),
 		nil, time.Now, 24*time.Hour, 10,
 	)
 	// The dispatch runs under the scope compose assembles, which is the half of

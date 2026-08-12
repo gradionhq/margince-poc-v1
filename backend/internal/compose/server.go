@@ -368,8 +368,8 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		jobHealthHandlers: jobHealthHandlers{pool: pool},
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.
-		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
-		collectionsHandlers: collections.NewHandlers(pool),
+		consentHandlers:     consent.NewHandlers(InstallationDB(pool)).WithEraser(privacy.NewEraser(pool)),
+		collectionsHandlers: collections.NewHandlers(InstallationDB(pool)),
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.

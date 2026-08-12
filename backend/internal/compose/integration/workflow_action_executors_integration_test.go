@@ -154,7 +154,7 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Add To List Probe Deal", pipeline, open, nil)
 
-	listsStore := collections.NewStore(e.Pool)
+	listsStore := collections.NewStore(e.DB())
 	// The harness AdminPerms grants the core record objects but not `list`,
 	// so seed the probe list as a seeded user carrying an explicit list
 	// grant — the automation firing below is what the test exercises, not

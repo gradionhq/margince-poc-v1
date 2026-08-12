@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -25,12 +24,14 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
+	db  *database.DB
+	now func() time.Time
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, now: time.Now}
+// NewStore binds the store to the pool every read and write runs through.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db, now: time.Now}
 }
 
 type Purpose struct {
@@ -72,7 +73,7 @@ func (s *Store) ListPurposes(ctx context.Context) ([]Purpose, error) {
 		return nil, err
 	}
 	var out []Purpose
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, workspace_id, key, label, requires_double_opt_in, created_at
 			FROM consent_purpose WHERE archived_at IS NULL ORDER BY key`)
@@ -104,7 +105,7 @@ func (s *Store) CreatePurpose(ctx context.Context, key, label string, requiresDO
 		return Purpose{}, &ValidationError{Field: "key", Reason: "key and label are required"}
 	}
 	var p Purpose
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			INSERT INTO consent_purpose (workspace_id, key, label, requires_double_opt_in)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
@@ -140,7 +141,7 @@ func (s *Store) subjectConsent(ctx context.Context, sub subject) ([]State, []Pro
 	}
 	var states []State
 	var events []ProofEvent
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) (err error) {
 		states, events, err = subjectConsentInTx(ctx, tx, sub)
 		return err
 	})
@@ -307,7 +308,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 	actor, _ := principal.Actor(ctx)
 
 	var out State
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
 			return err
 		}

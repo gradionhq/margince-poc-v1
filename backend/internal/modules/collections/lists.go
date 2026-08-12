@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -26,11 +25,13 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// NewStore binds the store to the pool every read and write runs through.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db}
 }
 
 // memberEntityTables is the closed polymorphic target set — the table
@@ -105,7 +106,7 @@ func (s *Store) ListLists(ctx context.Context, entityType *string, archived stor
 	}
 	var out []listRow
 	truncated := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		where := []string{"true"}
@@ -186,7 +187,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		}
 	}
 	var out listRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO list (workspace_id, name, entity_type, list_type, definition, owner_id, team_id)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
@@ -209,7 +210,7 @@ func (s *Store) GetList(ctx context.Context, id ids.ListID) (listRow, error) {
 		return listRow{}, err
 	}
 	var out listRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := ensureListVisible(ctx, tx, id); err != nil {
 			return err
 		}
@@ -228,7 +229,7 @@ func (s *Store) ArchiveList(ctx context.Context, id ids.ListID) (listRow, error)
 		return listRow{}, err
 	}
 	var out listRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := ensureListVisible(ctx, tx, id); err != nil {
 			return err
 		}

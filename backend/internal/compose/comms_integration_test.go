@@ -79,7 +79,7 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	stager := &recordingStager{}
 	adapter := commsAdapter{
 		store:  activities.NewStore(e.Pool),
-		gate:   consent.NewGate(consent.NewStore(e.Pool)),
+		gate:   consent.NewGate(consent.NewStore(InstallationDB(e.Pool))),
 		stager: stager,
 	}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)

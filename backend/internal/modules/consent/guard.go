@@ -27,7 +27,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -58,7 +57,7 @@ func (s *Store) PersonConsentGuard(ctx context.Context, personID ids.PersonID) (
 		PersonId: openapi_types.UUID(personID.UUID),
 		Entries:  []crmcontracts.PersonConsentGuardEntry{},
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Anything that names a record is gated: answering about a person the
 		// caller cannot read would confirm that person exists.
 		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {

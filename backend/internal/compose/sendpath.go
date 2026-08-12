@@ -123,7 +123,7 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 	send = send.withPoolDefaults(pool)
 	return activities.NewStore(pool).
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}).
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		WithPublicBaseURL(send.PublicBaseURL).
 		WithSendAuthority(send.SendAuthority).
 		WithChannelReachability(send.ChannelRecipients).
@@ -142,7 +142,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
 		store:         sendStore(pool, send),
-		gate:          consent.NewGate(consent.NewStore(pool)),
+		gate:          consent.NewGate(consent.NewStore(InstallationDB(pool))),
 		draft:         drafter,
 		stager:        send.Delivery,
 		channelStager: send.Delivery,
