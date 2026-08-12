@@ -69,7 +69,6 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 	if err != nil {
 		return ids.Nil, err
 	}
-	wsID, _ := principal.WorkspaceID(ctx)
 
 	beforeJSON, err := marshalOrNil(before)
 	if err != nil {
@@ -89,9 +88,13 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
+		// The tenant comes from the TRANSACTION's binding, not from the caller:
+		// the ledger row must name the workspace its domain row landed in, and
+		// the GUC is the one thing that decides both. Read from ctx they could
+		// disagree, and the disagreement would be invisible.
 		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		id, wsID, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
+		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, entityType, entityID, beforeJSON, afterJSON, evidenceJSON,
 		auth.AuthzRule(p, entityType, action))
 	return id, err
@@ -112,16 +115,12 @@ func LogSystem(ctx context.Context, tx pgx.Tx, action string, detail map[string]
 	if err != nil {
 		return ids.Nil, err
 	}
-	// MustWorkspace is safe here: LogSystem only runs inside WithWorkspaceTx,
-	// which already failed if no workspace was bound, and the system_log RLS
-	// WITH CHECK rejects a mismatched workspace_id as a final backstop.
-	wsID := MustWorkspace(ctx)
-
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
+		// The tenant is the transaction's, like every other ledger row here.
 		`INSERT INTO system_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, wsID, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
+		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7)`,
+		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, JSONArg(detail))
 	return id, err
 }
@@ -138,7 +137,6 @@ func Emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 	if err != nil {
 		return err
 	}
-	wsID, _ := principal.WorkspaceID(ctx)
 	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		// Every write path opens an operation scope (the HTTP middleware,
@@ -148,11 +146,10 @@ func Emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 	}
 
 	env := events.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     events.VersionOf(eventType),
-		WorkspaceID: wsID,
-		OccurredAt:  time.Now().UTC(),
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    events.VersionOf(eventType),
+		OccurredAt: time.Now().UTC(),
 		Actor: events.Actor{
 			Type:       string(p.Type),
 			ID:         p.ID,
@@ -258,8 +255,13 @@ func UUIDOrNil(id ids.UUID) *ids.UUID {
 	return &id
 }
 
-// MustWorkspace is safe inside a workspace-bound transaction:
-// WithWorkspaceTx already failed if no workspace was bound.
+// MustWorkspace is the workspace the caller's context names, for the domain
+// INSERTs that still stamp a `workspace_id` column of their own.
+//
+// The ledger writes above no longer use it: they take the tenant from the
+// TRANSACTION's binding, which is the only thing that can agree with the
+// domain row by construction. These callers follow when the column itself
+// goes (ADR-0091 §8 phase D).
 func MustWorkspace(ctx context.Context) ids.UUID {
 	wsID, _ := principal.WorkspaceID(ctx)
 	return wsID
@@ -273,9 +275,12 @@ func MustWorkspace(ctx context.Context) ids.UUID {
 // is reentrant within one transaction, so a caller that locked at its
 // precondition read may write through the same store path without deadlock.
 func LockWriteIdentity(ctx context.Context, tx pgx.Tx, entityType, identity string) error {
+	// The workspace in the key is the TRANSACTION's, read where the lock is
+	// taken: a key built from a ctx that disagreed with the binding would put
+	// two writers of one record on different locks and serialize neither.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
-		$1 || ':' || $2::text || ':' || $3, 0))`,
-		entityType+"_write", MustWorkspace(ctx), identity); err != nil {
+		$1 || ':' || coalesce(current_setting('app.workspace_id', true), '') || ':' || $2, 0))`,
+		entityType+"_write", identity); err != nil {
 		return fmt.Errorf("lock %s write identity: %w", entityType, err)
 	}
 	return nil

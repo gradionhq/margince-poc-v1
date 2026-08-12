@@ -193,8 +193,11 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 	var eventCount int
 	if err := e.Pool.QueryRow(
 		context.Background(),
-		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'mirror.budget_degraded' AND envelope->>'workspace_id' = $1`,
-		ws.String(),
+		// Scoped by SUBJECT: the envelope carries no tenant (ADR-0091 §6).
+		`SELECT count(*) FROM event_outbox
+		  WHERE envelope->>'type' = 'mirror.budget_degraded'
+		    AND envelope->'entity'->>'id' = $1`,
+		ref.ID.String(),
 	).Scan(&eventCount); err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}

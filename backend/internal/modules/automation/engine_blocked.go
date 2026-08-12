@@ -47,7 +47,12 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 		return nil
 	}
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
-	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
+	// This consumer's workspace is its handle's; the envelope carries none.
+	ws, err := e.db.Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
 	return e.MarkRunBlocked(wsCtx, approvalID,
 		"approval "+approvalID.String()+" was rejected by the deciding human")
 }

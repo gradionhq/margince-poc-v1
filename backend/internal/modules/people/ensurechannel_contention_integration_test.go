@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -241,17 +242,17 @@ func TestAnInboundMessageConcurrentWithAMergeLinksTheSurvivor(t *testing.T) {
 }
 
 // handleUpdatedEventCount counts the person.updated envelopes a handle refresh
-// staged. event_outbox is a global infra table outside RLS, so the count scopes
-// itself on the envelope's own workspace and subject.
+// staged. event_outbox is a global infra table outside RLS, and the envelope no
+// longer names a tenant (ADR-0091 §6), so the count scopes itself on the
+// subject — which is what the assertion is about anyway.
 func (e *dedupeEnv) handleUpdatedEventCount(ctx context.Context, t *testing.T, personID ids.PersonID) int {
 	t.Helper()
 	return e.countInWorkspace(ctx, t, `
 		SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'person.updated'
-		   AND envelope->>'workspace_id' = $1::text
-		   AND envelope->'entity'->>'id' = $2::text
+		   AND envelope->'entity'->>'id' = $1::text
 		   AND envelope->'payload'->'changed_fields'->'channel_username' IS NOT NULL`,
-		e.ws, personID)
+		personID)
 }
 
 // beginBlockingRefresh runs one whole handle refresh in a transaction the test
@@ -549,6 +550,17 @@ func takeOrgNameLockOnAFreshConnection(ctx context.Context) (err error) {
 			err = errors.Join(err, rollback)
 		}
 	}()
+	// Bind the workspace, as every real writer's transaction does: the advisory
+	// key is built from the TRANSACTION's binding, so a racer that skipped it
+	// would take a different key and contend with nobody — the test would then
+	// report a working lock as broken.
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("the racer's context carries no workspace")
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
+		return fmt.Errorf("binding the racer's workspace: %w", err)
+	}
 	return lockOrgNameWrites(ctx, tx)
 }
 

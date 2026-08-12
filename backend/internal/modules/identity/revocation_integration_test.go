@@ -153,9 +153,13 @@ func (e *revocationEnv) wsCtx(id Identity) context.Context {
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
-// identityEvents returns the identity-stream envelopes of one type,
-// oldest first — the §5.6a cascade facts the outbox staged.
-func (e *revocationEnv) identityEvents(t *testing.T, eventType string) []events.Envelope {
+// identityEvents returns the identity-stream envelopes of one type ABOUT one
+// entity, oldest first — the §5.6a cascade facts the outbox staged.
+//
+// Scoped by the subject rather than by a tenant: the envelope carries no
+// workspace any more (ADR-0091 §6) and this package's tests share one database,
+// so a type-only read counts every other test's events of the same kind.
+func (e *revocationEnv) identityEvents(t *testing.T, eventType string, entity ids.UUID) []events.Envelope {
 	t.Helper()
 	rows, err := e.owner.Query(context.Background(),
 		`SELECT envelope FROM event_outbox WHERE stream = 'gw:events:crm:identity' ORDER BY created_at, id`)
@@ -172,7 +176,7 @@ func (e *revocationEnv) identityEvents(t *testing.T, eventType string) []events.
 		if err := json.Unmarshal(raw, &env); err != nil {
 			t.Fatalf("outbox envelope does not parse: %v", err)
 		}
-		if env.Type == eventType && env.WorkspaceID == e.admin.WorkspaceID.UUID {
+		if env.Type == eventType && env.Entity.ID == entity {
 			out = append(out, env)
 		}
 	}
@@ -221,7 +225,7 @@ func TestDeactivateUserRevokesSessionsAndPassportsAndEmits(t *testing.T) {
 		t.Errorf("deactivation left %d live sessions, %d live passports; want 0, 0", liveSessions, livePassports)
 	}
 
-	envs := e.identityEvents(t, "user.deactivated")
+	envs := e.identityEvents(t, "user.deactivated", e.member.UserID.UUID)
 	if len(envs) != 1 {
 		t.Fatalf("user.deactivated staged %d times, want exactly once", len(envs))
 	}
@@ -244,7 +248,7 @@ func TestDeactivateUserRevokesSessionsAndPassportsAndEmits(t *testing.T) {
 	if err := e.svc.DeactivateUser(e.wsCtx(e.admin), e.admin, DeactivateUserInput{UserID: e.member.UserID}); err != nil {
 		t.Fatalf("repeat deactivate: %v", err)
 	}
-	if again := e.identityEvents(t, "user.deactivated"); len(again) != 1 {
+	if again := e.identityEvents(t, "user.deactivated", e.member.UserID.UUID); len(again) != 1 {
 		t.Errorf("repeat deactivation staged a duplicate event (%d total)", len(again))
 	}
 
@@ -281,7 +285,7 @@ func TestRevokedPassportRefusedOnNextCall(t *testing.T) {
 		t.Errorf("revoked passport resolves by id on the next call: err = %v, want not-found", err)
 	}
 
-	envs := e.identityEvents(t, "passport.revoked")
+	envs := e.identityEvents(t, "passport.revoked", issued.ID.UUID)
 	if len(envs) != 1 {
 		t.Fatalf("passport.revoked staged %d times, want exactly once", len(envs))
 	}
@@ -327,7 +331,7 @@ func TestChangeUserRoleReplacesAssignmentAndEmits(t *testing.T) {
 		t.Errorf("role assignments after change = %v, want exactly [manager]", keys)
 	}
 
-	envs := e.identityEvents(t, "role.changed")
+	envs := e.identityEvents(t, "role.changed", e.member.UserID.UUID)
 	if len(envs) != 2 {
 		t.Fatalf("role.changed staged %d times, want one per effective change", len(envs))
 	}

@@ -64,10 +64,17 @@ func (g *EmbedGen) HandleEvent(ctx context.Context, env kevents.Envelope) error 
 	// the whole workspace, filtered per caller at QUERY time — an
 	// index built through one user's row scope would silently hide
 	// records from everyone else's retrieval.
-	wsCtx := systemWorkspaceContext(ctx, env.WorkspaceID)
+	// The workspace is the STORE's, not the envelope's: this consumer is
+	// wired for one installation and its handle already names it (ADR-0091 §6
+	// — the envelope carries no tenant).
+	ws, err := g.store.db.Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	wsCtx := systemWorkspaceContext(ctx, ws.UUID)
 
 	var text string
-	err := g.store.db.Tx(wsCtx, func(tx pgx.Tx) error {
+	err = g.store.db.Tx(wsCtx, func(tx pgx.Tx) error {
 		return tx.QueryRow(wsCtx, query, env.Entity.ID).Scan(&text)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

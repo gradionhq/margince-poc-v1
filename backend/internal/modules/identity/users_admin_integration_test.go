@@ -166,7 +166,7 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 		t.Errorf("invite minted %d live set-password tokens, want exactly 1", liveTokens)
 	}
 
-	envs := e.identityEvents(t, "user.invited")
+	envs := e.identityEvents(t, "user.invited", userID.UUID)
 	if len(envs) != 1 {
 		t.Fatalf("user.invited staged %d times, want once", len(envs))
 	}
@@ -252,7 +252,7 @@ func TestReactivateUserRestoresActiveAndEmits(t *testing.T) {
 		t.Errorf("reactivated member status = %q, want active", member.Status)
 	}
 
-	envs := e.identityEvents(t, "user.reactivated")
+	envs := e.identityEvents(t, "user.reactivated", e.member.UserID.UUID)
 	if len(envs) != 1 {
 		t.Fatalf("user.reactivated staged %d times, want once", len(envs))
 	}
@@ -261,7 +261,7 @@ func TestReactivateUserRestoresActiveAndEmits(t *testing.T) {
 	if err := e.svc.ReactivateUser(e.wsCtx(e.admin), e.admin, e.member.UserID); err != nil {
 		t.Fatalf("repeat reactivate: %v", err)
 	}
-	if again := e.identityEvents(t, "user.reactivated"); len(again) != 1 {
+	if again := e.identityEvents(t, "user.reactivated", e.member.UserID.UUID); len(again) != 1 {
 		t.Errorf("repeat reactivation staged a duplicate event (%d total)", len(again))
 	}
 

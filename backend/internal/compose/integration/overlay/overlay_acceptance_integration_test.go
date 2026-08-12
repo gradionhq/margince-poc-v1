@@ -290,9 +290,8 @@ func countAcceptanceMirrorConflictEvents(ctx context.Context, e *integration.Env
 		ctx,
 		`SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'mirror.conflict'
-		   AND envelope->>'workspace_id' = $1
-		   AND envelope->'payload'->>'external_id' = $2`,
-		ws, externalID,
+		   AND envelope->'payload'->>'external_id' = $1`,
+		externalID,
 	).Scan(&count)
 	return count, err
 }

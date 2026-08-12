@@ -32,13 +32,12 @@ import (
 // envelopeFor builds one bus envelope the way the relay ships it.
 func envelopeFor(ws ids.UUID, eventType, entityType string, entity ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     1,
-		WorkspaceID: ws,
-		OccurredAt:  time.Now().UTC(),
-		Entity:      kevents.EntityRef{Type: entityType, ID: entity},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    1,
+		OccurredAt: time.Now().UTC(),
+		Entity:     kevents.EntityRef{Type: entityType, ID: entity},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7()},
 	}
 }
 

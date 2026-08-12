@@ -125,10 +125,9 @@ func newEnricher(e *Env) *compose.PersonAutoEnrich {
 // the outbox refuses an envelope without one.
 func personCreated(e *Env, personID ids.PersonID) events.Envelope {
 	return events.Envelope{
-		Type:        "person.created",
-		WorkspaceID: e.WS,
-		Entity:      events.EntityRef{Type: "person", ID: personID.UUID},
-		Trace:       events.Trace{CorrelationID: ids.NewV7()},
+		Type:   "person.created",
+		Entity: events.EntityRef{Type: "person", ID: personID.UUID},
+		Trace:  events.Trace{CorrelationID: ids.NewV7()},
 	}
 }
 
@@ -290,11 +289,10 @@ func TestPersonAutoEnrichFollowsAMergeToTheSurvivor(t *testing.T) {
 		t.Fatalf("marshalling the merge payload: %v", err)
 	}
 	if err := newEnricher(e).HandleEvent(context.Background(), events.Envelope{
-		Type:        "person.merged",
-		WorkspaceID: e.WS,
-		Entity:      events.EntityRef{Type: "person", ID: mergedAway.UUID},
-		Trace:       events.Trace{CorrelationID: ids.NewV7()},
-		Payload:     payload,
+		Type:    "person.merged",
+		Entity:  events.EntityRef{Type: "person", ID: mergedAway.UUID},
+		Trace:   events.Trace{CorrelationID: ids.NewV7()},
+		Payload: payload,
 	}); err != nil {
 		t.Fatalf("HandleEvent: %v", err)
 	}

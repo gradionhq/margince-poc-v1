@@ -187,14 +187,13 @@ func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.C
 // path is exercised separately by revoking the owner.
 func makeEnvelope(wsID ids.UUID, eventType string) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     kevents.VersionOf(eventType),
-		WorkspaceID: wsID,
-		OccurredAt:  time.Now().UTC(),
-		Actor:       kevents.Actor{Type: "system", ID: "system"},
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    kevents.VersionOf(eventType),
+		OccurredAt: time.Now().UTC(),
+		Actor:      kevents.Actor{Type: "system", ID: "system"},
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 }
 

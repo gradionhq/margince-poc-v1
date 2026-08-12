@@ -125,7 +125,7 @@ func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 	if n := countRowsTouching(ctx, t, pool, objectClass, externalID); n != 0 {
 		t.Fatalf("association/visibility rows survived the deletion sweep: %d remain", n)
 	}
-	n, err := countMirrorDeletedEvents(ctx, pool, ws.String(), objectClass, externalID)
+	n, err := countMirrorDeletedEvents(ctx, pool, objectClass, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestReconcileDeletionsForUnmirroredRecordIsANoOp(t *testing.T) {
 	if err := ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
 		t.Fatalf("ReconcileDeletions: %v", err)
 	}
-	n, err := countMirrorDeletedEvents(ctx, pool, ws.String(), objectClass, externalID)
+	n, err := countMirrorDeletedEvents(ctx, pool, objectClass, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -196,16 +196,15 @@ func TestReconcileDeletionsForUnmirroredRecordIsANoOp(t *testing.T) {
 // documents), so the workspace filter lives in the query, not a GUC. The
 // object_class is part of the match so the count can't be satisfied by an
 // unrelated mirror.deleted row that happens to share the external id.
-func countMirrorDeletedEvents(ctx context.Context, pool *pgxpool.Pool, ws, objectClass, externalID string) (int, error) {
+func countMirrorDeletedEvents(ctx context.Context, pool *pgxpool.Pool, objectClass, externalID string) (int, error) {
 	var count int
 	err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'mirror.deleted'
-		   AND envelope->>'workspace_id' = $1
-		   AND envelope->'payload'->>'object_class' = $2
-		   AND envelope->'payload'->>'external_id' = $3`,
-		ws, objectClass, externalID,
+		   AND envelope->'payload'->>'object_class' = $1
+		   AND envelope->'payload'->>'external_id' = $2`,
+		objectClass, externalID,
 	).Scan(&count)
 	return count, err
 }

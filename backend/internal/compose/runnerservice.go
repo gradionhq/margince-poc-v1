@@ -265,7 +265,13 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		return nil
 	}
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
-	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
+	// The envelope carries no tenant (ADR-0091 §6): this consumer resolves the
+	// installation, exactly as the request paths beside it do.
+	ws, err := s.identity.InstallationWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
 
 	// The payload is read BEFORE the run is claimed: claiming is one-way, so
 	// every step after it must end in a terminal status rather than in a
@@ -280,10 +286,9 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		return fmt.Errorf("runner: approval.decided payload: %w", err)
 	}
 
-	// The envelope names the tenant, and the store is bound to it before any
-	// row is read or written: this consumer, like the scheduler pass, runs on
-	// one shared service.
-	s, err := s.forWorkspaceIn(wsCtx)
+	// The store is bound before any row is read or written: this consumer,
+	// like the scheduler pass, runs on one shared service.
+	s, err = s.forWorkspaceIn(wsCtx)
 	if err != nil {
 		return err
 	}

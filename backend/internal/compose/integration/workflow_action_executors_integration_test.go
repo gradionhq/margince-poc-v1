@@ -75,7 +75,7 @@ func TestNotifyFiringWithNoTransportLandsAVisibleSkippedRun(t *testing.T) {
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {
@@ -174,7 +174,7 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {
@@ -263,7 +263,7 @@ func TestDraftEmailFiringLandsTheComposedDraftOnTheRunRecord(t *testing.T) {
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {
