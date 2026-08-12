@@ -21,7 +21,6 @@ package compose
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +33,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -47,7 +45,10 @@ const approvalTokenHeader = "X-Approval-Token"
 const maxGatedBody = 1 << 20
 
 func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, records datasource.SystemOfRecordProvider, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
-	deps := tierDeps{stages: stages, records: records, ownership: ownership}
+	// ONE set of read-side dependencies for both questions this door asks of a
+	// command: what tier it runs at, and what an approval of it would bind to.
+	// They were two structs while the tier had its own table to feed.
+	deps := restCommandDeps{records: records, stages: stages, channels: channelKinds{}}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -88,8 +89,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			}
 			admitAgentCall(w, r, next, admissionOutcome{
 				staging: staging, ownership: ownership, pol: pol, body: body,
-				commands: restCommandDeps{records: records, stages: stages, channels: channelKinds{}},
-				err:      err, spec: spec, registry: reg,
+				commands: deps, err: err, spec: spec, registry: reg,
 			})
 		})
 	}
@@ -157,7 +157,7 @@ func refusedAsHumanOnly(w http.ResponseWriter, r *http.Request) bool {
 // onto the request for the downstream handler), and the lazy tier-resolver
 // input. It writes the refusal and reports ok=false when the route is
 // unknown, human-only, unresolvable, or over the body cap (fail-closed).
-func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Registry, deps tierDeps) (mcp.ToolSpec, func() (mcp.TierResolverInput, error), agentPolicy, []byte, bool) {
+func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Registry, deps restCommandDeps) (mcp.ToolSpec, func() (mcp.TierResolverInput, error), agentPolicy, []byte, bool) {
 	ctx := r.Context()
 	// The generated table is keyed by the chi route pattern the contract
 	// router registered; a mutating route it doesn't know is refused, never
@@ -196,13 +196,7 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	resolve, ok := tierInput(ctx, spec, pol, deps, r, body)
-	if !ok {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s: no REST tier resolver for dynamic tool %s: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
-		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
-	}
-	return spec, resolve, pol, body, true
+	return spec, tierInput(ctx, spec, pol, deps, r, body), pol, body, true
 }
 
 // admissionOutcome carries the result of the autonomy gate's Admit call
@@ -378,89 +372,38 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (spec mcp.ToolSpec, re
 	return spec, true, true
 }
 
-// tierDeps carries the read-side dependencies the dynamic REST tier
-// resolvers consult.
-type tierDeps struct {
-	stages agents.StageResolver
-	// records reads the deal a move is about, so the tier gate can see the stage
-	// it is moving FROM. Without it this door could only judge the destination,
-	// which is how a reopen came to be auto-execute.
-	records   datasource.SystemOfRecordProvider
-	ownership agents.FieldOwnership
-}
-
-// dynamicTierInputs maps each dynamic tool onto the resolver that reads
-// its tier decision out of the tool's REST body shape. The invariant: a
-// dynamic tool without an entry here has no REST twin the gate knows how
-// to interpret — its tier question cannot be answered, so tierInput
-// reports a miss and the caller refuses the request (fail-closed).
-var dynamicTierInputs = map[string]func(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error){
-	"advance_deal": advanceDealTierInput,
-}
-
-// advanceDealTierInput: 🟢/🟡 turns on whether EITHER endpoint of the move is a
-// closing stage, so the resolver needs both the destination's semantic and the
-// one the deal is currently in.
-func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
-	var args struct {
-		ToStageID ids.UUID `json:"to_stage_id"`
-	}
-	// THREE faults, three answers, and the order matters because each later check
-	// presumes the earlier one passed.
-	//
-	// json.Unmarshal alone cannot tell them apart: it fails identically for a body
-	// that is not JSON and for a body that is perfectly good JSON carrying a
-	// to_stage_id the UUID decoder refuses. Answering "not readable JSON" to the
-	// second sends the caller hunting a syntax error that is not there, while the
-	// real fault — a value they can see and fix — goes unnamed.
-	if !json.Valid(body) {
-		// malformed_json, the code httperr.Decode answers on the session half of
-		// this same route — one mistake must not carry two machine codes keyed on
-		// which credential the caller presented.
-		return mcp.TierResolverInput{}, httperr.Validation("body", "malformed_json",
-			"the request body is not readable JSON")
-	}
-	if err := json.Unmarshal(body, &args); err != nil {
-		// Valid JSON the shape refuses: a non-object, or a to_stage_id that is not
-		// a UUID string. Naming the field is right for both — the fix is to send an
-		// object carrying a canonical UUID there.
-		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "invalid",
-			"to_stage_id must be a canonical UUID string on a JSON object body")
-	}
-	// The omission goes through the one implementation, so a passport reaching
-	// this gate and a session reaching advanceDealInput read the SAME sentence.
-	// The gate resolves the tier before the handler runs, so without this the
-	// rule had two spellings on the one field U3 unified.
-	if err := httperr.RequireBodyID("to_stage_id", args.ToStageID); err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	// The deal is named by the ROUTE, not the body — /deals/{id}/advance — so it
-	// is read from there before the shared builder can resolve both endpoints.
-	dealID, err := ids.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		return mcp.TierResolverInput{}, httperr.Validation("id", "invalid",
-			"the deal id in the path must be a canonical UUID string")
-	}
-	// The SAME builder the MCP registry calls. Two spellings of "what the tier
-	// gate is shown" is how one door came to judge a deal move by its
-	// destination alone while the other judged both ends.
-	return agents.DealMoveTierInput(ctx, deps.records, deps.stages, dealID, args.ToStageID, body)
-}
-
-// tierInput supplies the lazy TierResolverInput for the admitted spec:
-// static tiers pass the body through; dynamic tiers dispatch through
-// dynamicTierInputs and report a miss for the caller to refuse.
-func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, deps tierDeps, r *http.Request, body []byte) (func() (mcp.TierResolverInput, error), bool) {
+// tierInput supplies the lazy TierResolverInput for the admitted spec.
+//
+// A STATIC tier passes the body through: nothing is read to decide it, so there
+// is no record for the input to describe. A DYNAMIC tier is answered by the
+// operation's own command — the decode restCommands already performs is the one
+// parse of this request, and the call it produces answers what the tier gate is
+// shown (agents.DynamicTierInput). A second table keyed by the same operations
+// used to answer this, and two tables free to disagree is how one door came to
+// judge a deal move by its destination alone while the other judged both ends.
+//
+// Both faults the dynamic path can meet are answered by the CLOSURE rather than
+// by a miss the caller reports: an operation with no decoder and a command that
+// answers no tier are equally "this door cannot tell whether the call needs a
+// human", and the gate refuses on the error rather than admitting at a tier
+// nobody resolved.
+func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) func() (mcp.TierResolverInput, error) {
 	if spec.Tier != mcp.TierDynamic {
-		return func() (mcp.TierResolverInput, error) { return mcp.TierResolverInput{Args: body}, nil }, true
-	}
-	resolve, known := dynamicTierInputs[pol.Tool]
-	if !known {
-		return nil, false
+		return func() (mcp.TierResolverInput, error) { return mcp.TierResolverInput{Args: body}, nil }
 	}
 	return func() (mcp.TierResolverInput, error) {
-		return resolve(ctx, deps, pol, r, body)
-	}, true
+		decode, described := restCommands[pol.Op]
+		if !described {
+			return mcp.TierResolverInput{}, fmt.Errorf(
+				"agent gate: %s decodes into no governed call, so nothing can say whether it needs a human: %w",
+				pol.Op, apperrors.ErrPermissionDenied)
+		}
+		call, err := decode(pol, deps, r, body)
+		if err != nil {
+			return mcp.TierResolverInput{}, err
+		}
+		return agents.DynamicTierInput(ctx, call, body)
+	}
 }
 
 func mutatingMethod(method string) bool {

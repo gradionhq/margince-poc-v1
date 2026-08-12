@@ -22,8 +22,10 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // GovernanceResolver answers, for one typed command, everything the gate must
@@ -78,6 +80,45 @@ func (b boundCommand[T]) Subject(ctx context.Context) (StageInfo, error) {
 
 func (b boundCommand[T]) Guards(ctx context.Context) error {
 	return b.resolver.Guards(ctx, b.cmd)
+}
+
+// dynamicTierCall is the extra question a call whose tier is decided at
+// INVOCATION must answer: what the tier gate is shown for it.
+//
+// It is deliberately NOT a member of GovernedCall, and not a method boundCommand
+// answers for every T. Sixty-nine operations carry a tier the contract states
+// once; one — the deal move — carries a tier that turns on the record's own
+// state, and a call that cannot answer this must be refused rather than handed
+// an empty input a resolver would read as an answer. Put on the shared bound
+// command, the assertion below would succeed for every call and prove nothing,
+// which is a guard the caller supplies to itself.
+type dynamicTierCall interface {
+	tierInput(ctx context.Context, args json.RawMessage) (mcp.TierResolverInput, error)
+}
+
+// DynamicTierInput asks a bound call what the tier gate should be shown for it.
+//
+// It is how a door with a dynamic-tier operation gets its tier question answered
+// from the SAME command the staging path resolves. The alternative — a second
+// per-operation table mapping a request onto a tier resolver's input — is what
+// this seam exists to remove: two tables keyed by the same operations are free
+// to disagree, and the disagreement that actually happened was a deal move
+// judged by its destination alone on one door and by both endpoints on the
+// other.
+//
+// A call that answers no invocation-time tier is REFUSED here rather than
+// admitted at some default. A caller reaches this only for a spec that declares
+// its tier resolvable at invocation, so a call with no answer means the registry
+// and the command seam disagree at runtime, and there is no honest tier to fall
+// back to.
+func DynamicTierInput(ctx context.Context, call GovernedCall, args json.RawMessage) (mcp.TierResolverInput, error) {
+	dynamic, ok := call.(dynamicTierCall)
+	if !ok {
+		return mcp.TierResolverInput{}, fmt.Errorf(
+			"crmagents: this call resolves no invocation-time tier, so nothing can say whether it needs a "+
+				"human: %w", apperrors.ErrPermissionDenied)
+	}
+	return dynamic.tierInput(ctx, args)
 }
 
 // StageSubject asks a bound call both questions in the order that makes them

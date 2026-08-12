@@ -17,25 +17,40 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
+
+// advanceTierInput resolves the tier input the REST door actually builds for a
+// deal move: through tierInput, against the real advance_deal policy and the
+// real registry spec, so what these assert is what the middleware produces
+// rather than what a hand-picked resolver would.
+func advanceTierInput(t *testing.T, deps restCommandDeps, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
+	t.Helper()
+	_, spec := advanceSpec(t, deps)
+	if spec.Tier != mcp.TierDynamic {
+		t.Fatalf("advance_deal resolved a %v spec — the dynamic path these assert about is not the one this door takes", spec.Tier)
+	}
+	return tierInput(r.Context(), spec, agentPolicies["POST /v1/deals/{id}/advance"], deps, r, body)()
+}
 
 func TestTheRESTDoorResolvesTheTierFromBothEndpointsToo(t *testing.T) {
 	deal, current, target := ids.NewV7(), ids.NewV7(), ids.NewV7()
-	deps := tierDeps{
+	deps := restCommandDeps{
 		stages:  reopenStages{semantics: map[ids.UUID]string{current: "won", target: "open"}},
 		records: reopenRecords{stageID: current},
 	}
 
-	in, err := advanceDealTierInput(context.Background(), deps, agentPolicy{},
-		requestForDeal(t, deal), []byte(`{"to_stage_id":"`+target.String()+`"}`))
+	in, err := advanceTierInput(t, deps, requestForDeal(t, deal), []byte(`{"to_stage_id":"`+target.String()+`"}`))
 	if err != nil {
 		t.Fatalf("resolving the tier input: %v", err)
 	}
@@ -52,10 +67,46 @@ func TestTheRESTDoorResolvesTheTierFromBothEndpointsToo(t *testing.T) {
 // something that is not an id is refused as the caller's mistake rather than
 // resolved against the zero deal.
 func TestTheRESTDoorRefusesAPathThatNamesNoDeal(t *testing.T) {
-	deps := tierDeps{stages: reopenStages{}, records: reopenRecords{}}
-	if _, err := advanceDealTierInput(context.Background(), deps, agentPolicy{},
-		requestForDealRaw(t, "not-a-uuid"), []byte(`{"to_stage_id":"`+ids.NewV7().String()+`"}`)); err == nil {
-		t.Error("a path naming no deal was resolved rather than refused")
+	deps := restCommandDeps{stages: reopenStages{}, records: reopenRecords{}}
+	_, err := advanceTierInput(t, deps, requestForDealRaw(t, "not-a-uuid"),
+		[]byte(`{"to_stage_id":"`+ids.NewV7().String()+`"}`))
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("a path naming no deal resolved to %v, want the existence-hiding refusal every other "+
+			"decoder on this door gives a routed id it cannot read", err)
+	}
+}
+
+// A dynamic tier the command seam cannot answer is REFUSED, never admitted at
+// some default. The pairing here is the runtime disagreement the refusal exists
+// for: advance_deal's dynamic spec against an operation whose command decodes
+// perfectly well and resolves no invocation-time tier.
+func TestADynamicSpecWhoseCommandAnswersNoTierIsRefused(t *testing.T) {
+	deps := restCommandDeps{stages: reopenStages{}, records: reopenRecords{}}
+	_, spec := advanceSpec(t, deps)
+	lead := agentPolicies["POST /v1/leads/{id}/promote"]
+	if _, described := restCommands[lead.Op]; !described {
+		t.Fatalf("%s decodes into no command at all, so this proves nothing about a command that answers no tier", lead.Op)
+	}
+
+	r := requestForDeal(t, ids.NewV7())
+	resolve := tierInput(r.Context(), spec, lead, deps, r, []byte(`{"trigger":"reply"}`))
+	if _, err := resolve(); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("an unanswerable dynamic tier resolved to %v, want a refusal — a gate that cannot tell "+
+			"whether a call needs a human must not decide that it does not", err)
+	}
+}
+
+// The other half of the same fail-closed rule: an operation with no decoder has
+// nothing to ask, and is refused rather than admitted ungated.
+func TestADynamicSpecWithNoDecoderIsRefused(t *testing.T) {
+	deps := restCommandDeps{stages: reopenStages{}, records: reopenRecords{}}
+	_, spec := advanceSpec(t, deps)
+	unknown := agentPolicy{Op: "anOperationNoDecoderKnows", Access: accessTool, Tool: "advance_deal", Tier: tierDynamic}
+
+	r := requestForDeal(t, ids.NewV7())
+	resolve := tierInput(r.Context(), spec, unknown, deps, r, []byte(`{}`))
+	if _, err := resolve(); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("an undecodable dynamic operation resolved to %v, want a refusal", err)
 	}
 }
 

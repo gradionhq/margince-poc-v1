@@ -8,9 +8,11 @@ package compose
 //
 // The door decodes; it does not interpret. What the approval binds to, and what
 // would be refused anyway, come back from the resolver the command is bound to
-// — the same resolver the tool door reaches for the same operation. The rest of
-// the gate's questions are still answered elsewhere: the tier by the generated
-// policy and dynamicTierInputs, the inbox line by restSummary.
+// — the same resolver the tool door reaches for the same operation. Where the
+// contract states a tier outright, the generated policy answers it; where the
+// tier turns on the record's own state, the command answers that too
+// (agents.DynamicTierInput). Only the inbox line is still this door's own
+// (restSummary), and stagedTarget says why.
 
 import (
 	"encoding/json"
@@ -28,9 +30,10 @@ import (
 // family added would re-sign this map type and every entry already in it — the
 // churn a table of twelve identical signatures is least able to absorb.
 //
-// It is not tierDeps, which answers a different question (what tier is this
-// call) and is consulted before admission rather than at staging; the two
-// happen to share a provider today and have no reason to share a shape.
+// One struct serves BOTH moments a decoder runs at — resolving a dynamic tier
+// before admission, and naming a staged target after a refusal — because it is
+// the same decode either way. The tier used to be fed from a struct of its own,
+// which is one of the two spellings this seam removed.
 type restCommandDeps struct {
 	records datasource.SystemOfRecordProvider
 	// stages resolves a pipeline stage's configured SEMANTIC, which is what

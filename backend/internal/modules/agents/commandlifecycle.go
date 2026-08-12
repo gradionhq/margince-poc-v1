@@ -18,12 +18,14 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // PromoteLeadCommand is one lead promotion, whichever door asked for it.
@@ -220,10 +222,38 @@ type AdvanceDealCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewAdvanceDealCall(records datasource.SystemOfRecordProvider, stages StageResolver, cmd AdvanceDealCommand) GovernedCall {
-	return bind[AdvanceDealCommand](&advanceDealResolver{
-		deal:   anchoredRecord{records: records, entityType: datasource.EntityDeal},
-		stages: stages,
-	}, cmd)
+	return advanceDealCall{
+		GovernedCall: bind[AdvanceDealCommand](&advanceDealResolver{
+			deal:   anchoredRecord{records: records, entityType: datasource.EntityDeal},
+			stages: stages,
+		}, cmd),
+		records: records,
+		stages:  stages,
+		cmd:     cmd,
+	}
+}
+
+// advanceDealCall is the bound deal move plus the one question this operation's
+// tier turns on: 🟢/🟡 is decided per invocation, from BOTH endpoints of the
+// move, so the gate cannot be told what to decide from without being told which
+// move it is.
+//
+// It is its own type rather than a method every bound command carries, because
+// DynamicTierInput's refusal (command.go) has to be a real refusal — a call that
+// answers no tier must be turned away, not handed an empty input the resolver
+// would read as "not open" for a reason nobody chose.
+type advanceDealCall struct {
+	GovernedCall
+	records datasource.SystemOfRecordProvider
+	stages  StageResolver
+	cmd     AdvanceDealCommand
+}
+
+// tierInput shows the gate both endpoints of the move, through the builder every
+// door shares (DealMoveTierInput). args travels because the resolver input
+// carries the call's own arguments alongside the semantics resolved from them.
+func (c advanceDealCall) tierInput(ctx context.Context, args json.RawMessage) (mcp.TierResolverInput, error) {
+	return DealMoveTierInput(ctx, c.records, c.stages, c.cmd.DealID, c.cmd.ToStageID, args)
 }
 
 type advanceDealResolver struct {

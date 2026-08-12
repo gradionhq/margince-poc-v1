@@ -49,8 +49,8 @@ import (
 //
 // Unreadable JSON is different: no resolver can be handed operands that were
 // never legible. It is refused with the code httperr.Decode answers on the
-// session half of the same route — the rule advanceDealTierInput
-// (agentgate.go) already follows for the same reason.
+// session half of the same route — the rule advanceDealCommand
+// (agentcommandlifecycle.go) already follows for the same reason.
 func commandBody[T any](body []byte) (T, error) {
 	var into T
 	if len(bytes.TrimSpace(body)) == 0 {
