@@ -467,24 +467,33 @@ func (e *stagingEnv) competingTx(t *testing.T) pgx.Tx {
 // connection it runs on.
 func waitForRowLockWaiter(t *testing.T, e *stagingEnv, blocker int, done <-chan struct{}) {
 	t.Helper()
-	const maxProbes = 20_000
-	for probe := 0; probe < maxProbes; probe++ {
-		var waiting bool
-		if err := e.owner.QueryRow(context.Background(),
-			`SELECT EXISTS (SELECT 1 FROM pg_stat_activity a
-			  WHERE $1 = ANY (pg_blocking_pids(a.pid)))`, blocker).Scan(&waiting); err != nil {
-			t.Fatal(err)
-		}
-		if waiting {
-			return
-		}
-		select {
-		case <-done:
-			t.Fatal("the bundle decision finished without ever blocking on the contested member — it never reached the row the competing transaction was holding, so this run proved nothing")
-		default:
-		}
-	}
-	t.Fatalf("nothing waited on backend %d within %d probes — the decision never reached the row it should have blocked on", blocker, maxProbes)
+	waitForBlockedBackend(t, done,
+		"the bundle decision finished without ever blocking on the contested member — it never reached the row the competing transaction was holding, so this run proved nothing",
+		fmt.Sprintf("nothing waited on backend %d within %s — the decision never reached the row it should have blocked on", blocker, probeBudget),
+		func(ctx context.Context) (bool, error) {
+			// The competing transaction is open ON THIS CONNECTION, so every
+			// probe below runs inside it — and pg_stat_activity's row set is
+			// materialized once per transaction and cached until that
+			// transaction ends. A decision arriving on a connection the pool
+			// dials after the first look would be missing from every later look,
+			// permanently, and this would report "the decision never reached the
+			// row" about a decision parked squarely on it. Discarding the
+			// snapshot is what keeps each probe a look at the live set.
+			//
+			// Only the row set goes stale; pg_blocking_pids is evaluated per
+			// probe and always reports the live lock manager. That is what makes
+			// the blindness intermittent instead of total: whenever the pool had
+			// a warm connection to hand, the racer pre-dated the first look and
+			// was read correctly.
+			if _, err := e.owner.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil {
+				return false, err
+			}
+			var waiting bool
+			err := e.owner.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM pg_stat_activity a
+				  WHERE $1 = ANY (pg_blocking_pids(a.pid)))`, blocker).Scan(&waiting)
+			return waiting, err
+		})
 }
 
 // backendPID is the server-side backend id of the transaction on tx, which is
