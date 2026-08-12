@@ -91,17 +91,6 @@
 .scroll {
   flex: 1;
   overflow-y: auto;
-  /* The bar takes its space up front, whether or not this screen scrolls. Without
-     it every navigation between a short screen and a long one shifted the content
-     column by the bar's width, which is most visible on the settings tabs —
-     Account fits, Integrations does not, and the whole page jumped sideways on the
-     way between them. */
-  /* `both-edges`, not a single edge: reserving the lane on the right only
-     shifts everything centred inside this scroller half a scrollbar to the
-     left, and the page head — which is outside the scroller — does not move
-     with it, so the heading and the content under it stopped sharing a left
-     edge on any window wider than the column. */
-  scrollbar-gutter: stable both-edges;
   /* The containing block for anything absolutely positioned inside a screen.
      Without it such a box escapes to the initial containing block: it is then
      laid out against the VIEWPORT rather than clipped by this scroller, so a
@@ -1129,8 +1118,11 @@
   .rail.expanded,
   .rail.collapsed {
     position: fixed;
-    left: var(--space-2);
-    right: var(--space-2);
+    /* The page gutter, the same 16px the head and the content column stand on:
+       the bar is the third edge of the same layout, and at 8px it sat visibly
+       outside the column it belongs to. */
+    left: var(--space-4);
+    right: var(--space-4);
     /* Above the home indicator on a phone that has one, and on the same 8px
        ledge everywhere else. */
     bottom: max(var(--space-2), env(safe-area-inset-bottom));
@@ -1365,8 +1357,8 @@
      on the sheet's own 4px gutter rather than the sidebar's 8px one. */
   .rail.sheetopen .railfoot {
     display: block;
-    margin: var(--space-3) calc(-1 * var(--space-1)) 0;
-    padding: var(--space-3) var(--space-1) 0;
+    margin: var(--space-3) calc(-1 * var(--space-2)) 0;
+    padding: var(--space-3) var(--space-2) 0;
   }
   /* The foot comes back with the sheet, but the Settings door does not: the
      account rows inside the sheet already offer Settings, and two rows to the
@@ -1422,10 +1414,11 @@
     min-height: 48px;
     /* Bled out through the sheet's own gutter: the rule divides the SHEET, and a
        line inset on both sides would read as an underline on the brand. */
-    margin: 0 calc(-1 * var(--space-1)) var(--space-3);
+    margin: 0 calc(-1 * var(--space-2)) var(--space-3);
     /* Room on the right for the close control, which is absolutely positioned in
-       this row: without it a long organization name runs under the X. */
-    padding: 0 var(--space-16) var(--space-3) var(--space-1);
+       this row: without it a long organization name runs under the X. The left
+       inset is the rows' own, so the brand stands on their column of icons. */
+    padding: 0 var(--space-16) var(--space-3) var(--space-3);
     border-bottom: 1px solid var(--borderSubtle);
   }
   /* More is the sheet's close control. It sits in that header row rather than
@@ -1472,12 +1465,19 @@
     padding: 0 var(--space-4) var(--space-4);
   }
   /* The heading keeps the row; the agent strip wraps under it rather than
-     squeezing a record name into a third of the width. */
+     squeezing a record name into a third of the width. Centred rather than
+     top-aligned: the strip is one line tall against a heading that is not, and
+     hung from the top it read as having slipped. */
   .pagehead {
+    align-items: center;
     padding: var(--space-4) var(--space-4) var(--space-2);
     flex-wrap: wrap;
   }
+  /* Above the bar, and on the same gutter as everything else at this width — it
+     is the third floating thing in the corner, and 22px put it out of line with
+     the two under it. */
   .askfab-root {
+    right: var(--space-4);
     bottom: 76px;
   }
 }
