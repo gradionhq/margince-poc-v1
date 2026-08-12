@@ -307,8 +307,8 @@ func (w *extJobWorkspaceWorker) deriveAuthority(ctx context.Context, args extJob
 //     is precisely the text that must not land there. Converting it to an error
 //     here puts it back on the path every other worker's failure takes.
 func (w *extJobWorkspaceWorker) tick(ctx context.Context) (err error) {
-	pool, vault := boundExtensionRuntime()
-	rt := jobRuntimeFor(ctx, string(w.decl.Unit), pool, vault)
+	deps := boundExtensionRuntime()
+	rt := jobRuntimeFor(ctx, string(w.decl.Unit), deps)
 	defer rt.release()
 	defer func() {
 		if r := recover(); r != nil {

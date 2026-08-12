@@ -191,18 +191,31 @@ func (d *Dispatcher) overlayModeFor(ctx context.Context, wsID ids.UUID) (bool, e
 	return isOverlay, nil
 }
 
-// queryOverlayMode reads workspace.x_sor_mode straight from the
-// workspace row. workspace is the one non-tenant table (identity's own
-// ResolveWorkspace doc comment), so this rides WithInfraTx rather than
-// the RLS-bound WithWorkspaceTx — there is no workspace_id column on
-// workspace itself to scope by.
+// queryOverlayMode reads workspace.x_sor_mode straight from the workspace row.
 func (d *Dispatcher) queryOverlayMode(ctx context.Context, wsID ids.UUID) (bool, error) {
+	overlaid, err := overlayModeOf(ctx, d.pool, wsID)
+	if err != nil {
+		return false, fmt.Errorf("compose: resolving workspace sor_mode for dispatch: %w", err)
+	}
+	return overlaid, nil
+}
+
+// overlayModeOf is the fresh read of a workspace's system-of-record mode, and
+// the ONE spelling of it: the dispatcher's uncached read above and the
+// extension core port's own guard both go through here, so the two can never
+// answer differently about the same workspace.
+//
+// workspace is the one non-tenant table (identity's own ResolveWorkspace doc
+// comment), so this rides WithInfraTx rather than the RLS-bound
+// WithWorkspaceTx — there is no workspace_id column on workspace itself to
+// scope by.
+func overlayModeOf(ctx context.Context, pool *pgxpool.Pool, wsID ids.UUID) (bool, error) {
 	var mode string
-	err := database.WithInfraTx(ctx, d.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT x_sor_mode FROM workspace WHERE id = $1`, wsID).Scan(&mode)
 	})
 	if err != nil {
-		return false, fmt.Errorf("compose: resolving workspace sor_mode for dispatch: %w", err)
+		return false, err
 	}
 	return mode == "overlay", nil
 }

@@ -45,7 +45,21 @@ var errExtensionRuntimeUnwired = errors.New("compose: this role bound no pool fo
 // The mutex guards the write-then-read ordering across the boot/serve
 // boundary, not concurrent bindings — a role binds once.
 var extensionRuntimeDeps struct {
-	mu    sync.RWMutex
+	mu sync.RWMutex
+	extensionRuntimeBinding
+}
+
+// extensionRuntimeBinding is what one role bound for every per-call Runtime:
+// the pool a unit's own SQL and the governed core port both run on, and the
+// custodian its secrets need.
+//
+// The core port needs no binding of its own, and that is worth stating because
+// the design expected one. Its two dependencies — the store that owns the write
+// and the fresh read of the workspace's record mode — are each derived from the
+// pool at the call (activities.NewStore is the tree's own idiom for exactly
+// that), so no role can wire the port half-way and no role serves a different
+// set of capabilities than another.
+type extensionRuntimeBinding struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
 }
@@ -73,20 +87,17 @@ func BindExtensionRuntime(pool *pgxpool.Pool, vault keyvault.Vault) {
 		slog.Default().Warn("compose: the extension runtime was rebound to a different pool; " +
 			"every extension capability from now on runs against the new one")
 	}
-	extensionRuntimeDeps.pool = pool
-	extensionRuntimeDeps.vault = vault
+	extensionRuntimeDeps.extensionRuntimeBinding = extensionRuntimeBinding{pool: pool, vault: vault}
 }
 
 // boundExtensionRuntime reads the binding. Read per CALL rather than
 // captured at registry construction, so the ordering between binding and
 // building a registry cannot matter — only the ordering against the first
 // tool call, which is after the boot either way.
-//
-//nolint:ireturn // keyvault.Vault IS the custodian seam; this hands back what was bound, unchanged.
-func boundExtensionRuntime() (*pgxpool.Pool, keyvault.Vault) {
+func boundExtensionRuntime() extensionRuntimeBinding {
 	extensionRuntimeDeps.mu.RLock()
 	defer extensionRuntimeDeps.mu.RUnlock()
-	return extensionRuntimeDeps.pool, extensionRuntimeDeps.vault
+	return extensionRuntimeDeps.extensionRuntimeBinding
 }
 
 // callRuntime is ONE invocation's extension.Runtime.
@@ -96,9 +107,8 @@ func boundExtensionRuntime() (*pgxpool.Pool, keyvault.Vault) {
 // is the whole namespace wall: not a check the store performs, but a name
 // the surface gives a unit no way to say.
 type callRuntime struct {
-	unit  string
-	pool  *pgxpool.Pool
-	vault keyvault.Vault
+	unit string
+	deps extensionRuntimeBinding
 
 	// callCtx is the context the INVOCATION arrived on, held for exactly one
 	// value: the workspace. Every capability re-derives the tenant from here
@@ -131,8 +141,8 @@ var _ extension.Runtime = (*callRuntime)(nil)
 // It returns the concrete type rather than the published interface because
 // the caller needs release, which is the core's side of the lifetime contract
 // and deliberately not on the surface a handler holds.
-func runtimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
-	return &callRuntime{unit: unit, pool: pool, vault: vault, callCtx: ctx, live: true}
+func runtimeFor(ctx context.Context, unit string, deps extensionRuntimeBinding) *callRuntime {
+	return &callRuntime{unit: unit, deps: deps, callCtx: ctx, live: true}
 }
 
 // jobRuntimeFor mints the Runtime for one JOB tick, which differs from an
@@ -151,8 +161,8 @@ func runtimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyv
 // to guess it from a principal that looks, field by field, like a real agent
 // call. Nothing else about the tick changes: the actor on callCtx is still the
 // one every capability and every policy sees.
-func jobRuntimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
-	rt := runtimeFor(ctx, unit, pool, vault)
+func jobRuntimeFor(ctx context.Context, unit string, deps extensionRuntimeBinding) *callRuntime {
+	rt := runtimeFor(ctx, unit, deps)
 	rt.systemCaller = true
 	return rt
 }
@@ -186,14 +196,15 @@ func (r *callRuntime) usable() error {
 	if !r.live {
 		return extension.ErrRuntimeExpired
 	}
-	if r.pool == nil {
+	if r.deps.pool == nil {
 		return errExtensionRuntimeUnwired
 	}
 	return nil
 }
 
 // scoped is the gate plus the pin: it checks the lifetime and returns ctx
-// re-bound to the workspace THE INVOCATION arrived under.
+// re-bound to what THE INVOCATION arrived under — its workspace, its actor and
+// its correlation id.
 //
 // Rebinding rather than trusting the incoming ctx is the point. Everything a
 // handler passes down — cancellation, deadline, request values — is kept,
@@ -214,7 +225,30 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 		// should be able to supply the missing tenant.
 		return nil, database.ErrNoWorkspace
 	}
-	return principal.WithWorkspaceID(ctx, ws), nil
+	ctx = principal.WithWorkspaceID(ctx, ws)
+
+	// The tenant is not the only thing the invocation knows and the handler's
+	// context may not. A core write resolves its actor and its correlation id
+	// from the context as well — Audit refuses without an actor, Emit without a
+	// correlation — so a handler that opened its transaction on
+	// context.Background() would reach the write path with neither, and the
+	// write would fail on plumbing rather than on anything the unit did. They
+	// travel the same way as the workspace and for the same reason: taken from
+	// the INVOCATION, so what a handler passes can shorten a deadline but
+	// cannot change who is acting.
+	//
+	// A value the invocation does not carry is left alone rather than
+	// defaulted. There is nothing to forge past — a unit cannot reach
+	// principal.With… at all, the package being internal to the backend module
+	// — so an unbound actor here means the invocation arrived without one, and
+	// inventing a stand-in would put a fictional identity on an audit row.
+	if actor, bound := principal.Actor(r.callCtx); bound {
+		ctx = principal.WithActor(ctx, actor)
+	}
+	if correlation, bound := principal.CorrelationID(r.callCtx); bound {
+		ctx = principal.WithCorrelationID(ctx, correlation)
+	}
+	return ctx, nil
 }
 
 // Secrets hands out the unit's own namespace, guarded by this Runtime's
@@ -224,7 +258,7 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 //
 //nolint:ireturn // returning the published port IS the seam: a unit holds extension.Secrets, never a core type.
 func (r *callRuntime) Secrets() extension.Secrets {
-	return callSecrets{rt: r, inner: extsecrets.For(r.unit, r.pool, r.vault)}
+	return callSecrets{rt: r, inner: extsecrets.For(r.unit, r.deps.pool, r.deps.vault)}
 }
 
 // Tx opens ONE transaction, already pinned to the workspace the invocation
@@ -241,14 +275,16 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 	if err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
 		// Re-checked inside: opening a transaction is a round trip, and a
 		// Runtime released during it must not reach the callback with a live
 		// handle. Refusing here rolls the (empty) transaction back.
 		if err := r.usable(); err != nil {
 			return err
 		}
-		return fn(ctx, extensionTx{tx: tx})
+		return fn(ctx, extensionTx{tx: tx, core: extensionCore{
+			tx: tx, tick: r.systemCaller, deps: r.deps,
+		}})
 	})
 }
 
@@ -392,7 +428,19 @@ func (s callSecrets) DeleteUser(ctx context.Context, userID extension.UserID, ke
 // and it is the accurate one, because the transaction can end while the
 // Runtime is still perfectly live (the callback returned, the call did not).
 // ErrRuntimeExpired there would name the wrong fault.
-type extensionTx struct{ tx pgx.Tx }
+type extensionTx struct {
+	tx pgx.Tx
+	// core is what the transaction can reach BESIDE the unit's own SQL, and it
+	// is built by the Runtime rather than by this type: whether the invocation
+	// has a caller, and what the role bound at boot, are facts about the call,
+	// not about the transaction.
+	core extensionCore
+}
+
+//nolint:ireturn // returning the published port IS the seam: a unit holds extension.Core, never a core type.
+func (t extensionTx) Core() extension.Core {
+	return t.core
+}
 
 func (t extensionTx) Exec(ctx context.Context, sql string, args ...any) (int64, error) {
 	tag, err := t.tx.Exec(ctx, sql, args...)

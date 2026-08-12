@@ -388,11 +388,11 @@ func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 			return nil, err
 		}
 	}
-	pool, vault := boundExtensionRuntime()
+	deps := boundExtensionRuntime()
 	// ctx here is the INVOCATION's — the one the admission gate ran against —
 	// and the Runtime keeps it, so every capability re-derives the tenant from
 	// it rather than from whatever context the handler later passes back in.
-	rt := runtimeFor(ctx, t.unit, pool, vault)
+	rt := runtimeFor(ctx, t.unit, deps)
 	// Deferred, not called on the return path: a handler that panics has
 	// still finished with its Runtime, and a panic recovered upstream must
 	// not leave a live one behind.

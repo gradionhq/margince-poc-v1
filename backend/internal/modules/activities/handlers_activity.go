@@ -47,7 +47,7 @@ func (h Handlers) LogActivity(w http.ResponseWriter, r *http.Request, _ crmcontr
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in, err := activityLogInput(req)
+	in, err := LogActivityInputFrom(req)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

@@ -204,6 +204,14 @@ type Caller struct {
 // included, spells them the same way. AGENTS.md's no-`any` rule is aimed at
 // TypeScript's escape hatches; a Go query-argument list is not one.
 type Tx interface {
+	// Core is the governed door onto the installation's own records, on THIS
+	// transaction: a unit's own row and the core record it files commit
+	// together or not at all. Everything the three verbs below are not —
+	// authorized against the caller's live RBAC, audited, attributed, and
+	// published as an event — is a property of going through it rather than
+	// around it. See Core.
+	Core() Core
+
 	// Exec runs a statement that returns no rows (INSERT, UPDATE, DELETE)
 	// and reports how many rows it affected — which is how a delete says
 	// whether it deleted anything.

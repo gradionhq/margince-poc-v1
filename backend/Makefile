@@ -339,6 +339,7 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 gen: mcp-apps-vocab ## Regenerate everything derived from the contract
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
+	$(GOWORK_ROOT) $(GO) generate ./pkg/extension/crm
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go

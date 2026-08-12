@@ -113,6 +113,12 @@ func (t *fakeTx) record(sql string, args []any) {
 	t.args = append(t.args, args)
 }
 
+// Core is the governed core port, which this fake does not serve: these tests
+// exercise the unit's own table, and a Core here would be a second
+// implementation of the seam rather than a use of it. A test that files a note
+// to a record drives the real one.
+func (t *fakeTx) Core() extension.Core { return nil }
+
 func (t *fakeTx) Exec(_ context.Context, sql string, args ...any) (int64, error) {
 	t.record(sql, args)
 	return t.affected, t.failure()

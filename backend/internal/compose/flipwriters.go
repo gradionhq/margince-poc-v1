@@ -136,7 +136,7 @@ func (w *flipWriters) provenance(object, ext string) string {
 // importSourceSystem namespaces the source_system the flip writes on the
 // two objects whose stores key their own idempotent replay on
 // (source_system, source_id). The prefix is refused at the WIRE
-// MAPPERS — people.leadCreateInput and activities.activityLogInput —
+// MAPPERS — people.leadCreateInput and activities.LogActivityInputFrom —
 // so a caller cannot pre-plant a row under a guessed incumbent id and
 // have the store hand it back as already existing. The stores
 // themselves accept the namespace, which is how this in-process writer
