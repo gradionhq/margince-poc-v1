@@ -39,7 +39,7 @@ func connectorCtx(e *integration.Env) context.Context {
 
 func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 	e := integration.Setup(t)
-	sink := capture.NewSink(e.Pool).WithStager(mergeStager{svc: approvals.NewService(e.Pool)})
+	sink := capture.NewSink(e.DB()).WithStager(mergeStager{svc: approvals.NewService(e.Pool)})
 	ctx := connectorCtx(e)
 
 	first, err := sink.Upsert(ctx, connector.NormalizedRecord{

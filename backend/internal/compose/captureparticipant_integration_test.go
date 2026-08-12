@@ -98,7 +98,7 @@ func readParticipants(t *testing.T, e *integration.Env, activityID ids.UUID) []p
 // connector principal.
 func captureMail(t *testing.T, e *integration.Env, owner ids.UUID, sourceID, direction, counterparty string) ids.UUID {
 	t.Helper()
-	sink := capture.NewSink(e.Pool)
+	sink := capture.NewSink(e.DB())
 	ref, err := sink.Upsert(mailboxOwnerCtx(e, owner), connector.NormalizedRecord{
 		EntityType:   "activity",
 		NaturalKey:   connector.NaturalKey{SourceSystem: "gmail", SourceID: sourceID},

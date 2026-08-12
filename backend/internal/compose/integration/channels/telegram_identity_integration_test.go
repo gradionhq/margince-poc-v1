@@ -315,7 +315,7 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	first := telegramUpdate{updateID: 5701, messageID: 71, senderID: 770701, username: "racer", firstName: "Nadia", text: "first"}
 	second := telegramUpdate{updateID: 5702, messageID: 72, senderID: 770701, username: "racer", firstName: "Nadia", text: "second"}
 
-	sink := capture.NewSink(c.Pool).
+	sink := capture.NewSink(c.DB()).
 		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.Pool)})
 	ctx := c.channelConnectorCtx(t)
 

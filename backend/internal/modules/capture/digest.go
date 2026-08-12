@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -68,7 +67,7 @@ type DigestConnRow struct {
 func (r *Registry) BuildDigests(ctx context.Context, digestDate time.Time) error {
 	day := digestDate.Format(time.DateOnly)
 	since := digestDate.AddDate(0, 0, -1)
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		users, err := connectedUsers(ctx, tx)
 		if err != nil {
 			return err
@@ -177,7 +176,7 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 // transport's honest 404.
 func (r *Registry) ReadDigest(ctx context.Context, userID ids.UUID, day *time.Time) (*DigestPayload, error) {
 	var raw []byte
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		var row pgx.Row
 		if day != nil {
 			row = tx.QueryRow(ctx,

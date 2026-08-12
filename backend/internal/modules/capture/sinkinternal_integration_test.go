@@ -32,7 +32,7 @@ import (
 
 // bootstrapInternalMailWorkspace seeds a workspace that has registered acme.com
 // as its own domain, and returns a context bound to it.
-func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context.Context, *pgxpool.Pool) {
+func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context.Context, *database.DB) {
 	t.Helper()
 	owner, pool := setupCaptureDB(t)
 	ctx := context.Background()
@@ -71,7 +71,7 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 			t.Fatalf("seeding the anchor company: %v", err)
 		}
 	}
-	return wsCtx, pool
+	return wsCtx, database.BindTo(pool, ids.From[ids.WorkspaceKind](wsUUID))
 }
 
 // mailSinkContext binds the per-user mail connector principal the sync loop
@@ -185,8 +185,8 @@ func breadcrumbReasons(ctx context.Context, t *testing.T, pool *pgxpool.Pool, so
 // note — so every colleague could open it on the global timeline and find it in
 // search.
 func TestAnAllInternalMessageLeavesNoRowInAnyTable(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(db)
 
 	_, err := sink.Upsert(ctx, mailRecord("internal-1", "boss@acme.com",
 		"boss@acme.com", "rep@acme.com", "hr@mail.acme.com"))
@@ -194,7 +194,7 @@ func TestAnAllInternalMessageLeavesNoRowInAnyTable(t *testing.T) {
 		t.Fatalf("Upsert of an all-internal message: got %v, want a skip", err)
 	}
 
-	activities, participants, raws, audits := countsFor(ctx, t, pool, "internal-1")
+	activities, participants, raws, audits := countsFor(ctx, t, db.Pool(), "internal-1")
 	if activities != 0 || participants != 0 || raws != 0 || audits != 0 {
 		t.Errorf("all-internal message left rows behind: activity=%d participant=%d raw_capture=%d audit_log=%d, want 0 in each",
 			activities, participants, raws, audits)
@@ -202,7 +202,7 @@ func TestAnAllInternalMessageLeavesNoRowInAnyTable(t *testing.T) {
 
 	// The drop is provable, not merely asserted: the ledger row is what makes
 	// "colleague mail is never ingested" checkable after the fact.
-	reasons := breadcrumbReasons(ctx, t, pool, "internal-1")
+	reasons := breadcrumbReasons(ctx, t, db.Pool(), "internal-1")
 	if len(reasons) != 1 || reasons[0] != "internal_only" {
 		t.Errorf("ledger reasons = %v, want exactly one internal_only", reasons)
 	}
@@ -216,8 +216,8 @@ func TestAnAllInternalMessageLeavesNoRowInAnyTable(t *testing.T) {
 // the creation ladder is ABOUT is the other half, and needs a wired ensurer —
 // it is asserted in compose's capture_autocreate_integration_test.go.
 func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(db)
 
 	rec := mailRecord("intro-1", "colleague@acme.com",
 		"colleague@acme.com", "rep@acme.com", "buyer@customer.example")
@@ -225,7 +225,7 @@ func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testin
 		t.Fatalf("an introduction must be captured: %v", err)
 	}
 
-	activities, _, raws, _ := countsFor(ctx, t, pool, "intro-1")
+	activities, _, raws, _ := countsFor(ctx, t, db.Pool(), "intro-1")
 	if activities != 1 {
 		t.Errorf("activity rows = %d, want 1 — one external party makes the message correspondence", activities)
 	}
@@ -236,7 +236,7 @@ func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testin
 	// The stored activity still says the colleague wrote it. Authorship is not
 	// the record-creation question, and conflating them is what fakes replies.
 	var counterparty string
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT counterparty_email FROM activity WHERE source_id = 'intro-1'`).Scan(&counterparty)
 	}); err != nil {
@@ -246,7 +246,7 @@ func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testin
 		t.Errorf("counterparty_email = %q, want the colleague who actually wrote it", counterparty)
 	}
 
-	if reasons := breadcrumbReasons(ctx, t, pool, "intro-1"); len(reasons) > 0 {
+	if reasons := breadcrumbReasons(ctx, t, db.Pool(), "intro-1"); len(reasons) > 0 {
 		for _, r := range reasons {
 			if r == "internal_only" {
 				t.Fatal("an introduction was dropped as internal — the copied prospect makes it external")
@@ -259,14 +259,14 @@ func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testin
 // between two colleagues is captured. The installation has made no claim about
 // its own mail, and this gate does not invent one on its behalf.
 func TestWithNoRegisteredDomainEvenColleagueMailIsCaptured(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t)
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t)
+	sink := capture.NewSink(db)
 
 	if _, err := sink.Upsert(ctx, mailRecord("nodomain-1", "boss@acme.com",
 		"boss@acme.com", "rep@acme.com")); err != nil {
 		t.Fatalf("with an empty own-domain set the message must be captured: %v", err)
 	}
-	if activities, _, _, _ := countsFor(ctx, t, pool, "nodomain-1"); activities != 1 {
+	if activities, _, _, _ := countsFor(ctx, t, db.Pool(), "nodomain-1"); activities != 1 {
 		t.Errorf("activity rows = %d, want 1", activities)
 	}
 }
@@ -275,13 +275,13 @@ func TestWithNoRegisteredDomainEvenColleagueMailIsCaptured(t *testing.T) {
 // says "I could not read the parties", which is not the same claim as "there
 // were none", and the direction to fail in is toward keeping mail.
 func TestAMessageReportingNoAddressesIsCaptured(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(db)
 
 	if _, err := sink.Upsert(ctx, mailRecord("unknown-1", "boss@acme.com")); err != nil {
 		t.Fatalf("an unenumerable message must be captured: %v", err)
 	}
-	if activities, _, _, _ := countsFor(ctx, t, pool, "unknown-1"); activities != 1 {
+	if activities, _, _, _ := countsFor(ctx, t, db.Pool(), "unknown-1"); activities != 1 {
 		t.Errorf("activity rows = %d, want 1", activities)
 	}
 }
@@ -289,15 +289,15 @@ func TestAMessageReportingNoAddressesIsCaptured(t *testing.T) {
 // A subdomain of a registered domain is internal. The workspace registered
 // acme.com; mail among people at mail.acme.com is still colleague mail.
 func TestMailAmongSubdomainsOfARegisteredDomainIsInternal(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(db)
 
 	_, err := sink.Upsert(ctx, mailRecord("subdomain-1", "boss@mail.acme.com",
 		"boss@mail.acme.com", "rep@eu.acme.com"))
 	if !isSkip(err) {
 		t.Fatalf("subdomain mail: got %v, want a skip", err)
 	}
-	if activities, _, raws, _ := countsFor(ctx, t, pool, "subdomain-1"); activities != 0 || raws != 0 {
+	if activities, _, raws, _ := countsFor(ctx, t, db.Pool(), "subdomain-1"); activities != 0 || raws != 0 {
 		t.Errorf("subdomain mail left rows: activity=%d raw_capture=%d, want 0", activities, raws)
 	}
 }
@@ -316,8 +316,8 @@ func isSkip(err error) bool { return errors.Is(err, connector.ErrSkip) }
 // skipped message. Only the installation's own company, or an administrator,
 // can make a domain count.
 func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t)
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	ctx, db := bootstrapInternalMailWorkspace(t)
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'acme.com', 'mailbox', false)`)
@@ -325,13 +325,13 @@ func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seeding an unverified domain: %v", err)
 	}
-	sink := capture.NewSink(pool)
+	sink := capture.NewSink(db)
 
 	if _, err := sink.Upsert(ctx, mailRecord("unverified-1", "boss@acme.com",
 		"boss@acme.com", "rep@acme.com")); err != nil {
 		t.Fatalf("an unverified domain must not suppress storage: %v", err)
 	}
-	if activities, _, _, _ := countsFor(ctx, t, pool, "unverified-1"); activities != 1 {
+	if activities, _, _, _ := countsFor(ctx, t, db.Pool(), "unverified-1"); activities != 1 {
 		t.Errorf("activity rows = %d, want 1 — only a vouched-for domain governs the drop", activities)
 	}
 }
@@ -343,8 +343,8 @@ func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
 // or a company that changed its domain — hiding correspondence with an address
 // nobody claims any more, with nothing in the system able to revoke it.
 func TestADomainTheCompanyNoLongerClaimsStopsSuppressingMail(t *testing.T) {
-	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
-	sink := capture.NewSink(pool)
+	ctx, db := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(db)
 
 	if _, err := sink.Upsert(ctx, mailRecord("revoke-1", "boss@acme.com",
 		"boss@acme.com", "rep@acme.com")); !isSkip(err) {
@@ -352,7 +352,7 @@ func TestADomainTheCompanyNoLongerClaimsStopsSuppressingMail(t *testing.T) {
 	}
 
 	// The company corrects itself: acme.com was never theirs.
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `UPDATE organization_domain SET domain = 'acmecorp.com'`)
 		return err
 	}); err != nil {
@@ -363,7 +363,7 @@ func TestADomainTheCompanyNoLongerClaimsStopsSuppressingMail(t *testing.T) {
 		"boss@acme.com", "rep@acme.com")); err != nil {
 		t.Fatalf("once the company no longer claims acme.com the mail must be kept: %v", err)
 	}
-	if activities, _, _, _ := countsFor(ctx, t, pool, "revoke-2"); activities != 1 {
+	if activities, _, _, _ := countsFor(ctx, t, db.Pool(), "revoke-2"); activities != 1 {
 		t.Errorf("activity rows = %d, want 1 — the claim was withdrawn, so the drop must stop", activities)
 	}
 }

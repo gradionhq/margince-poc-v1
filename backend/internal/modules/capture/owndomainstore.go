@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/idna"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -43,12 +42,13 @@ type OwnDomain struct {
 
 // OwnDomainStore reads and writes the workspace's own-domain registry.
 type OwnDomainStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
 // NewOwnDomainStore builds the store over the app pool.
-func NewOwnDomainStore(pool *pgxpool.Pool) *OwnDomainStore {
-	return &OwnDomainStore{pool: pool}
+func NewOwnDomainStore(db *database.DB) *OwnDomainStore {
+	return &OwnDomainStore{db: db}
 }
 
 // OwnDomainList is the registry plus what the installation's own company
@@ -67,7 +67,7 @@ func (s *OwnDomainStore) List(ctx context.Context) (OwnDomainList, error) {
 	if err := auth.Require(ctx, captureSettingsObject, principal.ActionRead); err != nil {
 		return OwnDomainList{}, err
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT domain, source, verified, created_at
 			  FROM workspace_email_domain ORDER BY domain`)
@@ -115,7 +115,7 @@ func (s *OwnDomainStore) Add(ctx context.Context, raw string) (OwnDomain, error)
 		return OwnDomain{}, err
 	}
 	var out OwnDomain
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The prior state, so the trail distinguishes "an admin registered a new
 		// domain" from "an admin confirmed a candidate a mailbox had seen".
 		// `any`, not map[string]any: storekit.marshalOrNil writes SQL NULL only
@@ -171,7 +171,7 @@ func (s *OwnDomainStore) Remove(ctx context.Context, raw string) error {
 	if domain == "" {
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx,
 			`DELETE FROM workspace_email_domain WHERE domain = $1`, domain)
 		if err != nil {

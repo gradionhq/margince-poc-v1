@@ -19,7 +19,9 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -84,7 +86,7 @@ func (captureOnlyChannelConnector) HealthCheck(context.Context, connector.Auth) 
 func channelSendRegistry(t *testing.T, f *channelFixture, c connector.Connector) *capture.Registry {
 	t.Helper()
 	_, pool := setupCaptureDB(t)
-	reg := capture.NewRegistry(pool, nil, fixtureAuthority{}, f.vault)
+	reg := capture.NewRegistry(database.BindTo(pool, ids.From[ids.WorkspaceKind](f.ws)), nil, fixtureAuthority{}, f.vault)
 	if c != nil {
 		reg.Register(c)
 	}

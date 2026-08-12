@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -28,7 +27,8 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool           *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db             *database.DB
 	stager         MergeStager
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
@@ -68,8 +68,9 @@ type MergeProposal struct {
 	Summary        string
 }
 
-func NewSink(pool *pgxpool.Pool) *Sink {
-	return &Sink{pool: pool}
+// NewSink binds the capture sink to the pool its writes run through.
+func NewSink(db *database.DB) *Sink {
+	return &Sink{db: db}
 }
 
 // WithFileKeeper returns a copy that keeps the files a captured message
@@ -120,7 +121,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	// produced no rows, and returning ErrSkip from inside the callback would
 	// roll that proof back along with everything else (ADR-0082 §1).
 	var internalOnly bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
 		// the account's own lock, and not only at the ingress edge that admitted

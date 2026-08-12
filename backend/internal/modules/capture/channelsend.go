@@ -24,7 +24,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -130,7 +129,7 @@ func (f fencedChannelSender) SendMessage(ctx context.Context, auth connector.Aut
 // never destroy a legitimate message.
 func (r *Registry) requireBindingUnchanged(ctx context.Context, resolved channelBinding) error {
 	var version int64
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT version FROM channel_connection
 			 WHERE id = $1 AND status = $2 AND archived_at IS NULL`,
@@ -206,7 +205,7 @@ func (r *Registry) liveChannelBinding(ctx context.Context, provider string) (cha
 // copy, so a binding one of them counts is a binding the other does too.
 func (r *Registry) liveChannelBindings(ctx context.Context, provider string) ([]channelBinding, error) {
 	var bindings []channelBinding
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, version, credential_ref FROM channel_connection
 			 WHERE provider = $1 AND status = $2 AND archived_at IS NULL`,

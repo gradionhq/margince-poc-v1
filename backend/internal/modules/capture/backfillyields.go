@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -36,7 +35,7 @@ type BackfillYields struct {
 // RLS-scoped to the current workspace.
 func (r *Registry) BackfillYields(ctx context.Context, provider string, userID ids.UserID) (BackfillYields, error) {
 	var y BackfillYields
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		connID, err := r.connectionForUser(ctx, tx, provider, userID)
 		if err != nil {
 			return err

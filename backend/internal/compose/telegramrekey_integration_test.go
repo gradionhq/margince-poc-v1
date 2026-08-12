@@ -35,7 +35,7 @@ import (
 func replaceTestTelegramBot(t *testing.T, e *integration.Env, vault keyvault.Vault, connID ids.UUID, botID int64, username string) {
 	t.Helper()
 	api := &telegramPollFakeAPI{bot: telegram.Bot{ID: botID, Username: username}}
-	store := capture.NewChannelStore(e.Pool, vault, api, quietTestLogger())
+	store := capture.NewChannelStore(e.DB(), vault, api, quietTestLogger())
 	err := store.ReplaceToken(telegramAdminContext(e.WS, e.Rep1), connID,
 		fmt.Sprintf("%d:AAH-fixture-secret-for-%s", botID, username))
 	if err != nil {

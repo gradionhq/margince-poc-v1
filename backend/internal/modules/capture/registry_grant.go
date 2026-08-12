@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -85,7 +84,7 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	}
 	var id ids.UUID
 	var priorRef *string
-	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	if err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		id, priorRef, err = upsertConnection(ctx, tx, row)
 		return err

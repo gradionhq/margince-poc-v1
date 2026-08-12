@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -41,7 +40,9 @@ func adminOwnDomainContext(ctx context.Context, ws ids.UUID) context.Context {
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
-func ownDomainWorkspace(t *testing.T) (context.Context, *pgxpool.Pool) {
+// Returns the bound handle rather than the pool: the workspace it creates
+// is the one every store in these tests runs as (ADR-0091 §9 step 3).
+func ownDomainWorkspace(t *testing.T) (context.Context, *database.DB) {
 	t.Helper()
 	owner, pool := setupCaptureDB(t)
 	ctx := context.Background()
@@ -51,14 +52,14 @@ func ownDomainWorkspace(t *testing.T) (context.Context, *pgxpool.Pool) {
 		ws, "own-domains-"+ws.String()); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}
-	return adminOwnDomainContext(ctx, ws), pool
+	return adminOwnDomainContext(ctx, ws), database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
 }
 
 // An administrator adding a domain IS the human vouching for it, so it takes
 // effect without a second confirmation — and it is what makes the drop fire.
 func TestAnAdministratorsDomainIsVerifiedAndSuppressesMail(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(pool)
+	ctx, db := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(db)
 
 	added, err := store.Add(ctx, "Acme.COM")
 	if err != nil {
@@ -75,7 +76,7 @@ func TestAnAdministratorsDomainIsVerifiedAndSuppressesMail(t *testing.T) {
 	// stops being stored.
 	// The sink runs as the connector, never as the human who configured it.
 	ws, _ := principal.WorkspaceID(ctx)
-	sink := capture.NewSink(pool)
+	sink := capture.NewSink(db)
 	if _, err := sink.Upsert(mailSinkContext(context.Background(), ws),
 		mailRecord("admin-dom-1", "boss@acme.com",
 			"boss@acme.com", "rep@acme.com")); !isSkip(err) {
@@ -86,8 +87,8 @@ func TestAnAdministratorsDomainIsVerifiedAndSuppressesMail(t *testing.T) {
 // Adding a domain a mailbox already contributed confirms it rather than failing
 // — that is the whole point of the candidate row.
 func TestAddingACandidateDomainConfirmsIt(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	ctx, db := ownDomainWorkspace(t)
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'acme.com', 'mailbox', false)`)
@@ -95,7 +96,7 @@ func TestAddingACandidateDomainConfirmsIt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seeding the candidate: %v", err)
 	}
-	store := capture.NewOwnDomainStore(pool)
+	store := capture.NewOwnDomainStore(db)
 
 	added, err := store.Add(ctx, "acme.com")
 	if err != nil {
@@ -115,8 +116,8 @@ func TestAddingACandidateDomainConfirmsIt(t *testing.T) {
 
 // Removing a domain stops the drop from the next message on.
 func TestRemovingADomainLetsItsMailBeCapturedAgain(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(pool)
+	ctx, db := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(db)
 	if _, err := store.Add(ctx, "acme.com"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestRemovingADomainLetsItsMailBeCapturedAgain(t *testing.T) {
 	}
 
 	ws, _ := principal.WorkspaceID(ctx)
-	sink := capture.NewSink(pool)
+	sink := capture.NewSink(db)
 	if _, err := sink.Upsert(mailSinkContext(context.Background(), ws),
 		mailRecord("removed-dom-1", "boss@acme.com",
 			"boss@acme.com", "rep@acme.com")); err != nil {
@@ -142,9 +143,9 @@ func TestRemovingADomainLetsItsMailBeCapturedAgain(t *testing.T) {
 // those domains are in force but are changed on the company page, so offering
 // them as removable rows would promise an action this surface cannot perform.
 func TestTheListSeparatesTheCompanysOwnClaimFromTheRegistry(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
+	ctx, db := ownDomainWorkspace(t)
 	ws, _ := principal.WorkspaceID(ctx)
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		orgID := ids.NewV7()
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
@@ -158,7 +159,7 @@ func TestTheListSeparatesTheCompanysOwnClaimFromTheRegistry(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seeding the anchor company: %v", err)
 	}
-	store := capture.NewOwnDomainStore(pool)
+	store := capture.NewOwnDomainStore(db)
 	if _, err := store.Add(ctx, "acme.com"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -179,8 +180,8 @@ func TestTheListSeparatesTheCompanysOwnClaimFromTheRegistry(t *testing.T) {
 // set decides whether mail is stored, so folding a mistyped value into
 // something that silently matches nothing would be the worse failure.
 func TestAValueThatIsNotADomainIsRefused(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(pool)
+	ctx, db := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(db)
 
 	// The public suffixes are the dangerous half: they pass every shape check —
 	// they have a dot and no stray characters — and each would make every
@@ -204,7 +205,7 @@ func TestAValueThatIsNotADomainIsRefused(t *testing.T) {
 // control, so it is asserted against a rep-shaped grant rather than a principal
 // holding nothing at all.
 func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
+	ctx, db := ownDomainWorkspace(t)
 	ws, _ := principal.WorkspaceID(ctx)
 	rep := principal.WithActor(principal.WithWorkspaceID(context.Background(), ws),
 		principal.Principal{
@@ -218,7 +219,7 @@ func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 				RowScope: principal.RowScopeOwn,
 			},
 		})
-	store := capture.NewOwnDomainStore(pool)
+	store := capture.NewOwnDomainStore(db)
 
 	if _, err := store.List(rep); err != nil {
 		t.Errorf("a rep must be able to read the set: %v", err)
@@ -239,9 +240,9 @@ func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 // carries no workspace predicate and relies entirely on RLS, so the isolation
 // is asserted rather than assumed.
 func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
-	first, pool := ownDomainWorkspace(t)
+	first, db := ownDomainWorkspace(t)
 	second, _ := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(pool)
+	store := capture.NewOwnDomainStore(db)
 
 	for _, ctx := range []context.Context{first, second} {
 		if _, err := store.Add(ctx, "shared.example"); err != nil {
@@ -272,8 +273,8 @@ func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
 // and a removal names it in `before` and leaves `after` unset. A predicate that
 // accepted either would pass for a row that recorded the wrong direction.
 func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
-	ctx, pool := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(pool)
+	ctx, db := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(db)
 
 	if _, err := store.Add(ctx, "acme.com"); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -282,7 +283,7 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	// other audit row does: SQL NULL. It used to store JSON null instead,
 	// because a nil map handed to an `any` parameter is not an untyped nil —
 	// which made this row invisible to the obvious "before IS NULL" query.
-	assertOwnDomainAudited(ctx, t, pool, ownDomainAuditRow{
+	assertOwnDomainAudited(ctx, t, db, ownDomainAuditRow{
 		action: "update", domain: "acme.com",
 		images: "before IS NULL AND after->>'own_email_domain' = $3",
 	})
@@ -290,7 +291,7 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	if err := store.Remove(ctx, "acme.com"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	assertOwnDomainAudited(ctx, t, pool, ownDomainAuditRow{
+	assertOwnDomainAudited(ctx, t, db, ownDomainAuditRow{
 		action: "archive", domain: "acme.com",
 		images: "before->>'own_email_domain' = $3 AND after IS NULL",
 	})
@@ -298,7 +299,7 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	// Audit-only means exactly that: an event would make workspace configuration
 	// look like a record change to every subscriber.
 	var events int
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM event_outbox
 			  WHERE envelope->>'entity_type' = 'capture_settings'`).Scan(&events)
@@ -321,14 +322,14 @@ type ownDomainAuditRow struct {
 // assertOwnDomainAudited fails unless exactly one audit row records that verb
 // against this workspace, written by this human, with the images the verb is
 // supposed to leave.
-func assertOwnDomainAudited(ctx context.Context, t *testing.T, pool *pgxpool.Pool, want ownDomainAuditRow) {
+func assertOwnDomainAudited(ctx context.Context, t *testing.T, db *database.DB, want ownDomainAuditRow) {
 	t.Helper()
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		t.Fatal("the test context carries no actor, so this would query for a zero id and pass or fail for the wrong reason")
 	}
 	var rows int
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM audit_log
 			 WHERE entity_type = 'capture_settings' AND action = $1 AND actor_id = $2

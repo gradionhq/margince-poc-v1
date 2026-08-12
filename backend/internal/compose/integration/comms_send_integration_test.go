@@ -251,7 +251,7 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 			echo.NaturalKey.SourceID, messageID)
 	}
 
-	if _, err := capture.NewSink(p.Pool).Upsert(p.connectorCtx(t), echo); err != nil {
+	if _, err := capture.NewSink(p.DB()).Upsert(p.connectorCtx(t), echo); err != nil {
 		t.Fatalf("capturing the provider's own copy: %v", err)
 	}
 

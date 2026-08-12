@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -69,7 +68,7 @@ const sendableConnection = `
 // it reports; every other error is a failure to get an answer.
 func (r *Registry) GrantedScopesFor(ctx context.Context, userID ids.UserID, provider string) ([]string, error) {
 	var granted []string
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT provider_scopes FROM capture_connection`+sendableConnection,
 			userID, provider).Scan(&granted)
@@ -100,7 +99,7 @@ func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider st
 		authBytes     []byte
 		granted       []string
 	)
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT credential_ref, auth, provider_scopes FROM capture_connection`+sendableConnection,
 			userID, provider).Scan(&credentialRef, &authBytes, &granted)
@@ -176,7 +175,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 		return nil, errors.New("capture: only a human lists their connections")
 	}
 	var out []ConnectionView
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT c.id, c.provider, c.status, c.sync_cursor, c.watch_expires_at, c.provider_scopes,
 			       c.account_label, s.last_synced_at, s.last_error_class, s.next_sync_at
@@ -278,7 +277,7 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	// must not leave the row naming a blob that no longer exists.
 	refCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), keyvault.CleanupTimeout)
 	defer cancel()
-	return database.WithWorkspaceTx(refCtx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(refCtx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(refCtx, `
 			UPDATE capture_connection SET credential_ref = NULL
 			 WHERE user_id = $1 AND provider = $2 AND credential_ref = $3`,
@@ -321,7 +320,7 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 // serializes behind this transaction rather than racing it.
 func (r *Registry) withdrawConnection(ctx context.Context, userID ids.UUID, name string) (*string, error) {
 	var ref *string
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		var connID ids.UUID
 		var priorStatus string
 		var priorLabel *string
@@ -406,7 +405,7 @@ func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnec
 // failure never starves the rest of the fleet.
 func (r *Registry) collectDue(ctx context.Context, selector func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error)) ([]DueConnection, error) {
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
-	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	rows, err := r.db.Pool().Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("capture: listing workspaces for the fleet walk: %w", err)
 	}
@@ -419,7 +418,7 @@ func (r *Registry) collectDue(ctx context.Context, selector func(ctx context.Con
 	for _, wsID := range workspaces {
 		wsCtx := principal.WithWorkspaceID(ctx, wsID)
 		ws := ids.From[ids.WorkspaceKind](wsID)
-		err := database.WithWorkspaceTx(wsCtx, r.pool, func(tx pgx.Tx) error {
+		err := r.db.Tx(wsCtx, func(tx pgx.Tx) error {
 			selected, err := selector(wsCtx, tx)
 			if err != nil {
 				return err

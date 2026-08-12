@@ -149,7 +149,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 	}
 
 	vault := keyvault.NewMemory()
-	reg := capture.NewRegistry(pool, nil, fixtureAuthority{}, vault)
+	reg := capture.NewRegistry(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsUUID)), nil, fixtureAuthority{}, vault)
 	reg.Register(fixtureConnector{})
 
 	actorCtx := principal.WithWorkspaceID(ctx, wsUUID)
@@ -368,7 +368,7 @@ func TestDisconnectCompletesEvenWhenTheVaultDeleteFails(t *testing.T) {
 	connectFixtureConnection(ctx, t, reg)
 
 	failing := &deleteFailsVault{Vault: vault}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, failing)
+	reg2 := capture.NewRegistry(database.BindTo(poolFromFixture(t), ws), nil, fixtureAuthority{}, failing)
 	reg2.Register(fixtureConnector{})
 
 	if err := reg2.Disconnect(ctx, "gmail"); err != nil {
@@ -404,7 +404,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 	deleteStarted := make(chan struct{})
 	proceed := make(chan struct{})
 	blocking := &blockingDeleteVault{Vault: vault, started: deleteStarted, proceed: proceed}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, blocking)
+	reg2 := capture.NewRegistry(database.BindTo(poolFromFixture(t), ws), nil, fixtureAuthority{}, blocking)
 	reg2.Register(fixtureConnector{})
 
 	disconnectErr := make(chan error, 1)
@@ -414,7 +414,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 
 	// The concurrent reconnect: a fresh Registry sharing the same pool/vault,
 	// exactly like a second request would land on the same process.
-	reg3 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, vault)
+	reg3 := capture.NewRegistry(database.BindTo(poolFromFixture(t), ws), nil, fixtureAuthority{}, vault)
 	reg3.Register(fixtureConnector{})
 	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect")); err != nil {
 		t.Fatalf("concurrent reconnect: %v", err)

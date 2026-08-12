@@ -22,7 +22,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -122,7 +121,7 @@ func (s *ChannelStore) ReplaceToken(ctx context.Context, id ids.UUID, token stri
 // and this one would otherwise destroy the credential that winner is now polling
 // with.
 func (s *ChannelStore) repoint(ctx context.Context, current channelRow, bot telegram.Bot, credentialRef keyvault.Ref) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "channel_connection", current.ID, storekit.LiveOnly); err != nil {
 			return err
 		}
@@ -194,7 +193,7 @@ func (s *ChannelStore) Disconnect(ctx context.Context, id ids.UUID) error {
 // bot as the one disconnected, and send the caller on to destroy a credential the
 // row no longer names — leaving the winner's with nothing to collect it.
 func (s *ChannelStore) archiveDisconnected(ctx context.Context, current channelRow) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "channel_connection", current.ID, storekit.LiveOnly); err != nil {
 			return err
 		}
@@ -224,7 +223,7 @@ func (s *ChannelStore) archiveDisconnected(ctx context.Context, current channelR
 func (s *ChannelStore) readChannelRow(ctx context.Context, id ids.UUID) (channelRow, error) {
 	var out channelRow
 	var credentialRef string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `SELECT `+channelConnectionColumns+`, credential_ref
 			 FROM channel_connection WHERE id = $1 AND archived_at IS NULL`, id)
 		return row.Scan(&out.ID, &out.WorkspaceID, &out.Provider, &out.ChannelID, &out.ChannelLabel,

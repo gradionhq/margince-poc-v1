@@ -337,5 +337,5 @@ func (fakeAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.Se
 }
 
 func newTestCaptureRegistry(e *integration.SearchEnv, vault keyvault.Vault) *capturemod.Registry {
-	return capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, vault)
+	return capturemod.NewRegistry(e.DB(), capturemod.NewSink(e.DB()), fakeAuthority{}, vault)
 }

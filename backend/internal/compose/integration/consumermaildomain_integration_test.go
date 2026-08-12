@@ -49,7 +49,7 @@ func listAdminCtx(ws, user ids.UUID, grant principal.ObjectGrant) context.Contex
 func TestWorkspaceConsumerMailListCorrectsTheBaselineBothWays(t *testing.T) {
 	e := Setup(t)
 	ctx := listAdminCtx(e.WS, e.Rep1, adminGrant)
-	store := capture.NewFreemailDomains(e.Pool)
+	store := capture.NewFreemailDomains(e.DB())
 
 	// A regional provider the shipped dataset missed, and a domain it wrongly
 	// claims — the operator's real customers mail from gmx.de.
@@ -127,7 +127,7 @@ func TestWorkspaceConsumerMailListCorrectsTheBaselineBothWays(t *testing.T) {
 func TestConsumerMailCreateGrantAddsButNeverRewrites(t *testing.T) {
 	e := Setup(t)
 	repCtx := listAdminCtx(e.WS, e.Rep1, principal.ObjectGrant{Create: true, Read: true})
-	store := capture.NewFreemailDomains(e.Pool)
+	store := capture.NewFreemailDomains(e.DB())
 
 	added, err := store.Add(repCtx, "kleinpost.example", capture.FreemailKindExtra)
 	if err != nil {
@@ -161,7 +161,7 @@ func TestConsumerMailCreateGrantAddsButNeverRewrites(t *testing.T) {
 func TestConsumerMailListRefusesWhatTheMatcherCouldNeverRead(t *testing.T) {
 	e := Setup(t)
 	ctx := listAdminCtx(e.WS, e.Rep1, adminGrant)
-	store := capture.NewFreemailDomains(e.Pool)
+	store := capture.NewFreemailDomains(e.DB())
 
 	if _, err := store.Add(ctx, "localhost", capture.FreemailKindExtra); err == nil {
 		t.Error("a label with no dot is not a mail domain and must be refused")

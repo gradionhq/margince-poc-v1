@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -80,7 +81,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	}
 
 	ensurer := &recordingChannelEnsurer{}
-	sink := capture.NewSink(pool).
+	sink := capture.NewSink(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))).
 		WithEnsurer(refusingMailEnsurer{t: t},
 			capture.NewTransactionalList([]string{"sendgrid.net"}, nil)).
 		WithChannelEnsurer(ensurer)

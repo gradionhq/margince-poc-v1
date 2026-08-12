@@ -267,7 +267,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 		// principal: the capture itself must land, the ensure must refuse
 		// honestly (RC-8 — created rows need a human owner), and the fault
 		// must be a system_log line the nightly reconcile can find.
-		sink := capturemod.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capturemod.NewTransactionalList(nil, nil))
+		sink := capturemod.NewSink(e.DB()).WithEnsurer(recordingEnsurer{}, capturemod.NewTransactionalList(nil, nil))
 		ownerless := principal.WithCorrelationID(principal.WithActor(
 			principal.WithWorkspaceID(context.Background(), e.WS), principal.Principal{
 				Type: principal.PrincipalConnector, ID: "connector:gmail",

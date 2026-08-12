@@ -73,8 +73,8 @@ func (s *recordingStager) StageMerge(_ context.Context, in capturemod.MergePropo
 func newScopeCaptureRegistry(t *testing.T, e *integration.SearchEnv, fake *scopeFake) (*capturemod.Registry, *recordingStager) {
 	t.Helper()
 	stager := &recordingStager{}
-	sink := capturemod.NewSink(e.Pool).WithStager(stager)
-	registry := capturemod.NewRegistry(e.Pool, sink, fakeAuthority{}, newTestKeyvault(t, e))
+	sink := capturemod.NewSink(e.DB()).WithStager(stager)
+	registry := capturemod.NewRegistry(e.DB(), sink, fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(fake)
 	return registry, stager
 }

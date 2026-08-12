@@ -48,7 +48,7 @@ import (
 // registry missing the connector reads as "this installation has no Telegram
 // integration" and parks every reply.
 func (c *telegramEnv) sendRegistry() *capture.Registry {
-	registry := capture.NewRegistry(c.Pool, capture.NewSink(c.Pool), identity.NewService(c.Pool), c.vault)
+	registry := capture.NewRegistry(c.DB(), capture.NewSink(c.DB()), identity.NewService(c.Pool), c.vault)
 	registry.Register(telegram.New(c.api))
 	return registry
 }
@@ -357,7 +357,7 @@ func TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation(t *testing.T)
 		},
 		ThreadKey: forged,
 	}
-	if _, err := capture.NewSink(c.Pool).Upsert(c.mailConnectorCtx(t), mail); err != nil {
+	if _, err := capture.NewSink(c.DB()).Upsert(c.mailConnectorCtx(t), mail); err != nil {
 		t.Fatalf("capturing the stranger's mail: %v — it must land as an ordinary activity, "+
 			"or this test proves a refusal rather than the thread scan", err)
 	}

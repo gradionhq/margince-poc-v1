@@ -25,6 +25,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -208,7 +209,7 @@ func newChannelFixture(t *testing.T, api *fakeTelegram) *channelFixture {
 		api = newFakeTelegram()
 	}
 	vault := &countingVault{Vault: keyvault.NewMemory()}
-	store := capture.NewChannelStore(pool, vault, api, nil)
+	store := capture.NewChannelStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsUUID)), vault, api, nil)
 
 	return &channelFixture{
 		ctx:      adminChannelContext(ctx, wsUUID, userUUID),
@@ -228,7 +229,7 @@ func newChannelFixture(t *testing.T, api *fakeTelegram) *channelFixture {
 func (f *channelFixture) withoutVault(t *testing.T) {
 	t.Helper()
 	_, pool := setupCaptureDB(t)
-	f.store = capture.NewChannelStore(pool, nil, f.api, nil)
+	f.store = capture.NewChannelStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](f.ws)), nil, f.api, nil)
 	f.handlers = capture.NewChannelHandlers(f.store)
 }
 
