@@ -49,11 +49,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	if err := auth.Require(ctx, "lead", principal.ActionCreate); err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
-	by, err := storekit.CapturedBy(ctx)
-	if err != nil {
-		return crmcontracts.Lead{}, false, err
-	}
-	in, err = normalizedCreateLeadInput(in)
+	in, by, err := s.readyLeadCreate(ctx, in)
 	if err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
@@ -65,50 +61,100 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	var out crmcontracts.Lead
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		replay, err := replayedLead(ctx, tx, in, active)
-		if err != nil {
-			return err
-		}
-		if replay != nil {
-			created, out = false, *replay
-			return nil
-		}
-		// The LinkedIn claim is locked before either probe reads, so two
-		// creates racing on the same person answer with the same key rather
-		// than whichever one they happened to lose.
-		if err := lockLeadLinkedInIdentity(ctx, tx, in.LinkedInURL); err != nil {
-			return err
-		}
-		if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
-			return err
-		}
-		if err := ensureLeadLinkedInUnclaimed(ctx, tx, in.LinkedInURL); err != nil {
-			return err
-		}
-
-		if in.ProjectID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
-				return err
-			}
-		}
-		id, err := insertLeadRow(ctx, tx, in, active, by)
-		if err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
-		if err != nil {
-			return fmt.Errorf("audit lead create: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventLeadCreated{}); err != nil {
-			return fmt.Errorf("emit lead.created: %w", err)
-		}
-		if out, err = readLead(ctx, tx, id, storekit.LiveOnly, active); err != nil {
-			return fmt.Errorf("read created lead: %w", err)
-		}
-		return nil
+		var err error
+		out, created, err = createLeadInTx(ctx, tx, in, by, active)
+		return err
 	})
 	return out, created, err
+}
+
+// CreateLeadTx is CreateLead for a caller that already opened a transaction —
+// one whose own write must land with this lead or not at all. Same gates in
+// the same order; only the transaction is borrowed. The bool answers what
+// CreateLead's does: false when the idempotency replay found the lead already
+// landed, so a caller can tell a fresh capture from a re-import.
+//
+// Custom fields are refused rather than dropped: the catalog they are matched
+// against is read in a transaction of its own, which is exactly the second
+// connection this seam exists to avoid taking.
+func (s *Store) CreateLeadTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (crmcontracts.Lead, bool, error) {
+	if err := auth.Require(ctx, "lead", principal.ActionCreate); err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	if err := refuseCustomFields(in.CustomFields); err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	in, by, err := s.readyLeadCreate(ctx, in)
+	if err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	return createLeadInTx(ctx, tx, in, by, nil)
+}
+
+// readyLeadCreate runs what a create settles BEFORE any transaction opens —
+// the captured-by resolution and the input normalization — and answers the
+// normalized input beside the attribution the write shape stamps. Both entry
+// points call it, so neither can drift from the other's validation.
+func (s *Store) readyLeadCreate(ctx context.Context, in CreateLeadInput) (CreateLeadInput, string, error) {
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return CreateLeadInput{}, "", err
+	}
+	normalized, err := normalizedCreateLeadInput(in)
+	if err != nil {
+		return CreateLeadInput{}, "", err
+	}
+	return normalized, by, nil
+}
+
+// createLeadInTx is CreateLead's transactional body, shared by the
+// store-opened and caller-opened entry points. It answers the lead and
+// whether this call is what created it.
+func createLeadInTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput, by string,
+	active []fieldcatalog.Column,
+) (crmcontracts.Lead, bool, error) {
+	replay, err := replayedLead(ctx, tx, in, active)
+	if err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	if replay != nil {
+		return *replay, false, nil
+	}
+	// The LinkedIn claim is locked before either probe reads, so two
+	// creates racing on the same person answer with the same key rather
+	// than whichever one they happened to lose.
+	if err := lockLeadLinkedInIdentity(ctx, tx, in.LinkedInURL); err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+	if err := ensureLeadLinkedInUnclaimed(ctx, tx, in.LinkedInURL); err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+
+	if in.ProjectID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+			return crmcontracts.Lead{}, false, err
+		}
+	}
+	id, err := insertLeadRow(ctx, tx, in, active, by)
+	if err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
+	if err != nil {
+		return crmcontracts.Lead{}, false, fmt.Errorf("audit lead create: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventLeadCreated{}); err != nil {
+		return crmcontracts.Lead{}, false, fmt.Errorf("emit lead.created: %w", err)
+	}
+	out, err := readLead(ctx, tx, id, storekit.LiveOnly, active)
+	if err != nil {
+		return crmcontracts.Lead{}, false, fmt.Errorf("read created lead: %w", err)
+	}
+	return out, true, nil
 }
 
 // insertLeadRow writes the lead row itself and answers with its id.

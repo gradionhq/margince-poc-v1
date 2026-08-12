@@ -12,6 +12,7 @@ package people
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -74,4 +75,24 @@ func (s *Store) activeCustomColumns(ctx context.Context, object string, action p
 		return CustomColumns{}, err
 	}
 	return CustomColumns{cols: cols}, nil
+}
+
+// ErrCustomFieldsNeedTheStoresOwnTransaction refuses custom-field values on a
+// caller-opened create.
+//
+// The catalog those values are matched against is read in a transaction of its
+// own, so a caller-opened write cannot obtain it without taking the second
+// connection this whole seam exists to avoid — and a write that dropped the
+// values silently would be worse than one that refuses: the record would come
+// back created, missing what the caller sent, with nothing saying why. The
+// store-opened entry point beside it carries custom fields exactly as before.
+var ErrCustomFieldsNeedTheStoresOwnTransaction = errors.New(
+	"people: a caller-opened create cannot carry custom fields — the store-opened entry point reads the catalog before it opens its transaction")
+
+// refuseCustomFields is the guard every caller-opened create runs first.
+func refuseCustomFields(fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	return ErrCustomFieldsNeedTheStoresOwnTransaction
 }

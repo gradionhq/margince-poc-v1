@@ -32,6 +32,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"testing"
@@ -41,6 +42,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/installseam"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -64,6 +66,7 @@ var txSeamPerms = principal.Permissions{
 		"person":                {Create: true, Read: true, Update: true, Delete: true},
 		"organization":          {Create: true, Read: true, Update: true, Delete: true},
 		"deal":                  {Create: true, Read: true, Update: true, Delete: true},
+		"lead":                  {Create: true, Read: true, Update: true, Delete: true},
 		"pipeline":              {Create: true, Read: true, Update: true, Delete: true},
 		"installation_settings": {Read: true},
 	},
@@ -257,5 +260,105 @@ func TestUpdateDealTxRunsOnTheCallersOnlyConnection(t *testing.T) {
 	}
 	if got[col] != "high" {
 		t.Errorf("the custom field the caller fetched did not ride the write: %s = %v, want \"high\"", col, got[col])
+	}
+}
+
+// The three caller-opened creates the flip lands its estate through. Each one
+// runs with the catalog WIRED and a workspace that has an active custom column
+// — the arrangement under which a seam that reached for the catalog would
+// block — and each refuses custom-field values rather than dropping them,
+// because the catalog that would match them cannot be read from in here.
+
+func TestCreatePersonTxRunsOnTheCallersOnlyConnection(t *testing.T) {
+	f := setupTxSeam(t)
+	col := f.defineTxSeamField(t, "person", "Tier")
+	f.requireCatalogAnswers(t, "person")
+
+	var created crmcontracts.Person
+	if err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		var err error
+		created, err = f.people.CreatePersonTx(f.ctx, tx, people.CreatePersonInput{
+			FullName: "Ada Lovelace", Source: "ui",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("creating the person inside the caller's transaction: %v — a timeout here is the seam waiting for a second connection the caller's transaction holds", err)
+	}
+	if created.FullName != "Ada Lovelace" {
+		t.Errorf("created person = %+v, want the one the caller asked for", created)
+	}
+
+	err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		_, err := f.people.CreatePersonTx(f.ctx, tx, people.CreatePersonInput{
+			FullName: "Grace Hopper", Source: "ui", CustomFields: map[string]any{col: "gold"},
+		})
+		return err
+	})
+	if !errors.Is(err, people.ErrCustomFieldsNeedTheStoresOwnTransaction) {
+		t.Fatalf("err = %v, want the custom-field refusal — a create that dropped them would report success with the values missing", err)
+	}
+}
+
+func TestCreateOrganizationTxRunsOnTheCallersOnlyConnection(t *testing.T) {
+	f := setupTxSeam(t)
+	col := f.defineTxSeamField(t, "organization", "Segment")
+	f.requireCatalogAnswers(t, "organization")
+
+	var created crmcontracts.Organization
+	if err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		var err error
+		created, err = f.people.CreateOrganizationTx(f.ctx, tx, people.CreateOrganizationInput{
+			DisplayName: "Analytical Engines", Source: "ui",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("creating the organization inside the caller's transaction: %v — a timeout here is the seam waiting for a second connection the caller's transaction holds", err)
+	}
+	if created.DisplayName != "Analytical Engines" {
+		t.Errorf("created organization = %+v, want the one the caller asked for", created)
+	}
+
+	err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		_, err := f.people.CreateOrganizationTx(f.ctx, tx, people.CreateOrganizationInput{
+			DisplayName: "Difference Engines", Source: "ui", CustomFields: map[string]any{col: "enterprise"},
+		})
+		return err
+	})
+	if !errors.Is(err, people.ErrCustomFieldsNeedTheStoresOwnTransaction) {
+		t.Fatalf("err = %v, want the custom-field refusal", err)
+	}
+}
+
+func TestCreateLeadTxRunsOnTheCallersOnlyConnection(t *testing.T) {
+	f := setupTxSeam(t)
+	col := f.defineTxSeamField(t, "lead", "Segment")
+	f.requireCatalogAnswers(t, "lead")
+
+	email := "jean@bartik.test"
+	var created crmcontracts.Lead
+	var fresh bool
+	if err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		var err error
+		created, fresh, err = f.people.CreateLeadTx(f.ctx, tx, people.CreateLeadInput{
+			FullName: strPtr("Jean Bartik"), Email: &email, Status: "new", Source: "ui",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("creating the lead inside the caller's transaction: %v — a timeout here is the seam waiting for a second connection the caller's transaction holds", err)
+	}
+	if !fresh || created.Email == nil || string(*created.Email) != email {
+		t.Errorf("created lead = %+v (fresh=%v), want the one the caller asked for", created, fresh)
+	}
+
+	err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		other := "betty@holberton.test"
+		_, _, err := f.people.CreateLeadTx(f.ctx, tx, people.CreateLeadInput{
+			FullName: strPtr("Betty Holberton"), Email: &other, Status: "new", Source: "ui",
+			CustomFields: map[string]any{col: "enterprise"},
+		})
+		return err
+	})
+	if !errors.Is(err, people.ErrCustomFieldsNeedTheStoresOwnTransaction) {
+		t.Fatalf("err = %v, want the custom-field refusal", err)
 	}
 }

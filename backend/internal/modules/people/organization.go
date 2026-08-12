@@ -16,6 +16,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type CreateOrganizationInput struct {
@@ -41,21 +42,13 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	if err := auth.Require(ctx, "organization", principal.ActionCreate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
-	if err := parseOrgDomains(in.Domains); err != nil {
-		return crmcontracts.Organization{}, err
-	}
-	// Both write paths, not just the patch: a vocabulary checked on update and
-	// not on create is a value the database refuses at birth and the transport
-	// cannot name.
-	if in.SizeBand != nil {
-		if err := checkSizeBand(*in.SizeBand); err != nil {
-			return crmcontracts.Organization{}, err
-		}
-	}
-	by, err := storekit.CapturedBy(ctx)
+	by, err := s.readyOrganizationCreate(ctx, in)
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	// The store-opened path reads the catalog through the unexported helper,
+	// not ActiveOrganizationColumns: that one takes organization:read on the
+	// caller's behalf, and a seat may hold create without it.
 	active, err := s.activeColumns(ctx, "organization")
 	if err != nil {
 		return crmcontracts.Organization{}, err
@@ -63,60 +56,111 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureOrgDomainsUnclaimed(ctx, tx, in.Domains); err != nil {
-			return err
-		}
-
-		match, err := manualDedupeOrganization(ctx, tx, in)
-		if err != nil {
-			return err
-		}
-
-		// Naming a parent is a read of the parent: the child discloses the
-		// hierarchy edge, so the target must be visible under the caller's
-		// row scope, not merely same-workspace (H1 — an FK argument to a
-		// row-scoped record is a read of that record).
-		if in.ParentOrgID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
-				return err
-			}
-		}
-
-		id, err := createOrganization(ctx, tx, match, OrgSpec{
-			DisplayName:  in.DisplayName,
-			LegalName:    in.LegalName,
-			Description:  in.Description,
-			Industry:     in.Industry,
-			SizeBand:     in.SizeBand,
-			OwnerID:      in.OwnerID,
-			ParentOrgID:  in.ParentOrgID,
-			Address:      in.Address,
-			Domains:      in.Domains,
-			Source:       in.Source,
-			CapturedBy:   by,
-			CustomFields: in.CustomFields,
-			Active:       active,
-		})
-		if err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id.UUID, nil, map[string]any{"display_name": in.DisplayName})
-		if err != nil {
-			return fmt.Errorf("audit organization create: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.DisplayName}); err != nil {
-			return fmt.Errorf("emit organization.created: %w", err)
-		}
-		if err := match.recordIfReview(ctx, tx, id, in.DisplayName, in.Source, by); err != nil {
-			return err
-		}
-		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
-			return fmt.Errorf("read created organization: %w", err)
-		}
-		return nil
+		var err error
+		out, err = createOrganizationInTx(ctx, tx, in, by, active)
+		return err
 	})
 	return out, err
+}
+
+// CreateOrganizationTx is CreateOrganization for a caller that already opened a
+// transaction — one whose own write must land with this organization or not at
+// all. Same gates in the same order; only the transaction is borrowed.
+//
+// Custom fields are refused rather than dropped: the catalog they are matched
+// against is read in a transaction of its own, which is exactly the second
+// connection this seam exists to avoid taking.
+func (s *Store) CreateOrganizationTx(ctx context.Context, tx pgx.Tx, in CreateOrganizationInput) (crmcontracts.Organization, error) {
+	if err := auth.Require(ctx, "organization", principal.ActionCreate); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	if err := refuseCustomFields(in.CustomFields); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	by, err := s.readyOrganizationCreate(ctx, in)
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	return createOrganizationInTx(ctx, tx, in, by, nil)
+}
+
+// readyOrganizationCreate runs what a create settles BEFORE any transaction
+// opens — the domain parse, the size-band vocabulary and the captured-by
+// resolution — and answers the attribution the write shape stamps. Both entry
+// points call it, so neither can drift from the other's validation.
+func (s *Store) readyOrganizationCreate(ctx context.Context, in CreateOrganizationInput) (string, error) {
+	if err := parseOrgDomains(in.Domains); err != nil {
+		return "", err
+	}
+	// Both write paths, not just the patch: a vocabulary checked on update and
+	// not on create is a value the database refuses at birth and the transport
+	// cannot name.
+	if in.SizeBand != nil {
+		if err := checkSizeBand(*in.SizeBand); err != nil {
+			return "", err
+		}
+	}
+	return storekit.CapturedBy(ctx)
+}
+
+// createOrganizationInTx is CreateOrganization's transactional body, shared by
+// the store-opened and caller-opened entry points.
+func createOrganizationInTx(ctx context.Context, tx pgx.Tx, in CreateOrganizationInput, by string,
+	active []fieldcatalog.Column,
+) (crmcontracts.Organization, error) {
+	if err := ensureOrgDomainsUnclaimed(ctx, tx, in.Domains); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+
+	match, err := manualDedupeOrganization(ctx, tx, in)
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+
+	// Naming a parent is a read of the parent: the child discloses the
+	// hierarchy edge, so the target must be visible under the caller's
+	// row scope, not merely same-workspace (H1 — an FK argument to a
+	// row-scoped record is a read of that record).
+	if in.ParentOrgID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
+			return crmcontracts.Organization{}, err
+		}
+	}
+
+	id, err := createOrganization(ctx, tx, match, OrgSpec{
+		DisplayName:  in.DisplayName,
+		LegalName:    in.LegalName,
+		Description:  in.Description,
+		Industry:     in.Industry,
+		SizeBand:     in.SizeBand,
+		OwnerID:      in.OwnerID,
+		ParentOrgID:  in.ParentOrgID,
+		Address:      in.Address,
+		Domains:      in.Domains,
+		Source:       in.Source,
+		CapturedBy:   by,
+		CustomFields: in.CustomFields,
+		Active:       active,
+	})
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "create", "organization", id.UUID, nil, map[string]any{"display_name": in.DisplayName})
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("audit organization create: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.DisplayName}); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("emit organization.created: %w", err)
+	}
+	if err := match.recordIfReview(ctx, tx, id, in.DisplayName, in.Source, by); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active)
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("read created organization: %w", err)
+	}
+	return out, nil
 }
 
 type UpdateOrganizationInput struct {
