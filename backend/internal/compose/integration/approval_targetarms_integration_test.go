@@ -117,7 +117,7 @@ func TestAStagedPatchIsRefusedWhenItsTargetMovedBeforeTheApproval(t *testing.T) 
 		problem.Code != "approval_required" {
 		t.Fatalf("agent patch → %d %q, want 403 approval_required", status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The admin's own edit, on a different field so the guarded patch really
 	// bumps the version rather than finding nothing to change.
@@ -201,7 +201,7 @@ func releaseStagedCall(t *testing.T, e *apptest.AppEnv, bearer map[string]string
 		problem.Code != "approval_required" {
 		t.Fatalf("agent %s %s → %d %q, want 403 approval_required", method, path, status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	assertDecidableInTheInbox(t, e, approvalID, wantTargetType)
 

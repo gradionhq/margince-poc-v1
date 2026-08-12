@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // Revocation, from the only place it can honestly be observed: the wire a
 // connector calls on. A connection can be cut off four ways — the passport, the

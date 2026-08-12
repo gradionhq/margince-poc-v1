@@ -187,7 +187,7 @@ func TestABundleDecisionRefusesAPassport(t *testing.T) {
 		t.Fatalf("create org → %d", status)
 	}
 	bundle := stageBundleRows(t, e, org.ID, "site_lead")
-	agent := passportBearer(t, e, "bundle agent", "read", "write")
+	agent := apptest.PassportBearer(t, e, "bundle agent", "read", "write")
 
 	status := e.Call(t, "POST", "/v1/approval-bundles/"+bundle.String()+"/approve", nil, agent, nil)
 	if status != http.StatusForbidden && status != http.StatusUnauthorized {

@@ -7,6 +7,7 @@ package integration
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +30,31 @@ import (
 // imports compose, and compose's white-box tests import this package, so an
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
+
+// ExtractStagedApprovalID pulls the staged approval's id out of the 403
+// approval_required detail — the same reference the human inbox lists.
+//
+// Reading it out of the message is deliberate: it is the only reference a 🟡
+// caller is given, so a suite that resolved the id any other way would stop
+// proving that the refusal hands back something actionable.
+func ExtractStagedApprovalID(t *testing.T, detail string) string {
+	t.Helper()
+	const marker = "staged as approval "
+	i := strings.Index(detail, marker)
+	if i < 0 {
+		t.Fatalf("no staged approval reference in %q", detail)
+	}
+	// Fields rather than a scan to the next space, so a marker with nothing after
+	// it fails HERE. Returning the empty remainder would send the caller to
+	// /v1/approvals/ with no id, and the 404 that came back would be reported as
+	// the approval not existing — which is the one thing the suite is trying to
+	// find out.
+	rest := strings.Fields(detail[i+len(marker):])
+	if len(rest) == 0 {
+		t.Fatalf("the staged-approval reference in %q names no id", detail)
+	}
+	return rest[0]
+}
 
 // GoBDFloorPack is the six-calendar-year correspondence floor the retention
 // suites test against — a stand-in jurisdiction under a reserved code, not the

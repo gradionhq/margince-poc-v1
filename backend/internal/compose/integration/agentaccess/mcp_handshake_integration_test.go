@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The whole client handshake, walked once, end to end: from a refusal that
 // names where the authorization server is, through dynamic registration and

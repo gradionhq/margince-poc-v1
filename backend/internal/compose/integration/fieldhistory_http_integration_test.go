@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -98,8 +97,7 @@ func fieldHistoryHTTPEnv(t *testing.T, e *apptest.AppEnv) *Env {
 	if err := e.Owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&ws); err != nil {
 		t.Fatalf("resolving workspace id for %q: %v", e.Slug, err)
 	}
-	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
-	pool, err := database.NewPool(ctx, appDSN)
+	pool, err := database.NewPool(ctx, apptest.AppDSN(t))
 	if err != nil {
 		t.Fatalf("opening app pool: %v", err)
 	}

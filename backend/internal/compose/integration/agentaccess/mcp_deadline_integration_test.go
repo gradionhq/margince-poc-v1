@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // A tool call that outlives the response deadline. The api role arms a
 // server-wide WriteTimeout, and a dynamic tool call may legitimately run past

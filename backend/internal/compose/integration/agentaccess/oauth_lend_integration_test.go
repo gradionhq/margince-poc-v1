@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The consent DECISION (POST /oauth/authorize), as distinct from the screen's
 // read model next door in oauth_consent_integration_test.go: the human lends one
@@ -327,10 +327,9 @@ func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
 	// not be deactivated — the organization would lose user administration with
 	// no way back. A second admin is what the guard is protecting against, so
 	// inviting one is what lets the real endpoint run.
-	var second userWire
 	if status := o.Call(t, "POST", "/v1/users", apptest.AnyMap{
 		"email": "second-admin@fable.test", "display_name": "Second Admin", "role": "admin",
-	}, nil, &second); status != http.StatusCreated {
+	}, nil, nil); status != http.StatusCreated {
 		t.Fatalf("inviting a second admin → %d", status)
 	}
 	granter := o.userIDByEmail(t, "granter@fable.test")

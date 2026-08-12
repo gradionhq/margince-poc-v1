@@ -157,7 +157,7 @@ func TestAnAgentsAccountStartedSendStagesTheCreateAndOnlyLeavesOnceApproved(t *t
 	if n := a.deliveryCount(t); n != 0 {
 		t.Fatalf("%d deliveries staged behind an unapproved agent send, want 0 — nothing may leave", n)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The staged SHAPE, which is what makes the row decidable at all: the type
 	// the effect will write, and no row for a scope probe to resolve, because

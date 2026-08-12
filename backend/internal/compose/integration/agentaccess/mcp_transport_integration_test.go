@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package agentaccess
 
 // The remote MCP connector as a third-party client meets it: over the
 // COMPOSED mux, so what is asserted is the route set a real client reaches.
@@ -198,7 +198,16 @@ func TestMCPOnTheAPIServesTheAPIsOwnToolSurface(t *testing.T) {
 		t.Fatalf("issue passport → %d", status)
 	}
 
-	var rest agentToolListWire
+	// Decoded to the two fields this comparison turns on — the tool's name and the
+	// scope it requires. The full wire shape of /v1/agent-tools is pinned by
+	// agenttools_http_integration_test.go, which is the suite that owns it; naming
+	// more fields here would be a second place to update when it changes.
+	var rest struct {
+		Data []struct {
+			Name          string `json:"name"`
+			RequiredScope string `json:"required_scope"`
+		} `json:"data"`
+	}
 	if status := env.Call(t, "GET", "/v1/agent-tools", nil, nil, &rest); status != http.StatusOK {
 		t.Fatalf("GET /v1/agent-tools → %d", status)
 	}
