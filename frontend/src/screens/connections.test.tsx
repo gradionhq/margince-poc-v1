@@ -618,3 +618,88 @@ describe("routes in to one contact", () => {
     expect(routesTo(graph, "p-3")).toEqual([]);
   });
 });
+
+// The warm-intro path had a complete drafted move on the server and nothing
+// that rendered it (#936). The graph named the route-in contact and stopped
+// there, so the one thing a rep would act on — what to actually say — was
+// reachable only by calling the API by hand.
+describe("the warm-intro move", () => {
+  const INTRO = {
+    signal_id: "s-1",
+    resolved_org_id: ROOT,
+    contact_id: "p-1",
+    contact_name: "Dana Buyer",
+    relationship: { contact_id: "p-1", strength_bucket: "strong" },
+    next_move: {
+      kind: "intro_request",
+      draft_subject: "Kurze Vorstellung zu Brandt?",
+      draft_body: "Hallo Dana,\n\nkönntest du mich kurz vorstellen?",
+      ai_disclosure: "KI-unterstützt erstellt.",
+    },
+    evidence: {
+      source_signal_id: "s-1",
+      resolved_org_id: ROOT,
+      contact_ids: ["p-1"],
+    },
+  };
+
+  // stubWithIntro answers the graph read and the intro-path read, and records
+  // both so a test can prove WHEN each was made.
+  function stubWithIntro(introStatus = 200) {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        fetched.push(pathname);
+        if (pathname.endsWith("/intro-path")) {
+          return jsonResponse(
+            introStatus === 200 ? INTRO : { title: "cold signal" },
+            introStatus,
+          );
+        }
+        if (pathname.endsWith("/graph")) {
+          return jsonResponse(
+            graph({ intro_path: { signal_id: "s-1", contact_id: "p-1" } }),
+          );
+        }
+        return jsonResponse({ data: [], page: { has_more: false } });
+      }),
+    );
+    return fetched;
+  }
+
+  it("shows the drafted move and its AI disclosure once expanded", async () => {
+    const fetched = stubWithIntro();
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const expand = await screen.findByRole("button", { name: "See it larger" });
+    // The draft is a second request, so it is not paid for by every rail card.
+    expect(fetched.some((p) => p.endsWith("/intro-path"))).toBe(false);
+    expand.click();
+
+    expect(
+      await screen.findByText("Kurze Vorstellung zu Brandt?"),
+    ).toBeTruthy();
+    expect(screen.getByText(/könntest du mich kurz vorstellen/)).toBeTruthy();
+    // Art. 50 travels with the draft: a rep must not read model-written prose
+    // without being told it is model-written.
+    expect(screen.getByText("KI-unterstützt erstellt.")).toBeTruthy();
+  });
+
+  // A cold or unresolved signal answers 422 and a reader without the grant
+  // answers 404. Neither is a broken card: the panel is absent, and the graph
+  // it sits under still renders.
+  it("stays silent when the server has no path to propose", async () => {
+    stubWithIntro(422);
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const expand = await screen.findByRole("button", { name: "See it larger" });
+    expand.click();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Dana Buyer").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText("KI-unterstützt erstellt.")).toBeNull();
+  });
+});

@@ -124,3 +124,22 @@
     flex: 0 0 auto;
   }
 }
+
+/* The warm-intro panel under the expanded connections list. The draft is text
+   a rep reads and copies, so it keeps the body's own line breaks rather than
+   collapsing them the way prose would. */
+.cx-intro {
+  border-top: 1px solid var(--borderSubtle);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+}
+
+.cx-intro-subject {
+  font-weight: 600;
+  margin-top: var(--space-2);
+}
+
+.cx-intro-body {
+  white-space: pre-wrap;
+  margin-top: var(--space-2);
+}

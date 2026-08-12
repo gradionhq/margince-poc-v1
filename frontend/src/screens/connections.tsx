@@ -407,6 +407,73 @@ const BUCKET_ORDER: Record<StrengthBucket, number> = {
   strong: 3,
 };
 
+/** useSignalIntroPath reads the drafted warm-intro move for one signal. */
+function useSignalIntroPath(signalId: string) {
+  return useQuery({
+    queryKey: ["signal-intro-path", signalId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/signals/{id}/intro-path", {
+        params: { path: { id: signalId } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+}
+
+/**
+ * IntroPathPanel shows the drafted warm-intro move behind the "route in" badge.
+ *
+ * The graph already says WHICH contact routes in. The move itself — ask that
+ * contact for an introduction, or write to the person directly — is a separate
+ * read, so it is fetched only when the reader opens the expanded view rather
+ * than on every render of the rail card.
+ *
+ * Proposal only. Nothing here sends: the outbound is the confirm-first send
+ * tool, and the buttons that would reach it do not exist on this screen yet, so
+ * the draft is offered as text a rep can read and copy rather than as an action
+ * that half-works.
+ */
+function IntroPathPanel({ signalId }: Readonly<{ signalId: string }>) {
+  const t = useT();
+  const query = useSignalIntroPath(signalId);
+  if (query.isPending) {
+    return <Skeleton width="100%" height={90} />;
+  }
+  // A cold or unresolved signal answers 422, and a reader without the signal
+  // grant answers 404. Neither is an error worth a banner on a card that is
+  // already showing the graph: the panel simply does not appear.
+  if (query.isError || !query.data) {
+    return null;
+  }
+  const path = query.data;
+  const move = path.next_move;
+  return (
+    <section className="cx-intro">
+      <h3 className="t-h3">
+        {move.kind === "intro_request"
+          ? t("co.connections.intro.askForIntro")
+          : t("co.connections.intro.writeDirectly")}
+      </h3>
+      <p className="co-row-meta">
+        {t("co.connections.intro.via")}{" "}
+        <EntityRef
+          kind="person"
+          id={path.contact_id}
+          name={path.contact_name ?? undefined}
+        />
+      </p>
+      <p className="cx-intro-subject">{move.draft_subject}</p>
+      {/* The body arrives as plain text with its own line breaks, and it is
+          model-written, so it is rendered as text and never as markup. */}
+      <p className="cx-intro-body">{move.draft_body}</p>
+      <p className="co-row-meta">{move.ai_disclosure}</p>
+    </section>
+  );
+}
+
 /**
  * NodeList renders one group of connections, each row reachable by keyboard
  * through EntityRef's own link and naming how it attaches to the account.
@@ -639,6 +706,9 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
                   becoming two more columns beside the diagram. */}
               <div className="cx-expanded-list">
                 <ConnectionsBody graph={readable} />
+                {readable.intro_path && (
+                  <IntroPathPanel signalId={readable.intro_path.signal_id} />
+                )}
               </div>
             </div>
             <p className="cx-actions">
