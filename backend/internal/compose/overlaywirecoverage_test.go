@@ -143,19 +143,26 @@ func (g wireGate) check(t *testing.T) {
 }
 
 // checkBinding walks one mapped binding across the three layers it claims to
-// span, stopping at the first that breaks so the later message cannot blame the
-// wrong layer. The Incumbent check comes first: it is the only part of the
-// registry a fixture cannot contradict silently, since a claim about a property
-// the fixture never sends is proven by nothing that follows.
+// span, stopping at the first LAYER that breaks so the later message cannot
+// blame the wrong one — every property the fixture omits is named before it
+// stops, since those are all one layer's problem. The Incumbent check comes
+// first: it is the only part of the registry a fixture cannot contradict
+// silently, since a claim about a property the fixture never sends is proven by
+// nothing that follows.
 func (g wireGate) checkBinding(t *testing.T, b overlay.FieldBinding) {
 	t.Helper()
+	fixtureComplete := true
 	for _, property := range b.Incumbent {
 		if _, sent := g.incumbent[property]; !sent {
+			fixtureComplete = false
 			t.Errorf("%s.%s is declared mapped from %v, but %s sends no %q, so nothing below proves that "+
 				"property reaches anywhere. Add it to the fixture, or drop it from the binding — Incumbent "+
 				"is a claim about where the value comes from, not a wish list.",
 				g.entity.Entity, b.WireSlot, b.Incumbent, g.fixture, property)
 		}
+	}
+	if !fixtureComplete {
+		return
 	}
 	if _, landed := g.canonical[b.CanonicalKey]; !landed {
 		t.Errorf("%s.%s is declared mapped from %v, but the mapping pipeline landed no %q in the canonical "+

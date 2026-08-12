@@ -238,7 +238,9 @@ var contactsMapping = overlay.ObjectMapping{
 // last-modified counterpart needs no FieldMapping — Baseline already lands
 // hs_lastmodifieddate on the canonical last_synced_at. The two spellings differ
 // by object class: a company has hs_lastmodifieddate where a contact has
-// lastmodifieddate, while createdate is the same property name on both.
+// lastmodifieddate, while createdate is the same property name on both — read
+// from HubSpot's documentation, where the contact side rests on a live portal
+// capture; issue #1032 tracks capturing a company to confirm it.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
 	Target:         organizationTarget,

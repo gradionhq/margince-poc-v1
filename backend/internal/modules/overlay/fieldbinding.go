@@ -148,13 +148,13 @@ var personBindings = EntityBinding{
 // organizationBindings disposition every contract Organization field. Armed,
 // on the same terms personBindings is.
 //
-// Seven fields the incumbent could fill are deferred rather than mapped, and
+// Eight fields the incumbent could fill are deferred rather than mapped, and
 // each names the reason it is not a one-line addition: two need a projection
 // that does not exist yet (an association sweep for the parent, a mirror_user_map
-// join for the owner), three need a decision the mapping cannot make on its own
-// (a length rule, a URL normalization, a vocabulary remap), and two need a read
-// the adapter does not perform (the archive flag, the primary-domain
-// derivation).
+// join for the owner), four need a decision the mapping cannot make on its own
+// (a length rule, a URL normalization, two remaps onto vocabularies this product
+// defines on its own axes), and two need a read the adapter does not perform
+// (the archive flag, the primary-domain derivation).
 //
 //nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" and "industry" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
 var organizationBindings = EntityBinding{
@@ -180,6 +180,7 @@ var organizationBindings = EntityBinding{
 		{WireSlot: "description", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1026"},
 		{WireSlot: "linkedin_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1027"},
 		{WireSlot: "lifecycle", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1028"},
+		{WireSlot: "relationship_types", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1031"},
 
 		{
 			WireSlot: "legal_name", Disposition: DispositionUnmappable,
@@ -217,10 +218,6 @@ var organizationBindings = EntityBinding{
 		{
 			WireSlot: "computed_fields", Disposition: DispositionNativeOnly,
 			Reason: "Evaluated from this installation's own formula definitions over native rows.",
-		},
-		{
-			WireSlot: "relationship_types", Disposition: DispositionNativeOnly,
-			Reason: "Native relationship rows; the mirror holds no relationship graph.",
 		},
 		{
 			WireSlot: "classification", Disposition: DispositionNativeOnly,

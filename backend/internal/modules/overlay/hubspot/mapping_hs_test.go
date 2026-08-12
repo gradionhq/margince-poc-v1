@@ -218,6 +218,7 @@ func rawCompany() map[string]any {
 	return map[string]any{
 		"hs_object_id":        "61655665850",
 		"hs_lastmodifieddate": "2026-05-13T06:44:38.727Z",
+		"createdate":          "2024-11-15T13:27:49.194Z",
 		"name":                "Muller GmbH",
 		"industry":            "HOSPITAL_HEALTH_CARE",
 		"numberofemployees":   "75",
@@ -255,6 +256,15 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 	}
 	if got := out["external_id"]; got != "61655665850" {
 		t.Errorf("external_id = %v, want 61655665850", got)
+	}
+	// The incumbent's own create instant, not the instant we mirrored the
+	// company: a company's createdate has to land on created_at the same way a
+	// contact's does, or a mirrored account reports the wrong age.
+	if got := out["created_at"]; got != "2024-11-15T13:27:49.194Z" {
+		t.Errorf("created_at = %v, want the createdate value", got)
+	}
+	if got := out["last_synced_at"]; got != "2026-05-13T06:44:38.727Z" {
+		t.Errorf("last_synced_at = %v, want the hs_lastmodifieddate value", got)
 	}
 	address, ok := out["address"].(map[string]any)
 	if !ok {
