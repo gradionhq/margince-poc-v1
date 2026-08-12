@@ -441,8 +441,8 @@ var dynamicTierVerbs = gatekit.Waive(map[string]string{
 	"advance_deal": "a deal move's tier is decided by reading both endpoints, so an open→open call executes " +
 		"where a close stages, and this lane's fixture would compare a staged row that only some workspace " +
 		"states produce — what the two doors do share is the command itself, both decoding into " +
-		"AdvanceDealCommand{DealID, ToStageID} (agentcommandlifecycle.go and tools_lifecycle.go), which no " +
-		"test compares door-to-door today",
+		"AdvanceDealCommand{DealID, ToStageID} (advanceDealCommand in agentcommandlifecycle.go, " +
+		"advanceDeal.StageInfo in tools.go), which no test compares door-to-door today",
 })
 
 // assertVerbResolvesItsTierPerCall holds an unwritten fixture to the one
