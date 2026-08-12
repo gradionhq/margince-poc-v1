@@ -273,7 +273,12 @@ Wiring details:
   module-pin change), and buildkit-cache-dance + actions/cache carry the
   BuildKit cache-mount contents (Go compile cache, pnpm store, tsc
   `.tsbuildinfo`) across runs — mounts are not layers, so no layer cache
-  covers them. The images are pushed to the constellation registry
+  covers them. Both live in the repo's 10 GB Actions cache, which the CI
+  lanes' Go caches keep near the cap, so entries older than a few hours are
+  routinely LRU-evicted: the caches bridge releases that land close
+  together — the busy-day case where they matter — and a release after a
+  quiet night simply bakes cold. The images are pushed to the constellation
+  registry
   (`registry.test.margince.com/margince/<role>`, authenticated as the
   registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
   the draft as digest-pinned references with `add-artifacts`, and the release
