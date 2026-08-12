@@ -15,7 +15,6 @@ package agents
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -27,20 +26,6 @@ import (
 // nothing on the record seam a fact or profile field row could be pointed at
 // on its own.
 const organizationSidecarRecordType = string(datasource.EntityOrganization)
-
-// sidecarValue is the best-effort decode of an update's body for the inbox
-// line — the value replacing the machine's proposal. Guards never depends on
-// this: an unparseable or absent value still leaves the operand (factKey or
-// field) naming the approval, the same fallback recordLabel gives an
-// unlabelable record.
-func sidecarValue(fields json.RawMessage) string {
-	var body struct {
-		Value string `json:"value"`
-	}
-	//craft:ignore swallowed-errors best-effort value extraction for the summary; an unparseable body still leaves the operand naming the approval
-	_ = json.Unmarshal(fields, &body)
-	return body.Value
-}
 
 // ConfirmFactCommand is one organization fact confirmation, whichever door
 // asked for it. It carries no body: PO-AC-N-3 confirmation changes no value,
@@ -56,7 +41,7 @@ type ConfirmFactCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewConfirmFactCall(records datasource.SystemOfRecordProvider, cmd ConfirmFactCommand) GovernedCall {
-	return bind[ConfirmFactCommand](&confirmFactResolver{
+	return bind[ConfirmFactCommand](confirmFactResolver{
 		target: routedRecordTarget{records: records, recordType: organizationSidecarRecordType},
 	}, cmd)
 }
@@ -68,22 +53,14 @@ type confirmFactResolver struct {
 // Subject names the ORGANIZATION the approval binds to — a fact has no row
 // of its own on the seam — with the fact key carried into the summary: two
 // facts confirmed on the same organization must not render as the same
-// inbox line.
-func (r *confirmFactResolver) Subject(ctx context.Context, cmd ConfirmFactCommand) (StageInfo, error) {
-	info := StageInfo{
+// inbox line. It reads nothing: unlike archiveResolver's, there is no
+// per-record label to compose (routedRecordTarget's own doc says why).
+func (r confirmFactResolver) Subject(_ context.Context, cmd ConfirmFactCommand) (StageInfo, error) {
+	return StageInfo{
 		TargetType: organizationSidecarRecordType,
 		TargetID:   cmd.ID,
 		Summary:    fmt.Sprintf("Confirm fact %s on organization %s", cmd.FactKey, cmd.ID),
-	}
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if !served {
-		return info, nil
-	}
-	info.Summary = fmt.Sprintf("Confirm fact %s on organization %s", cmd.FactKey, recordLabel(rec))
-	return info, nil
+	}, nil
 }
 
 // Guards refuses, before anything is staged, an organization the caller
@@ -92,15 +69,8 @@ func (r *confirmFactResolver) Subject(ctx context.Context, cmd ConfirmFactComman
 // FactKey names an existing fact: that read is the handler's, not this
 // approval's, and restating it here would be a second copy of the
 // executor's own rule.
-func (r *confirmFactResolver) Guards(ctx context.Context, cmd ConfirmFactCommand) error {
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return err
-	}
-	if !served {
-		return nil
-	}
-	return refuseStagingElsewhere(rec)
+func (r confirmFactResolver) Guards(ctx context.Context, cmd ConfirmFactCommand) error {
+	return r.target.refuse(ctx, cmd.ID)
 }
 
 // UpdateFactCommand is one organization fact correction, whichever door
@@ -108,7 +78,6 @@ func (r *confirmFactResolver) Guards(ctx context.Context, cmd ConfirmFactCommand
 type UpdateFactCommand struct {
 	ID      ids.UUID
 	FactKey string
-	Fields  json.RawMessage
 }
 
 // NewUpdateFactCall binds one fact correction to the resolver that answers
@@ -116,7 +85,7 @@ type UpdateFactCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewUpdateFactCall(records datasource.SystemOfRecordProvider, cmd UpdateFactCommand) GovernedCall {
-	return bind[UpdateFactCommand](&updateFactResolver{
+	return bind[UpdateFactCommand](updateFactResolver{
 		target: routedRecordTarget{records: records, recordType: organizationSidecarRecordType},
 	}, cmd)
 }
@@ -125,42 +94,17 @@ type updateFactResolver struct {
 	target routedRecordTarget
 }
 
-// Subject: the same shape as confirmFactResolver's, plus the corrected value
-// where the body parses — a correction's value IS the effect a human is
-// weighing, unlike a whole-record patch's arbitrary field set (tierfloor.go).
-func (r *updateFactResolver) Subject(ctx context.Context, cmd UpdateFactCommand) (StageInfo, error) {
-	info := StageInfo{
+// Subject, Guards: the same shape as confirmFactResolver's.
+func (r updateFactResolver) Subject(_ context.Context, cmd UpdateFactCommand) (StageInfo, error) {
+	return StageInfo{
 		TargetType: organizationSidecarRecordType,
 		TargetID:   cmd.ID,
 		Summary:    fmt.Sprintf("Update fact %s on organization %s", cmd.FactKey, cmd.ID),
-	}
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	label := cmd.ID.String()
-	if served {
-		label = recordLabel(rec)
-	}
-	info.Summary = fmt.Sprintf("Update fact %s on organization %s", cmd.FactKey, label)
-	if v := sidecarValue(cmd.Fields); v != "" {
-		info.Summary = fmt.Sprintf("%s to %q", info.Summary, v)
-	}
-	return info, nil
+	}, nil
 }
 
-// Guards: the same two refusals as confirmFactResolver's. It does not
-// validate Fields — the value shape a fact write accepts is the handler's
-// business, not this approval's.
-func (r *updateFactResolver) Guards(ctx context.Context, cmd UpdateFactCommand) error {
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return err
-	}
-	if !served {
-		return nil
-	}
-	return refuseStagingElsewhere(rec)
+func (r updateFactResolver) Guards(ctx context.Context, cmd UpdateFactCommand) error {
+	return r.target.refuse(ctx, cmd.ID)
 }
 
 // ConfirmProfileFieldCommand is one organization profile-field confirmation,
@@ -176,7 +120,7 @@ type ConfirmProfileFieldCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewConfirmProfileFieldCall(records datasource.SystemOfRecordProvider, cmd ConfirmProfileFieldCommand) GovernedCall {
-	return bind[ConfirmProfileFieldCommand](&confirmProfileFieldResolver{
+	return bind[ConfirmProfileFieldCommand](confirmProfileFieldResolver{
 		target: routedRecordTarget{records: records, recordType: organizationSidecarRecordType},
 	}, cmd)
 }
@@ -187,40 +131,23 @@ type confirmProfileFieldResolver struct {
 
 // Subject, Guards: the same shape as confirmFactResolver's, naming Field
 // instead of FactKey as the summary's operand.
-func (r *confirmProfileFieldResolver) Subject(ctx context.Context, cmd ConfirmProfileFieldCommand) (StageInfo, error) {
-	info := StageInfo{
+func (r confirmProfileFieldResolver) Subject(_ context.Context, cmd ConfirmProfileFieldCommand) (StageInfo, error) {
+	return StageInfo{
 		TargetType: organizationSidecarRecordType,
 		TargetID:   cmd.ID,
 		Summary:    fmt.Sprintf("Confirm profile field %s on organization %s", cmd.Field, cmd.ID),
-	}
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if !served {
-		return info, nil
-	}
-	info.Summary = fmt.Sprintf("Confirm profile field %s on organization %s", cmd.Field, recordLabel(rec))
-	return info, nil
+	}, nil
 }
 
-func (r *confirmProfileFieldResolver) Guards(ctx context.Context, cmd ConfirmProfileFieldCommand) error {
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return err
-	}
-	if !served {
-		return nil
-	}
-	return refuseStagingElsewhere(rec)
+func (r confirmProfileFieldResolver) Guards(ctx context.Context, cmd ConfirmProfileFieldCommand) error {
+	return r.target.refuse(ctx, cmd.ID)
 }
 
 // UpdateProfileFieldCommand is one organization profile-field correction,
 // whichever door asked for it.
 type UpdateProfileFieldCommand struct {
-	ID     ids.UUID
-	Field  string
-	Fields json.RawMessage
+	ID    ids.UUID
+	Field string
 }
 
 // NewUpdateProfileFieldCall binds one profile-field correction to the
@@ -228,7 +155,7 @@ type UpdateProfileFieldCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewUpdateProfileFieldCall(records datasource.SystemOfRecordProvider, cmd UpdateProfileFieldCommand) GovernedCall {
-	return bind[UpdateProfileFieldCommand](&updateProfileFieldResolver{
+	return bind[UpdateProfileFieldCommand](updateProfileFieldResolver{
 		target: routedRecordTarget{records: records, recordType: organizationSidecarRecordType},
 	}, cmd)
 }
@@ -237,34 +164,14 @@ type updateProfileFieldResolver struct {
 	target routedRecordTarget
 }
 
-func (r *updateProfileFieldResolver) Subject(ctx context.Context, cmd UpdateProfileFieldCommand) (StageInfo, error) {
-	info := StageInfo{
+func (r updateProfileFieldResolver) Subject(_ context.Context, cmd UpdateProfileFieldCommand) (StageInfo, error) {
+	return StageInfo{
 		TargetType: organizationSidecarRecordType,
 		TargetID:   cmd.ID,
 		Summary:    fmt.Sprintf("Update profile field %s on organization %s", cmd.Field, cmd.ID),
-	}
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	label := cmd.ID.String()
-	if served {
-		label = recordLabel(rec)
-	}
-	info.Summary = fmt.Sprintf("Update profile field %s on organization %s", cmd.Field, label)
-	if v := sidecarValue(cmd.Fields); v != "" {
-		info.Summary = fmt.Sprintf("%s to %q", info.Summary, v)
-	}
-	return info, nil
+	}, nil
 }
 
-func (r *updateProfileFieldResolver) Guards(ctx context.Context, cmd UpdateProfileFieldCommand) error {
-	rec, served, err := r.target.fetch(ctx, cmd.ID)
-	if err != nil {
-		return err
-	}
-	if !served {
-		return nil
-	}
-	return refuseStagingElsewhere(rec)
+func (r updateProfileFieldResolver) Guards(ctx context.Context, cmd UpdateProfileFieldCommand) error {
+	return r.target.refuse(ctx, cmd.ID)
 }

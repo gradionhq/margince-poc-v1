@@ -16,11 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	chi "github.com/go-chi/chi/v5"
-
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -129,12 +125,9 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
 func archiveCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
-	id, err := ids.Parse(chi.URLParam(r, "id"))
+	id, err := routedID(r)
 	if err != nil {
-		// Existence-hiding, and the answer this door already gave: "that is not
-		// a uuid" and "there is no such row" must read alike, or the shape of a
-		// caller's id tells them which rows exist.
-		return nil, apperrors.ErrNotFound
+		return nil, err
 	}
 	return agents.NewArchiveCall(deps.records, agents.ArchiveCommand{
 		RecordType: string(pol.RecordType),
@@ -165,9 +158,9 @@ func createCommand(pol agentPolicy, _ restCommandDeps, _ *http.Request, body []b
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
 func patchCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
-	id, err := ids.Parse(chi.URLParam(r, "id"))
+	id, err := routedID(r)
 	if err != nil {
-		return nil, apperrors.ErrNotFound
+		return nil, err
 	}
 	return agents.NewPatchCall(deps.records, agents.PatchCommand{
 		RecordType: string(pol.RecordType),

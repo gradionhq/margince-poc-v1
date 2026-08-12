@@ -187,3 +187,90 @@ func TestEachOperandCommandStagesTheRoutedRecord(t *testing.T) {
 		})
 	}
 }
+
+// This is the actual behavior change registering these eight in restCommands
+// buys over the route-walk fallback (stagedTargetByRoute): Guards now runs.
+// An organization or project the caller cannot see stages NOTHING — the same
+// proof shape TestAnArchiveOfAnUnseeableRecordStagesNothing gives archive —
+// for one op from each seam-served family (organization, project); the two
+// custom_field ops have no such proof because the seam has never served that
+// type (TestEachOperandCommandStagesTheRoutedRecord above already stages
+// them against `seamRecord{}` without incident, which is what proves Guards
+// does not even attempt a read for them).
+func TestAnOperandCommandOfAnUnseeableRecordStagesNothing(t *testing.T) {
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "confirmOrganizationFact", Access: accessTool, Tool: "update_record", RecordType: recordTypeOrganization}
+	req := operandRequest(http.MethodPost, "/v1/organizations", ids.NewV7().String(), "factKey", "named_customer:acme-inc", nil)
+	rec := httptest.NewRecorder()
+
+	stageRefusal(rec, req, staging, restCommandDeps{records: hiddenRecord{}}, pol, nil)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("confirming a fact on an organization the caller cannot see answered %d, want 404 — the "+
+			"refusal must not tell a caller that a row they may not see exists", rec.Code)
+	}
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for %q against an organization nobody can decide about", staging.last.Tool)
+	}
+}
+
+// The other refusal Guards makes: an organization/project the caller CAN see
+// but whose authority lives in another system of record — readable, and
+// still unstageable, the same shape TestAnArchiveOfAnExternallyHeldRecordStagesNothing
+// gives archive.
+func TestAnOperandCommandOfARecordHeldElsewhereStagesNothing(t *testing.T) {
+	staging := &capturingApprovals{}
+	body := []byte(`{"person_id":"018f2a10-0000-7000-8000-000000000001","role":"champion"}`)
+	pol := agentPolicy{Op: "setProjectStakeholder", Access: accessTool, Tool: "update_record", RecordType: recordTypeProject}
+	req := operandRequest(http.MethodPut, "/v1/projects", ids.NewV7().String(), "", "", body)
+	rec := httptest.NewRecorder()
+
+	stageRefusal(rec, req, staging, restCommandDeps{records: mirroredRecord{}}, pol, body)
+
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for %q against a project whose authority lives elsewhere — nobody "+
+			"could ever release it", staging.last.Tool)
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("an externally-held target answered %d, want %d (unsupported_by_sor)", rec.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+// The record type each of these eight resolvers is hardcoded against
+// (organizationSidecarRecordType, customFieldRecordType, projectRecordType
+// — commandsidecar.go, commandaction.go) must agree with the generated
+// policy table, or a contract change could silently point the gate at one
+// record type while the resolver's Guards reads another. Nothing else pins
+// that agreement: the decoders all discard `pol` (its RecordType is not
+// threaded through, unlike archiveCommand/patchCommand's), so this is a
+// fitness function over agentPolicies rather than a point assertion.
+func TestOperandCommandRecordTypesAgreeWithThePolicyTable(t *testing.T) {
+	want := map[string]string{
+		"confirmOrganizationFact":         "organization",
+		"updateOrganizationFact":          "organization",
+		"confirmOrganizationProfileField": "organization",
+		"updateOrganizationProfileField":  "organization",
+		"retireCustomField":               "custom_field",
+		"updateCustomFieldOptions":        "custom_field",
+		"setProjectStakeholder":           "project",
+		"removeProjectStakeholder":        "project",
+	}
+	found := make(map[string]bool, len(want))
+	for _, pol := range agentPolicies {
+		wantType, tracked := want[pol.Op]
+		if !tracked {
+			continue
+		}
+		found[pol.Op] = true
+		if string(pol.RecordType) != wantType {
+			t.Errorf("%s declares RecordType %q in the generated policy table, want %q — its resolver's "+
+				"hardcoded record type would silently disagree with a contract change",
+				pol.Op, pol.RecordType, wantType)
+		}
+	}
+	for op := range want {
+		if !found[op] {
+			t.Errorf("%s no longer appears in the generated policy table", op)
+		}
+	}
+}

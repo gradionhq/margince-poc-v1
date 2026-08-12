@@ -5,14 +5,12 @@ package agents
 
 // The remaining four commands' resolvers (commandaction.go): retire and
 // update-options target `custom_field`, a type the record seam has never
-// served, so they stage OUTSIDE it the same way an archive of a
-// record-seam-unserved type does; set/remove stakeholder target `project`,
-// which the seam serves like any other record, so they refuse the same two
-// ways patchResolver's own target does.
+// served, so their Guards always stands down; set/remove stakeholder target
+// `project`, which the seam serves like any other record, so they refuse
+// the same two ways patchResolver's own target does.
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -24,22 +22,17 @@ import (
 
 // retire and update-options stage OUTSIDE the record seam — the id alone
 // names the target, the same shape TestArchiveStagesATypeTheRecordSeamDoesNotServe
-// proves for an archive of a record-seam-unserved type. Staged against a
-// provider that fails EVERY read, so a resolver that consulted the seam
-// anyway fails here rather than passing on a lenient stub.
-func TestCustomFieldCommandsStageOutsideTheRecordSeam(t *testing.T) {
+// proves for an archive of a record-seam-unserved type. Guards is asked
+// against a provider that fails EVERY read, so a resolver that consulted the
+// seam anyway fails here rather than passing on a lenient stub.
+func TestCustomFieldCommandsStageAndAdmitOutsideTheRecordSeam(t *testing.T) {
 	id := ids.NewV7()
 	cases := []struct {
-		name        string
-		call        GovernedCall
-		wantOperand string
+		name string
+		call GovernedCall
 	}{
-		{"retire", NewRetireCustomFieldCall(unreadableProvider{}, RetireCustomFieldCommand{ID: id}), id.String()},
-		{
-			"update_options",
-			NewUpdateCustomFieldOptionsCall(unreadableProvider{}, UpdateCustomFieldOptionsCommand{ID: id, Fields: json.RawMessage(`{"options":["gold","silver"]}`)}),
-			"gold",
-		},
+		{"retire", NewRetireCustomFieldCall(unreadableProvider{}, RetireCustomFieldCommand{ID: id})},
+		{"update_options", NewUpdateCustomFieldOptionsCall(unreadableProvider{}, UpdateCustomFieldOptionsCommand{ID: id})},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -50,71 +43,44 @@ func TestCustomFieldCommandsStageOutsideTheRecordSeam(t *testing.T) {
 			if info.TargetType != "custom_field" || info.TargetID != id {
 				t.Errorf("staged target = (%s,%s), want (custom_field,%s)", info.TargetType, info.TargetID, id)
 			}
-			if !strings.Contains(info.Summary, c.wantOperand) {
-				t.Errorf("summary %q does not name %q", info.Summary, c.wantOperand)
+			if !strings.Contains(info.Summary, id.String()) {
+				t.Errorf("summary %q does not name the id — the seam has no better label to give it", info.Summary)
 			}
 		})
 	}
 }
 
-// An unparseable or empty options body still leaves the id naming the
-// approval — Guards never depends on the decode, only the summary's
-// richness does.
-func TestUpdateOptionsSummaryFallsBackOnAnUnparseableBody(t *testing.T) {
-	id := ids.NewV7()
-	call := NewUpdateCustomFieldOptionsCall(unreadableProvider{}, UpdateCustomFieldOptionsCommand{ID: id, Fields: json.RawMessage(`not json`)})
-
-	info, err := StageSubject(context.Background(), call)
-	if err != nil {
-		t.Fatalf("staging answered %v, want it staged despite the unparseable body", err)
-	}
-	if !strings.Contains(info.Summary, id.String()) {
-		t.Errorf("summary %q does not fall back to naming the id", info.Summary)
-	}
-}
-
-// setStakeholder and removeStakeholder stage against the PROJECT, naming it
-// in words, with the operand — who is being attached or detached — carried
-// into the summary.
-func TestStakeholderCommandsStageTheProjectWithTheOperandInTheSummary(t *testing.T) {
+// setStakeholder and removeStakeholder stage against the PROJECT. Only
+// removeStakeholder carries a path operand (PersonID) into the summary —
+// setStakeholder's person/role arrive in the body, which the inbox shows
+// beside the summary line (proposed_change), the same reasoning patchResolver
+// gives for not repeating a patch's values.
+func TestStakeholderCommandsStageTheProject(t *testing.T) {
 	projectID := ids.NewV7()
 	personID := ids.NewV7()
+	// project IS served (unlike custom_field), so staging it needs a readable
+	// provider — an unreadable one would fail at Guards before Subject ever ran.
 	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityProject, projectID, true)}
-	cases := []struct {
-		name        string
-		call        GovernedCall
-		wantOperand string
-	}{
-		{
-			"set",
-			NewSetStakeholderCall(provider, SetStakeholderCommand{
-				ID: projectID, Fields: json.RawMessage(`{"person_id":"` + personID.String() + `","role":"champion"}`),
-			}),
-			personID.String(),
-		},
-		{
-			"remove",
-			NewRemoveStakeholderCall(provider, RemoveStakeholderCommand{ID: projectID, PersonID: personID}),
-			personID.String(),
-		},
+
+	setInfo, err := StageSubject(context.Background(), NewSetStakeholderCall(provider, SetStakeholderCommand{ID: projectID}))
+	if err != nil {
+		t.Fatalf("staging a set-stakeholder answered %v, want it staged", err)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			info, err := StageSubject(context.Background(), c.call)
-			if err != nil {
-				t.Fatalf("staging answered %v, want it staged", err)
-			}
-			if info.TargetType != "project" || info.TargetID != projectID {
-				t.Errorf("staged target = (%s,%s), want (project,%s)", info.TargetType, info.TargetID, projectID)
-			}
-			if !strings.Contains(info.Summary, c.wantOperand) {
-				t.Errorf("summary %q does not name the person %q — two stakeholder changes on the same "+
-					"project must not render as the same inbox line", info.Summary, c.wantOperand)
-			}
-			if !strings.Contains(info.Summary, "Acme") {
-				t.Errorf("summary %q does not name the project", info.Summary)
-			}
-		})
+	if setInfo.TargetType != "project" || setInfo.TargetID != projectID {
+		t.Errorf("staged target = (%s,%s), want (project,%s)", setInfo.TargetType, setInfo.TargetID, projectID)
+	}
+
+	removeInfo, err := StageSubject(context.Background(),
+		NewRemoveStakeholderCall(provider, RemoveStakeholderCommand{ID: projectID, PersonID: personID}))
+	if err != nil {
+		t.Fatalf("staging a remove-stakeholder answered %v, want it staged", err)
+	}
+	if removeInfo.TargetType != "project" || removeInfo.TargetID != projectID {
+		t.Errorf("staged target = (%s,%s), want (project,%s)", removeInfo.TargetType, removeInfo.TargetID, projectID)
+	}
+	if !strings.Contains(removeInfo.Summary, personID.String()) {
+		t.Errorf("remove-stakeholder summary %q does not name the person being detached — two detaches from "+
+			"the same project must not render as the same inbox line", removeInfo.Summary)
 	}
 }
 
@@ -126,7 +92,7 @@ func TestStakeholderCommandsRefuseAnUnreadableProject(t *testing.T) {
 		name string
 		call GovernedCall
 	}{
-		{"set", NewSetStakeholderCall(unreadableProvider{}, SetStakeholderCommand{ID: id, Fields: json.RawMessage(`{"person_id":"x","role":"champion"}`)})},
+		{"set", NewSetStakeholderCall(unreadableProvider{}, SetStakeholderCommand{ID: id})},
 		{"remove", NewRemoveStakeholderCall(unreadableProvider{}, RemoveStakeholderCommand{ID: id, PersonID: personID})},
 	}
 	for _, c := range cases {
@@ -145,7 +111,7 @@ func TestStakeholderCommandsRefuseAProjectHeldElsewhere(t *testing.T) {
 		name string
 		call GovernedCall
 	}{
-		{"set", NewSetStakeholderCall(elsewhereProvider{}, SetStakeholderCommand{ID: id, Fields: json.RawMessage(`{"person_id":"x","role":"champion"}`)})},
+		{"set", NewSetStakeholderCall(elsewhereProvider{}, SetStakeholderCommand{ID: id})},
 		{"remove", NewRemoveStakeholderCall(elsewhereProvider{}, RemoveStakeholderCommand{ID: id, PersonID: personID})},
 	}
 	for _, c := range cases {
@@ -157,18 +123,14 @@ func TestStakeholderCommandsRefuseAProjectHeldElsewhere(t *testing.T) {
 	}
 }
 
-// Guards never depends on retire/options' body or on whether the named
-// person is currently a stakeholder — only the routed record's own
-// visibility and system of record. custom_field's Guards is proven to stand
-// down entirely by TestCustomFieldCommandsStageOutsideTheRecordSeam already;
-// this proves retire's bare id (no body at all) hits the same stand-down.
-func TestRetireCustomFieldStagesWithNoBody(t *testing.T) {
-	id := ids.NewV7()
-	info, err := StageSubject(context.Background(), NewRetireCustomFieldCall(unreadableProvider{}, RetireCustomFieldCommand{ID: id}))
-	if err != nil {
-		t.Fatalf("staging a retire answered %v, want it staged", err)
+// A served, readable project is admitted rather than refused.
+func TestStakeholderCommandsAdmitAReadableProject(t *testing.T) {
+	id, personID := ids.NewV7(), ids.NewV7()
+	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityProject, id, true)}
+	if err := NewSetStakeholderCall(provider, SetStakeholderCommand{ID: id}).Guards(context.Background()); err != nil {
+		t.Fatalf("guarding a readable, authoritative project (set) answered %v, want it admitted", err)
 	}
-	if info.TargetType != "custom_field" || info.TargetID != id {
-		t.Errorf("staged target = (%s,%s), want (custom_field,%s)", info.TargetType, info.TargetID, id)
+	if err := NewRemoveStakeholderCall(provider, RemoveStakeholderCommand{ID: id, PersonID: personID}).Guards(context.Background()); err != nil {
+		t.Fatalf("guarding a readable, authoritative project (remove) answered %v, want it admitted", err)
 	}
 }

@@ -343,38 +343,39 @@ func servedByTheRecordSeam(recordType string) bool {
 	return slices.Contains(datasource.EntityTypes(), datasource.EntityType(recordType))
 }
 
-// routedRecordTarget memoizes the one read a resolver whose approval binds to
-// a FIXED record type needs to answer both Guards and Subject — the record
-// the routed id names, read once and shared by both questions. The same
-// belt-and-braces shape archiveResolver's own target (above) gives a
-// resolver whose record type instead VARIES per command; here recordType is
-// set once at construction by the family's NewXCall constructors
-// (command_sidecar.go, command_action.go), which is what lets fetch stay a
-// plain memo keyed on the id alone.
+// routedRecordTarget answers, for a resolver whose approval binds to a FIXED
+// record type (recordType is set once at construction by the family's
+// NewXCall constructors — commandsidecar.go, commandaction.go), the one
+// question that family's Guards needs: is the routed id a target this
+// approval can actually be released against.
+//
+// Unlike archiveResolver's own target (above), there is no memo here: none
+// of this family's Subject implementations reads the record — their summary
+// names the OPERAND (a fact key, a profile field, a person id), the same way
+// patchResolver's names the fields a patch sets rather than reading the
+// record for a value nothing downstream renders (patchResolver's own doc,
+// below) — so refuse is Guards' only caller and there is no second reading
+// for a memo to protect against.
 type routedRecordTarget struct {
 	records    datasource.SystemOfRecordProvider
 	recordType string
-	seen       ids.UUID
-	rec        datasource.Record
-	read       bool
 }
 
-// fetch answers served=false, with no read, for a record type the seam has
-// never heard of — reusing servedByTheRecordSeam rather than a resolver-local
+// refuse reads the routed record where the seam serves this resolver's
+// record type and refuses it the same two ways patchResolver.Guards refuses
+// its own target: unreadable (the row-scope miss) or held in another system
+// of record. It stands down — no read, no refusal — for a type the seam has
+// never heard of, reusing servedByTheRecordSeam rather than a resolver-local
 // opinion about which of this family's types are governed here, so the two
 // cannot drift the way a second, hand-restated list would
 // (gradionhq/margince-poc-v1#1021).
-func (t *routedRecordTarget) fetch(ctx context.Context, id ids.UUID) (rec datasource.Record, served bool, err error) {
+func (t routedRecordTarget) refuse(ctx context.Context, id ids.UUID) error {
 	if !servedByTheRecordSeam(t.recordType) {
-		return datasource.Record{}, false, nil
+		return nil
 	}
-	if t.read && t.seen == id {
-		return t.rec, true, nil
-	}
-	rec, err = t.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(t.recordType), ID: id})
+	rec, err := t.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(t.recordType), ID: id})
 	if err != nil {
-		return datasource.Record{}, false, err
+		return err
 	}
-	t.seen, t.rec, t.read = id, rec, true
-	return rec, true, nil
+	return refuseStagingElsewhere(rec)
 }

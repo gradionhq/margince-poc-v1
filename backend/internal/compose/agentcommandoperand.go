@@ -8,13 +8,12 @@ package compose
 // (gradionhq/margince-poc-v1#928 task 5): an organization fact or profile
 // field, a custom field's retire/options actions, and a project stakeholder.
 // The decoding shape is the same one archiveCommand/patchCommand set in
-// agentcommand.go — parse {id} as the existence-hiding 404, decode the rest,
-// hand the typed command to its resolver (modules/agents/commandsidecar.go,
-// commandaction.go) — split out here because the family carries a SECOND
-// path operand those two never had to.
+// agentcommand.go — parse {id} as the existence-hiding 404 (routedID, shared
+// with them), decode the rest, hand the typed command to its resolver
+// (modules/agents/commandsidecar.go, commandaction.go) — split out here
+// because the family carries a SECOND path operand those two never had to.
 
 import (
-	"encoding/json"
 	"net/http"
 
 	chi "github.com/go-chi/chi/v5"
@@ -38,9 +37,10 @@ func pathOperand(r *http.Request, name string) (string, error) {
 	return v, nil
 }
 
-// routedID parses the route's own {id}, the existence-hiding answer
-// archiveCommand/patchCommand already give a malformed one: "that is not a
-// uuid" and "there is no such row" must read alike.
+// routedID parses the route's own {id}, the existence-hiding answer every
+// restCommands decoder gives a malformed one: "that is not a uuid" and
+// "there is no such row" must read alike, or the shape of a caller's id
+// tells them which rows exist.
 func routedID(r *http.Request) (ids.UUID, error) {
 	id, err := ids.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -63,7 +63,7 @@ func confirmFactCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ 
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func updateFactCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func updateFactCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
@@ -72,9 +72,7 @@ func updateFactCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, bod
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewUpdateFactCall(deps.records, agents.UpdateFactCommand{
-		ID: id, FactKey: factKey, Fields: json.RawMessage(body),
-	}), nil
+	return agents.NewUpdateFactCall(deps.records, agents.UpdateFactCommand{ID: id, FactKey: factKey}), nil
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
@@ -91,7 +89,7 @@ func confirmProfileFieldCommand(_ agentPolicy, deps restCommandDeps, r *http.Req
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func updateProfileFieldCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func updateProfileFieldCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
@@ -100,9 +98,7 @@ func updateProfileFieldCommand(_ agentPolicy, deps restCommandDeps, r *http.Requ
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewUpdateProfileFieldCall(deps.records, agents.UpdateProfileFieldCommand{
-		ID: id, Field: field, Fields: json.RawMessage(body),
-	}), nil
+	return agents.NewUpdateProfileFieldCall(deps.records, agents.UpdateProfileFieldCommand{ID: id, Field: field}), nil
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
@@ -115,31 +111,31 @@ func retireCustomFieldCommand(_ agentPolicy, deps restCommandDeps, r *http.Reque
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func updateCustomFieldOptionsCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func updateCustomFieldOptionsCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewUpdateCustomFieldOptionsCall(deps.records, agents.UpdateCustomFieldOptionsCommand{
-		ID: id, Fields: json.RawMessage(body),
-	}), nil
+	return agents.NewUpdateCustomFieldOptionsCall(deps.records, agents.UpdateCustomFieldOptionsCommand{ID: id}), nil
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func setStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func setStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewSetStakeholderCall(deps.records, agents.SetStakeholderCommand{
-		ID: id, Fields: json.RawMessage(body),
-	}), nil
+	return agents.NewSetStakeholderCall(deps.records, agents.SetStakeholderCommand{ID: id}), nil
 }
 
 // removeStakeholderCommand decodes DELETE /v1/projects/{id}/stakeholders/{person_id}.
-// person_id fails as 422, not 404: unlike the routed {id}, a malformed
-// person_id names no row this door hides the existence of — it names which
-// edge the caller meant, a shape the caller simply got wrong.
+// person_id fails as 422, not 404: unlike the routed {id}, a malformed or
+// missing person_id names no row this door hides the existence of — it
+// names which edge the caller meant, a shape the caller simply got wrong.
+// Composed from the same pathOperand every other second-operand decoder
+// uses (a missing segment answers "missing") plus ids.Parse for the shape
+// check the others don't need (a non-empty but malformed one answers
+// "invalid") — one spelling of "required", not a second copy of it.
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
 func removeStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
@@ -147,7 +143,11 @@ func removeStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Reque
 	if err != nil {
 		return nil, err
 	}
-	personID, perr := ids.Parse(chi.URLParam(r, "person_id"))
+	raw, err := pathOperand(r, "person_id")
+	if err != nil {
+		return nil, err
+	}
+	personID, perr := ids.Parse(raw)
 	if perr != nil {
 		return nil, httperr.Validation("person_id", "invalid", "person_id must be a uuid")
 	}
