@@ -690,25 +690,6 @@ jobs:
           fi
           make check-ext-migrations
 
-  # The three role images are built, pushed and digest-pinned by release.yml
-  # on every push to main; no PR-side job builds them anymore. Branch
-  # protection still requires the "docker images (api + web + worker)"
-  # context, so this no-op posts it — remove the job together with the
-  # required-context entry in the protection settings.
-  docker-images:
-    name: docker images (api + web + worker)
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        # The workflow default is backend/, which exists only after a checkout
-        # this job doesn't need.
-        working-directory: .
-    steps:
-      - name: No-op — the release build is the image gate
-        run: echo "image builds run in release.yml"
 
   vuln:
     name: govulncheck
