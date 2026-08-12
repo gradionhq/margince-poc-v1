@@ -7,7 +7,7 @@ import {
   Route,
   Timer,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanMutate } from "../app/capability";
@@ -186,6 +186,18 @@ type ComposedAccess = Readonly<{
 function useExtensionAccess(enabled: boolean): QueryLike<ComposedAccess> {
   const extensions = useExtensions(enabled);
   const roles = useRoles(enabled);
+  const queryClient = useQueryClient();
+  // `enabled: false` stops the next READ; it does not forget the last one. A seat
+  // whose admin role is taken away mid-session keeps rendering from the cache
+  // otherwise — the whole inventory and every role's grant on every object, to a
+  // reader the server would now refuse. Losing the role evicts what it bought.
+  useEffect(() => {
+    if (enabled) {
+      return;
+    }
+    queryClient.removeQueries({ queryKey: EXTENSIONS_KEY });
+    queryClient.removeQueries({ queryKey: ROLES_KEY });
+  }, [enabled, queryClient]);
   return {
     isPending: extensions.isPending || roles.isPending,
     isError: extensions.isError || roles.isError,
@@ -266,14 +278,18 @@ export function ExtensionAccessCard() {
           the heading that names the page, and a unit is a subject in its own
           right. Only reachable with data in hand, which for a non-admin the
           disabled reads never produce. */}
-      {composed?.extensions.map((unit) => (
-        <UnitCard
-          key={unit.name}
-          unit={unit}
-          roles={composed.roles}
-          canManage={canMutate}
-        />
-      ))}
+      {/* Gated on the role as well as on the data: `enabled: false` is about the
+          next request, and a card rendered from a cache the reader may no longer
+          read is the same disclosure the notice above it refuses. */}
+      {isAdmin &&
+        composed?.extensions.map((unit) => (
+          <UnitCard
+            key={unit.name}
+            unit={unit}
+            roles={composed.roles}
+            canManage={canMutate}
+          />
+        ))}
     </div>
   );
 }

@@ -1683,6 +1683,11 @@ function AuditLogRow({
 // currently asks. Keyset "load more" via the page cursor, and a filter change
 // is a new question — the filters ARE the query key, so changing one restarts
 // the cursor chain instead of appending to a stale one.
+// The first page asks for no cursor. Named and typed here rather than asserted at
+// the call site: `initialPageParam: null` alone narrows the page param to `null`
+// and then rejects the string cursors every page after the first carries.
+const FIRST_AUDIT_PAGE: string | null = null;
+
 function AuditLogEntries({
   filters,
   meUserId,
@@ -1690,7 +1695,7 @@ function AuditLogEntries({
   const t = useT();
   const query = useInfiniteQuery({
     queryKey: ["audit-log", filters],
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_AUDIT_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/audit-log", {
         params: { query: auditLogQueryParams(filters, pageParam) },

@@ -27,11 +27,11 @@ export type Theme = "light" | "dark";
 /**
  * The offered themes, in the order a chooser shows them.
  *
- * `satisfies` proves every entry is a real theme, so the settings control's
- * option set follows the type rather than being a second hand-written list that
- * can fall behind it.
+ * Annotated rather than asserted: the type is what proves every entry is a real
+ * theme, so the settings control's option set follows `Theme` instead of being a
+ * second hand-written list that can fall behind it.
  */
-export const THEMES = ["light", "dark"] as const satisfies readonly Theme[];
+export const THEMES: readonly Theme[] = ["light", "dark"];
 
 export const THEME_KEY = "margince.theme";
 

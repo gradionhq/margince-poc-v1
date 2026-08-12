@@ -198,16 +198,18 @@ function backend(
   });
 }
 
-const render = (ui: ReactNode) => {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return rtlRender(
+const renderWith = (client: QueryClient, ui: ReactNode) =>
+  rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
-};
+
+const render = (ui: ReactNode) =>
+  renderWith(
+    new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    ui,
+  );
 
 // The matrix for one object, found by the caption naming it — the only thing
 // that distinguishes two tables of identically-labelled columns.
@@ -494,6 +496,43 @@ describe("ExtensionAccessCard", () => {
 
     await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
     expect(screen.queryByText("notes")).toBeNull();
+  });
+
+  // `enabled: false` stops the next request; it does not forget the last one. A
+  // seat that held admin earlier in the session has the whole inventory and every
+  // role's grants sitting in the cache, and rendering a unit card from that cache
+  // after the role is gone discloses exactly what the notice above it refuses.
+  it("renders nothing from a cache the reader may no longer read", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    // What an admin visit leaves behind, seeded through the keys the screen reads.
+    client.setQueryData(
+      ["extension-access", "extensions"],
+      EXTENSIONS.extensions,
+    );
+    client.setQueryData(["extension-access", "roles"], ROLES.roles);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ roles: ["rep"] }));
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      }),
+    );
+    renderWith(client, <ExtensionAccessCard />);
+
+    await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: "notes" })).toBeNull();
+    expect(screen.queryByText("ext_notes_note")).toBeNull();
+    // And the cache itself is emptied, so a later render cannot resurrect it.
+    expect(
+      client.getQueryData(["extension-access", "extensions"]),
+    ).toBeUndefined();
+    expect(client.getQueryData(["extension-access", "roles"])).toBeUndefined();
   });
 
   it("disables every toggle for a read seat while still showing the grants", async () => {
