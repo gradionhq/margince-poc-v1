@@ -30,9 +30,7 @@ name: Release
 # no push range, so it falls back to the parent commit (HEAD~1..HEAD).
 on:
   push:
-    # ci/docker-build-cache is verification scaffolding for the build-cache
-    # work — drop it from this list before that branch merges.
-    branches: [main, ci/docker-build-cache]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
