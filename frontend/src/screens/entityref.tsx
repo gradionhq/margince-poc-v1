@@ -30,7 +30,13 @@ export type EntityRefKind = EntityKind | RosterKind;
 type User = components["schemas"]["User"];
 type Team = components["schemas"]["Team"];
 
-async function fetchEntityName(
+// Exported so a caller that needs to tell "still resolving" apart from
+// "resolved to nothing" — EntityRef itself collapses both into the same id
+// fallback — can run the identical query under the identical key
+// (`[kind, "ref", id]`, matched below) and read its own `isPending`, sharing
+// EntityRef's cache entry rather than firing a second request for the same
+// record.
+export async function fetchEntityName(
   kind: EntityKind,
   id: string,
 ): Promise<string | null> {

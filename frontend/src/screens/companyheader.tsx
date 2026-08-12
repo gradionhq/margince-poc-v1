@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
 import type { ReactElement } from "react";
 import { api } from "../api/client";
@@ -6,7 +6,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
-import { Badge, Button, OverflowMenu } from "../design-system/atoms";
+import { Badge, Button, OverflowMenu, Skeleton } from "../design-system/atoms";
 import { InlineChoice } from "../design-system/inlinechoice";
 import { Chip } from "../design-system/readings";
 import { ProvenanceTag } from "../design-system/trust";
@@ -20,7 +20,7 @@ import { ComposeModal } from "./compose";
 import { joinMultiselectValue } from "./create";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import { EntityRef, fetchEntityName, useRoster } from "./entityref";
 import { LogActivityAction } from "./logactivity";
 import { MergeAction } from "./merge";
 import {
@@ -698,19 +698,42 @@ export function CompanyPulse({
 // two translated halves around it rather than interpolating an empty
 // placeholder and appending the name after the full stop — which broke word
 // order in English and worse in German.
+//
+// The lookup is run HERE, not left to EntityRef's own fallback, because
+// EntityRef's id-while-loading text is meant for a reference sitting among
+// other content — a raw uuid flashing in the page's own pulse line, the
+// first sentence a reader meets, reads as a broken page rather than as a
+// name one request away. A skeleton says "still arriving"; a uuid says
+// nothing a reader can use. Sharing EntityRef's own cache key
+// (`fetchEntityName`, entityref.tsx) means this costs no second request —
+// EntityRef mounted with the resolved `name` below never re-fetches either.
 function StrengthPulse({
   strength,
 }: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
   const t = useT();
-  if (!strength.contributor_person_id) {
+  const contributorId = strength.contributor_person_id;
+  const name = useQuery({
+    queryKey: ["person", "ref", contributorId],
+    queryFn: () => fetchEntityName("person", contributorId ?? ""),
+    enabled: Boolean(contributorId),
+    staleTime: 60_000,
+  });
+  if (!contributorId) {
     // A dormant account: no contact has ever interacted, so there is no
     // relationship to attribute and no number worth leading with.
     return <span>{t("co.pulse.noStrength")}</span>;
   }
+  if (name.isPending) {
+    return (
+      <span>
+        <Skeleton width={140} height={14} />
+      </span>
+    );
+  }
   return (
     <span>
       {t("co.pulse.strongestLead")}{" "}
-      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
+      <EntityRef kind="person" id={contributorId} name={name.data} />{" "}
       {t(
         strength.contact_count === 1
           ? "co.pulse.strengthTail.one"

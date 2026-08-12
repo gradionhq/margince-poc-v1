@@ -1411,6 +1411,59 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
     expect(screen.queryByText(/41\/100/)).toBeNull();
   });
 
+  it("draws a skeleton rather than the contact's raw id while their name is still resolving", async () => {
+    let resolvePerson: (() => void) | undefined;
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        if (url.includes("/people/p-1")) {
+          // Hangs until the assertions below have looked at the still-loading
+          // pulse line, then resolves so cleanup does not leave it dangling.
+          await new Promise<void>((resolve) => {
+            resolvePerson = resolve;
+          });
+          return jsonResponse({ ...org, id: "p-1", full_name: "Dana Buyer" });
+        }
+        return jsonResponse(org);
+      },
+      {
+        org360: {
+          ...org360,
+          strength: {
+            score: 41,
+            bucket: "weak",
+            contact_count: 3,
+            contributor_person_id: "p-1",
+            factors: {
+              recency: 0.3,
+              frequency: 0.2,
+              reciprocity: 0.4,
+              direction: 0.5,
+            },
+            last_interaction: "2026-06-20T12:00:00Z",
+          },
+          last_inbound_at: "2026-06-20T12:00:00Z",
+          last_outbound_at: "2026-06-28T09:00:00Z",
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    // Neither the raw id nor its name is on the page yet — the lookup is
+    // still in flight, and a reader must see that rather than the uuid.
+    expect(screen.queryByText("p-1")).toBeNull();
+    expect(screen.queryByText(/Way in/)).toBeNull();
+
+    resolvePerson?.();
+    await waitFor(() => expect(screen.getByText(/Way in/)).toBeTruthy());
+    expect(screen.queryByText("p-1")).toBeNull();
+  });
+
   it("says there is no relationship rather than showing a zero", async () => {
     stubFetch(async (url) => {
       if (url.includes("/activities")) {
