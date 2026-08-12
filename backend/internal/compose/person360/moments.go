@@ -343,12 +343,50 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 				Prefill: prefill(map[string]string{prefillIntent: "follow_up"}),
 			},
 		},
-		SecondaryActions: &[]crmcontracts.PersonMomentAction{{
-			Kind:  crmcontracts.PersonMomentActionKindAskColleague,
-			Label: "Ask for context",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		}},
+		SecondaryActions: &[]crmcontracts.PersonMomentAction{askColleague()},
 	}, true
+}
+
+// askColleague offers the second play on a quiet relationship: somebody else
+// here may know why it went quiet.
+//
+// It is BLOCKED, and that is the honest state rather than a placeholder. The
+// action needs a surface that answers "who else knows this person", and none of
+// the five destinations exists for it — so an available action would render as
+// an enabled button that does nothing when pressed, which is what shipped and
+// what a rep learns to distrust the page for.
+//
+// Blocked keeps the play visible and says why, which is the difference between
+// a feature that is coming and one that is broken. The read behind it exists
+// (GET /people/{id}/network); what is missing is a screen and a destination
+// value naming it.
+func askColleague() crmcontracts.PersonMomentAction {
+	reason := "Asking a colleague needs the network view, which is not built yet"
+	return crmcontracts.PersonMomentAction{
+		Kind:          crmcontracts.PersonMomentActionKindAskColleague,
+		Label:         "Ask for context",
+		State:         crmcontracts.PersonMomentActionStateBlocked,
+		BlockedReason: &reason,
+	}
+}
+
+// logInteraction offers the one thing worth doing on a record with nothing
+// pending: write down something that happened off-system.
+//
+// Blocked for the same reason as askColleague, and it was found by the test
+// that pins that rule rather than by a report — which is the argument for
+// having written the rule instead of the one fix. The screen for it exists
+// (frontend logactivity.tsx, the contract's logActivity POST), but the person
+// page does not route to it and the destination vocabulary has no surface
+// naming it, so an available action here is a button that does nothing.
+func logInteraction() crmcontracts.PersonMomentAction {
+	reason := "Logging from here needs a route to the log-activity screen, which is not wired yet"
+	return crmcontracts.PersonMomentAction{
+		Kind:          crmcontracts.PersonMomentActionKindLogActivity,
+		Label:         "Log an interaction",
+		State:         crmcontracts.PersonMomentActionStateBlocked,
+		BlockedReason: &reason,
+	}
 }
 
 // nothingNeededMoment is the quiet success state — rung 10, and the answer far
@@ -368,10 +406,6 @@ func nothingNeededMoment(now time.Time) crmcontracts.PersonMoment {
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            []crmcontracts.PersonMomentEvidence{},
 		FreshnessAt:         &now,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindLogActivity,
-			Label: "Log an interaction",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   logInteraction(),
 	}
 }

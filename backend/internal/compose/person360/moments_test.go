@@ -117,6 +117,45 @@ func TestGoneQuietNamesTheRuleItFiredOn(t *testing.T) {
 	}
 }
 
+// An action a rep can press has to go somewhere. The "Ask for context" button
+// shipped enabled with no destination, so it rendered as a live control and did
+// nothing at all — which teaches a reader that the page has dead buttons, a
+// worse outcome than the action being visibly unavailable.
+//
+// The rule is general rather than about that one action: any action offered as
+// available names where it goes, and any action that cannot go anywhere says so
+// and gives its reason. The frontend already disables a blocked action and
+// shows the reason as its tooltip; what was missing was the backend saying it.
+func TestEveryOfferedActionEitherGoesSomewhereOrSaysWhyItCannot(t *testing.T) {
+	pages := map[string]*crmcontracts.Person360{
+		"gone quiet":   {LastOutboundAt: ptr(at(9)), LastInboundAt: ptr(at(16))},
+		"quiet record": {},
+	}
+	for name, page := range pages {
+		t.Run(name, func(t *testing.T) {
+			moment := deriveMoment(now, page)
+			actions := []crmcontracts.PersonMomentAction{moment.RecommendedAction}
+			if moment.SecondaryActions != nil {
+				actions = append(actions, *moment.SecondaryActions...)
+			}
+			for _, action := range actions {
+				switch action.State {
+				case crmcontracts.PersonMomentActionStateBlocked:
+					if action.BlockedReason == nil || *action.BlockedReason == "" {
+						t.Errorf("%q is blocked and gives no reason, so the tooltip is empty",
+							action.Label)
+					}
+				default:
+					if action.Destination == nil {
+						t.Errorf("%q is offered as %q with no destination, so pressing it "+
+							"does nothing", action.Label, action.State)
+					}
+				}
+			}
+		})
+	}
+}
+
 // Rung 10 always answers. "Nothing needs you today" is a result the reader came
 // for, and an empty card fails to give it.
 func TestAQuietRecordStillGetsAnAnswer(t *testing.T) {
