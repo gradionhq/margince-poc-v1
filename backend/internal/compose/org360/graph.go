@@ -103,8 +103,15 @@ func (s *Service) Graph(ctx context.Context, orgID ids.OrganizationID) (crmcontr
 		Edges:         []crmcontracts.OrganizationGraphEdge{},
 		GroupsOmitted: []crmcontracts.OrganizationGraphGroupsOmitted{},
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		org, err := s.people.GetOrganizationTx(ctx, tx, orgID, storekit.LiveOnly)
+	// The custom-field catalog is read above the transaction, not inside it:
+	// it opens one of its own, and this walk holds the only connection its
+	// groups have for as long as it runs.
+	active, err := s.people.ActiveOrganizationColumns(ctx)
+	if err != nil {
+		return crmcontracts.OrganizationGraph{}, err
+	}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		org, err := s.people.GetOrganizationTx(ctx, tx, orgID, storekit.LiveOnly, active)
 		if err != nil {
 			return err
 		}
