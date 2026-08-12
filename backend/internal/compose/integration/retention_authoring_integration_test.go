@@ -181,8 +181,8 @@ func TestAuthoringARetentionPolicyIsGatedAuditedAndScopeBounded(t *testing.T) {
 	}
 }
 
-// sevenYearWonPolicy is #695's actual customer requirement, expressed as a
-// policy: keep won deals for seven years, then archive rather than destroy.
+// sevenYearWonPolicy is the regulated-client requirement as a policy: keep won
+// deals for seven years, then archive rather than destroy.
 func sevenYearWonPolicy(t *testing.T) privacy.PolicyInput {
 	t.Helper()
 	scope, err := privacy.ParseRetentionScope("deal/won")
@@ -192,31 +192,6 @@ func sevenYearWonPolicy(t *testing.T) privacy.PolicyInput {
 	basis := "contractual retention obligation"
 	return privacy.PolicyInput{
 		Scope: scope, RetainDays: 2555, Action: "archive", LawfulBasis: &basis, Enabled: true,
-	}
-}
-
-// TestAuthoringRefusesAScopeTheEvaluatorCannotAct proves the refusal names the
-// alternatives: a closed vocabulary the caller cannot enumerate is unfixable
-// from the error alone.
-func TestAuthoringRefusesAScopeTheEvaluatorCannotAct(t *testing.T) {
-	if _, err := privacy.ParseRetentionScope("deal/abandoned"); err == nil {
-		t.Fatal("a scope with no selector was accepted — it would be stored and " +
-			"then skipped, loudly, every pass forever")
-	} else {
-		var fault apperrors.FieldFault
-		if !errors.As(err, &fault) {
-			t.Fatalf("the refusal does not classify as a field fault: %v", err)
-		}
-		field, code, message := fault.FieldFault()
-		if field != "scope" || code != "unknown_retention_scope" {
-			t.Errorf("field/code = %q/%q, want scope/unknown_retention_scope", field, code)
-		}
-		for _, authorable := range privacy.AuthorableScopes() {
-			if !strings.Contains(message, authorable) {
-				t.Errorf("the refusal omits the authorable scope %q, so the caller "+
-					"cannot fix the request from it: %q", authorable, message)
-			}
-		}
 	}
 }
 
@@ -385,8 +360,8 @@ func bootstrapWithRetentionPosture(t *testing.T, retention *deployconfig.Retenti
 }
 
 // TestBootstrapTakesItsRetentionPostureFromTheDeploymentConfiguration is
-// GCS-AC-12 — the answer to issue #695's fourth ask. A deployment under a
-// keep-everything obligation declares it before first boot, so the window
+// GCS-AC-12. A deployment under a keep-everything obligation declares the posture
+// before first boot, so the window
 // between seeding the ladder and the first admin login is never governed by a
 // destructive default.
 func TestBootstrapTakesItsRetentionPostureFromTheDeploymentConfiguration(t *testing.T) {
@@ -496,5 +471,140 @@ func TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade(t *testing
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, withContent); n != 0 {
 		t.Errorf("lifting the posture left the payload-bearing embed call standing: %d rows", n)
+	}
+}
+
+// TestAPolicyWithNoExecutorCannotBeAuthoredAndCannotStopThePass covers the pair
+// the contract's two independent enums make expressible and the engine cannot
+// perform.
+//
+// Two halves, because the fix has two: the surface refuses the pair, and a row
+// that reached the table anyway — authored before the refusal, or left by a
+// release that retired an executor — is skipped rather than allowed to abort the
+// pass. The second half is the one that matters operationally: policies are
+// ordered, so one poisoned row used to take every later policy with it, nightly,
+// and storage limitation stopped installation-wide until somebody found it.
+func TestAPolicyWithNoExecutorCannotBeAuthoredAndCannotStopThePass(t *testing.T) {
+	e := Setup(t)
+	SeedRetentionPolicies(t, e)
+	store := privacy.NewPolicyStore(e.DB())
+	admin := retentionAdminCtx(e.WS, principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true})
+
+	wonScope, err := privacy.ParseRetentionScope("deal/won")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The surface refuses it: no executor erases a deal.
+	if _, err := store.Create(admin, privacy.PolicyInput{
+		Scope: wonScope, RetainDays: 30, Action: "erase", Enabled: true,
+	}); err == nil {
+		t.Fatal("an erase policy on deal/won was accepted — the pass would abort on its first due record")
+	}
+
+	// Now plant one anyway, the way a pre-refusal row or a retired executor
+	// leaves it, and prove the pass still does its work. `activity` sorts before
+	// `deal` and `lead`, so before the fix this row aborted both of those too.
+	if err := insertPolicyDirectly(e, "activity", nil, 1, "anonymize"); err != nil {
+		// The seeded ('activity', NULL) row holds that scope, so replace it:
+		// one row per scope is the database's rule and this test does not break it.
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			_, err := tx.Exec(context.Background(),
+				`UPDATE retention_policy SET action = 'anonymize', retain_days = 1
+				 WHERE object_type = 'activity' AND category IS NULL`)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	staleLead, _, staleDeal, _ := seedOverAgeRecords(t, e)
+
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+		t.Fatalf("a policy with no executor aborted the whole pass: %v", err)
+	}
+
+	// The later policies ran, which is the property the abort destroyed.
+	var leadName string
+	var dealArchived bool
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		if err := tx.QueryRow(ctx, `SELECT full_name FROM lead WHERE id = $1`, staleLead).Scan(&leadName); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT archived_at IS NOT NULL FROM deal WHERE id = $1`, staleDeal).Scan(&dealArchived)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if leadName != "Anonymized Lead" {
+		t.Errorf("the unexecutable policy suppressed the lead policy after it: %q", leadName)
+	}
+	if !dealArchived {
+		t.Error("the unexecutable policy suppressed the deal policy after it")
+	}
+}
+
+// TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote covers the two
+// seeded policies the engine had no test for: person/no_consent_no_deal
+// anonymize, and the bare activity/ archive at 1095 days.
+//
+// Both destroy or retire real records, and person/anonymize is the heavier of the
+// two — it deletes every satellite carrying the subject (emails, phones, socials,
+// channel identities, the enrichment sidecar) and scrubs the graph traces that
+// name them. An untested path there is an Art. 17 obligation nobody has watched
+// run.
+func TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote(t *testing.T) {
+	e := Setup(t)
+	SeedRetentionPolicies(t, e)
+
+	personID, noteID := ids.NewV7(), ids.NewV7()
+	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+	// A person past the 730-day window with no granted consent and no deal
+	// stakeholder role — the selector's whole definition of unattached.
+	e.WsExec(t, `INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, source, captured_by, created_at)
+		VALUES ($1, `+wsClause+`, 'Old Contact', 'Old', 'Contact', 'Buyer', 'manual', 'human:x', now() - interval '800 days')`,
+		personID)
+	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
+		VALUES (`+wsClause+`, $1, 'old.contact@example.test', 'manual', 'human:x')`, personID)
+	// A NOTE, deliberately: an internal note is not commercial correspondence, so
+	// it carries no statutory floor and the 1095-day archive reaches it. An email
+	// of the same age would be shielded, which is the boundary
+	// correspondenceFloorPredicate exists to draw.
+	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, `+wsClause+`, 'note', 'Old internal note', 'nothing sensitive', now() - interval '1200 days', 'manual', 'human:x')`,
+		noteID)
+
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+		t.Fatal(err)
+	}
+
+	var personName string
+	var emails, noteArchived int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		if err := tx.QueryRow(ctx, `SELECT full_name FROM person WHERE id = $1`, personID).Scan(&personName); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM person_email WHERE person_id = $1`, personID).Scan(&emails); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, noteID).Scan(&noteArchived)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if personName == "Old Contact" {
+		t.Error("the over-age unattached person was not anonymized")
+	}
+	// The satellite is the half that matters: anonymizing the person row while
+	// leaving the address behind leaves the subject readable and re-matchable.
+	if emails != 0 {
+		t.Errorf("%d person_email row(s) survived the anonymize — the subject's address "+
+			"is still readable and still re-matchable", emails)
+	}
+	if noteArchived != 1 {
+		t.Error("the 1200-day internal note was not archived by the bare activity policy")
 	}
 }

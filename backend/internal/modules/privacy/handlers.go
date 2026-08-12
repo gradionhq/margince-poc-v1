@@ -30,11 +30,9 @@ type Handlers struct {
 // NewHandlers wires the transport over the installation-bound pool and the
 // assembled settings catalog.
 //
-// The catalog is a constructor argument rather than a chained option because
-// every route here needs it: the posture routes read and write it, and the policy
-// list reports each row's live suppression against it. An optional form would
-// mean a half-built handler set whose only honest answer is 501, which is a state
-// no role wants and none would be given.
+// The catalog is a constructor argument rather than an option because every route
+// here needs it: the posture routes read and write it, and the policy list reports
+// each row's live suppression against it.
 func NewHandlers(db *database.DB, store *settings.Store) Handlers {
 	return Handlers{db: db, policies: NewPolicyStore(db), posture: NewPostureStore(store)}
 }

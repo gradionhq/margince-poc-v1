@@ -1167,7 +1167,7 @@ func (stubs) ExplainReport(w nethttp.ResponseWriter, r *nethttp.Request, report 
 	httperr.NotImplemented(w, r, "ExplainReport")
 }
 
-func (stubs) ListRetentionPolicies(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRetentionPoliciesParams) {
+func (stubs) ListRetentionPolicies(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListRetentionPolicies")
 }
 

@@ -134,7 +134,9 @@ var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	"internal/modules/people:recomputeLeadScoreTx":        "derived-score write recomputed from committed facts; a lost race is last-writer-wins on a value the next recompute re-derives identically",
 	"internal/modules/capture:AdvanceChannelPollOffsetTx": "single-statement monotone cursor: the `poll_offset < $2` predicate IS the CAS, so a writer holding a lower offset than the row already carries matches zero rows and its advance is correctly dropped. A version guard would be wrong here — the poll cursor is not optimistically concurrent state an operator edits, and bumping version on it would fire the send path's binding fence on every inbound message (0151's trigger comment)",
 	"internal/modules/privacy:anonymizeSubjectRows":       "terminal absolute write: the erasure overwrites the PII columns regardless of concurrent state, by design",
-	"internal/modules/privacy:apply":                      "terminal absolute writes: the retention sweep archives/anonymizes regardless of concurrent state, by design",
+	"internal/modules/privacy:archiveActivity":            "terminal absolute write: the retention sweep archives an over-age activity regardless of concurrent state, by design — a concurrent edit does not make the record younger",
+	"internal/modules/privacy:archiveDeal":                "terminal absolute write: the retention sweep archives an over-age lost/won deal regardless of concurrent state, by design",
+	"internal/modules/privacy:anonymizeLead":              "terminal absolute write: the retention sweep anonymizes an over-age lead regardless of concurrent state, by design, and its selector already excludes an already-anonymized row",
 	"internal/modules/privacy:eraseActivityContent":       "terminal absolute write: the sweep's activity/erase action empties the body and stamps the tombstone subject regardless of concurrent state, by design",
 	"internal/modules/privacy:anonymizePersonRecord":      "terminal absolute write: the sweep's person/anonymize action overwrites the PII columns regardless of concurrent state, by design",
 })

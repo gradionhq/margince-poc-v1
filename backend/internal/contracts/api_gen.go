@@ -21166,22 +21166,6 @@ type ExplainReportParams struct {
 	Agg *[]string `form:"agg,omitempty" json:"agg,omitempty"`
 }
 
-// ListRetentionPoliciesParams defines parameters for ListRetentionPolicies.
-type ListRetentionPoliciesParams struct {
-	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` of the originating request (field + direction) plus the last row's keyset
-	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-	// together with a `sort` that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-	// remaining pages see, so re-issue the query without the cursor when changing filters.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-
-	// Limit Max items in the page.
-	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
 // SetRoleObjectGrantParams defines parameters for SetRoleObjectGrant.
 type SetRoleObjectGrantParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -28714,7 +28698,7 @@ type ServerInterface interface {
 	ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams)
 	// List the installation's retention policies (admin/ops).
 	// (GET /retention-policies)
-	ListRetentionPolicies(w http.ResponseWriter, r *http.Request, params ListRetentionPoliciesParams)
+	ListRetentionPolicies(w http.ResponseWriter, r *http.Request)
 	// Author a retention policy (admin/ops).
 	// (POST /retention-policies)
 	CreateRetentionPolicy(w http.ResponseWriter, r *http.Request)
@@ -30631,7 +30615,7 @@ func (_ Unimplemented) ExplainReport(w http.ResponseWriter, r *http.Request, rep
 
 // List the installation's retention policies (admin/ops).
 // (GET /retention-policies)
-func (_ Unimplemented) ListRetentionPolicies(w http.ResponseWriter, r *http.Request, params ListRetentionPoliciesParams) {
+func (_ Unimplemented) ListRetentionPolicies(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -44094,48 +44078,14 @@ func (siw *ServerInterfaceWrapper) ExplainReport(w http.ResponseWriter, r *http.
 // ListRetentionPolicies operation middleware
 func (siw *ServerInterfaceWrapper) ListRetentionPolicies(w http.ResponseWriter, r *http.Request) {
 
-	var err error
-	_ = err
-
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListRetentionPoliciesParams
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListRetentionPolicies(w, r, params)
+		siw.Handler.ListRetentionPolicies(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -44233,8 +44183,6 @@ func (siw *ServerInterfaceWrapper) UpdateRetentionPolicy(w http.ResponseWriter, 
 func (siw *ServerInterfaceWrapper) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 

@@ -202,8 +202,8 @@ func TestScopeOfInvertsCategoryPtr(t *testing.T) {
 	}
 }
 
-// TestTheContractEnumAndTheSelectorTableAreTheSameSet is the gate the comment on
-// crm.yaml's RetentionScope enum used to be.
+// TestTheContractEnumAndTheSelectorTableAreTheSameSet gates what crm.yaml's
+// RetentionScope enum only asserts in prose.
 //
 // Three copies of this vocabulary exist — the selector table, the contract enum,
 // and the SPA's create-form options — and a comment asking the next author to

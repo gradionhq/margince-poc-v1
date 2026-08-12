@@ -205,6 +205,8 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/record-grants":                                              {Op: "listRecordGrants", Access: "tool", Tool: "search_records", RecordType: "record_grant", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/records/{entity_type}/{id}/context":                         {Op: "getRecordContext", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/records/{entity_type}/{id}/history":                         {Op: "getRecordHistory", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/retention-policies":                                         {Op: "listRetentionPolicies", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/retention/settings":                                         {Op: "getRetentionSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/roles":                                                      {Op: "listRoles", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/search":                                                     {Op: "search", Access: "tool", Tool: "search_records", RecordType: "", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/teams":                                                      {Op: "listTeams", Access: "tool", Tool: "search_records", RecordType: "team", Tier: "auto_execute", Scope: "read"},

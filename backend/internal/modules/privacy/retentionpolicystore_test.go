@@ -133,18 +133,85 @@ func TestApplyPatchDoesNotDeriveSuppression(t *testing.T) {
 	}
 }
 
-func TestValidateRetentionActionAcceptsOnlyTheExecutableActions(t *testing.T) {
-	for _, action := range []string{actionArchive, actionAnonymize, actionErase} {
-		if err := validateRetentionAction(action); err != nil {
-			t.Errorf("validateRetentionAction(%q) refused an action the engine executes: %v", action, err)
+// TestValidateRetentionActionJudgesThePairNotTheAction is the gate on the
+// combination the contract cannot express: scope and action are two independent
+// enums on the wire, so a client can send `deal/won` + `erase`, and no executor
+// erases a deal. Accepting one would abort the nightly pass on its first due
+// record and take every later policy with it.
+func TestValidateRetentionActionJudgesThePairNotTheAction(t *testing.T) {
+	// Every authorable scope must accept at least one action, or the surface
+	// offers a scope no policy can be written for.
+	for _, wire := range AuthorableScopes() {
+		scope, err := ParseRetentionScope(wire)
+		if err != nil {
+			t.Fatalf("AuthorableScopes returned %q, which does not parse: %v", wire, err)
+		}
+		supported := ActionsForScope(scope.ObjectType)
+		if len(supported) == 0 {
+			t.Errorf("scope %q is authorable but the engine can take no action on it", wire)
+		}
+		for _, action := range supported {
+			if err := validateRetentionAction(scope, action); err != nil {
+				t.Errorf("validateRetentionAction(%q, %q) refused a pair the engine executes: %v",
+					wire, action, err)
+			}
 		}
 	}
-	for _, action := range []string{"", "purge", "delete", "Erase", "anonymise"} {
-		err := validateRetentionAction(action)
-		if err == nil {
-			t.Fatalf("validateRetentionAction(%q) accepted an action the engine has no executor for", action)
+
+	// And the pairs the wire admits that the engine cannot perform. Each is a
+	// real enum × enum combination a client can send today.
+	for _, tc := range []struct{ wire, action string }{
+		{"deal/won", actionErase},
+		{"deal/lost", actionAnonymize},
+		{"activity", actionAnonymize},
+		{"lead/unconverted", actionArchive},
+		{"ai_call_payload/content", actionArchive},
+		{"person/no_consent_no_deal", actionArchive},
+	} {
+		scope, err := ParseRetentionScope(tc.wire)
+		if err != nil {
+			t.Fatalf("%q is meant to be an authorable scope: %v", tc.wire, err)
 		}
-		assertFieldFault(t, err, "action", "invalid_retention_action")
+		err = validateRetentionAction(scope, tc.action)
+		if err == nil {
+			t.Fatalf("validateRetentionAction(%q, %q) accepted a pair with no executor — "+
+				"the pass would abort on its first due record", tc.wire, tc.action)
+		}
+		assertFieldFault(t, err, "action", "unsupported_retention_action")
+		// The refusal has to name what IS available for that scope, because the
+		// contract's two independent enums do not express the combination.
+		for _, available := range ActionsForScope(scope.ObjectType) {
+			if !strings.Contains(err.Error(), available) {
+				t.Errorf("the refusal for %q/%q omits the available action %q: %v",
+					tc.wire, tc.action, available, err)
+			}
+		}
+	}
+}
+
+// TestEveryExecutorPairIsReachableAndEveryReachablePairHasAnExecutor derives the
+// authorable pair set from the executor table in both directions, so retiring an
+// executor or adding a selector cannot silently leave the two disagreeing
+// (review-loop rule 2).
+func TestEveryExecutorPairIsReachableAndEveryReachablePairHasAnExecutor(t *testing.T) {
+	authorableTypes := map[string]bool{}
+	for _, wire := range AuthorableScopes() {
+		scope, err := ParseRetentionScope(wire)
+		if err != nil {
+			t.Fatalf("AuthorableScopes returned an unparseable %q: %v", wire, err)
+		}
+		authorableTypes[scope.ObjectType] = true
+	}
+	for pair := range retentionActions {
+		objectType, action, found := strings.Cut(pair, "/")
+		if !found {
+			t.Errorf("executor key %q is not an object_type/action pair", pair)
+			continue
+		}
+		if !authorableTypes[objectType] {
+			t.Errorf("the engine can %s a %s but no authorable scope selects one — "+
+				"the executor is unreachable", action, objectType)
+		}
 	}
 }
 

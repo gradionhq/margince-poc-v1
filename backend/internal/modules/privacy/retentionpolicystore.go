@@ -3,10 +3,7 @@
 
 package privacy
 
-// The retention-policy authoring store (UC-GDPR-09, GCS-WIRE-1..4). Until this
-// file the table had exactly one writer — the workspace bootstrap — and no
-// reader outside the nightly evaluator, which is what #695 named: the engine ran
-// and nobody could configure it.
+// The retention-policy authoring store (UC-GDPR-09, GCS-WIRE-1..4).
 //
 // Handlers→Store, the CRUD spine (ADR-0054 §3): the store owns the write shape
 // and the RBAC gate at every entry point. Writes are audit-only, no outbox
@@ -18,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,6 +27,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// fieldAction is the contract's name for the action field, spelled once: it
+// appears in both refusals this file raises and in the audit image.
+const fieldAction = "action"
 
 // retentionPolicyEntity is the audit_log entity_type for a policy row. A
 // configuration row, not a first-class entity — which is also why the kernel
@@ -100,18 +102,30 @@ func (e PolicyFieldError) FieldFault() (field, code, message string) {
 	return e.Field, e.Code, e.Message
 }
 
-// validateRetentionAction refuses an action the engine has no executor for. The
-// contract enum already refuses this at the edge; this is the gate that holds for
-// every caller, the tests and any future surface included.
-func validateRetentionAction(action string) error {
-	switch action {
-	case actionArchive, actionAnonymize, actionErase:
+// validateRetentionAction refuses an action the engine cannot perform ON THIS
+// SCOPE. The pair is what matters, not either half: the contract carries scope
+// and action as two independent enums, so `deal/won` + `erase` is expressible and
+// meaningless — there is no executor that erases a deal. Storing one would abort
+// the nightly pass on its first due record, taking every later policy with it.
+func validateRetentionAction(scope RetentionScope, action string) error {
+	if SupportsRetentionAction(scope.ObjectType, action) {
 		return nil
-	default:
+	}
+	supported := ActionsForScope(scope.ObjectType)
+	if len(supported) == 0 {
+		// Unreachable while every authorable scope has at least one executor,
+		// which a fitness test pins; the branch exists so a retired executor
+		// produces a sentence rather than "one of []".
 		return PolicyFieldError{
-			Field: "action", Code: "invalid_retention_action",
-			Message: "a retention action is one of archive, anonymize or erase — one action per policy row, ladders composing as separate rows",
+			Field: fieldAction, Code: "unsupported_retention_action",
+			Message: fmt.Sprintf("this installation can take no retention action on %s", scope.ObjectType),
 		}
+	}
+	return PolicyFieldError{
+		Field: fieldAction, Code: "unsupported_retention_action",
+		Message: fmt.Sprintf(
+			"%q is not an action this installation can take on %s — for that scope the actions are: %s",
+			action, scope.ObjectType, strings.Join(supported, ", ")),
 	}
 }
 
@@ -126,6 +140,22 @@ func validateRetainDays(days int) error {
 		}
 	}
 	return nil
+}
+
+// requireWriteAndRead takes the write grant AND the read grant, together, at the
+// entry point.
+//
+// Read is not incidental here: every write answers with the row's live
+// suppressed_by_posture, which is a read of privacy.retain_only through the same
+// object's read grant. Requiring it up front is what keeps a create-without-read
+// role — expressible, since a stored role document validates object NAMES and not
+// verb combinations — from being refused halfway through its own transaction by a
+// gate it never asked about.
+func requireWriteAndRead(ctx context.Context, write principal.Action) error {
+	if err := auth.Require(ctx, retentionPolicyObject, write); err != nil {
+		return err
+	}
+	return auth.Require(ctx, retentionPolicyObject, principal.ActionRead)
 }
 
 // List returns every policy with its live suppression state.
@@ -177,10 +207,10 @@ func collectPolicies(rows pgx.Rows, retainOnly bool) ([]Policy, error) {
 // authoring the same scope concurrently would both pass a pre-check and one
 // would silently win.
 func (s *PolicyStore) Create(ctx context.Context, in PolicyInput) (Policy, error) {
-	if err := auth.Require(ctx, retentionPolicyObject, principal.ActionCreate); err != nil {
+	if err := requireWriteAndRead(ctx, principal.ActionCreate); err != nil {
 		return Policy{}, err
 	}
-	if err := validateRetentionAction(in.Action); err != nil {
+	if err := validateRetentionAction(in.Scope, in.Action); err != nil {
 		return Policy{}, err
 	}
 	if err := validateRetainDays(in.RetainDays); err != nil {
@@ -188,12 +218,6 @@ func (s *PolicyStore) Create(ctx context.Context, in PolicyInput) (Policy, error
 	}
 	var out Policy
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		// The response reports suppressed_by_posture, so a create reads the
-		// posture — which takes RetainOnly's own READ grant on this same object.
-		// A custom role granted create-without-read would therefore be refused
-		// here rather than at the entry point. Left as is deliberately: the
-		// alternative is an ungated settings read, and that gate is the only
-		// control on a table with no RLS.
 		retainOnly, err := settings.GetTx(ctx, tx, RetainOnly)
 		if err != nil {
 			return err
@@ -226,13 +250,8 @@ func (s *PolicyStore) Create(ctx context.Context, in PolicyInput) (Policy, error
 // Update applies a sparse patch. It reads the row inside the write transaction
 // so the audit's before-image is the state the change actually replaced.
 func (s *PolicyStore) Update(ctx context.Context, id ids.UUID, patch PolicyPatch) (Policy, error) {
-	if err := auth.Require(ctx, retentionPolicyObject, principal.ActionUpdate); err != nil {
+	if err := requireWriteAndRead(ctx, principal.ActionUpdate); err != nil {
 		return Policy{}, err
-	}
-	if patch.Action != nil {
-		if err := validateRetentionAction(*patch.Action); err != nil {
-			return Policy{}, err
-		}
 	}
 	if patch.RetainDays != nil {
 		if err := validateRetainDays(*patch.RetainDays); err != nil {
@@ -245,11 +264,17 @@ func (s *PolicyStore) Update(ctx context.Context, id ids.UUID, patch PolicyPatch
 		if err != nil {
 			return err
 		}
-		before, err := readPolicyTx(ctx, tx, id, retainOnly)
+		before, err := readPolicyTx(ctx, tx, id)
 		if err != nil {
 			return err
 		}
 		out = applyPatch(before, patch)
+		// Validated against the STORED scope, which is why it happens here rather
+		// than at the entry point: the scope is not patchable, so the pair being
+		// judged is the patch's action against the row's own object type.
+		if err := validateRetentionAction(out.Scope, out.Action); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE retention_policy
 			SET retain_days = $2, action = $3, lawful_basis = $4, enabled = $5
@@ -292,14 +317,17 @@ func applyPatch(current Policy, patch PolicyPatch) Policy {
 // closed audit vocabulary, and `archive` is what this repo spells for "this
 // configuration is gone" everywhere else.
 func (s *PolicyStore) Delete(ctx context.Context, id ids.UUID) error {
-	if err := auth.Require(ctx, retentionPolicyObject, principal.ActionDelete); err != nil {
+	// Read alongside delete: the audit before-image is a record read
+	// (review-loop rule 3), so the grant that covers reading a policy covers
+	// reading the one being removed.
+	if err := requireWriteAndRead(ctx, principal.ActionDelete); err != nil {
 		return err
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The row is read before it goes so the audit entry says WHAT was
 		// deleted. An audit row naming only an id, for a row that no longer
 		// exists, would record that something was removed and nothing about what.
-		before, err := readPolicyTx(ctx, tx, id, false)
+		before, err := readPolicyTx(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -323,7 +351,7 @@ func (s *PolicyStore) Delete(ctx context.Context, id ids.UUID) error {
 // audit-logging a before-image that was never the state it replaced. Same
 // failure platform/settings takes an advisory lock for, on a table whose subject
 // is what the installation destroys.
-func readPolicyTx(ctx context.Context, tx pgx.Tx, id ids.UUID, retainOnly bool) (Policy, error) {
+func readPolicyTx(ctx context.Context, tx pgx.Tx, id ids.UUID) (Policy, error) {
 	var (
 		out        Policy
 		objectType string
@@ -341,7 +369,9 @@ func readPolicyTx(ctx context.Context, tx pgx.Tx, id ids.UUID, retainOnly bool) 
 		return Policy{}, err
 	}
 	out.Scope = ScopeOf(objectType, category)
-	out.SuppressedByPosture = retainOnly && isDestructive(out.Action)
+	// SuppressedByPosture is left zero: both callers are writes that stamp it
+	// from their own posture read after the mutation, so setting it here would be
+	// a second, staler answer to the same question.
 	return out, nil
 }
 
@@ -353,7 +383,7 @@ func auditImage(p Policy) map[string]any {
 	return map[string]any{
 		"scope":         p.Scope.String(),
 		fieldRetainDays: p.RetainDays,
-		"action":        p.Action,
+		fieldAction:     p.Action,
 		"lawful_basis":  p.LawfulBasis,
 		"enabled":       p.Enabled,
 	}

@@ -7308,6 +7308,8 @@ paths:
     get:
       tags: [Compliance]
       operationId: getRetentionSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: The installation's retention posture (admin/ops).
       description: |
         Reads the retain-only posture (GCS-PARAM-6). While it holds, the nightly evaluator
@@ -7317,6 +7319,10 @@ paths:
 
         Admin/ops-only, read included: the retention screen is an admin surface and no other
         role has a consumer for it. Governed by the `retention_policy` RBAC object.
+
+        Human-only, like every sibling governance read (`listRoles`, `listAuditLog`,
+        `listAiCalls`): what an installation destroys and whether destruction is currently
+        suspended is not reconnaissance to hand an agent, even one carrying an admin's passport.
       responses:
         '200':
           description: The retention posture.
@@ -7357,6 +7363,8 @@ paths:
     get:
       tags: [Compliance]
       operationId: listRetentionPolicies
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: List the installation's retention policies (admin/ops).
       description: |
         The storage-limitation ladder as data (UC-GDPR-09, DM-SEED-1..6): one row per scope, one
@@ -7365,9 +7373,10 @@ paths:
         `suppressed_by_posture` reports a row the retain-only posture is currently overriding, so
         the surface can say WHY an enabled policy is not acting instead of leaving it
         unexplained.
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+
+        Unpaged, and it carries no cursor or limit: the collection is bounded by the
+        `RetentionScope` enum, so there is never a second page. Declaring parameters the handler
+        would discard would promise a `422 cursor_param_mismatch` that can never happen.
       responses:
         '200':
           description: A page of retention policies.

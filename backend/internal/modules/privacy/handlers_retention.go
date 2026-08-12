@@ -22,7 +22,7 @@ import (
 )
 
 // ListRetentionPolicies implements (GET /retention-policies).
-func (h Handlers) ListRetentionPolicies(w http.ResponseWriter, r *http.Request, _ crmcontracts.ListRetentionPoliciesParams) {
+func (h Handlers) ListRetentionPolicies(w http.ResponseWriter, r *http.Request) {
 	policies, err := h.policies.List(r.Context())
 	if err != nil {
 		httperr.Write(w, r, err)
@@ -33,8 +33,7 @@ func (h Handlers) ListRetentionPolicies(w http.ResponseWriter, r *http.Request, 
 		data = append(data, policyToWire(policy))
 	}
 	// One page, always: the ladder is bounded by the authorable scope count, so
-	// there is nothing to paginate. The cursor parameters exist because the
-	// collection shape is the contract's, not because this collection grows.
+	// the collection shape keeps its `page` envelope and never fills a second one.
 	httperr.WriteJSON(w, http.StatusOK, struct {
 		Data []crmcontracts.RetentionPolicy `json:"data"`
 		Page crmcontracts.PageInfo          `json:"page"`

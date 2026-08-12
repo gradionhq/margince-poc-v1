@@ -35,33 +35,16 @@ func TestIsDestructiveSpansTheClosedActionSet(t *testing.T) {
 	}
 }
 
-// TestMaxPassDurationTracksTheSelectorCount is the invariant #695 named as
-// broken. The cap is one full batch of maximum-duration records per batched
+// TestMaxPassDurationTracksTheSelectorCount pins the cap the scheduler's declared
+// timeout is derived from: one full batch of maximum-duration records per batched
 // stage, and the stages are the authorable scopes plus the engine's own AI
-// sweeps — so adding a selector must move the scheduler's cap with it. Derived
-// from the same counts the engine uses on purpose: a hard-coded duration here
-// would keep passing while the pass outran its window.
+// sweeps. Derived from the same counts the engine uses on purpose — a hard-coded
+// duration here would keep passing while the pass outran its window.
 func TestMaxPassDurationTracksTheSelectorCount(t *testing.T) {
 	perStage := retentionBatch * maxRecordDuration
 	stages := len(retentionSelectors) + aiRetentionStages
 
 	if want := time.Duration(stages) * perStage; MaxPassDuration != want {
 		t.Fatalf("MaxPassDuration = %v, want %v (%d stages × %v)", MaxPassDuration, want, stages, perStage)
-	}
-	// Stated the other way round, which is the sentence the scheduler relies on:
-	// the cap divides into exactly one batched stage per selector plus the AI
-	// sweeps, with nothing left over.
-	if MaxPassDuration%perStage != 0 {
-		t.Errorf("MaxPassDuration %v is not a whole number of %v stages", MaxPassDuration, perStage)
-	}
-	if got := int(MaxPassDuration / perStage); got != stages {
-		t.Errorf("MaxPassDuration allows %d batched stages, want %d — one per selector (%d) plus the AI sweeps (%d)",
-			got, stages, len(retentionSelectors), aiRetentionStages)
-	}
-	// The authorable vocabulary and the selector table are the same list, so the
-	// cap tracks what an admin can actually author.
-	if len(AuthorableScopes())+aiRetentionStages != stages {
-		t.Errorf("the cap counts %d stages but %d scopes are authorable plus %d AI sweeps",
-			stages, len(AuthorableScopes()), aiRetentionStages)
 	}
 }

@@ -4732,6 +4732,10 @@ export interface paths {
          *
          *     Admin/ops-only, read included: the retention screen is an admin surface and no other
          *     role has a consumer for it. Governed by the `retention_policy` RBAC object.
+         *
+         *     Human-only, like every sibling governance read (`listRoles`, `listAuditLog`,
+         *     `listAiCalls`): what an installation destroys and whether destruction is currently
+         *     suspended is not reconnaissance to hand an agent, even one carrying an admin's passport.
          */
         get: operations["getRetentionSettings"];
         put?: never;
@@ -4766,6 +4770,10 @@ export interface paths {
          *     `suppressed_by_posture` reports a row the retain-only posture is currently overriding, so
          *     the surface can say WHY an enabled policy is not acting instead of leaving it
          *     unexplained.
+         *
+         *     Unpaged, and it carries no cursor or limit: the collection is bounded by the
+         *     `RetentionScope` enum, so there is never a second page. Declaring parameters the handler
+         *     would discard would promise a `422 cursor_param_mismatch` that can never happen.
          */
         get: operations["listRetentionPolicies"];
         put?: never;
@@ -23866,21 +23874,7 @@ export interface operations {
     };
     listRetentionPolicies: {
         parameters: {
-            query?: {
-                /**
-                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
-                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-                 *     together with a `sort` that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
-                 */
-                cursor?: components["parameters"]["Cursor"];
-                /** @description Max items in the page. */
-                limit?: components["parameters"]["Limit"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;

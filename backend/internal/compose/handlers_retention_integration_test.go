@@ -53,8 +53,7 @@ func TestRetentionPolicyHandlersSpeakTheContract(t *testing.T) {
 	// GET the seeded ladder.
 	rec := httptest.NewRecorder()
 	h.ListRetentionPolicies(rec,
-		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(admin),
-		crmcontracts.ListRetentionPoliciesParams{})
+		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(admin))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
@@ -79,7 +78,7 @@ func TestRetentionPolicyHandlersSpeakTheContract(t *testing.T) {
 		}
 	}
 
-	// POST the seven-year won-deal policy — #695's actual customer requirement.
+	// POST the seven-year won-deal policy: the regulated-client requirement.
 	created := createRetentionPolicy(admin, t, h,
 		`{"scope":"deal/won","retain_days":2555,"action":"archive","lawful_basis":"contract"}`,
 		http.StatusCreated)
@@ -175,8 +174,7 @@ func TestRetentionPolicyHandlersRefuseARoleWithoutTheGrant(t *testing.T) {
 
 	listRec := httptest.NewRecorder()
 	h.ListRetentionPolicies(listRec,
-		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(rep),
-		crmcontracts.ListRetentionPoliciesParams{})
+		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(rep))
 	if listRec.Code != http.StatusForbidden {
 		t.Errorf("list without a grant = %d, want 403", listRec.Code)
 	}
@@ -236,8 +234,7 @@ func TestRetentionSettingsHandlersToggleThePostureAndReportIt(t *testing.T) {
 	// which is the reading the screen renders.
 	listRec := httptest.NewRecorder()
 	h.ListRetentionPolicies(listRec,
-		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(admin),
-		crmcontracts.ListRetentionPoliciesParams{})
+		httptest.NewRequest(http.MethodGet, "/v1/retention-policies", nil).WithContext(admin))
 	var page struct {
 		Data []crmcontracts.RetentionPolicy `json:"data"`
 	}
