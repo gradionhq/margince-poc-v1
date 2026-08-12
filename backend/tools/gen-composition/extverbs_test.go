@@ -254,6 +254,16 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: getOperationWith("        - name: filter\n          in: query\n          schema: {type: object}\n"),
 			wantErr:  "query string carries flat",
 		},
+		// Shared, path-item-level parameters. OpenAPI applies them to every
+		// operation beneath; this reader looks only at an operation's own, so
+		// ignoring them would publish an argument to every client and read it
+		// nowhere — the route would refuse `?limit=5` as unknown, forever. Harmless
+		// before GET and DELETE were admissible, an authoring trap after.
+		"shared parameters on the path item": {
+			pathItem: strings.Replace(yogiOperation, "  /ext/u/quote:\n",
+				"  /ext/u/quote:\n    parameters:\n      - name: limit\n        in: query\n        schema: {type: integer}\n", 1),
+			wantErr: "read by nothing",
+		},
 		"no requestBody": {
 			pathItem: "  /ext/u/quote:\n    post:\n      operationId: uQuote\n      x-mcp-tool:\n        verb: u_quote\n        version: 1.0.0\n        tier: auto_execute\n        scope: read\n        description: Does one thing.\n",
 			wantErr:  "declares no requestBody",

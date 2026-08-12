@@ -164,6 +164,22 @@ func verbsInPathItem(base, unit, route string, item *yaml.Node) ([]declaredVerb,
 	var out []declaredVerb
 	for i := 0; i+1 < len(item.Content); i += 2 {
 		key := item.Content[i].Value
+		// A path-item-level `parameters` block applies, in OpenAPI, to every
+		// operation beneath it — and this reader only ever looks at an operation's
+		// OWN parameters, so shared ones would be published in the contract a human
+		// reads and never reach the served argument schema. A GET declaring
+		// `limit` here would generate a route that refuses `?limit=5` as an unknown
+		// parameter, forever.
+		//
+		// Refused rather than supported: merging them is a real feature (precedence,
+		// per-operation overrides, dedup against an operation's own) and nothing has
+		// asked for it. Refused rather than ignored, because this is exactly the
+		// "published and never read" fault argumentSchema names one level down.
+		if key == "parameters" {
+			return nil, fmt.Errorf("the path item declares shared `parameters` — this generator reads only an " +
+				"operation's own, so these would be published to every client and read by nothing. " +
+				"Declare them on the operation that takes them")
+		}
 		if !slices.Contains(httpMethodKeys, key) {
 			continue
 		}

@@ -146,6 +146,23 @@ func TestVerbValidateRefusals(t *testing.T) {
 			v.RbacObject, v.RbacAction = "", ""
 			v.InputSchema = json.RawMessage(`{"type":"object","properties":{"filter":{}}}`)
 		},
+		// `required` naming an argument the properties do not declare: no call could
+		// ever satisfy the route. Checked HERE and not only at the serving seam so
+		// Validate is the whole rule for a bodyless declaration — the mount PANICS
+		// on a refusal, so a shape Validate blessed and the mount rejected was a
+		// boot crash rather than a named generation failure.
+		"a GET requiring an argument it does not declare": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodGet, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+			v.InputSchema = json.RawMessage(
+				`{"type":"object","properties":{"id":{"type":"string"}},"required":["missing"]}`)
+		},
+		"a GET whose required is not a list": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodGet, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+			v.InputSchema = json.RawMessage(
+				`{"type":"object","properties":{"id":{"type":"string"}},"required":"id"}`)
+		},
 		"a tool verb outside the grammar": func(v *Verb) { v.Tool = "Demo-Sync" },
 		"no tool verb":                    func(v *Verb) { v.Tool = "" },
 		"no version":                      func(v *Verb) { v.Version = "" },
@@ -349,10 +366,12 @@ func TestValidateMethodNamesTheAdmittedSet(t *testing.T) {
 			t.Errorf("validateMethod(%s) = %v, want nil", method, err)
 		}
 	}
-	// HEAD is the one safe method still refused, and it is refused rather than
-	// aliased to GET: a HEAD route would publish an operation whose response the
-	// contract describes and the transport then discards, and this seam has no
-	// way to serve a tool invocation that must produce no body.
+	// HEAD may not be DECLARED, which is not the same as unreachable: Go's
+	// ServeMux answers a HEAD request through every GET pattern, so a HEAD to a
+	// declared GET runs the tool and discards the body. That is the stdlib's
+	// behaviour and it is safe here precisely because a GET is read-scoped by
+	// validateMethodAuthority — what this refusal prevents is a SECOND, separately
+	// governed operation published on a method whose response nothing can carry.
 	for _, method := range []string{http.MethodHead, http.MethodOptions, "post", ""} {
 		if err := validateMethod(method); err == nil {
 			t.Errorf("validateMethod(%q) = nil, want a refusal", method)

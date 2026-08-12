@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -160,6 +161,102 @@ func TestTheQueryDecodeRefusesWhatNothingElseWouldCatch(t *testing.T) {
 				t.Errorf("the refusal does not carry %q: %s", tc.wantCode, rec.Body)
 			}
 		})
+	}
+}
+
+// TestAMalformedQueryIsRefusedRatherThanPartiallyRead: the entry point's own
+// strictness, which the strict decode below it cannot supply.
+//
+// r.URL.Query() runs the same parser and DISCARDS its error, keeping the pairs
+// that parsed and dropping the ones that did not. Under it every rule in `decode`
+// was applied to a value set the caller had not sent:
+//
+//   - an optional argument with a bad escape vanished, and the call succeeded
+//     without it — the silent loss the unknown_parameter refusal exists to stop;
+//   - a repeated argument whose second copy was malformed arrived single-valued,
+//     so the repeated_parameter refusal never fired and the seam picked a winner;
+//   - a semicolon anywhere dropped the WHOLE query, so a route with no required
+//     arguments answered 200 having read none of them.
+//
+// Each row below is one of those, and each is a 422 now.
+func TestAMalformedQueryIsRefusedRatherThanPartiallyRead(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for name, query := range map[string]string{
+		"a bad escape in an optional argument":   "payload=p&exact=%zz",
+		"a bad escape in a repeated argument":    "payload=a&payload=%zz",
+		"a bad escape in the required argument":  "payload=%zz",
+		"a semicolon separator":                  "payload=p;limit=5",
+		"a bad escape in an argument's own name": "%zz=1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/sign-payload?"+query, nil))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 (body %s)", rec.Code, rec.Body)
+			}
+			if !strings.Contains(rec.Body.String(), "malformed_query") {
+				t.Errorf("the refusal does not carry malformed_query: %s", rec.Body)
+			}
+		})
+	}
+}
+
+// TestTheNumberGrammarIsTheContractsAndNotStrconvs: ParseFloat is far more
+// permissive than JSON, so the accepted spellings are pinned on both sides.
+//
+// The refused rows were each accepted before: "NaN", "Inf" and "Infinity" parsed
+// and were then rejected by json.Marshal FAILING, which handed the caller Go's
+// own error text as the validation detail; the hex and underscored forms parsed
+// and were served, so a handler received 1024 from "0x1p10" — a value no client
+// generated from the published schema would ever send.
+func TestTheNumberGrammarIsTheContractsAndNotStrconvs(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for _, text := range []string{"NaN", "nan", "Inf", "-Inf", "Infinity", "0x1p10", "1_0"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&ratio="+text, nil))
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("ratio=%s: status = %d, want 422 (body %s)", text, rec.Code, rec.Body)
+			continue
+		}
+		// The refusal is this seam's own sentence. A stdlib error reaching a client
+		// is an internal detail leaking through a validation message.
+		if body := rec.Body.String(); strings.Contains(body, "json:") || strings.Contains(body, "strconv") {
+			t.Errorf("ratio=%s: the refusal leaks an internal error: %s", text, body)
+		}
+	}
+	// And the spellings JSON does write still arrive, so the guard is a grammar and
+	// not a ban on exponents or signs.
+	for text, want := range map[string]string{
+		"1.5": "1.5", "1e3": "1000", "-2.5": "-2.5", "+2": "2", "007": "7", "0.0": "0",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&ratio="+url.QueryEscape(text), nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("ratio=%s: status = %d, want 200 (body %s)", text, rec.Code, rec.Body)
+			continue
+		}
+		if got := rec.Body.String(); got != `{"payload":"p","ratio":`+want+`}` {
+			t.Errorf("ratio=%s: arguments = %s, want ratio %s", text, got, want)
+		}
+	}
+}
+
+// TestTheRefusalNamesTheSameArgumentEveryTime: `decode` returns on the first bad
+// argument, and its input is a map — so an unsorted walk named one of two bad
+// arguments on this call and the other on the next. A client, or a client's test,
+// cannot be written against a refusal that moves.
+func TestTheRefusalNamesTheSameArgumentEveryTime(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for range 20 {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&limit=many&ratio=lots", nil))
+		// "limit" sorts before "ratio", so it is the one named, every time.
+		if !strings.Contains(rec.Body.String(), `"field":"limit"`) {
+			t.Fatalf("the refusal did not name limit: %s", rec.Body)
+		}
 	}
 }
 

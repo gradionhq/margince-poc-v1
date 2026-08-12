@@ -427,15 +427,20 @@ actions:
       # conversion.
       #
       # A GET would put the payload in the URL, and a URL is not a private place:
-      # it reaches the access log (httpserver.AccessLog writes the path of every
-      # request, and redacts only the prefixes named at its call site), the
-      # browser's history, and any proxy in between. This repo already carries
-      # that lesson — publicPreferencesPrefix is redacted precisely because its
-      # path holds a capability token. Signing input is the caller's data, and it
-      # is not this unit's to write into an operator's log.
+      # it lands in the browser's history, in a Referer header, and in the logs of
+      # any proxy in between — and it is the part of a request people copy and
+      # paste to each other. Signing input is the caller's data, and a URL is the
+      # one place a request carries data that outlives it.
+      #
+      # NOT because of this installation's own access log: httpserver.AccessLog
+      # records the METHOD, PATH and status and never r.URL.RawQuery, so the query
+      # arguments this seam now decodes do not reach an operator's log at all. Said
+      # plainly because the reverse is easy to assume — and because if that ever
+      # changes, every bodyless operation's arguments change with it.
       #
       # The size settles it independently: the payload is up to 4096 characters,
-      # and proxies and servers cap a request line far lower than a body.
+      # and a request line is capped far lower than a body — by proxies, and here
+      # by Go's own 1 MB default for the request line and headers together.
       #
       # The cost is real and worth naming: because this stays a POST, the seat
       # ceiling classifies it as mutating, so a read seat cannot call a read.

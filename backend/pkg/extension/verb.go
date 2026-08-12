@@ -408,12 +408,14 @@ func validateQueryEncodable(method string, raw json.RawMessage) error {
 		Properties map[string]struct {
 			Type string `json:"type"`
 		} `json:"properties"`
+		Required []string `json:"required"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		// The root shape is validateSchemaObject's rule; what this can add is
-		// that `properties` is not the object it has to be to be walked.
-		return fmt.Errorf("InputSchema declares a `properties` this reader cannot walk, so a %s route cannot be "+
-			"told which query parameters it takes", method)
+		// The root shape is validateSchemaObject's rule; what this can add is that
+		// `properties` and `required` are the shapes they have to be to be read —
+		// a `required` that is a bare string rather than a list lands here too.
+		return fmt.Errorf("InputSchema declares a `properties` or `required` this reader cannot walk, so a %s route "+
+			"cannot be told which query parameters it takes", method)
 	}
 	for name, prop := range doc.Properties {
 		switch prop.Type {
@@ -424,6 +426,18 @@ func validateQueryEncodable(method string, raw json.RawMessage) error {
 			"text pairs, so a bodyless method's arguments must each be a string, number, integer or boolean. "+
 			"An argument with structure belongs in a POST body",
 			method, name, prop.Type)
+	}
+	// `required` must name declared arguments, and this check is HERE rather than
+	// only at the serving seam so that Validate is genuinely the whole rule for a
+	// bodyless declaration. It was not: compose's mount refused this shape while
+	// Validate blessed it, which made the mount strictly stricter than the gate
+	// that is documented as total — and because mounting panics on a refusal, a
+	// declaration Validate accepted could still be a boot crash.
+	for _, name := range doc.Required {
+		if _, declared := doc.Properties[name]; !declared {
+			return fmt.Errorf("operation declares %s and requires the argument %q, which its own properties do not "+
+				"declare — no call could ever satisfy the route", method, name)
+		}
 	}
 	return nil
 }
