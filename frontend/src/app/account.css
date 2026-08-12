@@ -237,3 +237,34 @@
   display: flex;
   padding: 7px 9px; /* ds:ignore the row inset it lines up with, not a rhythm of its own */
 }
+
+/* ===== the rows inside the phone sheet =====
+   In the sheet the account rows stand in ONE list with the destinations above
+   them, so they take the destinations' geometry rather than the menu's: the same
+   48px touch row, the same icon column, the same label size. The menu's compact
+   optics belong to a popover under a pointer, and beside 48px rows they read as a
+   different list bolted to the bottom of this one.
+   The breakpoint is the sheet's own (PHONE_MAX_WIDTH in app/viewport.ts, and the
+   `.rail.sheetopen` rules in app/shell.css it has to agree with). */
+@media (max-width: 700px) {
+  .rail.sheetopen .accountrows a,
+  .rail.sheetopen .accountrows button {
+    gap: var(--space-3);
+    min-height: 48px;
+    padding: 0 var(--space-3);
+    border-radius: 8px; /* ds:ignore the rail row's own radius, matched from .navitem */
+    font-size: 13.5px; /* matched from .rail.sheetopen .navlabel */
+  }
+  /* The glyphs arrive at 15px from the menu's markup; in the sheet they stand in
+     the destinations' 18px column. */
+  .rail.sheetopen .accountrows svg {
+    width: 18px;
+    height: 18px;
+  }
+  .rail.sheetopen .accountrows .acctsheetwho {
+    padding: var(--space-2) var(--space-3);
+  }
+  .rail.sheetopen .accountrows hr {
+    margin: var(--space-2) 0;
+  }
+}

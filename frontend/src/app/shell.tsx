@@ -755,42 +755,56 @@ export function PageHead({
   const recordKind = route.id ? SCREEN_ENTITY[route.screen] : undefined;
 
   return (
-    <header className="pagehead">
-      <div className="pagetitle">
-        {/* A list, a report, a settings surface: the shell names it, and that
+    <>
+      <header className="pagehead">
+        <div className="pagetitle">
+          {/* A list, a report, a settings surface: the shell names it, and that
             name is the page's one h1 — before this the only page-level name was
             a span in the top bar, so the document had no heading to jump to.
             A RECORD names itself: its surface prints the identity block, so the
             head yields and shows the trail that leads here instead. Printing
             the name twice, once at heading level and once beside the avatar,
             would leave a screen reader picking between two page titles. */}
-        {recordKind && route.id ? (
-          <p className="pagecrumb">
-            <a className="pageback" href={routeHash({ screen: route.screen })}>
-              {navItem && (
-                <navItem.icon size={14} strokeWidth={1.8} aria-hidden="true" />
-              )}
-              {title}
-            </a>
-            <span aria-hidden="true">/</span>
-            <RecordName kind={recordKind} id={route.id} />
-          </p>
-        ) : (
-          <h1 className="t-display">{title}</h1>
-        )}
-        {phone && inSection && (
+          {recordKind && route.id ? (
+            <p className="pagecrumb">
+              <a
+                className="pageback"
+                href={routeHash({ screen: route.screen })}
+              >
+                {navItem && (
+                  <navItem.icon
+                    size={14}
+                    strokeWidth={1.8}
+                    aria-hidden="true"
+                  />
+                )}
+                {title}
+              </a>
+              <span aria-hidden="true">/</span>
+              <RecordName kind={recordKind} id={route.id} />
+            </p>
+          ) : (
+            <h1 className="t-display">{title}</h1>
+          )}
+        </div>
+        <div className="pageaside">
+          {actions}
+          <SorModeChip />
+          <AgentDock approvalsWaiting={counts?.inbox} />
+        </div>
+      </header>
+      {/* Beside the heading it was a control wedged into the page's title; under
+          the head it is what it does — the row you change the section from,
+          spanning the column the content below it stands in. */}
+      {phone && inSection && (
+        <div className="pageswitchwrap">
           <SectionSwitcher
             section={inSection.section}
             entry={inSection.entry}
           />
-        )}
-      </div>
-      <div className="pageaside">
-        {actions}
-        <SorModeChip />
-        <AgentDock approvalsWaiting={counts?.inbox} />
-      </div>
-    </header>
+        </div>
+      )}
+    </>
   );
 }
 
