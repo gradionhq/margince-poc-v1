@@ -342,3 +342,39 @@ func (p patchResolver) Guards(ctx context.Context, cmd PatchCommand) error {
 func servedByTheRecordSeam(recordType string) bool {
 	return slices.Contains(datasource.EntityTypes(), datasource.EntityType(recordType))
 }
+
+// routedRecordTarget memoizes the one read a resolver whose approval binds to
+// a FIXED record type needs to answer both Guards and Subject — the record
+// the routed id names, read once and shared by both questions. The same
+// belt-and-braces shape archiveResolver's own target (above) gives a
+// resolver whose record type instead VARIES per command; here recordType is
+// set once at construction by the family's NewXCall constructors
+// (command_sidecar.go, command_action.go), which is what lets fetch stay a
+// plain memo keyed on the id alone.
+type routedRecordTarget struct {
+	records    datasource.SystemOfRecordProvider
+	recordType string
+	seen       ids.UUID
+	rec        datasource.Record
+	read       bool
+}
+
+// fetch answers served=false, with no read, for a record type the seam has
+// never heard of — reusing servedByTheRecordSeam rather than a resolver-local
+// opinion about which of this family's types are governed here, so the two
+// cannot drift the way a second, hand-restated list would
+// (gradionhq/margince-poc-v1#1021).
+func (t *routedRecordTarget) fetch(ctx context.Context, id ids.UUID) (rec datasource.Record, served bool, err error) {
+	if !servedByTheRecordSeam(t.recordType) {
+		return datasource.Record{}, false, nil
+	}
+	if t.read && t.seen == id {
+		return t.rec, true, nil
+	}
+	rec, err = t.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(t.recordType), ID: id})
+	if err != nil {
+		return datasource.Record{}, false, err
+	}
+	t.seen, t.rec, t.read = id, rec, true
+	return rec, true, nil
+}
