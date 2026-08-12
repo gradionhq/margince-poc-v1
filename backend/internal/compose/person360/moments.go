@@ -144,23 +144,30 @@ func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.P
 // inputs this build does not have, and a rule that cannot fire belongs nowhere
 // on the page.
 func deriveMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
-	ladder := []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
-		meetingPrepMoment,      // 1. a meeting within 72 hours
-		reEngagedMoment,        // 2. new inbound after a material quiet period
-		overduePromiseMoment,   // 4. an open commitment of ours is overdue
-		goneQuietMoment,        // 5. outbound unanswered past the configured rule
-		roleChangeMoment,       // 6. a new deal role or material relationship change
-		missingNextStepMoment,  // 8. an open deal with no next step involving them
-		thinRelationshipMoment, // 9. no captured interaction or network
-	}
-	for _, rule := range ladder {
-		if moment, ok := rule(now, page); ok {
+	for _, rung := range momentLadder {
+		if moment, ok := rung(now, page); ok {
 			return moment
 		}
 	}
 	// 10. Nothing needs you today. A quiet success state, not a blank card:
 	// "there is nothing here" is an answer, and the reader came for an answer.
 	return nothingNeededMoment(now)
+}
+
+// momentLadder is the ladder itself, named so a test can walk every rung.
+//
+// A rule that is only reachable through deriveMoment can only be tested by
+// constructing a page that makes it win, and the rungs below it then never run
+// at all - which is how three dead buttons sat on untested rungs while a test
+// claiming to be a general rule covered two.
+var momentLadder = []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
+	meetingPrepMoment,      // 1. a meeting within 72 hours
+	reEngagedMoment,        // 2. new inbound after a material quiet period
+	overduePromiseMoment,   // 4. an open commitment of ours is overdue
+	goneQuietMoment,        // 5. outbound unanswered past the configured rule
+	roleChangeMoment,       // 6. a new deal role or material relationship change
+	missingNextStepMoment,  // 8. an open deal with no next step involving them
+	thinRelationshipMoment, // 9. no captured interaction or network
 }
 
 // meetingPrepMoment: a meeting is close enough that preparing for it is the

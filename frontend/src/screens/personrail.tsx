@@ -70,6 +70,7 @@ function NextBestActions({
           className="pe-rail-row"
           onClick={() => onAction(action)}
           disabled={action.state === "blocked"}
+          title={action.blocked_reason}
         >
           <span className="pe-rail-label">
             {actionIcon(action.kind)}
@@ -104,7 +105,10 @@ function whenFor(
     return t("person.rail.reviewFirst");
   }
   if (action.state === "blocked") {
-    return t("person.rail.blocked");
+    // The server states why in a sentence a reader can act on. A bare "blocked"
+    // next to a dead button is the complaint that opened #934, so the reason
+    // takes the slot when there is one.
+    return action.blocked_reason ?? t("person.rail.blocked");
   }
   return t("person.rail.ready");
 }

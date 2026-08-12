@@ -10,6 +10,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // now is a fixed instant, so every case below reads as a claim about the data
@@ -122,37 +124,100 @@ func TestGoneQuietNamesTheRuleItFiredOn(t *testing.T) {
 // nothing at all — which teaches a reader that the page has dead buttons, a
 // worse outcome than the action being visibly unavailable.
 //
-// The rule is general rather than about that one action: any action offered as
-// available names where it goes, and any action that cannot go anywhere says so
-// and gives its reason. The frontend already disables a blocked action and
-// shows the reason as its tooltip; what was missing was the backend saying it.
+// The rule is general: any action offered as available names a destination it
+// can actually reach, and any action that cannot reach one says so with a
+// reason. The frontend disables a blocked action and shows the reason; what was
+// missing was the backend saying it.
+//
+// It walks the LADDER rather than a handful of pages, and that is the point. A
+// first version drove deriveMoment with two shapes, reached two of eight rungs,
+// and passed while three dead buttons sat on rungs it never ran. A rung that
+// only the winning page reaches is a rung no test covers.
 func TestEveryOfferedActionEitherGoesSomewhereOrSaysWhyItCannot(t *testing.T) {
+	// One page per rung, each built to make that rung fire.
 	pages := map[string]*crmcontracts.Person360{
+		"meeting prep": {NextMeeting: &crmcontracts.Person360NextMeeting{StartsAt: ahead(24)}},
 		"gone quiet":   {LastOutboundAt: ptr(at(9)), LastInboundAt: ptr(at(16))},
-		"quiet record": {},
+		"thin relationship": {
+			Activities: activities(),
+			Network: &struct {
+				Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
+			}{},
+		},
+		"role change": {
+			RelationshipChanges: &[]crmcontracts.PersonRelationshipChange{{
+				Kind: crmcontracts.PersonRelationshipChangeKind(relstrength.ChangeRepliedAfterGap),
+				At:   at(2),
+			}},
+			Commercial: &crmcontracts.Person360Commercial{Deal: &crmcontracts.Person360CommercialDeal{
+				DealId: openapi_types.UUID(ids.NewV7()), Title: "Dispatch integration",
+			}},
+		},
+		// The same rung with NO deal visible, which is the reader who lacks the
+		// deal grant: the action must block rather than point at a record they
+		// cannot open.
+		"role change, no deal": {
+			RelationshipChanges: &[]crmcontracts.PersonRelationshipChange{{
+				Kind: crmcontracts.PersonRelationshipChangeKind(relstrength.ChangeRepliedAfterGap),
+				At:   at(2),
+			}},
+		},
+		"missing next step": {
+			Commercial: &crmcontracts.Person360Commercial{Deal: &crmcontracts.Person360CommercialDeal{
+				DealId: openapi_types.UUID(ids.NewV7()), Title: "Dispatch integration",
+			}},
+		},
+		"nothing needed": {},
 	}
 	for name, page := range pages {
 		t.Run(name, func(t *testing.T) {
-			moment := deriveMoment(now, page)
-			actions := []crmcontracts.PersonMomentAction{moment.RecommendedAction}
-			if moment.SecondaryActions != nil {
-				actions = append(actions, *moment.SecondaryActions...)
-			}
-			for _, action := range actions {
-				switch action.State {
-				case crmcontracts.PersonMomentActionStateBlocked:
-					if action.BlockedReason == nil || *action.BlockedReason == "" {
-						t.Errorf("%q is blocked and gives no reason, so the tooltip is empty",
-							action.Label)
-					}
-				default:
-					if action.Destination == nil {
-						t.Errorf("%q is offered as %q with no destination, so pressing it "+
-							"does nothing", action.Label, action.State)
-					}
+			assertActionsAreHonest(t, deriveMoment(now, page))
+		})
+	}
+
+	// And every rung directly, so a rule the pages above do not reach is still
+	// judged. A rung that does not fire for a given page contributes nothing,
+	// which is why the loop asks each one rather than asserting it fires.
+	t.Run("every rung", func(t *testing.T) {
+		for _, page := range pages {
+			for _, rung := range momentLadder {
+				if moment, ok := rung(now, page); ok {
+					assertActionsAreHonest(t, moment)
 				}
 			}
-		})
+		}
+	})
+}
+
+// assertActionsAreHonest holds the rule for one moment: available means
+// reachable, blocked means explained.
+func assertActionsAreHonest(t *testing.T, moment crmcontracts.PersonMoment) {
+	t.Helper()
+	actions := []crmcontracts.PersonMomentAction{moment.RecommendedAction}
+	if moment.SecondaryActions != nil {
+		actions = append(actions, *moment.SecondaryActions...)
+	}
+	for _, action := range actions {
+		if action.State == crmcontracts.PersonMomentActionStateBlocked {
+			if action.BlockedReason == nil || *action.BlockedReason == "" {
+				t.Errorf("%s: %q is blocked and gives no reason, so its tooltip is empty",
+					moment.Rule, action.Label)
+			}
+			continue
+		}
+		if action.Destination == nil {
+			t.Errorf("%s: %q is offered as %q with no destination, so pressing it does nothing",
+				moment.Rule, action.Label, action.State)
+			continue
+		}
+		// A record surface navigates on the entity id and on nothing else, so
+		// one without an id is a destination that goes nowhere — the same dead
+		// button wearing a destination.
+		if action.Destination.Surface == crmcontracts.PersonMomentDestinationSurfaceRecord &&
+			action.Destination.EntityId == nil {
+			t.Errorf("%s: %q points at a record with no entity id, so the client cannot navigate",
+				moment.Rule, action.Label)
+		}
 	}
 }
 

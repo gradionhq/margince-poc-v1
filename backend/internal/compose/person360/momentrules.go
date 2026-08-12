@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
@@ -44,11 +46,7 @@ func roleChangeMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.P
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
 		FreshnessAt:         &change.At,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindOpenRecord,
-			Label: "Open the deal",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   openDeal(page),
 	}, true
 }
 
@@ -79,12 +77,10 @@ func missingNextStepMoment(_ time.Time, page *crmcontracts.Person360) (crmcontra
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
 		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindScheduleMeeting,
-			Label: "Book a meeting",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-			Destination: &crmcontracts.PersonMomentDestination{
-				Surface: crmcontracts.PersonMomentDestinationSurfaceRecord,
-			},
+			Kind:        crmcontracts.PersonMomentActionKindScheduleMeeting,
+			Label:       "Book a meeting",
+			State:       crmcontracts.PersonMomentActionStateAvailable,
+			Destination: dealRecord(deal.DealId),
 		},
 	}, true
 }
@@ -118,12 +114,47 @@ func thinRelationshipMoment(_ time.Time, page *crmcontracts.Person360) (crmcontr
 		WhyNow:              "There is no correspondence and no colleague who knows them. Everything about this record is still to be learned.",
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindLogActivity,
-			Label: "Log an interaction",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   logInteraction(),
 	}, true
+}
+
+// dealRecord points an action at one deal's page.
+//
+// The entity id is the whole content of this destination: the frontend
+// dispatcher navigates only when it has one, so a record surface without an id
+// is a button that looks live and goes nowhere - which is the same defect as an
+// action with no destination at all, wearing a destination.
+func dealRecord(dealID openapi_types.UUID) *crmcontracts.PersonMomentDestination {
+	entity := crmcontracts.PersonMomentDestinationEntityTypeDeal
+	return &crmcontracts.PersonMomentDestination{
+		Surface:    crmcontracts.PersonMomentDestinationSurfaceRecord,
+		EntityType: &entity,
+		EntityId:   &dealID,
+	}
+}
+
+// openDeal offers the deal whose seat just changed hands, when the reader can
+// see one.
+//
+// The relationship change itself names no deal, so the destination comes from
+// the commercial section - and that section is absent for a reader without the
+// deal grant. Blocked there rather than available: an action pointing at a
+// record this caller cannot open would navigate them to a 404, which is worse
+// than a control that says why it is off.
+func openDeal(page *crmcontracts.Person360) crmcontracts.PersonMomentAction {
+	action := crmcontracts.PersonMomentAction{
+		Kind:  crmcontracts.PersonMomentActionKindOpenRecord,
+		Label: "Open the deal",
+		State: crmcontracts.PersonMomentActionStateAvailable,
+	}
+	if page.Commercial == nil || page.Commercial.Deal == nil {
+		reason := "No open deal is visible on this record"
+		action.State = crmcontracts.PersonMomentActionStateBlocked
+		action.BlockedReason = &reason
+		return action
+	}
+	action.Destination = dealRecord(page.Commercial.Deal.DealId)
+	return action
 }
 
 // oldestOverdueCommitment finds the promise of OURS that has been late longest.
