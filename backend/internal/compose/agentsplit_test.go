@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -198,5 +200,66 @@ func TestUpsertPartnerStagesAHumanOwnedPartnerField(t *testing.T) {
 	if rec.Code == http.StatusOK {
 		t.Errorf("status = %d, want a refusal naming the staged approval — a human-owned field applied "+
 			"silently is the §2.1 precedence protection this test exists to hold", rec.Code)
+	}
+}
+
+// mixedHumanOwned answers the ownership probe by naming only ONE field as
+// human-owned, leaving any other touched field to auto-execute — the shape
+// that sends splitOrRedeemUpdate down applyAutoExecuteAndStageResidue's
+// residue path (split.AutoExecute != nil) rather than allHumanOwned's
+// all-refused terminal branch.
+type mixedHumanOwned struct{ conflict string }
+
+func (m mixedHumanOwned) HumanOwnedConflicts(context.Context, string, ids.UUID, json.RawMessage) ([]string, error) {
+	return []string{m.conflict}, nil
+}
+
+// TestUpsertPartnerResidueStagesTheOrganizationNotPartner pins the THIRD
+// staging call site a review round found still guessing after
+// TestUpsertPartnerStagesAHumanOwnedPartnerField fixed the first two
+// (stageRefusal and, transitively, resolveOrWalk/stagedTargetByRoute):
+// applyAutoExecuteAndStageResidue used to build its StageRequest straight
+// off pol.RecordType ("partner" for this op) and the routed id, bypassing
+// the resolver seam entirely. "partner" has no rule in either
+// targetProbes or existenceProbes (approvals/targetvisibility.go), so a
+// row staged under it fails closed — invisible in the inbox, undecidable
+// at the decision — the zombie authority object this whole seam exists to
+// prevent, for the exact write §2.1 is supposed to protect.
+//
+// A MIXED patch (one human-owned field, one agent-owned) is what reaches
+// the residue path rather than the all-human-owned terminal branch, so
+// this drives one through admitAgentCall — the same layer
+// TestUpsertPartnerStagesAHumanOwnedPartnerField uses — with an
+// auto-execute handler that answers the shape a real 200 record has.
+// Verified to fail against the pre-fix residue path: it staged
+// target_type "partner" instead of "organization".
+func TestUpsertPartnerResidueStagesTheOrganizationNotPartner(t *testing.T) {
+	orgID := ids.NewV7()
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "upsertPartner", Access: accessTool, Tool: "update_record", RecordType: recordTypePartner}
+	body := []byte(`{"cert_status":"certified","margin_tier":"tier1_15"}`)
+	req := operandRequest(http.MethodPut, "/v1/organizations", orgID.String(), "", "", body)
+	rec := httptest.NewRecorder()
+	// The stand-in for the real UpsertPartner handler: applies the
+	// agent-owned half and answers 200 with a record body, the shape
+	// applyAutoExecuteAndStageResidue decodes to read the post-write
+	// version and splice the staging note into.
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"organization_id":"` + orgID.String() + `","margin_tier":"tier1_15","version":3}`))
+	})
+	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+
+	admitAgentCall(rec, req, next, admissionOutcome{
+		staging: staging, ownership: mixedHumanOwned{conflict: "cert_status"},
+		commands: restCommandDeps{records: seamRecord{}}, pol: pol, body: body,
+		registry: reg,
+	})
+
+	if staging.last.TargetType != "organization" || staging.last.TargetID != orgID {
+		t.Fatalf("residue staged target = (%s,%s), want (organization,%s) — the residue path must "+
+			"resolve through the same seam the all-human-owned branch does, not off pol.RecordType "+
+			"directly", staging.last.TargetType, staging.last.TargetID, orgID)
 	}
 }

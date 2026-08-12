@@ -143,7 +143,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		stageRefusal(w, r, staging, commands, pol, body)
 		return
 	}
-	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)
+	applyAutoExecuteAndStageResidue(w, r, next, staging, commands, pol, split)
 }
 
 // applyAutoExecuteAndStageResidue handles the mixed patch: the auto-execute remainder
@@ -152,7 +152,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 // judge, so this call's own auto-execute half cannot invalidate its staged half
 // (ADR-0036 §2). The staging note is spliced into the handler's own 2xx
 // record body, making the split legible in a single response.
-func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, targetID ids.UUID, split agents.PatchSplit) {
+func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, pol agentPolicy, split agents.PatchSplit) {
 	r.Body = io.NopCloser(bytes.NewReader(split.AutoExecute))
 	r.ContentLength = int64(len(split.AutoExecute))
 	buffered := newBufferedResponse()
@@ -184,13 +184,49 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		httperr.Write(w, r, cErr)
 		return
 	}
+	// The staged target is resolved through the SAME seam stageRefusal uses
+	// (stagedTarget, which is resolveOrWalk plus the untyped-target check),
+	// not read off pol.RecordType directly the way this line used to:
+	// upsertPartner's declared record_type is "partner", but its resolver
+	// (modules/agents/commandnested.go) stages "organization" — the row a
+	// human's decision and the approvals surface's own visibility probe
+	// actually depend on. Staging target_entity_type="partner" here would
+	// have named a pair neither targetProbes nor existenceProbes
+	// (approvals/targetvisibility.go) has a rule for, so the approval fails
+	// closed as invisible and undecidable — the zombie authority object
+	// this whole seam exists to prevent, for the one write this branch is
+	// supposed to protect. body is split.Staged, the sub-patch this
+	// approval actually binds to (canonicalRESTCall's own argument, above),
+	// not the full original request half of which already ran.
+	info, ok := stagedTarget(w, r, commands, pol, split.Staged)
+	if !ok {
+		// stagedTarget already wrote the refusal. It does not know the
+		// auto-execute half already landed — a target this door cannot
+		// resolve or is not allowed to stage is refused the same way
+		// whether or not a sibling write preceded it — but a caller
+		// reading only this response is told the change was refused, not
+		// that part of it already applied. sErr below carries that
+		// nuance for the one failure this branch CAN distinguish (the
+		// staging call itself); this one is rare enough (a Guards
+		// refusal produced by state that changed between the two writes)
+		// that duplicating the framing here was judged not worth a
+		// second return shape for stagedTarget's callers to carry.
+		return
+	}
 	approvalID, sErr := staging.Stage(r.Context(), agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     string(pol.RecordType),
-		TargetID:       targetID,
-		TargetVersion:  recordVersion(record),
+		TargetType:     info.TargetType,
+		TargetID:       info.TargetID,
+		// TargetVersion overrides the resolver's own answer (always nil —
+		// Subject supplies no version pin, command.go's own doc says why)
+		// with the version the AUTO-EXECUTE half just wrote, not whatever
+		// the row held before this request: this residue is staged
+		// against the state the approving human will actually judge
+		// (ADR-0036 §2), so this call's own successful half cannot
+		// invalidate its own staged half.
+		TargetVersion: recordVersion(record),
 		// The staged sub-patch is what the approval binds to, so the summary
 		// names the values it would write, not only the field names it would
 		// write them to: "overwrite human-edited amount_minor" told an

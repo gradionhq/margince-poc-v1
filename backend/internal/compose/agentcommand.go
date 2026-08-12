@@ -120,17 +120,21 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	// registered anyway, because the route walk's guess (stagedTargetByRoute)
 	// is the one this table replaces family by family, and for createOffer
 	// that guess is provably wrong today (gradionhq/margince-poc-v1#1046).
-	// upsertPartner is the one exception: it stages TODAY, whenever
-	// splitOrRedeemUpdate's per-field probe finds a human-owned conflict
-	// (agentsplit.go's actionShapedUpdateOps — upsertPartner is deliberately
-	// NOT a member — explains why), so this entry is already load-bearing,
-	// not merely future-proofing. Five of the seven share their operationId
-	// constant with agentsplit.go's own (opAddListMember's own comment says
-	// why); upsertPartner shares the CONSTANT with agentsplit.go too (its
-	// restCommands entry and its exclusion from actionShapedUpdateOps must
-	// name the identical operationId), though it is not a MEMBER of that
-	// map; createOffer has no such twin at all, since create_record never
-	// reaches the split.
+	// upsertPartner is the one exception: it stages TODAY, through BOTH
+	// splitOrRedeemUpdate branches a human-owned conflict can take —
+	// stageRefusal when every touched field is human-owned, and
+	// applyAutoExecuteAndStageResidue's residue when only some are
+	// (agentsplit.go) — since both resolve their staged target through this
+	// same table rather than off pol.RecordType directly (agentsplit.go's
+	// actionShapedUpdateOps — upsertPartner is deliberately NOT a member —
+	// explains why "partner" is the wrong target type). So this entry is
+	// already load-bearing on two call sites, not merely future-proofing.
+	// Five of the seven share their operationId constant with agentsplit.go's
+	// own (opAddListMember's own comment says why); upsertPartner shares the
+	// CONSTANT with agentsplit.go too (its restCommands entry and its
+	// exclusion from actionShapedUpdateOps must name the identical
+	// operationId), though it is not a MEMBER of that map; createOffer has no
+	// such twin at all, since create_record never reaches the split.
 	opAddListMember:       addListMemberCommand,
 	opApplyTag:            applyTagCommand,
 	opAddOfferLineItem:    addOfferLineItemCommand,
