@@ -115,22 +115,24 @@ func vendorSheetRates(day time.Time) []ModelRate {
 		// date, so the undated family's sheet price applies verbatim.
 		rateOn(day, providerAnthropic, "claude-haiku-4-5-20251001", 1_000_000, 5_000_000, 100_000, 1_250_000),
 
-		// Gemini (verified 2026-07-20): cache read = 0.1x input; Gemini's
-		// implicit context caching carries no separate write charge. Prices
-		// are config/ai-routing.example.yaml's default bindings — premium
+		// Gemini: cache read = 0.1x input; Gemini's implicit context caching
+		// carries no separate write charge. Prices are
+		// config/ai-routing.example.yaml's default bindings — premium
 		// (gemini-3.5-flash), cheap_cloud (gemini-3.1-flash-lite) and frontier
-		// (gemini-3.1-pro-preview). Each carries a >200k-token tier Gemini
-		// charges at a higher rate; the sub-200k sheet price is seeded here as
-		// the common case.
+		// (gemini-3.1-pro-preview). Both Flash rows are flat: their rate does
+		// not vary with prompt size (verified 2026-07-20, reconfirmed
+		// 2026-08-12), so what is seeded is what a call of any length pays.
 		rateOn(day, providerGemini, "gemini-3.5-flash", 1_500_000, 9_000_000, 150_000, 0),
 		rateOn(day, providerGemini, "gemini-3.1-flash-lite", 250_000, 1_500_000, 25_000, 0),
-		// gemini-3.1-pro-preview is the example file's frontier binding
-		// (verified 2026-08-12). Same sub-200k convention as its siblings above:
-		// the >200k tier is $4.00/$18.00. Google also charges $4.50/MTok/hour to
-		// STORE an explicit cache, which none of the four billed buckets can
-		// express — a deployment using explicit caching pays more than the
-		// reported cost by that amount, and pricing it into a token bucket would
-		// misreport every call that never touched the cache.
+		// gemini-3.1-pro-preview is the example file's frontier binding, and the
+		// only Gemini row here whose rate varies with prompt size (verified
+		// 2026-08-12). Seeded at the <=200k sheet price, which is the common
+		// case; above that boundary Google charges $4.00/$18.00 and a call
+		// UNDER-reports its cost by that difference. Explicit caching adds
+		// $4.50/MTok/hour to STORE the cache, which none of the four billed
+		// buckets can express — folding it into a token bucket would misreport
+		// every call that never touched the cache, so it is recorded here
+		// rather than priced.
 		rateOn(day, providerGemini, "gemini-3.1-pro-preview", 2_000_000, 12_000_000, 200_000, 0),
 
 		// OpenAI: config/ai-routing.example.yaml's commented cheap_cloud
