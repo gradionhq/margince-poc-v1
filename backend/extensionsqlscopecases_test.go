@@ -154,6 +154,73 @@ var extSQLGateCases = []extSQLGateCase{
 		tables: 2,
 	},
 	{
+		name: "a core table REWRITTEN behind a CTE of its own name",
+		// PostgreSQL has no such thing as writing a CTE: the target of an
+		// UPDATE, DELETE, INSERT or TRUNCATE always resolves to the real table,
+		// however the WITH list names itself. Exempting the name in a write
+		// position is a two-token way past the whole gate — and the unit's own
+		// table, read inside the CTE body, keeps the reference count looking
+		// honest while it happens.
+		body:   `tx.Exec(ctx, "WITH person AS (SELECT id FROM "+noteTable+") UPDATE person SET full_name = $1")`,
+		want:   `"person"`,
+		tables: 2,
+	},
+	{
+		name:   "a core table DELETED behind a CTE of its own name",
+		body:   `tx.Exec(ctx, "WITH person AS (SELECT id FROM "+noteTable+") DELETE FROM person WHERE id = $1")`,
+		want:   `"person"`,
+		tables: 2,
+	},
+	{
+		name: "a core table inside a DO block",
+		// The one statement whose quoted body IS the statement. Everywhere else
+		// a dollar-quoted body is a value and gets stripped; here stripping it
+		// would delete the only place the DML is written.
+		body:   "tx.Exec(ctx, `DO $$ BEGIN DELETE FROM person; END $$`)",
+		want:   `"person"`,
+		tables: 1,
+	},
+	{
+		name:   "a core table inside a quoted DO body",
+		body:   `tx.Exec(ctx, "DO 'DELETE FROM person'")`,
+		want:   `"person"`,
+		tables: 1,
+	},
+	{
+		name: "a core table read out by COPY",
+		// COPY … TO STDOUT needs only SELECT, which the shared runtime role
+		// holds on every core table, so this is a read of the whole table.
+		body:   `tx.Exec(ctx, "COPY person TO STDOUT")`,
+		want:   `"person"`,
+		tables: 1,
+	},
+	{
+		name: "a core table behind a set-returning function in a FROM list",
+		// One non-table entry must not shield the rest of the list.
+		body:   `tx.Exec(ctx, "SELECT * FROM generate_series(1,1) g, person p, "+noteTable+" n WHERE true")`,
+		want:   `"person"`,
+		tables: 2,
+	},
+	{
+		name:   "a core table second in a DELETE … USING list",
+		body:   `tx.Exec(ctx, "DELETE FROM "+noteTable+" USING "+noteTable+" x, person WHERE true")`,
+		want:   `"person"`,
+		tables: 3,
+	},
+	{
+		name: "the bulk-delete idiom against the unit's own table",
+		// `DELETE FROM own USING unnest($1)` is how a unit deletes a batch, and
+		// a gate that reads `unnest` as a table refuses it in the merge gate
+		// with a message about a table nobody named.
+		body:   `tx.Exec(ctx, "DELETE FROM "+noteTable+" USING unnest($1::uuid[]) AS wanted(id) WHERE "+noteTable+".id = wanted.id")`,
+		tables: 1,
+	},
+	{
+		name:   "COPY naming its endpoint rather than a second table",
+		body:   `tx.Exec(ctx, "COPY "+noteTable+" FROM STDIN")`,
+		tables: 1,
+	},
+	{
 		name: "a bare TRUNCATE, which is read as prose",
 		// The stated half of the trade the shape list makes: reading this
 		// spelling means reading every sentence that opens with the word. The
@@ -241,7 +308,7 @@ const source = "FROM person LIMIT 1"`,
 	},
 	{
 		name:   "prose that merely reads like SQL",
-		body:   `_ = "hello from the demo extension"; _ = "update the note, then select the row"; _ = "truncate the note body before sending"`,
+		body:   `_ = "hello from the demo extension"; _ = "update the note, then select the row"; _ = "truncate the note body before sending"; _ = "do the work, then copy the note"`,
 		tables: 0,
 	},
 }

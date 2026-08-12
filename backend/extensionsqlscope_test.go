@@ -42,6 +42,13 @@ package backendarch
 // the fold could read does not stand in for one it could not. Under both rules
 // the statement reads as computed — a finding — rather than as allowed.
 //
+// A CTE is the one name that is not a table, and the exemption for it is bounded
+// twice: to the tokens AFTER the body that declares it (inside its own body the
+// same name still reads the real table, unless the WITH is RECURSIVE), and to
+// the positions a statement READS from. PostgreSQL has no such thing as writing
+// a CTE — the target of an UPDATE, DELETE, INSERT or TRUNCATE always resolves to
+// the real relation — so a write position takes no exemption at all.
+//
 // The allowlist is the unit's namespace, not a list of core tables: a table is
 // the unit's own when it is `ext.<namespace>_…` — derived through the same
 // extension.Name(…).Namespace() the migration gate and the unit's database role
@@ -347,8 +354,7 @@ func sqlStrings(file *ast.File, consts map[string]string) []foldedSQL {
 		// Stripped BEFORE the shape test, not after: a statement that opens with
 		// its own `-- why` comment is still a statement, and testing the raw text
 		// would read that comment as the first word and skip the query.
-		cleaned := sqlNoise.ReplaceAllString(text, " ")
-		if looksLikeSQL(cleaned) {
+		if cleaned := stripNoise(text); looksLikeSQL(cleaned) {
 			out = append(out, foldedSQL{text: cleaned, pos: expr.Pos()})
 		}
 		return false
@@ -417,6 +423,16 @@ var sqlStatementShapes = []struct{ opener, companion string }{
 	// refuses anyway (the runtime role is granted SELECT, INSERT, UPDATE and
 	// DELETE, never TRUNCATE, on core tables and on a unit's own alike).
 	{"truncate", " table "},
+	// A DO block's body is SQL that happens to be delimited, and its
+	// companion is the delimiter rather than a word: `do` alone opens too many
+	// English sentences to be a statement on its own.
+	{"do", "$$"},
+	{"do", "'"},
+	// COPY … TO STDOUT reads a whole table out on nothing but SELECT, which the
+	// shared runtime role holds on every core table. The direction word is the
+	// companion because it is what a statement has and a sentence does not.
+	{"copy", " to "},
+	{"copy", " from "},
 }
 
 func looksLikeSQL(text string) bool {
@@ -432,6 +448,27 @@ func looksLikeSQL(text string) bool {
 	return false
 }
 
+// stripNoise removes what a keyword can falsely appear in, so the shape test and
+// the token scan both read the statement rather than its contents.
+//
+// The exception is what a DO block is FOR. Everywhere else a quoted body is a
+// value — `SELECT $$FROM person$$ AS example` names one table, not two — but a
+// DO block's body IS the statement, and stripping it would delete the only
+// place its DML is written. So a DO keeps its body and loses only its comments,
+// which is the difference between reading `DO $$ BEGIN DELETE FROM person; END
+// $$` and reading `DO`.
+func stripNoise(text string) string {
+	if opensDoBlock(text) {
+		return sqlComments.ReplaceAllString(text, " ")
+	}
+	return sqlNoise.ReplaceAllString(text, " ")
+}
+
+func opensDoBlock(text string) bool {
+	fields := strings.Fields(text)
+	return len(fields) > 0 && strings.EqualFold(fields[0], "do")
+}
+
 // tableRef is one table position in a statement: the name it holds, or the fact
 // that the name could not be read.
 type tableRef struct {
@@ -440,12 +477,15 @@ type tableRef struct {
 }
 
 var (
-	// sqlNoise is what a keyword can falsely appear in and a table name cannot
-	// hide in: comments, single-quoted literals ('' escaping included), and
-	// dollar-quoted bodies. The dollar-quote pattern cannot pair a tag with its
-	// own closing tag (RE2 has no backreference), so it matches the nearest
-	// closing delimiter of the same SHAPE — which over-strips only a statement
-	// carrying two differently-tagged bodies, and under-strips nothing.
+	// sqlComments carry no SQL in any statement.
+	sqlComments = regexp.MustCompile(`--[^\n]*|(?s)/\*.*?\*/`)
+
+	// sqlNoise adds what carries no TABLE outside a DO block (see stripNoise):
+	// single-quoted literals ('' escaping included) and dollar-quoted bodies.
+	// The dollar-quote pattern cannot pair a tag with its own closing tag (RE2
+	// has no backreference), so it matches the nearest closing delimiter of the
+	// same SHAPE, which over-strips only a statement carrying two
+	// differently-tagged bodies.
 	sqlNoise = regexp.MustCompile(`--[^\n]*|(?s)/\*.*?\*/|'(?:[^']|'')*'|(?s)\$[A-Za-z0-9_]*\$.*?\$[A-Za-z0-9_]*\$`)
 
 	// sqlToken splits a statement into names (a dotted chain of bare or quoted
@@ -479,6 +519,7 @@ func tableRefs(sql string) []tableRef {
 		if !opensTablePosition(tokens, i, callStack) {
 			continue
 		}
+		readPosition := readsRatherThanWrites(tokens, i)
 		for _, at := range tableTargets(tokens, i) {
 			// One index is judged once. `TRUNCATE TABLE t` reaches t twice —
 			// once past the qualifier TRUNCATE steps over, once from TABLE
@@ -489,13 +530,39 @@ func tableRefs(sql string) []tableRef {
 			}
 			judged[at] = true
 			ref := refAt(tokens, at)
-			if ref.readable && withinCTEScope(ctes, ref.name, at) {
+			if ref.readable && readPosition && withinCTEScope(ctes, ref.name, at) {
 				continue
 			}
 			refs = append(refs, ref)
 		}
 	}
 	return refs
+}
+
+// readsRatherThanWrites reports whether the keyword at i introduces a table the
+// statement READS. It is what bounds the CTE exemption, and the bound is
+// PostgreSQL's own: a WITH name can stand wherever a relation is read, and
+// nowhere a statement writes. `WITH person AS (…) UPDATE person SET …` does not
+// rewrite the CTE — there is no such thing — it rewrites the table, and a gate
+// that exempted the name there would hand a unit a two-token way past itself
+// while its own table, read inside the CTE body, kept the reference count
+// honest.
+//
+// DELETE is why this reads the previous token rather than switching on the
+// keyword alone: FROM is a read position in every statement except the one
+// whose target it names.
+func readsRatherThanWrites(tokens []string, i int) bool {
+	previous := ""
+	if i > 0 {
+		previous = strings.ToLower(tokens[i-1])
+	}
+	switch strings.ToLower(tokens[i]) {
+	case "from":
+		return previous != "delete"
+	case "join", "using", "copy":
+		return true
+	}
+	return false
 }
 
 // argumentSeparators are the functions whose FROM separates arguments rather
@@ -516,7 +583,7 @@ var clauseWords = []string{
 // listKeywords introduce a comma-separated list of tables rather than one:
 // `FROM ext.ext_notes_note n, person p` is a join with no JOIN in it, and
 // `TRUNCATE TABLE a, b` and `DROP TABLE a, b` name two each.
-var listKeywords = []string{"from", "table", "truncate"}
+var listKeywords = []string{"from", "using", "table", "truncate"}
 
 // tableQualifiers stand between a keyword and the name it introduces —
 // `DELETE FROM ONLY t`, `JOIN LATERAL …`, `TRUNCATE TABLE t`,
@@ -539,7 +606,7 @@ func opensTablePosition(tokens []string, i int, callStack []string) bool {
 	switch strings.ToLower(tokens[i]) {
 	case "from":
 		return len(callStack) == 0 || !slices.Contains(argumentSeparators, callStack[len(callStack)-1])
-	case "join", "into", "table", "truncate", "using":
+	case "join", "into", "table", "truncate", "using", "copy":
 		// USING carries two meanings and both are handled here: the table of a
 		// `DELETE … USING t` / `MERGE … USING t`, and the column list of a
 		// `JOIN … USING (a, b)`, which tableTargets drops on the opening paren.
@@ -566,10 +633,15 @@ func tableTargets(tokens []string, i int) []int {
 		if at >= len(tokens) {
 			return append(targets, at)
 		}
-		if !namesATable(tokens, at, keyword) {
+		// An entry that is not a table — a subquery, a set-returning function —
+		// ends a single position and is STEPPED OVER in a list. Returning here
+		// instead would let one such entry shield every table behind it:
+		// `FROM generate_series(1,1) g, person p` names a core table second.
+		if namesATable(tokens, at, keyword) {
+			targets = append(targets, at)
+		} else if !list {
 			return targets
 		}
-		targets = append(targets, at)
 		if !list {
 			return targets
 		}
@@ -591,11 +663,24 @@ func namesATable(tokens []string, i int, keyword string) bool {
 	if tokens[i] == "(" {
 		return false
 	}
-	if keyword != "from" && keyword != "join" {
+	if slices.Contains(copyEndpoints, strings.ToLower(tokens[i])) {
+		return false // COPY t FROM STDIN — the endpoint, not a relation
+	}
+	if !slices.Contains(functionPositions, keyword) {
 		return true
 	}
 	return !isName(tokens[i]) || i+1 >= len(tokens) || tokens[i+1] != "("
 }
+
+// functionPositions are the keywords a set-returning function may stand after,
+// so a name applied to an argument list there is a call rather than a table:
+// `FROM unnest($1)`, `JOIN unnest($1)`, and the `DELETE … USING unnest($1)` that
+// is the ordinary bulk-delete idiom against a unit's own table. INTO, UPDATE and
+// TABLE are absent — `INSERT INTO t (cols)` names a table and its columns.
+var functionPositions = []string{"from", "join", "using"}
+
+// copyEndpoints are what COPY names on the side that is not a table.
+var copyEndpoints = []string{"stdin", "stdout", "program"}
 
 // refAt classifies the token at i as the table reference it holds.
 func refAt(tokens []string, i int) tableRef {
@@ -605,18 +690,23 @@ func refAt(tokens []string, i int) tableRef {
 	return tableRef{name: tokens[i], readable: true}
 }
 
-// skipAlias steps over the alias a table may carry — `t x`, `t AS x`, and the
-// column list either spelling may take — and returns where the entry ends. A
-// clause word is never an alias: it is what the list stops at.
+// skipAlias steps over everything between one list entry and the comma that
+// ends it: an alias with or without AS, a column list, and the argument list of
+// a set-returning function — in whatever order the entry spells them, since
+// `generate_series(1,2) g` and `t AS x (id)` both stand where a table can.
+// A clause word is never part of an entry: it is what the list stops at.
 func skipAlias(tokens []string, i int) int {
-	if i < len(tokens) && strings.EqualFold(tokens[i], "as") {
-		i++
-	}
-	if i < len(tokens) && isName(tokens[i]) && !slices.Contains(clauseWords, strings.ToLower(tokens[i])) {
-		i++
-	}
-	if i < len(tokens) && tokens[i] == "(" {
-		i = matchingParen(tokens, i) + 1
+	for i < len(tokens) {
+		switch {
+		case tokens[i] == "(":
+			i = matchingParen(tokens, i) + 1
+		case strings.EqualFold(tokens[i], "as"):
+			i++
+		case isName(tokens[i]) && !slices.Contains(clauseWords, strings.ToLower(tokens[i])):
+			i++
+		default:
+			return i
+		}
 	}
 	return i
 }
@@ -635,6 +725,10 @@ type cteScope struct {
 // inner name still reads the core table, and exempting it everywhere would hand
 // a unit a one-line way past this gate. A RECURSIVE WITH is the exception —
 // there the body legitimately names the CTE itself.
+//
+// Scope is half the bound; readsRatherThanWrites is the other half. A CTE can
+// stand where a statement reads and nowhere it writes, so these spans decide
+// nothing about the target of an UPDATE, DELETE, INSERT or TRUNCATE.
 func cteScopes(tokens []string) map[string]cteScope {
 	recursive := false
 	for i, raw := range tokens {
