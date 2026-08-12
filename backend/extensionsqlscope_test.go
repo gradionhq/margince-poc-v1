@@ -409,7 +409,14 @@ var sqlStatementShapes = []struct{ opener, companion string }{
 	{"create", " table "},
 	{"alter", " table "},
 	{"drop", " table "},
-	{"truncate", ""},
+	// TRUNCATE's companion is the optional TABLE word, which makes the bare
+	// `TRUNCATE person` spelling unread. That is the deliberate half of a trade:
+	// with no companion, every sentence opening with the word is a statement,
+	// and "truncate the note body before sending" refuses a table called `the`
+	// — a false failure with no waiver to answer it, on a statement PostgreSQL
+	// refuses anyway (the runtime role is granted SELECT, INSERT, UPDATE and
+	// DELETE, never TRUNCATE, on core tables and on a unit's own alike).
+	{"truncate", " table "},
 }
 
 func looksLikeSQL(text string) bool {
@@ -506,6 +513,11 @@ var clauseWords = []string{
 	"natural", "lateral", "select", "insert", "update", "delete", "with", "into",
 }
 
+// listKeywords introduce a comma-separated list of tables rather than one:
+// `FROM ext.ext_notes_note n, person p` is a join with no JOIN in it, and
+// `TRUNCATE TABLE a, b` and `DROP TABLE a, b` name two each.
+var listKeywords = []string{"from", "table", "truncate"}
+
 // tableQualifiers stand between a keyword and the name it introduces —
 // `DELETE FROM ONLY t`, `JOIN LATERAL …`, `TRUNCATE TABLE t`,
 // `CREATE TABLE IF NOT EXISTS t`.
@@ -539,13 +551,12 @@ func opensTablePosition(tokens []string, i int, callStack []string) bool {
 }
 
 // tableTargets returns the token indices the keyword at i introduces as table
-// names: one for most keywords, and after FROM every entry of a comma-separated
-// list, because `FROM ext.ext_notes_note n, person p` is a join with no JOIN in
-// it. An index at or past the end means the statement stopped on the keyword and
-// the name is somewhere this gate cannot see.
+// names: one for most keywords, and every entry of the list for the ones that
+// introduce a list. An index at or past the end means the statement stopped on
+// the keyword and the name is somewhere this gate cannot see.
 func tableTargets(tokens []string, i int) []int {
 	keyword := strings.ToLower(tokens[i])
-	fromList := keyword == "from"
+	list := slices.Contains(listKeywords, keyword)
 	var targets []int
 	at := i + 1
 	for {
@@ -559,7 +570,7 @@ func tableTargets(tokens []string, i int) []int {
 			return targets
 		}
 		targets = append(targets, at)
-		if !fromList {
+		if !list {
 			return targets
 		}
 		next := skipAlias(tokens, at+1)

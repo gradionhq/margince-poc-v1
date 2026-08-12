@@ -154,18 +154,21 @@ var extSQLGateCases = []extSQLGateCase{
 		tables: 2,
 	},
 	{
-		name:   "a core table truncated without the TABLE word",
+		name: "a bare TRUNCATE, which is read as prose",
+		// The stated half of the trade the shape list makes: reading this
+		// spelling means reading every sentence that opens with the word. The
+		// prose case below is its other half, and both move together.
 		body:   `tx.Exec(ctx, "TRUNCATE person")`,
-		want:   `"person"`,
-		tables: 1,
+		tables: 0,
 	},
 	{
-		name: "a core table truncated with the TABLE word",
-		// TRUNCATE reaches the name past the qualifier, and TABLE reaches it as
-		// a keyword of its own: one mistake, and it must be reported once.
-		body:   `tx.Exec(ctx, "TRUNCATE TABLE person")`,
+		name: "a core table truncated beside the unit's own",
+		// TRUNCATE reaches the first name past the qualifier, and TABLE reaches
+		// it as a keyword of its own: one mistake, and it must be reported once.
+		// The list is what carries the second name.
+		body:   `tx.Exec(ctx, "TRUNCATE TABLE "+noteTable+", person")`,
 		want:   `"person"`,
-		tables: 1,
+		tables: 2,
 	},
 	{
 		name:   "a core table behind the statement's own comment",
@@ -238,7 +241,7 @@ const source = "FROM person LIMIT 1"`,
 	},
 	{
 		name:   "prose that merely reads like SQL",
-		body:   `_ = "hello from the demo extension"; _ = "update the note, then select the row"`,
+		body:   `_ = "hello from the demo extension"; _ = "update the note, then select the row"; _ = "truncate the note body before sending"`,
 		tables: 0,
 	},
 }

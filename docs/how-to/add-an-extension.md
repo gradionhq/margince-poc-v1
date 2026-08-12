@@ -271,11 +271,12 @@ restricted role against a throwaway database and re-reads the catalog):
   else, because a foreign key onto a core table takes a lock on core writes and can refuse a core
   delete forever after.
 
-**And what your migrations may CREATE is what your handlers' SQL may NAME.** `rt.Tx()` runs on the
-shared `margince_app` role, so a statement naming `person` would work — which is why
-`TestExtensionSQLNamesOnlyTheUnitsOwnTables` (`backend/extensionsqlscope_test.go`) reads every unit's
-Go source, folds the string constants a table name is usually spelled through, and refuses a table
-outside `ext.ext_<name>_…`. Qualify the schema — `ext` is on no `search_path` the app connects with,
+**And what your migrations may CREATE is what your SQL may NAME — in your tests too.** `rt.Tx()` runs
+on the shared `margince_app` role, so a statement naming `person` would work, which is why
+`TestExtensionSQLNamesOnlyTheUnitsOwnTables` (`backend/extensionsqlscope_test.go`) reads **every `.go`
+file your unit ships**, folds the string constants a table name is usually spelled through, and refuses
+a table outside `ext.ext_<name>_…`. A unit test that seeds a core table fails it exactly as a handler
+would, and that is deliberate: a test is where the habit starts. Qualify the schema — `ext` is on no `search_path` the app connects with,
 so a bare `ext_notes_note` names a *public* table you do not own — and keep the name in a constant: a
 name assembled at run time is a finding too, because a reader that cannot see the table cannot vouch
 for it. This is defence against mistakes, not a wall; see "what the tier does NOT protect against" in
