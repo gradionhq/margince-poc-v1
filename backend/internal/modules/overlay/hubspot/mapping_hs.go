@@ -174,6 +174,11 @@ var ownerIDField = overlay.FieldMapping{
 // lowercasing — can fail on a real number, with no honest answer at projection
 // time for what a mirror row that cannot be normalized should become.
 //
+// createdate carries the incumbent's own create instant, so a mirrored contact
+// reports when the customer's CRM created it rather than when we mirrored it.
+// Its last-modified counterpart needs no FieldMapping: Baseline already lands
+// lastmodifieddate on the canonical last_synced_at.
+//
 // One §9 field remains a deliberate gap: social links (jsonb) has no
 // closed-registry transform yet, and its source properties are consumed by
 // no FieldMapping, so Apply's unmapped []string surfaces them — the "flag,
@@ -195,6 +200,7 @@ var contactsMapping = overlay.ObjectMapping{
 			AlwaysEmit: true,
 		},
 		{From: []string{"jobtitle"}, To: "title", Kind: overlay.TargetColumn},
+		{From: []string{"createdate"}, To: "created_at", Kind: overlay.TargetColumn},
 		{
 			From:      []string{propEmail},
 			To:        "person_email.email",

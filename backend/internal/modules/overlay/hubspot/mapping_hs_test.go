@@ -5,7 +5,6 @@ package hubspot_test
 
 import (
 	"slices"
-	"sort"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -60,6 +59,9 @@ func TestHubSpotContactMapping(t *testing.T) {
 	if got := out["last_synced_at"]; got != "2026-05-13T06:44:38.727Z" {
 		t.Errorf("last_synced_at = %v, want the lastmodifieddate value", got)
 	}
+	if got := out["created_at"]; got != "2024-11-15T13:27:49.194Z" {
+		t.Errorf("created_at = %v, want the createdate value", got)
+	}
 	if got := out["owner_id"]; got != "1197833249" {
 		t.Errorf("owner_id = %v, want the raw hubspot_owner_id (resolved downstream)", got)
 	}
@@ -107,17 +109,10 @@ func TestHubSpotContactMapping(t *testing.T) {
 		t.Errorf("person_phone[1] = %v, want the mobile/non-primary attributes the mapping declares", phones[1])
 	}
 
-	// createdate has no declared target in the contacts subset — the design's
-	// "unmapped: flag" policy (never silently dropped, UC-E18-01 F3).
-	sort.Strings(unmapped)
-	want := []string{"createdate"}
-	if len(unmapped) != len(want) {
-		t.Fatalf("unmapped = %v, want %v", unmapped, want)
-	}
-	for i, k := range want {
-		if unmapped[i] != k {
-			t.Errorf("unmapped[%d] = %q, want %q (full: %v)", i, unmapped[i], k, unmapped)
-		}
+	// Every property this contact carries has a declared target, so there is
+	// nothing left for the "unmapped: flag" policy (UC-E18-01 F3) to surface.
+	if len(unmapped) != 0 {
+		t.Errorf("unmapped = %v, want none (every rawContact property is declared)", unmapped)
 	}
 
 	if m.UnmappedPolicy != "flag" {

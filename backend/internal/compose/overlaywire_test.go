@@ -56,7 +56,7 @@ func TestOverlayWirePersonAssemblesNameAndStampsProvenance(t *testing.T) {
 		t.Errorf("Source = %q, want overlay", person.Source)
 	}
 	if !person.CreatedAt.Equal(wireSyncedAt) || !person.UpdatedAt.Equal(wireSyncedAt) {
-		t.Error("timestamps must carry the mirror's own last-synced instant — the only time the mirror can honestly claim")
+		t.Error("a record carrying neither incumbent stamp must fall back to the mirror's own last-synced instant — the only time the mirror can honestly claim")
 	}
 	if person.Raw == nil || (*person.Raw)["title"] != "CTO" {
 		t.Error("the full canonical payload must ride raw")
@@ -794,5 +794,67 @@ func TestOverlayWirePersonKeepsOneNumberOnTwoRowsDistinct(t *testing.T) {
 	}
 	if (*again.Phones)[0].Id != work.Id || (*again.Phones)[1].Id != mobile.Id {
 		t.Error("a second read of one record must publish the same two row identities")
+	}
+}
+
+// Reporting the sync instant as a mirrored record's own created and updated
+// time makes "recently updated" mean "recently synced" — the same answer for
+// every record in the workspace, so the ordering carries no information. The
+// incumbent stamps both instants and the mapping mirrors them, so the honest
+// values are there to read. The assertion drives the real mapping rather than
+// a hand-built canonical payload, so it holds against what Apply lands.
+func TestOverlayWirePersonCarriesTheIncumbentTimestamps(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, unmapped, err := overlay.Apply(m, map[string]any{
+		"hs_object_id":     "100214862042",
+		"firstname":        "Christian",
+		"lastname":         "Muller",
+		"createdate":       "2024-11-15T13:27:49.194Z",
+		"lastmodifieddate": "2026-05-13T06:44:38.727Z",
+	})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	if len(unmapped) != 0 {
+		t.Errorf("unmapped = %v, want both incumbent stamps consumed by the mapping", unmapped)
+	}
+	person, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, canonical))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	created := time.Date(2024, 11, 15, 13, 27, 49, 194_000_000, time.UTC)
+	updated := time.Date(2026, 5, 13, 6, 44, 38, 727_000_000, time.UTC)
+	if !person.CreatedAt.Equal(created) {
+		t.Errorf("CreatedAt = %v, want the incumbent's own create instant %v, never the sync instant %v", person.CreatedAt, created, wireSyncedAt)
+	}
+	if !person.UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want the incumbent's own last-modified instant %v, never the sync instant %v", person.UpdatedAt, updated, wireSyncedAt)
+	}
+}
+
+// A record the incumbent stamped no instants for still needs both: the
+// contract requires them, and the mirror's own sync instant is the only time
+// it can honestly claim for itself.
+func TestOverlayWirePersonFallsBackToTheSyncInstant(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "firstname": "Ada"})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	person, err := overlayWirePerson(wireCtx(), wireRecord(t, datasource.EntityPerson, canonical))
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if !person.CreatedAt.Equal(wireSyncedAt) {
+		t.Errorf("CreatedAt = %v, want the sync instant %v as the fallback", person.CreatedAt, wireSyncedAt)
+	}
+	if !person.UpdatedAt.Equal(wireSyncedAt) {
+		t.Errorf("UpdatedAt = %v, want the sync instant %v as the fallback", person.UpdatedAt, wireSyncedAt)
 	}
 }

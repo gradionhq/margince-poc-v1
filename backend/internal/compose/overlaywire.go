@@ -10,9 +10,12 @@ package compose
 // this file is the struct-shaping on top of it. Every struct is stamped
 // `source: overlay`, the FULL canonical payload rides `raw` (nothing the
 // mapper landed is dropped just because a typed slot doesn't exist for
-// it), and both timestamps carry the mirror's own last-synced instant —
-// the only time the mirror can honestly claim (the incumbent's
-// create/update instants are not mapped in branch 1).
+// it), and a timestamp is the incumbent's own wherever the mapping mirrors
+// one: a person's created_at is the incumbent's create instant and its
+// updated_at the incumbent's last-modified instant, each falling back to the
+// mirror's own last-synced instant — the only time the mirror can claim for
+// itself — where the incumbent stamped none. The entities whose timestamp
+// properties no mapping lands carry that last-synced instant in both slots.
 
 import (
 	"context"
@@ -47,6 +50,14 @@ const overlayUnnamed = "Unnamed"
 // incumbent because a mirror record carries no incumbent identity for the
 // mapper to read, and naming one it cannot verify would be a guess.
 const overlayCapturedByValue = "connector:overlay"
+
+// overlayCanonicalLastModified is the canonical payload key holding the
+// incumbent's own last-modified instant: the mirror's structural slot for a
+// mapping's Baseline property, which overlay.Apply writes under this name. It
+// is NOT the mirror row's ingest time — that one is Record.Freshness.
+// LastSyncedAt, stamped now() by every upsert, so reading it for a record's
+// updated_at reports the whole workspace as modified at one instant.
+const overlayCanonicalLastModified = "last_synced_at"
 
 // overlayRecordFields decodes a mirror record's canonical jsonb payload.
 // A record the overlay provider served always carries an object payload;
@@ -104,8 +115,8 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		Address:    overlayAddress(fields),
 		Emails:     overlayPersonEmails(personID, fields),
 		Phones:     overlayPersonPhones(personID, fields),
-		CreatedAt:  syncedAt,
-		UpdatedAt:  syncedAt,
+		CreatedAt:  overlayTimeOr(fields, "created_at", syncedAt),
+		UpdatedAt:  overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:        &fields,
 	}, nil
 }
@@ -287,10 +298,6 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	if !kind.Valid() {
 		kind = crmcontracts.ActivityKindNote
 	}
-	occurredAt := syncedAt
-	if ts, ok := overlayTime(fields, "occurred_at"); ok {
-		occurredAt = ts
-	}
 	act := crmcontracts.Activity{
 		Id:         openapi_types.UUID(rec.Ref.ID),
 		Source:     overlaySource,
@@ -298,7 +305,7 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		Kind:       kind,
 		Subject:    fieldStringPtr(fields, "subject"),
 		Body:       fieldStringPtr(fields, "body"),
-		OccurredAt: occurredAt,
+		OccurredAt: overlayTimeOr(fields, "occurred_at", syncedAt),
 		CreatedAt:  syncedAt,
 		UpdatedAt:  syncedAt,
 		Raw:        &fields,

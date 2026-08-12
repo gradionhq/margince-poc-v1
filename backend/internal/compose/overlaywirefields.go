@@ -281,6 +281,18 @@ func overlayTime(fields map[string]any, key string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// overlayTimeOr answers a canonical timestamp field, falling back to the given
+// instant where the mirror holds no stamp the parser recognizes. Every contract
+// timestamp slot the wire fills is required, so a record the incumbent stamped
+// none for still needs an answer, and the mirror's own sync instant is the only
+// time it can honestly claim for itself.
+func overlayTimeOr(fields map[string]any, key string, fallback time.Time) time.Time {
+	if stamped, ok := overlayTime(fields, key); ok {
+		return stamped
+	}
+	return fallback
+}
+
 // isExactInt64 reports whether f is a finite, integral value that fits
 // int64. float64(math.MaxInt64) rounds UP to 2^63, so the upper bound is
 // an exclusive >=; the lower bound -2^63 is exactly representable.
