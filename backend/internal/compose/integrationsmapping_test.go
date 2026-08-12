@@ -4,33 +4,58 @@
 package compose
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// A conditional write must never be silently promoted to an unconditional one.
-// Zero is this transport's sentinel for "no precondition" and no row can carry
-// it — the version column starts at 1 — so every header value that lands on
-// zero has to be refused rather than parsed and passed on. The first version
-// of this fix caught unparseable text but let `If-Match: 0` through, which is
-// the same hole one step further in.
+// The provider-connection PATCH reads its precondition through
+// httperr.IfMatchVersion, the one place that decides what an If-Match may say
+// (data-model §1.3a: a bare integer, never a quoted ETag). This test exists
+// because the first two attempts at this surface got it wrong in both
+// directions: one accepted `If-Match: 0` and silently promoted a conditional
+// write to an unconditional one, and the next accepted `"7"`, codifying a
+// quoted form the contract does not permit.
+//
+// A conditional write that is silently made unconditional applies exactly the
+// overwrite the caller was guarding against, so every value that cannot name a
+// real row has to be refused rather than parsed into the zero that means
+// "no precondition".
 func TestIfMatchRefusesEveryValueThatCannotNameARow(t *testing.T) {
-	for _, raw := range []string{"0", `"0"`, "-1", "abc", ""} {
-		v := crmcontracts.IfMatch(raw)
-		if _, err := ifMatchVersion(&v); err == nil {
-			t.Errorf("If-Match %q was accepted; a value that cannot name a row must be refused", raw)
+	refused := []struct {
+		raw, why string
+	}{
+		{"0", "no row carries version zero — the column starts at 1, so zero can only mean absent"},
+		{`"7"`, "a quoted ETag is not this contract's shape (data-model §1.3a)"},
+		{"-1", "no row carries a negative version"},
+		{"abc", "not a version at all"},
+		{"1.5", "a version is an integer"},
+	}
+	for _, tc := range refused {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPatch, "/v1/provider-connections/surfe", nil)
+		r.Header.Set("If-Match", tc.raw)
+		if _, ok := httperr.IfMatchVersion(rec, r); ok {
+			t.Errorf("If-Match %q was accepted: %s", tc.raw, tc.why)
 		}
 	}
-	for _, raw := range []string{"1", `"7"`} {
-		v := crmcontracts.IfMatch(raw)
-		n, err := ifMatchVersion(&v)
-		if err != nil || n < 1 {
-			t.Errorf("If-Match %q -> (%d, %v); a real version must pass", raw, n, err)
-		}
+
+	// A real version passes through unchanged.
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/v1/provider-connections/surfe", nil)
+	r.Header.Set("If-Match", "7")
+	v, ok := httperr.IfMatchVersion(rec, r)
+	if !ok || v == nil || *v != 7 {
+		t.Errorf("If-Match \"7\" -> (%v, %v); a bare integer version must pass", v, ok)
 	}
-	// The one legal zero: no header at all is the contract's unconditional write.
-	if n, err := ifMatchVersion(nil); err != nil || n != 0 {
-		t.Errorf("absent header -> (%d, %v); absent is the one legal zero", n, err)
+
+	// No header at all is the contract's unconditional write, and the only
+	// legal way to reach the store's zero.
+	rec = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPatch, "/v1/provider-connections/surfe", nil)
+	if v, ok := httperr.IfMatchVersion(rec, r); !ok || v != nil {
+		t.Errorf("absent header -> (%v, %v); absent is the one legal unconditional write", v, ok)
 	}
 }

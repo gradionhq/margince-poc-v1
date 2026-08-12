@@ -94,10 +94,17 @@ func (h integrationsHandlers) UpdateProviderConnection(w http.ResponseWriter, r 
 		httperr.Write(w, r, httperr.Validation("body", "invalid_json", "request body is not valid JSON"))
 		return
 	}
-	version, err := ifMatchVersion(params.IfMatch)
-	if err != nil {
-		httperr.Write(w, r, err)
+	// Read off the header rather than the generated params struct, which is
+	// the house spelling (quotas, people, deals, roles): httperr.IfMatchVersion
+	// is where "a bare integer, not a quoted ETag" and the malformed-header
+	// refusal are decided once, for every surface.
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
 		return
+	}
+	var version int64
+	if ifVersion != nil {
+		version = *ifVersion
 	}
 	patch := fromProviderConfigPatch(body.Configuration)
 	conn, err := h.store.UpdateConfig(r.Context(), string(name), patch, version)

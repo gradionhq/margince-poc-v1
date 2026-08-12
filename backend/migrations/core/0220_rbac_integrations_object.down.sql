@@ -1,4 +1,4 @@
--- Reverse of 0218: take the `integrations` grant back out of every role document.
+-- Reverse of 0220: take the `integrations` grant back out of every role document.
 --
 -- A role carrying a grant on an object the code no longer knows is not
 -- harmless: Parse rejects a document naming an object outside the closed set,

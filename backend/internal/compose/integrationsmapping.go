@@ -9,9 +9,6 @@ package compose
 // channel connections — two different things called "a connection".
 
 import (
-	"strconv"
-	"strings"
-
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -209,53 +206,6 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
-}
-
-// ifMatchVersion reads the optional If-Match header into a version. Absent is
-// zero, which the store treats as an unconditional write — the contract makes
-// the header optional, so requiring it here would refuse a legal request.
-//
-// A header that is PRESENT but unreadable is a different thing entirely, and
-// it must not become zero: the caller asked for a conditional write, and
-// answering it with an unconditional one applies the very overwrite they were
-// guarding against. The store cannot check a version nobody handed it, so this
-// refuses rather than letting the write through and hoping.
-//
-// "Unreadable" includes any value that lands on zero, not only text that fails
-// to parse. Zero is this function's own sentinel for "no precondition", and a
-// real version can never be zero — the column starts at 1 and RowVersion is
-// floored at 1 in the contract — so `If-Match: 0` is a malformed precondition
-// wearing the shape of a valid one. Parsing it and passing it on would reopen
-// the same hole one step further in. Negative values are refused for the same
-// reason: no row ever carries one.
-func ifMatchVersion(v *crmcontracts.IfMatch) (int64, error) {
-	if v == nil {
-		return 0, nil
-	}
-	n, err := strconv.ParseInt(strings.Trim(string(*v), `"`), 10, 64)
-	if err != nil || n < 1 {
-		return 0, &malformedIfMatchError{}
-	}
-	return n, nil
-}
-
-// malformedIfMatchError maps to 422: the precondition could not be read, so
-// the write is refused rather than silently promoted to unconditional.
-//
-// It implements MessageFault rather than FieldFault because the offending
-// input is a HEADER, and no request-body field path names it — publishing
-// "If-Match" in the field slot would put prose where a machine reads a
-// contract path.
-type malformedIfMatchError struct{}
-
-func (e *malformedIfMatchError) Error() string {
-	return "the If-Match header must be the last-seen integer version"
-}
-
-func (e *malformedIfMatchError) MessageFault() (code, message string) {
-	// The rejected value is deliberately not echoed: it is caller-supplied
-	// text and reflecting it is how a header becomes an injection vector.
-	return "malformed_if_match", "The If-Match header must be the last-seen integer version. Re-read the connection and retry with its version."
 }
 
 // toProviderSnapshot renders the frozen configuration in the same shape the

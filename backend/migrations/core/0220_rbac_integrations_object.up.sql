@@ -1,4 +1,4 @@
--- 0218: give every existing role a grant on the `integrations` object.
+-- 0220: give every existing role a grant on the `integrations` object.
 --
 -- The role seed writes each system role's permission document ONCE, at
 -- workspace creation, and never re-syncs it. So a new RBAC object works on a
