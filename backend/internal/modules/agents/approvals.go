@@ -59,6 +59,14 @@ type StageRequest struct {
 // StageInfo is what a 🟡-capable tool contributes to its own staging: the
 // row the effect targets (for the version re-check) and the one-liner the
 // inbox displays.
+//
+// TargetVersion reaches no staged row in production, on either door. It travels
+// as far as StageRequest and stops there: the approvals engine resolves the pin
+// itself, inside the staging transaction, discarding whatever a caller offered
+// (approvals.insertProposalInTx). So a resolver's answer here documents the
+// version its own read saw, and is not the pin an approval is later redeemed
+// against — a difference worth stating, since a field named TargetVersion on
+// the staging seam reads like the thing that binds the redemption.
 type StageInfo struct {
 	TargetType    string
 	TargetID      ids.UUID

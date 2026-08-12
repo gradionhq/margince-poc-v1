@@ -78,7 +78,7 @@ func presentedApprovalToken(r *http.Request) string {
 // of the gate need all of them: `presented` says the request asserted an
 // authority at all, `ok` says that assertion held, and the redemption carries
 // what the release proved. Nothing here forwards to a handler — what a released
-// call is then conditioned on differs between the two arms (agentgate.go's
+// call is then conditioned on differs between the two arms (agentgateauto.go's
 // pinAutoExecutedWrite and redeemIfPresented below), and folding the dispatch in
 // here is what left one arm redeeming and the other ignoring the same header.
 func consumePresentedToken(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) (redemption tokenRedemption, presented, ok bool) {

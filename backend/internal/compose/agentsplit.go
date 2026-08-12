@@ -92,7 +92,7 @@ var actionShapedUpdateOps = map[string]bool{
 //
 // A retry presenting an X-Approval-Token never arrives here: the auto-execute
 // arm consumes the token and forwards the released call straight to the handler
-// (runAutoExecuted, agentgate.go), because that retry carries exactly the staged
+// (runAutoExecuted, agentgateauto.go), because that retry carries exactly the staged
 // sub-patch whose hash the approval was bound to and re-splitting it would stage
 // a second approval for the overwrite just approved. This function used to
 // redeem the token itself, which is how every OTHER tool's 🟢 arm came to ignore
@@ -216,20 +216,21 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		// second return shape for stagedTarget's callers to carry.
 		return
 	}
+	// No version pin travels from here, and the residue is still staged against
+	// the state the approving human will actually judge (ADR-0036 §2). What
+	// makes that true is WHEN the pin is read, not who supplies it: the
+	// approvals engine resolves target_version itself, inside the staging
+	// transaction (approvals.insertProposalInTx), which this call reaches only
+	// after the auto-execute half above committed — so the version it takes is
+	// the post-write one, and this call's own successful half cannot invalidate
+	// its own staged half. A pin named here would not survive the trip anyway:
+	// approvalsAdapter.Stage (registry.go) forwards none, deliberately.
 	approvalID, sErr := staging.Stage(r.Context(), agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
 		TargetType:     info.TargetType,
 		TargetID:       info.TargetID,
-		// TargetVersion overrides the resolver's own answer (always nil —
-		// Subject supplies no version pin, command.go's own doc says why)
-		// with the version the AUTO-EXECUTE half just wrote, not whatever
-		// the row held before this request: this residue is staged
-		// against the state the approving human will actually judge
-		// (ADR-0036 §2), so this call's own successful half cannot
-		// invalidate its own staged half.
-		TargetVersion: recordVersion(record),
 		// The staged sub-patch is what the approval binds to, so the summary
 		// names the values it would write, not only the field names it would
 		// write them to: "overwrite human-edited amount_minor" told an
@@ -251,23 +252,6 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 			strings.Join(split.Conflicts, ", "), approvalID, approvalTokenHeader, approvalID),
 	}
 	buffered.flushJSON(w, r, record)
-}
-
-// recordVersion pins the staged residue to the record version the auto-execute
-// half of the split produced. Contract record bodies carry the read-only
-// `version` (RowVersion, ADR-0036 §3); a response without one yields no
-// pin rather than a wrong one. The body is decoded with UseNumber, so the
-// value arrives as json.Number and is read losslessly.
-func recordVersion(record map[string]any) *int64 {
-	number, ok := record["version"].(json.Number)
-	if !ok {
-		return nil
-	}
-	version, err := number.Int64()
-	if err != nil {
-		return nil
-	}
-	return &version
 }
 
 // bufferedResponse holds a handler's answer so the gate can decide
