@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -78,7 +77,7 @@ func (s *VoiceStore) ClaimBuild(ctx context.Context, profileID, buildID ids.UUID
 	}
 	var input VoiceBuildInput
 	claimed := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := s.now().UTC()
 		// Lock order is profile THEN build — the same order CompleteBuild
 		// and every corpus mutation take, so a concurrent claim and
@@ -175,7 +174,7 @@ func (s *VoiceStore) SetBuildStage(ctx context.Context, buildID ids.UUID, stage 
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE voice_build SET stage = $2, version = version + 1, updated_at = $3
 			WHERE id = $1 AND status = 'running' AND archived_at IS NULL`, buildID, stage, s.now().UTC())
@@ -191,7 +190,7 @@ func (s *VoiceStore) DeferBuild(ctx context.Context, buildID ids.UUID, claimedAt
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		build, err := scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			UPDATE voice_build
 			SET status = 'deferred', status_code = 'budget_deferred', status_detail = $2,
@@ -221,7 +220,7 @@ func (s *VoiceStore) FailBuild(ctx context.Context, buildID ids.UUID, claimedAt 
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		build, err := scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			SELECT %s FROM voice_build
 			WHERE id = $1 AND status = 'running' AND started_at = $2 AND archived_at IS NULL

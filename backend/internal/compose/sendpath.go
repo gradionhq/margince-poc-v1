@@ -77,7 +77,7 @@ type SendPath struct {
 // learning loop exists.
 func (p SendPath) withPoolDefaults(pool *pgxpool.Pool) SendPath {
 	if p.DraftOutcome == nil {
-		p.DraftOutcome = ai.NewVoiceStore(pool)
+		p.DraftOutcome = ai.NewVoiceStore(InstallationDB(pool))
 	}
 	if p.ChannelRecipients == nil {
 		p.ChannelRecipients = channelReachability{}

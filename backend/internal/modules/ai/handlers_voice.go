@@ -52,7 +52,7 @@ type Handlers struct {
 // every other tenant read.
 func NewHandlers(db *database.DB, budget BudgetPolicy) Handlers {
 	return Handlers{
-		voice: NewVoiceStore(db.Pool()), meter: NewMeter(db), budget: budget,
+		voice: NewVoiceStore(db), meter: NewMeter(db), budget: budget,
 		calls: NewCallReadStore(db), rates: NewRateStore(db),
 		feedback:      NewFeedbackStore(db),
 		publicProfile: NewPublicProfile("unconfigured", RoutingConfig{}),

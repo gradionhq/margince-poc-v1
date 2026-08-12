@@ -70,7 +70,7 @@ func seedVoiceCandidate(t *testing.T, pool *pgxpool.Pool, workspaceID, profileID
 
 func TestVoiceProfileAndCorpusAreOwnerPrivate(t *testing.T) {
 	e := Setup(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 	created, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
@@ -190,7 +190,7 @@ Kurz: das Angebot steht, Freitag entscheiden wir.
 
 func TestVoiceDerivedRebuildVersionsArtifactAndPreservesIdentity(t *testing.T) {
 	e := Setup(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 
 	created, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{
@@ -350,7 +350,7 @@ func TestVoiceDerivedRebuildVersionsArtifactAndPreservesIdentity(t *testing.T) {
 func TestVoiceCandidateTransitionsUseCandidateConcurrencyAndForwardRollback(t *testing.T) {
 	e := Setup(t)
 	ownerDB := SchemaPool(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 	profile, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
 	if err != nil {
@@ -410,7 +410,7 @@ func TestVoiceCandidateTransitionsUseCandidateConcurrencyAndForwardRollback(t *t
 func TestVoiceConcurrentBuildRequestsConvergeOnOneDurableRow(t *testing.T) {
 	e := Setup(t)
 	ownerDB := SchemaPool(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 	profile, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
 	if err != nil {
@@ -468,7 +468,7 @@ func TestVoiceConcurrentBuildRequestsConvergeOnOneDurableRow(t *testing.T) {
 func TestVoiceDraftRejectionIsIdempotentAndTerminalSafe(t *testing.T) {
 	e := Setup(t)
 	ownerDB := SchemaPool(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 	profile, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
 	if err != nil {
@@ -538,7 +538,7 @@ func TestVoiceDraftRejectionIsIdempotentAndTerminalSafe(t *testing.T) {
 func TestVoiceClearCorpusScrubsQualifyingLearningSignal(t *testing.T) {
 	e := Setup(t)
 	ownerDB := SchemaPool(t)
-	voice := ai.NewVoiceStore(e.Pool)
+	voice := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
 	profile, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
 	if err != nil {

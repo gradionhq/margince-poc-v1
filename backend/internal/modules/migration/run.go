@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -56,16 +55,18 @@ type Run struct {
 // RunStore owns the import_run table; every status transition rides the
 // storekit audit shape.
 type RunStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
-// NewRunStore wires the store over the RLS-bound app pool.
-func NewRunStore(pool *pgxpool.Pool) *RunStore {
-	return &RunStore{pool: pool}
+// NewRunStore opens the run store on a handle already bound to the workspace
+// it serves.
+func NewRunStore(db *database.DB) *RunStore {
+	return &RunStore{db: db}
 }
 
 func (s *RunStore) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // CreateRunInput starts a run record. Source is the provenance stamp

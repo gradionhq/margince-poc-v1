@@ -111,7 +111,7 @@ type voiceBuildWorker struct {
 }
 
 func newVoiceBuildWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger) *voiceBuildWorker {
-	return &voiceBuildWorker{store: ai.NewVoiceStore(pool), brain: brain, log: log, now: time.Now}
+	return &voiceBuildWorker{store: ai.NewVoiceStore(InstallationDB(pool)), brain: brain, log: log, now: time.Now}
 }
 
 // reclaimAfter leaves a grace beyond the work timeout before a replacement

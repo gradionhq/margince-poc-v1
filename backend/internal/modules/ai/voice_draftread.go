@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -45,7 +44,7 @@ func (s *VoiceStore) ActiveVoiceForActor(ctx context.Context) (VoiceProfile, Voi
 		version VoiceProfileVersion
 		found   bool
 	)
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		p, err := scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(`
 			SELECT %s FROM voice_profile
 			WHERE archived_at IS NULL AND scope = 'user' AND owner_id = $1 AND status = 'ready'
@@ -88,7 +87,7 @@ func (s *VoiceStore) RecordDraftedSignal(ctx context.Context, profileID ids.UUID
 		return &CorpusIngestError{Field: voiceKeyDraftRef, Reason: voiceValidationNotEmpty}
 	}
 	hash := sha256.Sum256([]byte(draftRef))
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}

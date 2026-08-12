@@ -172,7 +172,11 @@ func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
-	runs := migration.NewRunStore(pool)
+	db, err := actingWorkspaceDB(ctx, pool)
+	if err != nil {
+		return migration.Report{}, err
+	}
+	runs := migration.NewRunStore(db)
 	// Everything that can still fail happens BEFORE the run row exists.
 	// Only the engine needs a run id, so an early return here cannot
 	// strand a row at `running` with an empty error column — a state
@@ -209,10 +213,6 @@ func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	// unresolvedOwnerEmails, not nil: this path never resolves an owner
 	// email (owners come from the bundle's own map), and a fail-loud
 	// placeholder beats a nil-interface panic if that stops being true.
-	db, err := actingWorkspaceDB(ctx, pool)
-	if err != nil {
-		return migration.Report{}, err
-	}
 	writers := newFlipWriters(db, overlay.NewMirrorStore(db, unresolvedOwnerEmails{}), contents.incumbent).
 		forRun(run.ID, operator).
 		WithOwnerMap(owners)

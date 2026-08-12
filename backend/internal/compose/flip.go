@@ -68,7 +68,7 @@ type flipRunner struct {
 var _ overlay.FlipRunner = (*flipRunner)(nil)
 
 func newFlipRunner(pool *pgxpool.Pool, svc *overlay.Service, ms *overlay.MirrorStore, log *slog.Logger) *flipRunner {
-	return &flipRunner{pool: pool, svc: svc, ms: ms, runs: migration.NewRunStore(pool), log: log}
+	return &flipRunner{pool: pool, svc: svc, ms: ms, runs: migration.NewRunStore(InstallationDB(pool)), log: log}
 }
 
 // Preflight is OVA-WIRE-7: {ready, blocking[], unresolved_conflicts[]}

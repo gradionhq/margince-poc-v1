@@ -162,7 +162,7 @@ type voiceBuildEnv struct {
 func seedVoiceBuild(t *testing.T, quote string, sourceCount int) (*voiceBuildEnv, ai.VoiceBuild) {
 	t.Helper()
 	e := integration.Setup(t)
-	store := ai.NewVoiceStore(e.Pool)
+	store := ai.NewVoiceStore(e.DB())
 	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceBuildPerms)
 	profile, err := store.CreateProfile(owner, ai.CreateVoiceProfileInput{})
 	if err != nil {

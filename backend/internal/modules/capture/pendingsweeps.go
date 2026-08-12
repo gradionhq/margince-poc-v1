@@ -26,7 +26,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -45,7 +44,7 @@ import (
 // cannot be.
 func (s *PendingStore) RetireExhausted(ctx context.Context, reason string) (int, error) {
 	var retired int
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET status = 'unsure', disposition_reason = NULLIF($1, ''),
@@ -77,7 +76,7 @@ func (s *PendingStore) RetireExhausted(ctx context.Context, reason string) (int,
 // simply stops asking a question that has been answered.
 func (s *PendingStore) ReconcileDeclined(ctx context.Context) (int, error) {
 	var closed int
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty p
 			   SET status = 'rejected',
@@ -122,7 +121,7 @@ type StaleReview struct {
 // would keep resetting its own deadline and never age out at all.
 func (s *PendingStore) StaleReviews(ctx context.Context, window time.Duration, limit int) ([]StaleReview, error) {
 	var out []StaleReview
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, proposal_id
 			  FROM capture_pending_counterparty
@@ -396,7 +395,7 @@ func (s *PendingStore) PurgeRawCaptureTx(ctx context.Context, tx pgx.Tx, activit
 // noiseMail runs the shared join with one extra predicate.
 func (s *PendingStore) noiseMail(ctx context.Context, extra string, limit int) ([]ids.UUID, error) {
 	var out []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT DISTINCT a.id, a.occurred_at
 			  FROM activity a

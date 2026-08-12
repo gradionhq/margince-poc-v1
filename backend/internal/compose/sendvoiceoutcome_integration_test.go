@@ -346,9 +346,9 @@ func TestConcurrentSendsSharingADraftReferenceLeaveOneOutcomeAndBothTransmit(t *
 	draft := e.openDraft(t)
 
 	winner := gatedDraftOutcome{
-		inner: ai.NewVoiceStore(e.Pool), locked: make(chan int32), release: make(chan struct{}),
+		inner: ai.NewVoiceStore(e.DB()), locked: make(chan int32), release: make(chan struct{}),
 	}
-	loser := &witnessDraftOutcome{inner: ai.NewVoiceStore(e.Pool)}
+	loser := &witnessDraftOutcome{inner: ai.NewVoiceStore(e.DB())}
 	winnerStager, loserStager := &recordingStager{}, &recordingStager{}
 	winnerStore := sendStore(e.Pool, SendPath{
 		PublicBaseURL: voiceSendBaseURL, Delivery: winnerStager, DraftOutcome: winner,

@@ -19,7 +19,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -106,7 +105,7 @@ func (s *VoiceStore) ListVersions(ctx context.Context, profileID ids.UUID, curso
 		where += " AND (created_at, id) < ($2, $3)"
 	}
 	var page VoiceProfileVersionPage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}
@@ -153,7 +152,7 @@ func (s *VoiceStore) transitionVersion(ctx context.Context, profileID ids.UUID, 
 		return VoiceProfileVersion{}, err
 	}
 	var result VoiceProfileVersion
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		result, err = s.transitionVoiceVersion(ctx, tx, profileID, profileVersion, ifVersion, target)
 		return err
@@ -265,7 +264,7 @@ func (s *VoiceStore) RollbackVersion(ctx context.Context, profileID ids.UUID, so
 		return VoiceProfileVersion{}, apperrors.ErrPermissionDenied
 	}
 	var result VoiceProfileVersion
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "voice_profile", profileID, storekit.LiveOnly); err != nil {
 			return err
 		}

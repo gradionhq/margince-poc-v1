@@ -19,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -32,7 +31,7 @@ import (
 // Guarded on the row still being `unsure`: one a human has already decided must
 // never have a fresh proposal attached to it.
 func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET proposal_id = $2, updated_at = now()
@@ -62,7 +61,7 @@ func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID
 // Expired means unanswered; decided means answered, whichever way.
 func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]PendingCounterparty, error) {
 	var out []PendingCounterparty
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(left(p.display_name, $2), ''),
 			       p.activity_id, p.owner_id

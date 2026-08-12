@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -40,11 +39,13 @@ type DueOrg struct {
 
 // AutoEnrichStore owns the sweep's scheduling state and daily-cap reservation.
 type AutoEnrichStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
-// NewAutoEnrichStore builds the store over the pool.
-func NewAutoEnrichStore(pool *pgxpool.Pool) *AutoEnrichStore { return &AutoEnrichStore{pool: pool} }
+// NewAutoEnrichStore builds the store on a handle already bound to the
+// workspace it serves.
+func NewAutoEnrichStore(db *database.DB) *AutoEnrichStore { return &AutoEnrichStore{db: db} }
 
 // ListDueOrgs returns up to limit captured organizations that need a dossier,
 // newest first (ADR-0072): with a live primary domain, no dossier, and either
@@ -71,7 +72,7 @@ func NewAutoEnrichStore(pool *pgxpool.Pool) *AutoEnrichStore { return &AutoEnric
 // opposite of the self-healing this sweep is for.
 func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg, error) {
 	var out []DueOrg
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT o.id, d.domain
 			FROM organization o
@@ -116,7 +117,7 @@ func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg,
 // names. Called once per sweep pass, before ListDueOrgs. A resolved org already
 // has a NULL next_attempt_at, so the NOT-NULL guard leaves it untouched.
 func (s *AutoEnrichStore) ExpireExhausted(ctx context.Context) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_auto_enrich_state SET
 			  last_outcome = 'exhausted', next_attempt_at = NULL, updated_at = now()
@@ -144,7 +145,7 @@ type BudgetSlot struct {
 // sweeps (replicas) can never both slip past the cap.
 func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (BudgetSlot, error) {
 	var slot BudgetSlot
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var enqueued int
 		var day time.Time
 		// INSERT the day's first slot, or increment only while under the cap;
@@ -197,7 +198,7 @@ func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context, slot BudgetSlot) er
 	if !slot.Reserved {
 		return nil
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_auto_enrich_budget
 			   SET enqueued = enqueued - 1
@@ -221,7 +222,7 @@ func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context, slot BudgetSlot) er
 // process instead makes that a cross-clock comparison, and the two clocks are
 // only ever coincidentally equal.
 func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.OrganizationID, backoff time.Duration) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO capture_auto_enrich_state
 			  (organization_id, workspace_id, attempts, last_attempt_at, next_attempt_at, last_outcome)
@@ -247,7 +248,7 @@ func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.Organization
 // due sweep retries it (until the attempt bound). A cursor row is expected
 // (MarkQueued wrote it); a missing row is a no-op, never an error.
 func (s *AutoEnrichStore) MarkResolved(ctx context.Context, orgID ids.OrganizationID, outcome string) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_auto_enrich_state SET
 			  last_outcome = $2,

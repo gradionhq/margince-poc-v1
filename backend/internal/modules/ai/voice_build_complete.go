@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -68,7 +67,7 @@ func (s *VoiceStore) CompleteBuild(ctx context.Context, buildID ids.UUID, claime
 		return VoiceProfileVersion{}, apperrors.ErrPermissionDenied
 	}
 	var result VoiceProfileVersion
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Lock order is profile THEN build — the same order every corpus
 		// mutation takes, so a concurrent corpus write cannot deadlock a
 		// completing build.
@@ -265,7 +264,7 @@ func (s *VoiceStore) ActiveVersion(ctx context.Context, profileID ids.UUID) (Voi
 	}
 	var version VoiceProfileVersion
 	found := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}
@@ -306,7 +305,7 @@ const staleQueuedAge = 10 * time.Minute
 // workspace-by-workspace RLS walk.
 func (s *VoiceStore) DueDeferredBuilds(ctx context.Context) ([]VoiceBuildRef, error) {
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.Pool().Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("voice: listing workspaces for the deferred-build walk: %w", err)
 	}
@@ -318,7 +317,7 @@ func (s *VoiceStore) DueDeferredBuilds(ctx context.Context) ([]VoiceBuildRef, er
 	var errs error
 	for _, wsID := range workspaces {
 		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		err := database.WithWorkspaceTx(wsCtx, s.pool, func(tx pgx.Tx) error {
+		err := s.db.Tx(wsCtx, func(tx pgx.Tx) error {
 			now := s.now().UTC()
 			wsRows, err := tx.Query(ctx, `
 				SELECT id, voice_profile_id, requested_by FROM voice_build

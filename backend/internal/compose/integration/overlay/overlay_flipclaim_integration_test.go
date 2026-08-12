@@ -24,6 +24,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -56,7 +57,7 @@ func (f flipEstate) flipLiveness(t *testing.T) bool {
 // the probe that survives a crash.
 func (f flipEstate) startMirrorRun(t *testing.T, snapshot string) {
 	t.Helper()
-	if _, err := migration.NewRunStore(f.pool).Create(f.adminCtx, migration.CreateRunInput{
+	if _, err := migration.NewRunStore(database.BindTo(f.pool, ids.From[ids.WorkspaceKind](f.wsID))).Create(f.adminCtx, migration.CreateRunInput{
 		Connector: migration.ConnectorMirror, SourceRef: snapshot, Source: "overlay:flip",
 	}); err != nil {
 		t.Fatalf("creating the mirror run: %v", err)
