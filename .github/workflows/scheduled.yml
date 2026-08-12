@@ -20,6 +20,12 @@ name: scheduled
 #                        green. main's last-known-green is therefore not evidence
 #                        main is green. This re-runs the lane unconditionally.
 #
+# A fourth job earns its place here for the same reason rather than the same
+# question. reap-caches is maintenance, not a verdict on main — but the state it
+# maintains only ever drifts BETWEEN merges, and its failure mode is silence:
+# caches evict each other and lanes get slower with nothing to point at. A thing
+# that decays on the calendar belongs on the calendar.
+#
 # Findings become ISSUES, not just a red run. A failed scheduled workflow notifies
 # essentially nobody by default, and this whole file exists because "we will check
 # regularly" decays into nobody checking.
@@ -160,17 +166,53 @@ jobs:
         working-directory: .
         run: make check-backend
 
+  # Delete the build caches nothing can restore. The go-build key ends in the
+  # commit sha and falls back through restore-keys to the newest entry sharing
+  # its deps hash, so within one deps hash only the newest is ever read — and one
+  # push to main writes ~5 GB across the two flavours against a 10 GB quota. Left
+  # alone, GitHub evicts least-recently-used, which reaches node-cache,
+  # gate-binaries and setup-go first: the cheap caches are evicted by the
+  # expensive ones and several lanes get slower with nothing to point at.
+  #
+  # The only job holding `actions: write`, and it runs no build code — the same
+  # permission isolation the report job below uses for `issues: write`. The test
+  # runs FIRST, beside the tool it tests, exactly as test-secret-scan.sh runs
+  # beside the scan: this one deletes, so "it succeeded" is not evidence it kept
+  # the right entry.
+  reap-caches:
+    name: reap superseded build caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The reaper keeps the reachable entry (stubbed, deletes nothing)
+        run: ./scripts/test-reap-build-caches.sh
+      - name: Reap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: ./scripts/reap-build-caches.sh
+
   # The one job holding `issues: write`, and it runs no build code — the same
   # permission isolation sbom.yml's signing job uses. It must RUN when an upstream
   # fails, so it is guarded on !cancelled() rather than needs alone.
   report:
     name: report
-    needs: [vuln, quality-gate, backend-lane]
+    needs: [vuln, quality-gate, backend-lane, reap-caches]
     if: >-
       !cancelled()
       && (needs.vuln.result == 'failure'
         || needs.quality-gate.result == 'failure'
-        || needs.backend-lane.result == 'failure')
+        || needs.backend-lane.result == 'failure'
+        || needs.reap-caches.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -198,4 +240,5 @@ jobs:
           GATE_RESULT: ${{ needs.quality-gate.result }}
           GATE_STATUS: ${{ needs.quality-gate.outputs.status }}
           LANE_RESULT: ${{ needs.backend-lane.result }}
+          CACHE_RESULT: ${{ needs.reap-caches.result }}
         run: ./scripts/scheduled-report.sh
