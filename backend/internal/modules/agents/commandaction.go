@@ -79,7 +79,11 @@ func (r retireCustomFieldResolver) Guards(ctx context.Context, cmd RetireCustomF
 }
 
 // UpdateCustomFieldOptionsCommand is one picklist option-set replacement,
-// whichever door asked for it.
+// whichever door asked for it — the routed custom field id only. It does
+// not carry the replacement options: neither Guards nor Subject reads them
+// (the body travels separately, into diff_hash), the same reason
+// UpdateFactCommand's own doc (commandsidecar.go) gives for dropping the
+// corrected value.
 type UpdateCustomFieldOptionsCommand struct {
 	ID ids.UUID
 }
@@ -115,7 +119,11 @@ func (r updateCustomFieldOptionsResolver) Guards(ctx context.Context, cmd Update
 }
 
 // SetStakeholderCommand is one project-stakeholder attach or re-role,
-// whichever door asked for it.
+// whichever door asked for it — the routed project id only. It does not
+// carry the attached person or role: neither Guards nor Subject reads them
+// (setStakeholderResolver.Subject's own doc says why), the same reason
+// UpdateFactCommand's own doc (commandsidecar.go) gives for dropping a
+// value nothing here reads.
 type SetStakeholderCommand struct {
 	ID ids.UUID
 }
@@ -181,8 +189,9 @@ type removeStakeholderResolver struct {
 }
 
 // Subject names the PROJECT the approval binds to, with the person being
-// detached carried into the summary — two detaches from the same project
-// must not render as the same inbox line.
+// detached carried into the summary: the door-agnostic line
+// GovernedCall.Subject owes this operation, distinct per person, even
+// though no door renders it today (confirmFactResolver's own doc says why).
 func (r removeStakeholderResolver) Subject(_ context.Context, cmd RemoveStakeholderCommand) (StageInfo, error) {
 	return StageInfo{
 		TargetType: projectRecordType,

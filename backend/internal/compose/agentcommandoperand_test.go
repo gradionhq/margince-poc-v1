@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -69,47 +70,60 @@ func TestAMalformedOperandRouteIDAnswersNotFound(t *testing.T) {
 
 // A missing second path operand — a request built without the segment the
 // router would otherwise have bound — answers 422 naming it, not a panic on
-// an empty FactKey/Field downstream.
+// an empty FactKey/Field downstream. removeProjectStakeholder's person_id is
+// the one operand composed from pathOperand + ids.Parse (agentcommandoperand.go)
+// rather than pathOperand alone, so it is included here too: a missing one
+// must still answer "missing" through that composition, not fall through to
+// ids.Parse("") and answer the malformed-shape code instead.
 func TestAMissingSecondPathOperandAnswers422(t *testing.T) {
 	id := ids.NewV7().String()
 	cases := []struct {
 		name      string
+		method    string
+		path      string
 		decode    func(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error)
 		body      []byte
 		wantField string
 	}{
-		{"confirmOrganizationFact", confirmFactCommand, nil, "factKey"},
-		{"updateOrganizationFact", updateFactCommand, []byte(`{"value":"v"}`), "factKey"},
-		{"confirmOrganizationProfileField", confirmProfileFieldCommand, nil, "field"},
-		{"updateOrganizationProfileField", updateProfileFieldCommand, []byte(`{"value":"v"}`), "field"},
+		{"confirmOrganizationFact", http.MethodPost, "/v1/organizations", confirmFactCommand, nil, "factKey"},
+		{"updateOrganizationFact", http.MethodPatch, "/v1/organizations", updateFactCommand, nil, "factKey"},
+		{"confirmOrganizationProfileField", http.MethodPost, "/v1/organizations", confirmProfileFieldCommand, nil, "field"},
+		{"updateOrganizationProfileField", http.MethodPatch, "/v1/organizations", updateProfileFieldCommand, nil, "field"},
+		{"removeProjectStakeholder", http.MethodDelete, "/v1/projects", removeStakeholderCommand, nil, "person_id"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// extraParam left empty: the route matched (a valid {id}), but the
 			// second segment the router would bind was never set — the shape a
 			// routing bug, not a malformed request, would produce.
-			req := operandRequest(http.MethodPost, "/v1/organizations", id, "", "", c.body)
+			req := operandRequest(c.method, c.path, id, "", "", c.body)
 			_, err := c.decode(agentPolicy{Op: c.name}, restCommandDeps{records: seamRecord{}}, req, c.body)
 			var detailed *httperr.DetailedError
 			if !errors.As(err, &detailed) || detailed.Status != http.StatusUnprocessableEntity {
 				t.Fatalf("a missing %s answered %v, want a 422 naming it", c.wantField, err)
 			}
-			if len(detailed.Fields) != 1 || detailed.Fields[0].Field != c.wantField {
-				t.Errorf("the 422 named field %+v, want %q", detailed.Fields, c.wantField)
+			if len(detailed.Fields) != 1 || detailed.Fields[0].Field != c.wantField || detailed.Fields[0].Code != "missing" {
+				t.Errorf("the 422 named %+v, want field %q code \"missing\"", detailed.Fields, c.wantField)
 			}
 		})
 	}
 }
 
-// A malformed person_id on removeProjectStakeholder is a 422, not the 404
-// the routed {id} gets: it names WHICH edge, not whether the project exists,
-// so its shape being wrong is the caller's mistake, never an existence leak.
+// A malformed (non-empty) person_id on removeProjectStakeholder is also a
+// 422, code "invalid" rather than "missing" — the other half of the
+// pathOperand + ids.Parse composition the test above proves the missing
+// case for. Neither is the 404 the routed {id} gets: person_id names WHICH
+// edge, not whether the project exists, so its shape being wrong is the
+// caller's mistake, never an existence leak.
 func TestARemoveStakeholderMalformedPersonIDAnswers422(t *testing.T) {
 	req := operandRequest(http.MethodDelete, "/v1/projects", ids.NewV7().String(), "person_id", "not-a-uuid", nil)
 	_, err := removeStakeholderCommand(agentPolicy{Op: "removeProjectStakeholder"}, restCommandDeps{records: seamRecord{}}, req, nil)
 	var detailed *httperr.DetailedError
 	if !errors.As(err, &detailed) || detailed.Status != http.StatusUnprocessableEntity {
 		t.Fatalf("a malformed person_id answered %v, want a 422", err)
+	}
+	if len(detailed.Fields) != 1 || detailed.Fields[0].Field != "person_id" || detailed.Fields[0].Code != "invalid" {
+		t.Errorf("the 422 named %+v, want field \"person_id\" code \"invalid\"", detailed.Fields)
 	}
 }
 
@@ -192,11 +206,15 @@ func TestEachOperandCommandStagesTheRoutedRecord(t *testing.T) {
 // buys over the route-walk fallback (stagedTargetByRoute): Guards now runs.
 // An organization or project the caller cannot see stages NOTHING — the same
 // proof shape TestAnArchiveOfAnUnseeableRecordStagesNothing gives archive —
-// for one op from each seam-served family (organization, project); the two
-// custom_field ops have no such proof because the seam has never served that
-// type (TestEachOperandCommandStagesTheRoutedRecord above already stages
-// them against `seamRecord{}` without incident, which is what proves Guards
-// does not even attempt a read for them).
+// for one op from each seam-served family (organization, project). The two
+// custom_field ops have no such proof: the seam has never served that type,
+// so there is no read for Guards to skip. That they never attempt one is
+// TestCustomFieldCommandsStageAndAdmitOutsideTheRecordSeam's own claim
+// (modules/agents/commandaction_test.go), proven there against
+// unreadableProvider{} — a provider that fails every read, so a resolver
+// that consulted it anyway would fail that test rather than pass here:
+// TestEachOperandCommandStagesTheRoutedRecord's use of `seamRecord{}` (every
+// read succeeds) cannot tell "never read" apart from "read and got lucky".
 func TestAnOperandCommandOfAnUnseeableRecordStagesNothing(t *testing.T) {
 	staging := &capturingApprovals{}
 	pol := agentPolicy{Op: "confirmOrganizationFact", Access: accessTool, Tool: "update_record", RecordType: recordTypeOrganization}
@@ -236,41 +254,100 @@ func TestAnOperandCommandOfARecordHeldElsewhereStagesNothing(t *testing.T) {
 	}
 }
 
-// The record type each of these eight resolvers is hardcoded against
-// (organizationSidecarRecordType, customFieldRecordType, projectRecordType
-// — commandsidecar.go, commandaction.go) must agree with the generated
-// policy table, or a contract change could silently point the gate at one
-// record type while the resolver's Guards reads another. Nothing else pins
-// that agreement: the decoders all discard `pol` (its RecordType is not
-// threaded through, unlike archiveCommand/patchCommand's), so this is a
-// fitness function over agentPolicies rather than a point assertion.
-func TestOperandCommandRecordTypesAgreeWithThePolicyTable(t *testing.T) {
-	want := map[string]string{
-		"confirmOrganizationFact":         "organization",
-		"updateOrganizationFact":          "organization",
-		"confirmOrganizationProfileField": "organization",
-		"updateOrganizationProfileField":  "organization",
-		"retireCustomField":               "custom_field",
-		"updateCustomFieldOptions":        "custom_field",
-		"setProjectStakeholder":           "project",
-		"removeProjectStakeholder":        "project",
-	}
-	found := make(map[string]bool, len(want))
-	for _, pol := range agentPolicies {
-		wantType, tracked := want[pol.Op]
-		if !tracked {
+// syntheticOperandRequest builds a well-formed request for route (an
+// agentPolicies key, "METHOD /path/{param}/…"), binding {id} to id and every
+// OTHER path parameter to a fresh, distinct uuid — enough for any of this
+// family's decoders to succeed without this test needing to know which
+// parameter names a given route carries (factKey and field accept any
+// non-empty string; a uuid satisfies that as well as anything, and is what
+// person_id's own ids.Parse requires).
+func syntheticOperandRequest(route string, id ids.UUID) *http.Request {
+	method, template, _ := strings.Cut(route, " ")
+	segments := strings.Split(strings.TrimPrefix(template, "/"), "/")
+	rctx := chi.NewRouteContext()
+	built := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		name, isParam := strings.CutPrefix(seg, "{")
+		if !isParam {
+			built = append(built, seg)
 			continue
 		}
-		found[pol.Op] = true
-		if string(pol.RecordType) != wantType {
-			t.Errorf("%s declares RecordType %q in the generated policy table, want %q — its resolver's "+
-				"hardcoded record type would silently disagree with a contract change",
-				pol.Op, pol.RecordType, wantType)
+		name = strings.TrimSuffix(name, "}")
+		val := ids.NewV7().String()
+		if name == "id" {
+			val = id.String()
+		}
+		rctx.URLParams.Add(name, val)
+		built = append(built, val)
+	}
+	req := httptest.NewRequest(method, "/"+strings.Join(built, "/"), nil)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+// Every confirm-first update_record operation whose route carries more than
+// the routed {id} — a second path segment or a second path parameter — must
+// decode into a command, or its staged target is still guessed from the
+// route (stagedTargetByRoute) rather than answered by the resolver that
+// speaks for the operation; and the command it decodes into must be the
+// RIGHT one, staging the policy table's own declared record type and the
+// routed id rather than some other operation's.
+//
+// Derived from agentPolicies rather than a hand-listed set of eight op
+// names: TestEachOperandCommandStagesTheRoutedRecord above hand-picks its
+// eight and would not notice a NINTH such operation the contract grows, nor
+// would it notice one of the eight silently bound to the wrong decoder in
+// the restCommands table (a swapped entry still "stages something", and
+// stagedTargetByRoute's fallback answers the identical target for any
+// operation this test skips) — this walk catches both, because it actually
+// invokes the bound decoder and checks what it staged against what the
+// policy table declared, rather than assuming the binding is the one its
+// key implies.
+//
+// The whole-record patch shape (route ends exactly at /{id}) is excluded:
+// that coverage is TestEveryAgentReachablePatchOperationDecodesIntoACommand's,
+// derived the same way for its own twelve.
+func TestEveryConfirmFirstOperandRouteDecodesIntoTheRightCommand(t *testing.T) {
+	checked := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool || pol.Tool != "update_record" || pol.Tier != tierConfirmationRequired {
+			continue
+		}
+		if strings.HasSuffix(route, "/{id}") {
+			continue
+		}
+		checked++
+
+		decode, described := restCommands[pol.Op]
+		if !described {
+			t.Errorf("%s (%s) is a confirm-first update_record operation whose route carries more than the "+
+				"routed {id}, but decodes into no command — its staged target is still guessed from the route",
+				route, pol.Op)
+			continue
+		}
+
+		id := ids.NewV7()
+		req := syntheticOperandRequest(route, id)
+		call, err := decode(pol, restCommandDeps{records: seamRecord{}}, req, nil)
+		if err != nil {
+			t.Errorf("%s (%s): decoding a well-formed request answered %v", route, pol.Op, err)
+			continue
+		}
+		info, err := call.Subject(context.Background())
+		if err != nil {
+			t.Errorf("%s (%s): naming the subject answered %v", route, pol.Op, err)
+			continue
+		}
+		if info.TargetType != string(pol.RecordType) {
+			t.Errorf("%s (%s) stages target type %q, want %q — the policy table's own declared record type",
+				route, pol.Op, info.TargetType, pol.RecordType)
+		}
+		if info.TargetID != id {
+			t.Errorf("%s (%s) stages target id %s, want %s — restCommands binds this operationId to the "+
+				"WRONG decoder, or the decoder read the wrong path parameter as {id}", route, pol.Op, info.TargetID, id)
 		}
 	}
-	for op := range want {
-		if !found[op] {
-			t.Errorf("%s no longer appears in the generated policy table", op)
-		}
+	if checked != 8 {
+		t.Errorf("the policy table carries %d confirm-first update_record operand operations, want 8 — if the "+
+			"contract gained or lost one, this seam's coverage moved with it", checked)
 	}
 }

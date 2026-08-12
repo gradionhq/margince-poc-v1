@@ -79,8 +79,8 @@ func TestStakeholderCommandsStageTheProject(t *testing.T) {
 		t.Errorf("staged target = (%s,%s), want (project,%s)", removeInfo.TargetType, removeInfo.TargetID, projectID)
 	}
 	if !strings.Contains(removeInfo.Summary, personID.String()) {
-		t.Errorf("remove-stakeholder summary %q does not name the person being detached — two detaches from "+
-			"the same project must not render as the same inbox line", removeInfo.Summary)
+		t.Errorf("remove-stakeholder summary %q does not name the person being detached — Subject owes a "+
+			"line distinct per person even though no door renders it today", removeInfo.Summary)
 	}
 }
 

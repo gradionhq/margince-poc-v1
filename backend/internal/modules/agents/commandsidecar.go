@@ -51,10 +51,12 @@ type confirmFactResolver struct {
 }
 
 // Subject names the ORGANIZATION the approval binds to — a fact has no row
-// of its own on the seam — with the fact key carried into the summary: two
-// facts confirmed on the same organization must not render as the same
-// inbox line. It reads nothing: unlike archiveResolver's, there is no
-// per-record label to compose (routedRecordTarget's own doc says why).
+// of its own on the seam — with the fact key carried into the summary: the
+// door-agnostic line GovernedCall.Subject owes this operation, distinct per
+// fact even though no door renders it today (REST takes its own line from
+// restSummary; no tool reaches this command at all — agentgatestaging.go).
+// It reads nothing: unlike archiveResolver's, there is no per-record label
+// to compose (routedRecordTarget's own doc says why).
 func (r confirmFactResolver) Subject(_ context.Context, cmd ConfirmFactCommand) (StageInfo, error) {
 	return StageInfo{
 		TargetType: organizationSidecarRecordType,
@@ -74,7 +76,12 @@ func (r confirmFactResolver) Guards(ctx context.Context, cmd ConfirmFactCommand)
 }
 
 // UpdateFactCommand is one organization fact correction, whichever door
-// asked for it.
+// asked for it — the routed organization id and the fact key being
+// corrected. It does NOT carry the corrected value: neither Guards nor
+// Subject reads one (the body travels separately, into diff_hash, and
+// nothing here renders it — see Subject's own doc), so a field with no
+// reader is not carried, the same call task 4's review made for
+// PatchCommand.IfVersion.
 type UpdateFactCommand struct {
 	ID      ids.UUID
 	FactKey string
@@ -144,7 +151,9 @@ func (r confirmProfileFieldResolver) Guards(ctx context.Context, cmd ConfirmProf
 }
 
 // UpdateProfileFieldCommand is one organization profile-field correction,
-// whichever door asked for it.
+// whichever door asked for it — the routed organization id and the field
+// being corrected. It does not carry the corrected value, the same reason
+// UpdateFactCommand's own doc gives.
 type UpdateProfileFieldCommand struct {
 	ID    ids.UUID
 	Field string

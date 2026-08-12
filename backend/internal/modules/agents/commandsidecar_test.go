@@ -5,9 +5,9 @@ package agents
 
 // The organization-sidecar resolvers (commandsidecar.go): the approval binds
 // to the organization, refuses the same two ways patchResolver's own target
-// does, and the summary names the operand — the fact key or the profile
-// field — so two of either on the same organization never render as the
-// same inbox line.
+// does, and Subject's summary names the operand — the fact key or the
+// profile field — the door-agnostic line GovernedCall.Subject owes this
+// operation, distinct per operand even though no door renders it today.
 
 import (
 	"context"
@@ -67,8 +67,8 @@ func TestSidecarCommandsStageTheOrganizationWithTheOperandInTheSummary(t *testin
 				t.Errorf("staged target = (%s,%s), want (organization,%s)", info.TargetType, info.TargetID, orgID)
 			}
 			if !strings.Contains(info.Summary, c.wantOperand) {
-				t.Errorf("summary %q does not name the operand %q — a human triaging the inbox cannot tell "+
-					"which fact or field they are deciding about", info.Summary, c.wantOperand)
+				t.Errorf("summary %q does not name the operand %q — Subject owes a line distinct per fact or "+
+					"field even though no door renders it today", info.Summary, c.wantOperand)
 			}
 		})
 	}
