@@ -10,6 +10,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -93,8 +94,68 @@ func TestArchiveStagesATypeTheRecordSeamDoesNotServe(t *testing.T) {
 	if info.TargetType != "tag" || info.TargetID != id {
 		t.Errorf("staged target = (%s,%s), want (tag,%s)", info.TargetType, info.TargetID, id)
 	}
-	if !strings.Contains(info.Summary, id.String()) {
-		t.Errorf("staged summary %q names neither the type nor the id — it is all the inbox has for a "+
-			"target the seam cannot label", info.Summary)
+	if !strings.Contains(info.Summary, "tag") || !strings.Contains(info.Summary, id.String()) {
+		t.Errorf("staged summary %q must name both the type and the id — together they are all the inbox "+
+			"has for a target the seam cannot label", info.Summary)
+	}
+}
+
+// countingProvider answers every read from the same authoritative record and
+// counts how many times it was asked.
+type countingProvider struct {
+	datasource.SystemOfRecordProvider
+	reads int
+}
+
+func (c *countingProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	c.reads++
+	return datasource.Record{
+		Ref: ref, Fields: json.RawMessage(`{"name":"Acme"}`), Version: 4,
+		Freshness: datasource.FreshnessInfo{Authoritative: true},
+	}, nil
+}
+
+// Both questions are answered from ONE read of the target.
+//
+// Not an efficiency assertion. Two reads are two rows: the guard would judge
+// the authority of one and the subject would describe the other, and a record
+// archived or re-pointed between them makes the approval a human sees disagree
+// with the authority that admitted it.
+func TestBothGovernanceQuestionsAreAnsweredFromOneRead(t *testing.T) {
+	provider := &countingProvider{}
+	call := Bind(NewArchiveResolver(provider), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+
+	if _, err := StageSubject(context.Background(), call); err != nil {
+		t.Fatalf("staging a readable person answered %v, want it staged", err)
+	}
+	if provider.reads != 1 {
+		t.Errorf("the resolver read its target %d times, want 1 — the guard and the subject must describe "+
+			"the same row, not two readings of one id", provider.reads)
+	}
+}
+
+// A resolver asked about a second target reads THAT target. The memo above is
+// per-call by construction, and this is what makes the claim checkable rather
+// than a promise in a comment.
+func TestAResolverAskedAboutASecondTargetReadsIt(t *testing.T) {
+	provider := &countingProvider{}
+	resolver := NewArchiveResolver(provider)
+	ctx := context.Background()
+
+	first, err := resolver.Subject(ctx, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+	if err != nil {
+		t.Fatalf("the first subject answered %v", err)
+	}
+	second, err := resolver.Subject(ctx, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+	if err != nil {
+		t.Fatalf("the second subject answered %v", err)
+	}
+
+	if provider.reads != 2 {
+		t.Errorf("two targets cost %d reads, want 2 — a remembered row must not answer for a record it "+
+			"was not read for", provider.reads)
+	}
+	if first.TargetID == second.TargetID {
+		t.Error("both subjects named the same target id")
 	}
 }

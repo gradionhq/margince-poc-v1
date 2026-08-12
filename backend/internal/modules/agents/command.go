@@ -95,12 +95,47 @@ type ArchiveCommand struct {
 
 // NewArchiveResolver answers both governance questions for an archive, reading
 // through the record seam the archive itself writes through.
+//
+// One resolver per call. It remembers the row it read so both questions are
+// answered about the SAME record, which is only true while the resolver is as
+// short-lived as the call it was built for.
 func NewArchiveResolver(records datasource.SystemOfRecordProvider) GovernanceResolver[ArchiveCommand] {
-	return archiveResolver{records: records}
+	return &archiveResolver{records: records}
 }
 
 type archiveResolver struct {
 	records datasource.SystemOfRecordProvider
+	// seen is the command rec was read for, so a resolver asked about a second
+	// target reads that target rather than answering about the first.
+	seen ArchiveCommand
+	rec  datasource.Record
+	read bool
+}
+
+// target reads the row the command names, once.
+//
+// Both questions below are answered from it, for two reasons. A row read twice
+// can change between the readings, and the answers would then describe
+// different records — an authority judgment about one, a summary about
+// another. And the read is not cheap: the seam resolves the installation's
+// mode before it reaches the record, so asking twice doubles the round trips a
+// staging spends on one row.
+//
+// served is false for a record type the seam does not speak: there is no row
+// then, and nothing to say about one.
+func (a *archiveResolver) target(ctx context.Context, cmd ArchiveCommand) (rec datasource.Record, served bool, err error) {
+	if !servedByTheRecordSeam(cmd.RecordType) {
+		return datasource.Record{}, false, nil
+	}
+	if a.read && a.seen == cmd {
+		return a.rec, true, nil
+	}
+	rec, err = a.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(cmd.RecordType), ID: cmd.ID})
+	if err != nil {
+		return datasource.Record{}, false, err
+	}
+	a.seen, a.rec, a.read = cmd, rec, true
+	return rec, true, nil
 }
 
 // Subject names the row the approval binds to.
@@ -109,22 +144,23 @@ type archiveResolver struct {
 // server-side inside the staging transaction — the one place every stager
 // passes through — and discards whatever a caller passed, so a version
 // computed here would be a number nothing reads.
-func (a archiveResolver) Subject(ctx context.Context, cmd ArchiveCommand) (StageInfo, error) {
+func (a *archiveResolver) Subject(ctx context.Context, cmd ArchiveCommand) (StageInfo, error) {
 	info := StageInfo{
 		TargetType: cmd.RecordType,
 		TargetID:   cmd.ID,
 		Summary:    fmt.Sprintf("Archive %s %s", cmd.RecordType, cmd.ID),
 	}
-	if !servedByTheRecordSeam(cmd.RecordType) {
-		return info, nil
-	}
-	// The label is worth its own read: "Archive person 0195c3…" tells the
-	// approver nothing about who disappears, and the approvals surface hands
-	// the inbox no other human-readable name for the target.
-	rec, err := a.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(cmd.RecordType), ID: cmd.ID})
+	rec, served, err := a.target(ctx, cmd)
 	if err != nil {
 		return StageInfo{}, err
 	}
+	if !served {
+		// The id is the only name this type has here.
+		return info, nil
+	}
+	// "Archive person 0195c3…" tells the approver nothing about who
+	// disappears, and the approvals surface hands the inbox no other
+	// human-readable name for the target.
 	info.Summary = fmt.Sprintf("Archive %s %s", cmd.RecordType, recordLabel(rec))
 	return info, nil
 }
@@ -134,13 +170,13 @@ func (a archiveResolver) Subject(ctx context.Context, cmd ArchiveCommand) (Stage
 // row-scope miss as not-found, which is the existence-hiding answer the caller
 // would get from the archive itself), and one whose authority lives in another
 // system of record.
-func (a archiveResolver) Guards(ctx context.Context, cmd ArchiveCommand) error {
-	if !servedByTheRecordSeam(cmd.RecordType) {
-		return nil
-	}
-	rec, err := a.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(cmd.RecordType), ID: cmd.ID})
+func (a *archiveResolver) Guards(ctx context.Context, cmd ArchiveCommand) error {
+	rec, served, err := a.target(ctx, cmd)
 	if err != nil {
 		return err
+	}
+	if !served {
+		return nil
 	}
 	return refuseStagingElsewhere(rec)
 }

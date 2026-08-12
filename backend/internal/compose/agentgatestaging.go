@@ -172,6 +172,33 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // It writes the refusal itself and reports ok=false, so a caller that cannot
 // name a target stages nothing.
 func stagedTarget(w http.ResponseWriter, r *http.Request, records datasource.SystemOfRecordProvider, pol agentPolicy) (agents.StageInfo, bool) {
+	info, ok := resolveOrWalk(w, r, records, pol)
+	if !ok {
+		return agents.StageInfo{}, false
+	}
+	// A concrete target with no record type is unstageable authority: the
+	// approvals surface scopes an inbox row by probing its target's own/team
+	// visibility, and it cannot probe a type it was not told. Such a row
+	// would show a record's summary and proposed change to everyone holding
+	// the object grant, and let any of them decide a write against a row
+	// their own scope hides. Refuse it here, the same fail-closed shape as
+	// an undecidable kind, rather than mint an unscopable authority object.
+	//
+	// Applied to EVERY answer rather than inside one branch: a resolver names
+	// its own target, so a decoder wired to an operation that declares no
+	// record type would otherwise walk straight past the check that catches it.
+	if !info.TargetID.IsZero() && info.TargetType == "" {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s stages against a concrete record but declares no record type: %w",
+			pol.Op, apperrors.ErrPermissionDenied))
+		return agents.StageInfo{}, false
+	}
+	return info, true
+}
+
+// resolveOrWalk answers the staged target from the operation's own resolver
+// where it has one, and from the route where it does not.
+func resolveOrWalk(w http.ResponseWriter, r *http.Request, records datasource.SystemOfRecordProvider, pol agentPolicy) (agents.StageInfo, bool) {
 	decode, described := restCommands[pol.Op]
 	if !described {
 		return stagedTargetByRoute(w, r, pol)
@@ -189,10 +216,10 @@ func stagedTarget(w http.ResponseWriter, r *http.Request, records datasource.Sys
 	return info, true
 }
 
-// stagedTargetByRoute is the guess the seam above is replacing: the target id
-// read out of the route's {id} parameter and paired with the record type the
-// generated policy declares. It stands for every operation with no command
-// entry yet, and goes away with the last of them.
+// stagedTargetByRoute is the guess the seam above replaces one operation family
+// at a time: the target id read out of the route's {id} parameter, paired with
+// the record type the generated policy declares. It answers for every operation
+// with no command of its own.
 func stagedTargetByRoute(w http.ResponseWriter, r *http.Request, pol agentPolicy) (agents.StageInfo, bool) {
 	var targetID ids.UUID
 	if raw := chi.URLParam(r, "id"); raw != "" {
@@ -201,19 +228,6 @@ func stagedTargetByRoute(w http.ResponseWriter, r *http.Request, pol agentPolicy
 			httperr.Write(w, r, apperrors.ErrNotFound)
 			return agents.StageInfo{}, false
 		}
-	}
-	// A concrete target with no record type is unstageable authority: the
-	// approvals surface scopes an inbox row by probing its target's own/team
-	// visibility, and it cannot probe a type it was not told. Such a row
-	// would show a record's summary and proposed change to everyone holding
-	// the object grant, and let any of them decide a write against a row
-	// their own scope hides. Refuse it here, the same fail-closed shape as
-	// an undecidable kind, rather than mint an unscopable authority object.
-	if targetID != (ids.UUID{}) && pol.RecordType == "" {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s stages against a concrete record but declares no record type: %w",
-			pol.Op, apperrors.ErrPermissionDenied))
-		return agents.StageInfo{}, false
 	}
 	return agents.StageInfo{TargetType: string(pol.RecordType), TargetID: targetID}, true
 }

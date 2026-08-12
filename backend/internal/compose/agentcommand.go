@@ -6,10 +6,11 @@ package compose
 // The REST door's half of the governance seam (modules/agents/command.go):
 // what turns an HTTP request into the operation's typed command.
 //
-// The door decodes; it does not interpret. Everything the gate must know about
-// the call it decoded — what the approval binds to, what would be refused
-// anyway — comes back from the resolver the command is bound to, which is the
-// same resolver the tool door reaches for the same operation.
+// The door decodes; it does not interpret. What the approval binds to, and what
+// would be refused anyway, come back from the resolver the command is bound to
+// — the same resolver the tool door reaches for the same operation. The rest of
+// the gate's questions are still answered elsewhere: the tier by the generated
+// policy and dynamicTierInputs, the inbox line by restSummary.
 
 import (
 	"net/http"
@@ -26,11 +27,10 @@ import (
 // request into the operation's typed command, bound to the resolver that
 // speaks it.
 //
-// The table is deliberately incomplete: an operation with no entry still
-// resolves its staged target by walking the route (stagedTargetByRoute), which
-// is the guess this seam replaces one operation family at a time. The walk is
-// what goes away as the entries arrive, and the fail-closed refusal
-// dynamicTierInputs already takes for the tier question is what replaces it.
+// The table covers one operation family, not the surface: an operation with no
+// entry resolves its staged target by walking the route
+// (stagedTargetByRoute) instead, which is the guess this seam replaces family
+// by family (gradionhq/margince-poc-v1#928).
 var restCommands = map[string]func(pol agentPolicy, records datasource.SystemOfRecordProvider, r *http.Request) (agents.GovernedCall, error){
 	"archiveActivity":      archiveCommand,
 	"archiveDeal":          archiveCommand,

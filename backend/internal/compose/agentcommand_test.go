@@ -88,6 +88,13 @@ func TestEveryAgentReachableArchiveOperationDecodesIntoACommand(t *testing.T) {
 		t.Errorf("the policy table carries %d agent-reachable archive operations, want 12 — if the contract "+
 			"gained or lost one, this seam's coverage moved with it", checked)
 	}
+	// The other direction, which the walk above cannot see: a decoder left
+	// behind for an operation the contract retired would sit in the table
+	// answering for a route nothing routes.
+	if len(restCommands) != checked {
+		t.Errorf("restCommands holds %d decoders for %d agent-reachable operations — one of them decodes an "+
+			"operation the contract no longer serves", len(restCommands), checked)
+	}
 }
 
 // A record type the seam does not serve still stages, with its own type and
@@ -146,8 +153,12 @@ func TestAnArchiveOfAnExternallyHeldRecordStagesNothing(t *testing.T) {
 		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — nobody "+
 			"could ever release it", staging.last.Tool)
 	}
-	if rec.Code == http.StatusOK {
-		t.Error("the refusal was not written; a staged call that cannot be released must answer as one")
+	// The concrete status, not merely "something other than 200": httperr maps
+	// an unclassified error to 500, so an unrelated fault would satisfy a
+	// not-200 assertion while this test reported the guard as proven.
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("an externally-held target answered %d, want %d (unsupported_by_sor) — the refusal a caller "+
+			"gets must name why the archive cannot be governed here", rec.Code, http.StatusUnprocessableEntity)
 	}
 }
 
@@ -186,5 +197,31 @@ func TestArchiveCommandRefusesAMalformedIDAsAMiss(t *testing.T) {
 	_, err := archiveCommand(agentPolicy{Op: "archiveTag", RecordType: recordTypeTag}, seamRecord{}, req)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("decoding a malformed id answered %v, want the not-found sentinel", err)
+	}
+}
+
+// The fail-closed refusal covers the resolver branch too.
+//
+// A concrete target with no record type is a row the approvals surface cannot
+// scope: it probes a target's own/team visibility by type, so an untyped row
+// would show its summary and proposed change to everyone holding the object
+// grant. The check used to sit inside the route walk, which is the one path a
+// resolved target never takes — so it is applied to the answer, whichever
+// branch produced it.
+func TestAResolvedTargetWithNoRecordTypeIsRefused(t *testing.T) {
+	staging := &capturingApprovals{}
+	// The operation decodes into a command, and declares no record type — the
+	// shape a decoder wired to an untyped operation would produce.
+	pol := agentPolicy{Op: "archiveTag", Access: accessTool, Tool: "archive_record", RecordType: ""}
+	rec := httptest.NewRecorder()
+
+	stageRefusal(rec, archiveRequest("/v1/tags", ids.NewV7()), staging, seamRecord{}, pol, nil)
+
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for %q with a concrete target and no type — no inbox can scope it, "+
+			"and everyone holding the object grant could decide it", staging.last.Tool)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("an untyped concrete target answered %d, want 403", rec.Code)
 	}
 }
