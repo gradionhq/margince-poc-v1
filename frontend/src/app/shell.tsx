@@ -1,14 +1,24 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
+import {
+  ChevronDown,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings,
+  X,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 import type { components } from "../api/schema";
+import { Button, Modal } from "../design-system/atoms";
 import { Logomark } from "../design-system/logomark";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -23,7 +33,10 @@ import {
   MOBILE_PRIMARY,
   NAV,
   type NavCounts,
+  type NavLevelEntry,
+  type NavLevelGroup,
   type NavSection,
+  navLevelHref,
   RAIL_LESS_SCREENS,
 } from "./nav";
 import {
@@ -36,6 +49,7 @@ import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
+import { usePhoneViewport } from "./viewport";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -121,8 +135,9 @@ const SEARCH_TIP_KEY = "rail-search";
 // and never accepts inline typing (AC-shell-7, one search affordance) — the
 // keyboard shortcut beside it is the same palette this opens.
 //
-// A drilled-in level takes the row's space for its own entries (shell.css); the
-// shortcut still opens the palette there, so nothing is lost but the row.
+// It stays on screen inside a drilled-in level, at every width: ⌘K is invisible
+// to anyone who does not already know it, and on touch there is no ⌘K at all, so
+// hiding the row leaves a level with no way to search from at all.
 function RailSearch({
   collapsed,
   tipOpen,
@@ -165,12 +180,57 @@ function RailSearch({
   );
 }
 
+// The SETTINGS door's tooltip shares the collapsed rail's tooltip state with the
+// destinations, and that state is keyed by screen id. The door is not one of the
+// ten, so — like search — it needs a key of its own that no NAV entry can take.
+const SETTINGS_TIP_KEY = "rail-settings";
+
+// Settings, at the foot directly above the account block. It is a DOOR rather
+// than an eleventh destination: the ten rows above are where the work happens,
+// and Settings is a section you go into and come back out of. Without it the
+// settings level could only be entered through the account menu's popover — you
+// could walk out of the level and never back into it.
+//
+// It carries no active state and no `aria-current`, deliberately: inside the
+// section the level itself is on screen with the reader's own entry current, and
+// the document must claim exactly ONE current page.
+function RailSettingsDoor({
+  collapsed,
+  tipOpen,
+  onTip,
+}: Readonly<{
+  collapsed: boolean;
+  tipOpen: boolean;
+  onTip: (key: string | null) => void;
+}>) {
+  const t = useT();
+  const label = t("nav.settings");
+  return (
+    <a
+      className="navitem railsettings"
+      href={routeHash({ screen: SETTINGS_SCREEN })}
+      aria-label={label}
+      onMouseEnter={() => onTip(SETTINGS_TIP_KEY)}
+      onMouseLeave={() => onTip(null)}
+      onFocus={() => onTip(SETTINGS_TIP_KEY)}
+      onBlur={() => onTip(null)}
+    >
+      <Settings aria-hidden />
+      <span className="navlabel">{label}</span>
+      {collapsed && tipOpen && (
+        <span className="navtip" role="tooltip">
+          {label}
+        </span>
+      )}
+    </a>
+  );
+}
+
 // The panel's own state as classes: the width it is at, whether the phone sheet
 // is open, whether it is mid-collapse, and whether it is showing a drilled-in
-// LEVEL — at phone width the bar then carries two controls instead of five tabs
-// and arranges them itself. That last one is a class rather than a CSS `:has()`
-// on the level's own markup, whose specificity is its argument's and would have
-// outranked the sheet's layout from a rule that only means to arrange a bar.
+// LEVEL. That last one is a class rather than a CSS `:has()` on the level's own
+// markup, whose specificity is its argument's and would have outranked the
+// sheet's layout from a rule that only means to arrange a panel.
 function railClasses(
   state: Readonly<{
     collapsed: boolean;
@@ -217,6 +277,7 @@ export function WorkspaceRail({
   // sheet carrying every destination. One nav element, so there is still exactly
   // one navigation landmark and no second item list to keep in sync.
   const [sheetOpen, setSheetOpen] = useState(false);
+  const phone = usePhoneViewport();
   const nav = useRef<HTMLElement>(null);
   const more = useRef<HTMLButtonElement>(null);
   // While the sidebar is mid-collapse the pointer is still inside the head — it
@@ -252,7 +313,18 @@ export function WorkspaceRail({
   // reader moves between them (app/navlevel.tsx). A section's entries take the
   // panel OVER rather than hanging off the destinations: 64px cannot carry two
   // levels, and 252px carrying both reads as a list of twenty places to go.
-  const level = useNavLevel(route, section, nav, closeSheet);
+  //
+  // At phone width the panel is a bottom bar of four destinations, and it KEEPS
+  // them on a section route — a bar that hands its four tabs over to a section
+  // loses every destination and is left holding two controls. The section is
+  // reached from the page head there instead (SectionSwitcher below), so no
+  // section is walked into here.
+  const level = useNavLevel(
+    route,
+    phone ? undefined : section,
+    nav,
+    closeSheet,
+  );
 
   // Opening a sheet that covers the page has to take focus with it, or a
   // keyboard user is left tabbing through a page they can no longer see; and
@@ -277,21 +349,15 @@ export function WorkspaceRail({
   }, [sheetOpen]);
 
   // The sheet exists only at phone width — the control that closes it is not
-  // rendered above 700px. Widening the window while it is open would otherwise
-  // leave the page locked and inert with nothing on screen to release it.
+  // rendered above the breakpoint. Widening the window while it is open would
+  // otherwise leave the page locked and inert with nothing on screen to release
+  // it. The width is already subscribed to above, so this reads that answer
+  // rather than opening a second media query of its own.
   useEffect(() => {
-    if (!sheetOpen) {
-      return;
+    if (sheetOpen && !phone) {
+      setSheetOpen(false);
     }
-    const phone = window.matchMedia("(max-width: 700px)");
-    const onChange = () => {
-      if (!phone.matches) {
-        setSheetOpen(false);
-      }
-    };
-    phone.addEventListener("change", onChange);
-    return () => phone.removeEventListener("change", onChange);
-  }, [sheetOpen]);
+  }, [sheetOpen, phone]);
 
   // A scrim that only LOOKS blocking is the worst of both worlds: the page it
   // dims stays reachable by Tab and by a screen reader. `inert` on the content
@@ -415,6 +481,14 @@ export function WorkspaceRail({
           it — and the menu opens upward from there, so it never covers the
           destinations you were reading. */}
         <div className="railfoot">
+          {/* The way INTO Settings, above the person it belongs to. Hidden at
+            phone width (shell.css), where the sheet's account rows already
+            offer it and the bar has no room for a sixth control. */}
+          <RailSettingsDoor
+            collapsed={collapsed}
+            tipOpen={tip === SETTINGS_TIP_KEY}
+            onTip={setTip}
+          />
           {/* In the sheet the rows stand on their own. The sheet exists only at
             phone width, where the foot has no room above it for a popover to
             open into — anchored to the bottom of the viewport the menu had
@@ -510,24 +584,130 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : t("shell.unknownPage");
 }
 
-// On a screen that publishes a level, the page is the ENTRY the reader opened,
-// not the section they opened it from: the sidebar's level already carries the
-// section's name, and printing it here too named the section twice and the
-// surface never — a settings page read "Settings" above a heading reading
-// "Settings" with the audit log under both.
-function sectionEntryTitle(
-  section: NavSection,
+// What a section contributes to the page head: the entry the reader opened. The
+// section's own `activeId` is its answer and comes first, fallbacks included; the
+// route's segment stands in only for a caller that resolved nothing.
+function sectionHead(
+  section: NavSection | undefined,
   route: Route,
-  t: ReturnType<typeof useT>,
-): string | undefined {
+): { section: NavSection; entry: NavLevelEntry } | undefined {
+  if (!section || section.screen !== route.screen) {
+    return undefined;
+  }
   const activeId = section.activeId ?? route.id;
   for (const group of section.groups) {
     const entry = group.items.find((item) => item.id === activeId);
     if (entry) {
-      return t(entry.labelKey);
+      return { section, entry };
     }
   }
   return undefined;
+}
+
+// One group of the switcher's list, with the section's own heading above it — the
+// same grouping the sidebar's level shows, because it is the same data.
+function SectionPickGroup({
+  section,
+  group,
+  activeId,
+  onPick,
+}: Readonly<{
+  section: NavSection;
+  group: NavLevelGroup;
+  activeId: string;
+  onPick: () => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="sectionpickgroup">
+      {group.headingKey && <h3>{t(group.headingKey)}</h3>}
+      {group.items.map((entry) => (
+        <a
+          key={entry.id}
+          href={navLevelHref([section.screen], entry.id)}
+          aria-current={entry.id === activeId ? "page" : undefined}
+          // The sheet covers the page it just navigated to, so a row that acts
+          // takes the sheet with it.
+          onClick={onPick}
+        >
+          <entry.icon size={16} aria-hidden />
+          {t(entry.labelKey)}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The way between a section's pages at phone width.
+ *
+ * The sidebar cannot carry them there — it is a bar of four destinations, and
+ * handing those four to a section loses the whole product's navigation — so the
+ * section lives in the page head instead: a control naming the entry you are on,
+ * opening the section's own list.
+ *
+ * It opens the design system's `Modal`, which IS the full-screen sheet at this
+ * width; a second sheet hand-rolled here would be a second set of dismissal,
+ * focus and scroll-lock rules to keep in step with it.
+ *
+ * The LIST claims the current page and the button does not: the entries are the
+ * section's navigation, the same links the sidebar's level carries above the
+ * breakpoint, while the button is a control that opens them — and a control is
+ * not a page. Only one element in the document may make that claim.
+ */
+function SectionSwitcher({
+  section,
+  entry,
+}: Readonly<{ section: NavSection; entry: NavLevelEntry }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  const close = useCallback(() => setOpen(false), []);
+  const label = t(entry.labelKey);
+  return (
+    <>
+      <button
+        type="button"
+        className="pageswitch"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        // The visible word is the entry the reader is on; the accessible name
+        // adds what the control does and keeps that word inside it, which is
+        // what WCAG 2.5.3 asks of a control named longer than it reads.
+        aria-label={t("shell.sectionSwitch", { name: label })}
+        onClick={() => setOpen(true)}
+      >
+        <span>{label}</span>
+        <ChevronDown size={16} aria-hidden />
+      </button>
+      <Modal open={open} onClose={close} labelledBy={titleId}>
+        {/* Named by the SECTION: the list is everything Settings holds, and the
+            entry the reader came from is marked inside it. */}
+        <h2 id={titleId} className="t-h2">
+          {t(section.titleKey)}
+        </h2>
+        <div className="sectionpick">
+          {section.groups.map((group, index) => (
+            <SectionPickGroup
+              key={group.headingKey ?? `group-${index}`}
+              section={section}
+              group={group}
+              activeId={entry.id}
+              onPick={close}
+            />
+          ))}
+        </div>
+        {/* At this width the dialog is a full-screen sheet: there is no backdrop
+            left to click and a touch reader has no Escape, so the way out has to
+            be a control in the sheet. */}
+        <div className="actions">
+          <Button small onClick={close}>
+            {t("shell.closeMenu")}
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
 }
 
 // The page head: the heading of the screen you are on, and beside it the two
@@ -547,13 +727,27 @@ export function PageHead({
   section?: NavSection;
 }>) {
   const t = useT();
+  const phone = usePhoneViewport();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
-  const entryTitle =
-    section && section.screen === route.screen
-      ? sectionEntryTitle(section, route, t)
-      : undefined;
-  const title = entryTitle ?? resolveTitle(route.screen, navItem?.labelKey, t);
+  const inSection = sectionHead(section, route);
+  // On a screen that publishes a level, the page is the ENTRY the reader opened
+  // rather than the section they opened it from: the sidebar's level carries the
+  // section's name, and printing it here too named the section twice and the
+  // surface never — a settings page read "Settings" above a heading reading
+  // "Settings" with the audit log under both.
+  //
+  // At phone width the sidebar is showing the destinations instead, so nothing
+  // else on screen says which section this page belongs to: the pair swaps, the
+  // heading names the section, and the switcher under it names the entry and
+  // opens the others. Each of the two is still named exactly once.
+  const entryTitle = inSection ? t(inSection.entry.labelKey) : undefined;
+  const sectionTitle =
+    phone && inSection ? t(inSection.section.titleKey) : undefined;
+  const title =
+    sectionTitle ??
+    entryTitle ??
+    resolveTitle(route.screen, navItem?.labelKey, t);
   // A record kind, and only then: an id segment that names no record is a
   // screen's own state — the settings tab, for one — and the page is still the
   // screen. Printing that slug as the page's name gave Settings an h1 reading
@@ -583,6 +777,12 @@ export function PageHead({
           </p>
         ) : (
           <h1 className="t-display">{title}</h1>
+        )}
+        {phone && inSection && (
+          <SectionSwitcher
+            section={inSection.section}
+            entry={inSection.entry}
+          />
         )}
       </div>
       <div className="pageaside">

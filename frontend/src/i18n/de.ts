@@ -107,6 +107,7 @@ export const de = {
   "shell.navBack": "Zurück",
   "shell.navBackTo": "Zurück zu {name}",
   "shell.navTop": "Bereiche",
+  "shell.sectionSwitch": "{name} — Bereich wechseln",
   "agent.title": "Margince KI",
   "agent.regionAria": "Margince-KI-Status",
   "agent.configured": "Konfiguriert",
@@ -3366,7 +3367,7 @@ export const de = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrationen",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Deine Einstellungen",
+  "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",
   "settings.rates.fxIntro":

@@ -253,13 +253,20 @@
   display: none;
 }
 
-/* ===== account block, pinned to the foot ===== */
+/* ===== the foot: the way into Settings, and who you are signed in as ===== */
 .rail .railfoot {
   /* The rule divides the SIDEBAR, not the column of rows inside it, so it
      bleeds out through the rail's own gutter and meets both edges. */
   margin: var(--space-3) calc(-1 * var(--space-2)) 0;
   padding: var(--space-2) var(--space-2) 0;
   border-top: 1px solid var(--borderSubtle);
+}
+/* The Settings door rides `.navitem`'s geometry, so the foot's two rows stand on
+   the same column of icons as the destinations above them and nothing about it
+   reads as a special case. The only rule it needs of its own is the gap to the
+   person under it — the foot is a block, not a gapped column. */
+.rail .railsettings {
+  margin-bottom: var(--space-1);
 }
 
 /* head row: brand block, and the collapse control right-aligned beside it */
@@ -640,17 +647,16 @@
 .rail .navback:hover {
   color: var(--textPrimary);
 }
-/* A level reduces the rail's own HEAD to the mark, the way back, and the rows.
-   The brand's words go because the mark alone already stands for the product
-   here — and it keeps both jobs it has, the link home and the collapse
-   affordance, so the head is never a dead box. The search row goes because ⌘K
-   still opens the palette from anywhere, which makes the row cost only the space
-   it took above the level's own entries.
+/* A level takes the brand's WORDS for its own rows: the mark alone already stands
+   for the product here, and it keeps both jobs it has — the link home and the
+   collapse affordance — so the head is never a dead box.
+   The search row STAYS. It is the only visible way to search: ⌘K is invisible to
+   anyone who does not already know it, and a level that hid the row was a level
+   with no search affordance at all.
    One selector serves both sidebar widths: nothing more specific than `.rail …`
-   claims `display` on either element, so the 64px rail follows without being
-   named. The phone block below is where that stops being true. */
-.rail.leveled .ws-name,
-.rail.leveled .railsearchwrap {
+   claims `display` on the brand's words, so the 64px rail follows without being
+   named. */
+.rail.leveled .ws-name {
   display: none;
 }
 
@@ -752,6 +758,94 @@
   align-items: center;
   gap: var(--space-2);
   flex: none;
+}
+
+/* ===== the section switcher (phone width only) =====
+ * At phone width the sidebar is a bar of four destinations, so a section's own
+ * entries are reached from here: the heading names the section, this names the
+ * entry the reader is on, and it opens the section's list as a sheet. It is
+ * rendered only at that width (app/shell.tsx asks app/viewport.ts), so it needs
+ * no media query of its own — but it is a phone control, which is why it takes
+ * the 44px target WCAG 2.5.5 asks for rather than the compact row rhythm the
+ * sidebar uses under a pointer. */
+.pageswitch {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  color: var(--textContent);
+  font-family: var(--f-body);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+.pageswitch:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+/* A settings entry's name is copy, not user data, but the column is 390px wide
+   and the pill must never widen the page: it clips itself instead. */
+.pageswitch > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pageswitch svg {
+  flex: none;
+  color: var(--textMeta);
+}
+
+/* The list inside the sheet: the section's groups and their entries, which are
+   the same rows the sidebar's level shows above the breakpoint. */
+.sectionpick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.sectionpickgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
+}
+.sectionpickgroup h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
+  color: var(--textMeta);
+}
+/* 48px rows: this is a touch surface, and a thumb reaching the middle of a list
+   wants the size the platform guidelines ask for rather than WCAG's floor. */
+.sectionpickgroup a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 0 var(--space-3);
+  border-radius: var(--r-sm);
+  color: var(--textContent);
+  text-decoration: none;
+  font-size: var(--fs-body);
+}
+.sectionpickgroup a svg {
+  flex: none;
+  color: var(--textMeta);
+}
+/* The entry the reader came from, in the same three signals the sidebar's rows
+   use — a tint, a weight and the accent on the glyph — because a tint alone is
+   colour-only (WCAG 1.4.1). */
+.sectionpickgroup a[aria-current="page"] {
+  background: var(--accentLight);
+  color: var(--textPrimary);
+  font-weight: var(--fw-semibold);
+}
+.sectionpickgroup a[aria-current="page"] svg {
+  color: var(--accent);
 }
 
 /* ===== ⌘K palette ===== */
@@ -934,7 +1028,14 @@
 
 /* ===== responsive (B-EP09.7): at phone width the rail becomes a bottom
  * nav and content reflows — the BODY never scrolls horizontally; wide
- * content scrolls inside its own container. ===== */
+ * content scrolls inside its own container.
+ *
+ * 700px is the same breakpoint `PHONE_MAX_WIDTH` names in app/viewport.ts, which
+ * is where the components that must KNOW the width read it — the bar renders the
+ * destinations at this width even on a section route, and that is a decision in
+ * TypeScript rather than a layout a stylesheet can make. A sheet cannot read that
+ * constant, so the number is spelled twice on purpose: change one, change both.
+ * ===== */
 @media (max-width: 700px) {
   /* At phone width the sidebar becomes a bottom nav in both states — the
      expanded column and the sidebar-only regions (labels, group headings, the
@@ -999,11 +1100,11 @@
   .rail.expanded .navgroup {
     display: contents;
   }
-  /* A LEVEL on the bar is two controls: the way back up, and More opening the
-     sheet at the level the panel is showing — so the section's entries are one
-     tap away and the destinations are one tap behind the back row. The level's
-     own rows are `.navwrap:not(.primary)` and stay in the sheet by the rule
-     below; its title and group labels belong to the sidebar.
+  /* The bar shows the DESTINATIONS at this width, on a section route as much as
+     anywhere else (app/shell.tsx passes no section into the level walk here), so
+     the level this arranges is always the primary one: its rows flow straight
+     into the bar and its wrapper is not a box of its own. A section's entries are
+     reached from the page head instead (`.pageswitch` below).
      Every `.rail.collapsed …` variant is restated here: the desktop preference
      survives a resize and `.rail.collapsed …` outranks a bare `.rail …`
      selector, so a phone would otherwise inherit the 64px sidebar's geometry. */
@@ -1011,24 +1112,6 @@
   .rail.expanded .navlevel,
   .rail.collapsed .navlevel {
     display: contents;
-  }
-  .rail .navtitle,
-  .rail.collapsed .navtitle {
-    display: none;
-  }
-  .rail .navback,
-  .rail.expanded .navback,
-  .rail.collapsed .navback {
-    flex: none;
-    width: 56px;
-  }
-  /* Two controls on a bar that spaces its items apart would sit at its opposite
-     edges and read as unrelated to each other. */
-  .rail.leveled,
-  .rail.expanded.leveled,
-  .rail.collapsed.leveled {
-    justify-content: center;
-    gap: var(--space-6);
   }
   /* The bottom bar carries destinations and nothing else: search, the account
      block and the group headings all belong to the sidebar, and the sheet below
@@ -1188,40 +1271,14 @@
   .rail.sheetopen .navheading::after {
     display: none;
   }
-  /* In the sheet a level is a column again, with its back row at the top: this
-     is the phone's whole sidebar, so the way back to the destinations has to be
-     in it. The collapsed variants are restated for the reason above — the sheet
-     is 600px wide whatever the desktop rail was left at. */
+  /* In the sheet the level is a column again — the sheet is the phone's whole
+     sidebar, and a bar's row of tabs is not a list of ten places. The collapsed
+     variant is restated for the reason above: the sheet is 600px wide whatever
+     the desktop rail was left at. */
   .rail.sheetopen .navlevel,
   .rail.sheetopen.collapsed .navlevel {
     display: flex;
     flex-direction: column;
-    gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
-  }
-  .rail.sheetopen .navtitle,
-  .rail.sheetopen.collapsed .navtitle {
-    display: block;
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
-  }
-  /* `flex: none`, because the sheet's rows carry `flex: 1` to fill their row
-     wrapper — and this control is a child of the level's COLUMN, where growing
-     means growing taller than the rows under it. */
-  .rail.sheetopen .navback,
-  .rail.sheetopen.collapsed .navback {
-    width: auto;
-    flex: none;
-  }
-  /* The sheet is a LIST, not a bar, so the bar arrangement above is undone here —
-     restated per variant because `.rail.collapsed.leveled` would otherwise
-     outrank the sheet's own `.rail.sheetopen` layout on a phone that inherited
-     the collapsed desktop preference. */
-  .rail.sheetopen.leveled,
-  .rail.sheetopen.collapsed.leveled {
-    justify-content: flex-start;
     gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
   }
   /* Search opens the sheet's own first row, and the account block closes it —
@@ -1230,16 +1287,14 @@
   .rail.sheetopen .railsearchwrap {
     display: flex;
   }
-  /* Except in a level, where the sheet reads the way the sidebar does: the mark
-     without its words, the way back, then the entries. Restated because the two
-     rules above bring the row back for the sheet, and the collapsed variant with
-     them — the desktop preference survives a resize. */
-  .rail.sheetopen.leveled .railsearchwrap,
-  .rail.sheetopen.collapsed.leveled .railsearchwrap {
-    display: none;
-  }
   .rail.sheetopen .railfoot {
     display: block;
+  }
+  /* The foot comes back with the sheet, but the Settings door does not: the
+     account rows inside the sheet already offer Settings, and two rows to the
+     same place in one short list is one too many. */
+  .rail .railsettings {
+    display: none;
   }
   /* The menu drops DOWN here: at the foot of a sheet that is already pinned to
      the bottom of the viewport, an upward popover would cover the destinations

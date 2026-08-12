@@ -107,6 +107,10 @@ export const en = {
   "shell.navBack": "Back",
   "shell.navBackTo": "Back to {name}",
   "shell.navTop": "Destinations",
+  // At phone width a section's entries are reached from the page head. The
+  // control READS the entry it is on; the name says what pressing it does and
+  // keeps that word inside itself (WCAG 2.5.3).
+  "shell.sectionSwitch": "{name} — change section",
   "agent.title": "Margince AI",
   "agent.regionAria": "Margince AI status",
   "agent.configured": "Configured",
@@ -3357,7 +3361,7 @@ export const en = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrations",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Your settings",
+  "settings.group.you": "You",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":

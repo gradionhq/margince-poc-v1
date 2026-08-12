@@ -116,6 +116,7 @@ export const vi = {
   "shell.navBack": "Quay lại",
   "shell.navBackTo": "Quay lại {name}",
   "shell.navTop": "Điều hướng",
+  "shell.sectionSwitch": "{name} — chuyển mục",
   "agent.title": "Margince AI",
   "agent.regionAria": "Trạng thái Margince AI",
   "agent.configured": "Đã cấu hình",
@@ -3358,7 +3359,7 @@ export const vi = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Tích hợp",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Cài đặt của bạn",
+  "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
