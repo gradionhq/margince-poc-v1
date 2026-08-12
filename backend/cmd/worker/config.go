@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
@@ -64,31 +65,32 @@ type workerConfig struct {
 // here.
 func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
+	var env cliflags.Env
 	var cfg workerConfig
-	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	env.String(fs, &cfg.dsn, "dsn", "MARGINCE_DSN", "", "Postgres DSN (runtime app role)")
 	// The same canonical origin the api serves: a marketing send from this
 	// role's Surface-B agent run builds the recipient's tokenized unsubscribe
 	// link from it, and without one that send refuses rather than go out
 	// unlinkable.
-	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"),
+	env.String(fs, &cfg.publicBaseURL, "public-base-url", "MARGINCE_PUBLIC_BASE_URL", "",
 		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for a marketing send from the Surface-B agent run")
-	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
+	env.String(fs, &cfg.configPath, "config", "MARGINCE_CONFIG", "margince.yaml",
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
-	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:16379"), "Redis address (event bus)")
-	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
+	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:16379", "Redis address (event bus)")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
 	fs.DurationVar(&cfg.timeScanInterval, "time-scan-interval", time.Hour, "clock-trigger scan interval (no_activity_reminder et al., Task 14)")
-	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
-	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
-	fs.StringVar(&cfg.graphClientID, "graph-client-id", os.Getenv("MARGINCE_GRAPH_CLIENT_ID"), "Microsoft (Entra) application id for the Outlook/M365 capture connector; enables its background sync poll")
-	fs.StringVar(&cfg.graphClientSecret, "graph-client-secret", os.Getenv("MARGINCE_GRAPH_CLIENT_SECRET"), "Microsoft client secret for the Outlook/M365 capture connector")
-	fs.StringVar(&cfg.graphTenant, "graph-tenant", os.Getenv("MARGINCE_GRAPH_TENANT"), "Microsoft identity tenant for token refresh (default: common — any organization)")
+	env.String(fs, &cfg.gmailClientID, "gmail-client-id", "MARGINCE_GMAIL_CLIENT_ID", "", "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
+	env.String(fs, &cfg.gmailClientSecret, "gmail-client-secret", "MARGINCE_GMAIL_CLIENT_SECRET", "", "Google OAuth client secret for the Gmail capture connector")
+	env.String(fs, &cfg.graphClientID, "graph-client-id", "MARGINCE_GRAPH_CLIENT_ID", "", "Microsoft (Entra) application id for the Outlook/M365 capture connector; enables its background sync poll")
+	env.String(fs, &cfg.graphClientSecret, "graph-client-secret", "MARGINCE_GRAPH_CLIENT_SECRET", "", "Microsoft client secret for the Outlook/M365 capture connector")
+	env.String(fs, &cfg.graphTenant, "graph-tenant", "MARGINCE_GRAPH_TENANT", "", "Microsoft identity tenant for token refresh (default: common — any organization)")
 	fs.DurationVar(&cfg.gmailSyncInterval, "gmail-sync-interval", 2*time.Minute, "Gmail incremental-sync poll interval")
-	fs.StringVar(&cfg.gmailPubsubTopic, "gmail-pubsub-topic", os.Getenv("MARGINCE_GMAIL_PUBSUB_TOPIC"), "Gmail Pub/Sub topic (projects/<p>/topics/<t>); enables the push-watch register+renew job. Empty leaves capture on the poll.")
+	env.String(fs, &cfg.gmailPubsubTopic, "gmail-pubsub-topic", "MARGINCE_GMAIL_PUBSUB_TOPIC", "", "Gmail Pub/Sub topic (projects/<p>/topics/<t>); enables the push-watch register+renew job. Empty leaves capture on the poll.")
 	fs.DurationVar(&cfg.gmailWatchInterval, "gmail-watch-interval", 6*time.Hour, "Gmail push-watch maintenance scan interval")
 	fs.DurationVar(&cfg.gmailWatchRenew, "gmail-watch-renew-within", 48*time.Hour, "renew a Gmail watch this far ahead of its 7-day expiry")
 	fs.DurationVar(&cfg.overlayInterval, "overlay-reconcile-interval", 2*time.Minute, "overlay-mode incumbent mirror reconcile poll interval (design.md §4.4)")
@@ -102,7 +104,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.sendRateLimit, "send-rate-limit", 0, "outbound messages one mailbox may transmit per --send-rate-window; 0 takes the built-in default")
 	fs.DurationVar(&cfg.sendRateWindow, "send-rate-window", 0, "window the outbound per-mailbox rate limit is measured over; 0 takes the built-in default")
 	fs.DurationVar(&cfg.sendMaxAge, "send-max-age", 0, "how long a staged send may be deferred before it parks with a reason; 0 takes the built-in default")
-	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
+	env.String(fs, &cfg.webhookKey, "webhook-key", "MARGINCE_WEBHOOK_KEY", "", "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
 	// A fleet fan-out — one job row per live workspace per tick — so the default
 	// is tens of seconds, not the few an in-process ticker could afford. Taken
 	// verbatim as the River schedule; compose clamps nothing
@@ -113,13 +115,18 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	// and no tenant data — but it is unauthenticated and discloses dependency
 	// health and process capacity, so whether to expose it, and on which
 	// interface, is the operator's decision.
-	fs.StringVar(&cfg.observeAddr, "observe-addr", os.Getenv("MARGINCE_OBSERVE_ADDR"),
+	env.String(fs, &cfg.observeAddr, "observe-addr", "MARGINCE_OBSERVE_ADDR", "",
 		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
-	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")
+	env.String(fs, &cfg.logFormat, "log-format", "MARGINCE_LOG_FORMAT", "text", "log format: text|json")
 	if err := fs.Parse(args); err != nil {
 		return workerConfig{}, err
 	}
+	// The environment fills every flag the caller did not pass. It happens HERE
+	// rather than in each flag's default because `flag` echoes a non-empty default
+	// in its usage output, and these values are DSNs, signing keys, OAuth client
+	// secrets and bearer tokens — see internal/platform/cliflags.
+	env.Apply(fs, os.Getenv)
 	if cfg.dsn == "" {
 		return workerConfig{}, errors.New("worker: --dsn or MARGINCE_DSN required")
 	}
@@ -222,15 +229,6 @@ func overlayBackfillLimitFromEnv(limit *int) error {
 	}
 	*limit = n
 	return nil
-}
-
-// envOr reads an environment variable with an explicit default, keeping
-// flag definitions self-documenting.
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 // envIntOr / envDurationOr back a numeric flag's default with an

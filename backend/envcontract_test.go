@@ -76,9 +76,11 @@ const (
 // deploySurfaceRoots are the non-Go trees that configure a deployment: the
 // entrypoints and helper scripts, the compose/CI definitions, and the images.
 // A variable read only here is as real as one Go reads, so obligations 2 and 3
-// must accept it. MARGINCE_OWNER_DSN is the current example: it is required by
-// scripts/deploy/api-entrypoint.sh, and a Go-only definition of "live" would
-// report it as dead in a file whose purpose is to offer it to an operator.
+// must accept it. MARGINCE_ADMIN_PASSWORD is the current example: the entrypoint
+// turns it into the file reference margince.yaml names — OPS-CFG-3 keeps secret
+// VALUES out of every config layer the product reads — so a Go-only definition of
+// "live" would report it as dead in a file whose purpose is to offer it to an
+// operator.
 var deploySurfaceRoots = []string{"../scripts", "../infra", "../.github/workflows"}
 
 // walkTextFiles reads every file under root and hands each to visit. The trees

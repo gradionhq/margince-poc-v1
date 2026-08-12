@@ -29,10 +29,14 @@ fi
 # First-boot bootstrap admin password (from the environment) → the file the
 # mounted margince.yaml's `password_file` references. Written 0600, never baked
 # into the image; only consumed on the first boot against an empty database.
-# The path must match your margince.yaml's `password_file` (default
-# /app/secrets/admin-password, i.e. `secrets/admin-password` relative to /app);
-# override both together with MARGINCE_ADMIN_PASSWORD_FILE.
-admin_password_file="${MARGINCE_ADMIN_PASSWORD_FILE:-/app/secrets/admin-password}"
+#
+# The path is fixed, and margince.yaml's `password_file` must name the same one:
+# /app/secrets/admin-password, i.e. `secrets/admin-password` relative to the api's
+# /app working directory. It used to be overridable via
+# MARGINCE_ADMIN_PASSWORD_FILE, which nothing ever set — a deployment that wants a
+# different path changes it in margince.yaml and here together, and one knob is
+# fewer things to keep in agreement than two.
+admin_password_file="/app/secrets/admin-password"
 if [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ]; then
     ( umask 077
       mkdir -p "$(dirname "$admin_password_file")"
@@ -44,7 +48,10 @@ fi
 export MARGINCE_SCHEMA_DSN="${MARGINCE_SCHEMA_DSN:-$MARGINCE_OWNER_DSN}"
 
 echo "entrypoint: applying core + custom migrations (owner role)…"
-margince-migrate up --dsn "$MARGINCE_OWNER_DSN"
+# No --dsn: cmd/migrate reads MARGINCE_OWNER_DSN itself, and the assertion above
+# has already refused to start without it. Passing it as an argument would put the
+# owner credential in this container's process list.
+margince-migrate up
 
 echo "entrypoint: starting api…"
 exec margince-api

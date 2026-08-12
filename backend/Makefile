@@ -4,8 +4,24 @@ GO        ?= go
 PG_PORT   ?= 15432
 REDIS_PORT?= 16379
 DB_NAME   ?= margince
-OWNER_DSN ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME)
+# An ambient MARGINCE_OWNER_DSN redirects every migrate target here, because it is
+# the same variable cmd/migrate reads when no --dsn is given — the two can never
+# name different databases. That also means a staging or production owner DSN
+# exported in the invoking shell turns `make migrate-down` into remote destructive
+# DDL, so both recipes announce their (credential-stripped) target before running.
+# `.env.local` does NOT reach these targets: only the recipes carrying
+# $(LOAD_ENV_LOCAL) source it. Override per invocation instead —
+# `make migrate OWNER_DSN=…` — or export MARGINCE_OWNER_DSN in the shell.
+OWNER_DSN ?= $(or $(MARGINCE_OWNER_DSN),postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME))
 APP_DSN   ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(DB_NAME)
+
+# The owner DSN with its credential removed, for saying WHICH database a migrate
+# target is about to touch without putting the password on the terminal or in a CI
+# log. `make migrate-down` reverts schema; an operator has to be able to see where.
+# Lazy (`=`, not `:=`) so the subshell runs only for the targets that reference
+# it, and the sed delimiter is `|` because `#` would start a make comment and
+# truncate the call.
+REDACTED_OWNER_DSN = $(shell printf '%s' '$(OWNER_DSN)' | sed -E 's|//[^@/]*@|//***@|')
 
 # The integration lane runs on its OWN `_test`-suffixed namespace on the shared
 # containers, so `make dev` (DB `margince`, Redis logical db 0) and
@@ -423,8 +439,11 @@ seed-dev-db: ## Apply the dev DB seed for API-less demo data (scripts/seed-dev.s
 # no extensions, applies zero extension migrations, exits 0 and prints
 # "schema is at head". Every extension lane would then be green over a
 # database that has none of their tables.
+migrate migrate-down: export MARGINCE_OWNER_DSN := $(OWNER_DSN)
+
 migrate: composition ## Apply core + custom + composed extension migrations (owner DSN)
-	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
+	@echo "migrate: applying to $(REDACTED_OWNER_DSN)"
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate up
 
 infra-down: ## Stop the dev stack but KEEP the data volumes (clean also drops them)
 	$(COMPOSE) down --remove-orphans
@@ -436,7 +455,8 @@ clean: ## Tear down the dev stack, containers and data volumes
 migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
 
 migrate-down: composition ## Roll back the last migration(s): make migrate-down [STEPS=n]
-	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
+	@echo "migrate-down: reverting $(or $(STEPS),1) on $(REDACTED_OWNER_DSN)"
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --steps $(or $(STEPS),1)
 
 run: composition ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
 	$(GOWORK_COMPOSED) $(GO) run ./cmd/api --dsn "$(APP_DSN)"
