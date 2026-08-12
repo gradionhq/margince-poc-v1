@@ -67,7 +67,7 @@
 .co-under .badge {
   font-size: var(--fs-meta);
   font-weight: var(--fw-medium);
-  padding: 2px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
   background: var(--accentLight);
   color: var(--accent);
