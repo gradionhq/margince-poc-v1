@@ -348,10 +348,6 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
-// childAttrIsPrimary is the mapping-declared attribute naming the primary row
-// of a child collection.
-const childAttrIsPrimary = "is_primary"
-
 // flipPersonEmails shapes the mirrored contact's address into the people
 // store's input. The mapper lands a TargetChild under its PARENT key, as one
 // row of a collection, never under the dotted To — so this reads it with the

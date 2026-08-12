@@ -168,7 +168,11 @@ var ownerIDField = overlay.FieldMapping{
 // phone and mobilephone both land in the core person_phone collection, as two
 // separate typed rows: no incumbent property says which number is which, so
 // the phone_type and the primary flag each row publishes are the ChildRow's
-// declaration, and a contact reachable on both keeps both numbers.
+// declaration, and a contact reachable on both keeps both numbers. Each number
+// rides verbatim where email is lowercased: the mirror is non-authoritative, so
+// it owes the reader what the incumbent holds, and E.164 normalization — unlike
+// lowercasing — can fail on a real number, with no honest answer at projection
+// time for what a mirror row that cannot be normalized should become.
 //
 // One §9 field remains a deliberate gap: social links (jsonb) has no
 // closed-registry transform yet, and its source properties are consumed by

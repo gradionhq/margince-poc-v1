@@ -93,15 +93,12 @@ func overlayPersonEmail(fields map[string]any) string {
 }
 
 // overlayOrgDomainRow answers the mirrored company's domain and its row out of
-// the organization_domain collection, mirroring overlayPersonEmailRow.
+// the organization_domain collection, mirroring overlayPersonEmailRow. Both
+// readers of a company domain need the row — the flip import for its primary
+// flag, the read wire for the position its row id is derived from — so there is
+// no domain-only counterpart to overlayPersonEmail.
 func overlayOrgDomainRow(fields map[string]any) (map[string]any, string) {
 	return overlayFirstChildRow(fields, "organization_domain", "domain")
-}
-
-// overlayOrgDomain answers the mirrored company's domain alone.
-func overlayOrgDomain(fields map[string]any) string {
-	_, domain := overlayOrgDomainRow(fields)
-	return domain
 }
 
 // overlayPersonEmails assembles the contract's email collection from the
@@ -121,12 +118,13 @@ func overlayPersonEmails(parent openapi_types.UUID, fields map[string]any) *[]cr
 		if !emailType.Valid() {
 			emailType = crmcontracts.PersonEmailEmailTypeWork
 		}
+		position := childRowPosition(row)
 		out = append(out, crmcontracts.PersonEmail{
-			Id:         overlaySyntheticID(parent, address),
+			Id:         overlaySyntheticID(parent, position, address),
 			Email:      openapi_types.Email(address),
 			EmailType:  emailType,
 			IsPrimary:  childRowIsPrimary(row),
-			Position:   childRowPosition(row),
+			Position:   position,
 			Source:     overlaySource,
 			CapturedBy: ptrString(overlayCapturedByValue),
 		})
@@ -150,12 +148,13 @@ func overlayPersonPhones(parent openapi_types.UUID, fields map[string]any) *[]cr
 		if !phoneType.Valid() {
 			phoneType = crmcontracts.PersonPhonePhoneTypeWork
 		}
+		position := childRowPosition(row)
 		out = append(out, crmcontracts.PersonPhone{
-			Id:         overlaySyntheticID(parent, number),
+			Id:         overlaySyntheticID(parent, position, number),
 			Phone:      number,
 			PhoneType:  phoneType,
 			IsPrimary:  childRowIsPrimary(row),
-			Position:   childRowPosition(row),
+			Position:   position,
 			Source:     overlaySource,
 			CapturedBy: ptrString(overlayCapturedByValue),
 		})
@@ -166,9 +165,15 @@ func overlayPersonPhones(parent openapi_types.UUID, fields map[string]any) *[]cr
 	return &out
 }
 
-// childAttrPosition is the mapping-declared attribute carrying a child row's
-// place in its collection.
-const childAttrPosition = "position"
+// The attribute vocabulary a mirrored child row declares, in one place next to
+// the readers below: everything a row carries beyond its own mapped column.
+// The mapping module writes these keys (overlay's ChildRow.Attrs and its
+// declared position), so the spellings are a cross-package seam — a reader
+// asking what a child row publishes gets the whole answer here.
+const (
+	childAttrIsPrimary = "is_primary"
+	childAttrPosition  = "position"
+)
 
 // childRowIsPrimary reports whether a child row is its collection's primary.
 // A row that declares nothing is not the primary — the flag is the mapping's

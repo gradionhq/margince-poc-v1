@@ -407,6 +407,13 @@ func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 // []map[string]any in-process and json.Unmarshal hands back []any; a reader
 // tested only against the in-process shape would answer "" for every record
 // that ever reached the database.
+// orgDomainOf drops the row overlayOrgDomainRow answers alongside the domain,
+// so a case table can hold it next to overlayPersonEmail's matching shape.
+func orgDomainOf(fields map[string]any) string {
+	_, domain := overlayOrgDomainRow(fields)
+	return domain
+}
+
 func TestOverlayChildReadersReadWhatTheMappingPipelineWrites(t *testing.T) {
 	cases := []struct {
 		incumbentClass string
@@ -426,7 +433,7 @@ func TestOverlayChildReadersReadWhatTheMappingPipelineWrites(t *testing.T) {
 			incumbentClass: "companies",
 			raw:            map[string]any{"hs_object_id": "2", "domain": "Acme.IO"},
 			parent:         "organization_domain",
-			read:           overlayOrgDomain,
+			read:           orgDomainOf,
 			want:           "acme.io",
 		},
 	}
@@ -474,8 +481,8 @@ func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
 	if got := overlayPersonEmail(legacy); got != "ada@example.test" {
 		t.Errorf("overlayPersonEmail = %q, want the address the pre-collection payload holds", got)
 	}
-	if got := overlayOrgDomain(legacy); got != "acme.io" {
-		t.Errorf("overlayOrgDomain = %q, want the domain the pre-collection payload holds", got)
+	if got := orgDomainOf(legacy); got != "acme.io" {
+		t.Errorf("overlayOrgDomainRow = %q, want the domain the pre-collection payload holds", got)
 	}
 	// A payload holding neither shape answers absent rather than erroring:
 	// the true value always survives in raw.
@@ -634,6 +641,12 @@ func TestOverlayWirePersonPublishesWhatTheMappingPipelineWrites(t *testing.T) {
 	if !(*person.Phones)[0].IsPrimary || mobile.IsPrimary {
 		t.Error("the work number is the declared primary and the mobile one is not")
 	}
+	// The third axis, pinned like the other two: the collection's ORDER comes
+	// from Apply's own sort, so only the published Position proves the wire and
+	// the mapping still spell the position attribute the same way.
+	if mobile.Position != 1 {
+		t.Errorf("phones[1].Position = %d, want the second slot mapping_hs.go declares", mobile.Position)
+	}
 }
 
 // A child row whose declared type is not one the contract knows must not ship
@@ -657,6 +670,14 @@ func TestOverlayWirePersonFallsBackOnAnOffEnumChildType(t *testing.T) {
 	}
 	if person.Raw == nil {
 		t.Fatal("the full canonical payload must ride raw")
+	}
+	raw := *person.Raw
+	emailRows, phoneRows := overlayChildRows(raw, "person_email"), overlayChildRows(raw, "person_phone")
+	if len(emailRows) != 1 || fieldString(emailRows[0], "email_type") != "billing" {
+		t.Errorf("raw person_email = %v, want the incumbent's own type intact behind the fallback", emailRows)
+	}
+	if len(phoneRows) != 1 || fieldString(phoneRows[0], "phone_type") != "switchboard" {
+		t.Errorf("raw person_phone = %v, want the incumbent's own type intact behind the fallback", phoneRows)
 	}
 }
 
@@ -716,19 +737,62 @@ func TestChildRowPositionReadsBothDecodedAndInProcessShapes(t *testing.T) {
 	}
 }
 
-// A churning row id would hand the SPA a fresh identity for the same value on
-// every read; two values of one parent sharing an id would collapse them in
-// any keyed render.
+// A churning row id would hand the SPA a fresh identity for the same row on
+// every read; two rows of one parent sharing an id would collapse them in any
+// keyed render.
 func TestOverlaySyntheticChildIDsAreStableAndDistinct(t *testing.T) {
 	parent := openapi_types.UUID(ids.NewV7())
-	first := overlaySyntheticID(parent, "ada@example.de")
-	if again := overlaySyntheticID(parent, "ada@example.de"); first != again {
-		t.Error("the same parent and value must always derive the same id")
+	first := overlaySyntheticID(parent, 0, "ada@example.de")
+	if again := overlaySyntheticID(parent, 0, "ada@example.de"); first != again {
+		t.Error("the same parent, position and value must always derive the same id")
 	}
-	if other := overlaySyntheticID(parent, "ada@example.com"); first == other {
+	if other := overlaySyntheticID(parent, 0, "ada@example.com"); first == other {
 		t.Error("two values of one parent must derive different ids")
 	}
-	if elsewhere := overlaySyntheticID(openapi_types.UUID(ids.NewV7()), "ada@example.de"); first == elsewhere {
+	if sameValue := overlaySyntheticID(parent, 1, "ada@example.de"); first == sameValue {
+		t.Error("two rows of one parent must derive different ids even holding the same value")
+	}
+	if elsewhere := overlaySyntheticID(openapi_types.UUID(ids.NewV7()), 0, "ada@example.de"); first == elsewhere {
 		t.Error("the same value under different parents must derive different ids")
+	}
+}
+
+// One number reachable as both the work and the mobile line is ordinary data —
+// the native model constrains person_phone only on (person_id, phone_type)
+// where primary, never on the number itself — so the two rows must reach the
+// SPA as two identities: person360.tsx keys its render on the row id, and a
+// duplicate key collapses the pair.
+func TestOverlayWirePersonKeepsOneNumberOnTwoRowsDistinct(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	canonical, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "phone": "+4930111", "mobilephone": "+4930111",
+	})
+	if err != nil {
+		t.Fatalf("Apply(contacts): %v", err)
+	}
+	rec := wireRecord(t, datasource.EntityPerson, canonical)
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Phones == nil || len(*person.Phones) != 2 {
+		t.Fatalf("Phones = %v, want the number on both its declared rows", person.Phones)
+	}
+	work, mobile := (*person.Phones)[0], (*person.Phones)[1]
+	if work.Phone != "+4930111" || mobile.Phone != "+4930111" {
+		t.Fatalf("phones = %q and %q, want the one number on both rows", work.Phone, mobile.Phone)
+	}
+	if work.Id == mobile.Id {
+		t.Errorf("row ids = %v and %v, want the work and mobile rows to keep separate identities", work.Id, mobile.Id)
+	}
+	again, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if (*again.Phones)[0].Id != work.Id || (*again.Phones)[1].Id != mobile.Id {
+		t.Error("a second read of one record must publish the same two row identities")
 	}
 }

@@ -17,6 +17,7 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"strings"
 
@@ -66,9 +67,11 @@ func overlayRecordFields(rec datasource.Record) (map[string]any, error) {
 // re-derivation kept only as a fallback for a pre-mapping mirror row that
 // carries no full_name. The emails and phones collections are the mirrored
 // child rows themselves — the type, the primary flag and the order are the
-// mapping's own declarations, carried across rather than assumed — with only
-// the contract-required row id synthesized, since a mirrored child row has no
-// native row of its own to carry one.
+// mapping's own declarations, carried across rather than assumed, save for a
+// declared type outside the contract's enum, which reads as the work type one
+// mapped address or number means rather than shipping an invalid value — with
+// only the contract-required row id synthesized, since a mirrored child row has
+// no native row of its own to carry one.
 func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts.Person, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {
@@ -140,9 +143,9 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if band := crmcontracts.OrganizationSizeBand(fieldString(fields, "size_band")); band.Valid() {
 		org.SizeBand = &band
 	}
-	if domain := overlayOrgDomain(fields); domain != "" {
+	if row, domain := overlayOrgDomainRow(fields); domain != "" {
 		org.Domains = &[]crmcontracts.OrganizationDomain{{
-			Id:         overlaySyntheticID(openapi_types.UUID(rec.Ref.ID), domain),
+			Id:         overlaySyntheticID(openapi_types.UUID(rec.Ref.ID), childRowPosition(row), domain),
 			Domain:     domain,
 			IsPrimary:  true,
 			Source:     overlaySource,
@@ -152,20 +155,27 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	return org, nil
 }
 
-// overlaySyntheticID derives a STABLE id for a mirrored child row from its
-// parent id and its own value. An overlay child row has no native row of its
-// own to carry an id and the contract requires one, so a churning id would
-// hand the SPA a fresh identity on every read; hashing the two stable inputs
-// keeps it fixed for a given (parent, value). The 16-byte parent id is a
-// fixed-length prefix, so no separator is needed to keep the pair unambiguous.
-// The version/variant nibbles are stamped to RFC 9562 v8 (application-defined
-// — the honest label for a custom hash-derived id) so the value is a
-// well-formed UUID. This layer stays off the `github.com/google/uuid` package
-// by arch rule, so the bits are set by hand. Non-authoritative like every
-// overlay wire value — it is never persisted or resolved back to a row.
-func overlaySyntheticID(parent openapi_types.UUID, value string) openapi_types.UUID {
-	buf := make([]byte, 0, len(parent)+len(value))
+// overlaySyntheticID derives an id for a mirrored child row from its parent id,
+// its declared position in that parent's collection, and its own value. An
+// overlay child row has no native row of its own to carry an id and the
+// contract requires one, so the identity the SPA keys its render on has to hold
+// on two axes: DISTINCT for every row of one parent, and STABLE across reads of
+// the same record. The value alone carries neither — a contact reachable on the
+// same number as both work and mobile is ordinary data the native model permits
+// — so the position joins it, which Apply keeps unique within a parent. Both
+// leading inputs each end where the next begins — the parent id is a fixed
+// 16-byte prefix and the position rides as a self-terminating varint — so no
+// separator is needed to keep the triple unambiguous, the free-length value
+// being last. The version/variant nibbles are stamped to RFC 9562 v8
+// (application-defined — the honest label for a custom hash-derived id) so the
+// value is a well-formed UUID. This layer stays off the
+// `github.com/google/uuid` package by arch rule, so the bits are set by hand.
+// Non-authoritative like every overlay wire value — it is never persisted or
+// resolved back to a row.
+func overlaySyntheticID(parent openapi_types.UUID, position int, value string) openapi_types.UUID {
+	buf := make([]byte, 0, len(parent)+binary.MaxVarintLen64+len(value))
 	buf = append(buf, parent[:]...)
+	buf = binary.AppendVarint(buf, int64(position))
 	buf = append(buf, value...)
 	sum := sha256.Sum256(buf)
 	var id openapi_types.UUID
