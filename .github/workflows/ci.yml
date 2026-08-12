@@ -615,8 +615,12 @@ jobs:
   integration:
     name: integration (RLS + erasure + HTTP e2e)
     needs: [changes, integration-shards, integration-unit-coverage]
+    # `always()`, for the reason spelled out on the `frontend` fan-in below: a
+    # skipped required check counts as passing, and `!cancelled()` is false for
+    # every job once a run is cancelled — so cancelling mid-lane would have
+    # skipped this check and greened it. The assertion below sees `cancelled`.
     if: >-
-      !cancelled()
+      always()
       && needs.changes.outputs.backend == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1052,16 +1056,18 @@ jobs:
   # three jobs above are not. Splitting the lane without it would retire the
   # check every PR waits on.
   #
-  # `!cancelled()` rather than the default, which is `success()` of every need:
-  # a job skipped because a dependency failed reports as SKIPPED, and GitHub
-  # counts a skipped required check as PASSING. Left alone, a red unit suite
-  # would have merged. So this runs whenever the lane ran at all and asserts the
-  # three results itself.
+  # `always()` rather than the default, which is `success()` of every need: a job
+  # skipped because a dependency failed reports as SKIPPED, and GitHub counts a
+  # skipped required check as PASSING. Left alone, a red unit suite would have
+  # merged. `!cancelled()` is not enough either — it is false for every job the
+  # moment a run is cancelled, so cancelling the workflow while the long unit job
+  # was still going would skip this check and green the lane. `always()` runs it
+  # in both cases, and the assertion below sees `cancelled` and fails.
   frontend:
     name: frontend (biome + vitest + tsc + build)
     needs: [changes, fe-quality, fe-unit, fe-bundle]
     if: >-
-      !cancelled()
+      always()
       && needs.changes.outputs.frontend == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1071,17 +1077,24 @@ jobs:
       run:
         working-directory: .
     steps:
+      # Each result carries its own job name rather than being matched to a
+      # separate name list by position: two lists kept in step would silently
+      # stop checking a fourth lane that was added to one and not the other.
       - name: Every frontend lane passed
         env:
-          RESULTS: ${{ needs.fe-quality.result }} ${{ needs.fe-unit.result }} ${{ needs.fe-bundle.result }}
+          RESULTS: >-
+            fe-quality=${{ needs.fe-quality.result }}
+            fe-unit=${{ needs.fe-unit.result }}
+            fe-bundle=${{ needs.fe-bundle.result }}
         run: |
           set -euo pipefail
-          names="fe-quality fe-unit fe-bundle"
+          [ -n "${RESULTS// /}" ] || { echo "no lane results to check" >&2; exit 1; }
           failed=""
-          set -- $RESULTS
-          for name in $names; do
-            [ "$1" = success ] || failed="$failed $name=$1"
-            shift
+          for result in $RESULTS; do
+            case "$result" in
+              *=success) ;;
+              *) failed="$failed $result" ;;
+            esac
           done
           if [ -n "$failed" ]; then
             echo "the frontend lane did not pass:$failed" >&2
