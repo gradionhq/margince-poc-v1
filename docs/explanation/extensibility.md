@@ -320,6 +320,7 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | The core stays jurisdiction-neutral | `scripts/check-no-jurisdiction.sh` |
 | Every unit table carries FORCE RLS and a workspace-bound policy, and touches nothing in `public` | `make check-ext-migrations` (applies each unit's migrations as a minted restricted role) |
 | Every unit table grants the runtime role exactly `SELECT, INSERT, UPDATE, DELETE` — a table granting *nothing* satisfied the old one-sided allowlist and then answered `permission denied` at the first call | `make check-ext-migrations` |
+| A unit's SQL names only that unit's own `ext.ext_<name>_…` tables — the mistake-defence half of the shared-role reach described above, reading through the string constants a table name is spelled with | `backend/extensionsqlscope_test.go` |
 | A unit's shipped `migrations/` is actually embedded and applied — the directory and the field are two facts, and the gates read different ones | `backend/tools/gen-composition` (the `Migrations` field must name a var whose `//go:embed` covers the layer) |
 | The runtime pool is not the migration owner: no superuser, no BYPASSRLS, and no ownership of the `ext` schema *or* anything in it | `compose.AssertRuntimeRole`, at boot and on `/readyz` |
 | A declaration the composer cannot honour is refused rather than discarded — an unknown job role, governance declared on the wrong half of a pair, a `$ref` in an advertised schema, a multi-document base contract | `backend/tools/gen-composition` |

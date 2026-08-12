@@ -196,7 +196,11 @@ type Caller struct {
 //     property of polite units, not of this transaction.
 //
 // All four are the same missing thing (#628) and all four are inside the
-// trusted-unit threat model above.
+// trusted-unit threat model above. A static gate does refuse the first two
+// where it can SEE them — backend/extensionsqlscope_test.go reads the SQL a
+// unit's source spells out and holds it to that unit's own ext_<name>_* tables
+// — but a scanner is defence against mistakes by construction: it reads text,
+// and this seam takes whatever string a unit assembles.
 //
 // args is ...any because SQL arguments are genuinely heterogeneous — a
 // statement's parameters are whatever its placeholders are — and every
