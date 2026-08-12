@@ -455,12 +455,13 @@ collapses while RLS is still armed, because the tenant-isolation suite staying
 green is the only mechanical proof that an edit of that size stayed faithful,
 and the schema phase deletes that suite. Do not reorder it.
 
-### Step 3 is done except identity — what the handle turned out to mean
+### Step 3 is DONE — what the handle turned out to mean
 
 `platform/database.DB` is the seam that landed: a pool that knows its
 workspace, with `Tx` spelling the same `WithWorkspaceTx` GUC contract, so RLS
-stayed armed and the isolation suite stayed the proof. Every module but
-`identity` now opens on one.
+stayed armed and the isolation suite stayed the proof. Every module now opens on
+one, `identity` included (#1010) — **step 4 (principal/envelope/audit_log/
+contract/frontend) is the next slice, and the schema phase after it.**
 
 The sweep's real finding is that there are exactly **three** ways a caller knows
 which tenant it is, and the handle makes the choice visible at the call site
@@ -483,13 +484,21 @@ Two rules fell out of it and are worth knowing before the next slice:
   resolving constructors; a suite that seeds a second workspace has no singleton
   to resolve and names the one it means.
 
-**identity is the one module left**, and it is not a mechanical rename. A
-self-bound handle is legal — `InstallationWorkspace` reads no tenant table, so
+**identity went last**, and the reason is worth keeping: the module that REFUSES
+when a second workspace exists is the one whose own suites bootstrap an
+installation per test, so its fixtures cannot resolve a singleton. They name the
+workspace they just created, through `NewServiceFor`. The self-reference is fine
+— `InstallationWorkspace` reads no tenant table, so
 `svc.db = database.Bind(pool, svc.InstallationWorkspace)` is not circular at
-runtime, and it compiles and passes the unit lane. What it does not pass is
-identity's own integration suites plus the CIMD and agent-seat lanes: they drive
-several tenants through ONE service on purpose. Converting it means reworking
-those fixtures tenant by tenant, which is its own slice.
+runtime. `identity.NewService(pool)` therefore still takes a pool: it is the one
+constructor that builds its own handle.
+
+One defect that slice surfaced, and the shape to watch for in step 4: the tool
+registry's admission gate was building an identity service of its own, so a
+registry pinned to a named workspace admitted through a service resolving a
+different one — an ungoverned-agent refusal answered `ErrMultipleWorkspaces`
+instead of the refusal it exists to assert. **A component that carries a handle
+must pass THAT handle to everything it constructs.**
 
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
