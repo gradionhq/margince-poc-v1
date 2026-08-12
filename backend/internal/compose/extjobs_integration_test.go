@@ -246,15 +246,25 @@ func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
 	if rows != 0 {
 		t.Fatalf("the seatless workspace has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
 	}
-	// And nothing anywhere failed: a skip that merely moved the failure to
-	// another kind would satisfy the count above.
+	// And the skip did not merely MOVE the failure: neither this dispatcher's
+	// own kind nor the child it fans out to holds a failed or retrying row.
+	//
+	// Scoped to those two kinds rather than to river_job as a whole. The table
+	// is shared with every other test in the package, and which of them run
+	// beside this one is decided by the shard slicing — so an unscoped count
+	// reports another test's expected failure as this one's regression, which
+	// is exactly how this assertion started failing per-shard rather than
+	// per-change (#1015).
 	var failed int
-	if err := e.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE state IN ('discarded', 'retryable') OR errors <> '{}'`).Scan(&failed); err != nil {
+	if err := e.Pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM river_job
+		 WHERE kind = ANY($1)
+		   AND (state IN ('discarded', 'retryable') OR errors <> '{}')`,
+		[]string{decl.DispatcherKind(), decl.ChildKind()}).Scan(&failed); err != nil {
 		t.Fatalf("counting failed rows: %v", err)
 	}
 	if failed != 0 {
-		t.Fatalf("the fleet holds %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
+		t.Fatalf("the dispatcher and its child hold %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
 	}
 
 	// The condition is reported. Without this the skip would be silent, which
