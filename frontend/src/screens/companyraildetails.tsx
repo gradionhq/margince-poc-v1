@@ -7,11 +7,11 @@ import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
 import { InlineChoice, InlineText } from "../design-system/inlinechoice";
 import { useT } from "../i18n";
 import {
+  CompanyOwnerControl,
   useCompanyFieldPatch,
   useCompanyReadOnlyReason,
 } from "./companyheader";
 import { LIFECYCLE_LABELS, SIZE_BAND_OPTIONS } from "./companylookups";
-import { EntityRef } from "./entityref";
 
 // The rail's own Details grid (companyrail.tsx's DetailsGrid), split into
 // this file so the rail file stays under the 500-line ceiling: one panel
@@ -47,20 +47,23 @@ const DESCRIPTION_MAX_LENGTH = 500;
  * gate on — rather than threaded down as a prop, so a caller cannot render
  * this grid writable on a record it should not be able to write.
  *
- * Lifecycle, owner, domain and address stay read-only here. Lifecycle and
- * owner already have their own controls in the header
- * (`CompanyLifecycleControl`/`CompanyOwnerControl`) — a second editable
- * lifecycle picker here PATCHes the same field through a second path, and a
- * page with two "Change Account lifecycle" controls is a page offering the
- * reader two different ways to do the one thing, wired to two independent
- * bits of local edit state. The header is where a reader SETS things about
- * an account; this grid is the reference surface, so it shows the value the
- * header owns rather than a second way to write it. Domain and address are
- * not scalar either, for an unrelated reason: `domains` is a replace-set on
- * the wire (an edit here that wrote only the primary domain back would
- * silently drop every other one) and `address` is a multi-field object no
- * single InlineText round-trips. Both need a purpose-built editor this grid
- * does not attempt.
+ * Lifecycle, domain and address stay read-only here. Lifecycle already has
+ * its own control in the header (`CompanyLifecycleControl`) — a second
+ * editable lifecycle picker here PATCHes the same field through a second
+ * path, and a page with two "Change Account lifecycle" controls is a page
+ * offering the reader two different ways to do the one thing, wired to two
+ * independent bits of local edit state. The header is where a reader SETS
+ * lifecycle; this grid shows the value the header owns rather than a second
+ * way to write it. Owner is the one exception: it reuses the header's own
+ * `CompanyOwnerControl` (roster read, not-in-roster fallback,
+ * unowned-only-while-unowned rule, all shared) rather than duplicating that
+ * logic, so the grid and the header write owner through the identical
+ * control — two mount points, one implementation, not two independent ones.
+ * Domain and address are not scalar either, for an unrelated reason:
+ * `domains` is a replace-set on the wire (an edit here that wrote only the
+ * primary domain back would silently drop every other one) and `address` is
+ * a multi-field object no single InlineText round-trips. Both need a
+ * purpose-built editor this grid does not attempt.
  *
  * ABSENT VS WITHHELD, stated rather than built: this grid does not today
  * distinguish a field nobody has filled in from one the viewer's role cannot
@@ -121,11 +124,11 @@ function LegalNameRow({
   );
 }
 
-// Lifecycle, owner, domain and address stay read-only here — see the
-// docblock above for why each one does. Grouped in one component (rather
-// than each getting its own row function like the editable fields) because
-// none of them needs `DetailsRowProps`' write-side props: no `canEdit`, no
-// `readOnlyReason`, no `patch`, just the record to read from.
+// Lifecycle, domain and address stay read-only here — see the docblock above
+// for why each one does. Grouped in one component (rather than each getting
+// its own row function like the editable fields) because none of them needs
+// `DetailsRowProps`' write-side props: no `canEdit`, no `readOnlyReason`, no
+// `patch`, just the record to read from.
 function ReadOnlyFactRows({
   organization,
 }: Readonly<{ organization: Organization }>) {
@@ -143,13 +146,6 @@ function ReadOnlyFactRows({
           LIFECYCLE_LABELS[(organization.lifecycle ?? "unknown") as Lifecycle],
         )}
       </FieldRow>
-      <FieldRow label={t("co.pulse.owner")}>
-        {organization.owner_id ? (
-          <EntityRef kind="user" id={organization.owner_id} />
-        ) : (
-          t("co.pulse.unowned")
-        )}
-      </FieldRow>
       <FieldRow label={t("field.domain")}>
         {primaryDomain ?? t("field.unset")}
       </FieldRow>
@@ -157,6 +153,19 @@ function ReadOnlyFactRows({
         {location || t("field.unset")}
       </FieldRow>
     </>
+  );
+}
+
+// Owner reuses the header's own `CompanyOwnerControl` rather than a second
+// InlineChoice wired to the same roster — see the docblock above. `hideLabel`
+// leaves the visible "Owner" label to FieldGrid's own label column, the same
+// way SizeBandRow below suppresses InlineChoice's own prefix.
+function OwnerRow({ organization }: Readonly<{ organization: Organization }>) {
+  const t = useT();
+  return (
+    <FieldRow label={t("co.pulse.owner")}>
+      <CompanyOwnerControl org={organization} hideLabel />
+    </FieldRow>
   );
 }
 
@@ -211,6 +220,10 @@ function SizeBandRow({
   );
 }
 
+// Always InlineText, whether or not the account has a URL yet: the header's
+// own LinkedIn chip (companyheader.tsx) already gives a reader the clickable
+// link once one is set, so this row's job is writing the value, not a second
+// place to click through to it.
 function LinkedinRow({
   organization,
   canEdit,
@@ -220,20 +233,14 @@ function LinkedinRow({
   const t = useT();
   return (
     <FieldRow label={t("create.linkedinUrl")}>
-      {organization.linkedin_url ? (
-        <a href={organization.linkedin_url} target="_blank" rel="noreferrer">
-          {t("co.chip.linkedin")}
-        </a>
-      ) : (
-        <InlineText
-          label={t("create.linkedinUrl")}
-          value=""
-          placeholder={t("field.addLinkedinUrl")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) => patch({ linkedin_url: next || null })}
-        />
-      )}
+      <InlineText
+        label={t("create.linkedinUrl")}
+        value={organization.linkedin_url ?? ""}
+        placeholder={t("field.addLinkedinUrl")}
+        canEdit={canEdit}
+        readOnlyReason={readOnlyReason}
+        onSave={(next) => patch({ linkedin_url: next || null })}
+      />
     </FieldRow>
   );
 }
@@ -275,6 +282,7 @@ function DetailsGridBody({
   return (
     <FieldGrid>
       <LegalNameRow {...row} />
+      <OwnerRow organization={organization} />
       <ReadOnlyFactRows organization={organization} />
       <IndustryRow {...row} />
       <SizeBandRow {...row} />

@@ -241,7 +241,17 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
   );
 }
 
-function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
+// Exported for the same reason as useCompanyFieldPatch/useCompanyReadOnlyReason
+// above: the rail's Details grid edits the SAME field through the SAME
+// roster read, the SAME not-in-roster fallback and the SAME
+// unowned-only-while-unowned rule, rather than a second picker that could
+// silently diverge from any of the three. `hideLabel` lets the rail's own
+// FieldRow label column say "Owner" once instead of this control saying it
+// again — the header call site omits it and keeps its current prose.
+export function CompanyOwnerControl({
+  org,
+  hideLabel,
+}: Readonly<{ org: Organization; hideLabel?: boolean }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
@@ -272,6 +282,7 @@ function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("co.pulse.owner")}
+      hideLabel={hideLabel}
       value={org.owner_id ?? ""}
       options={options}
       canEdit={canUpdate && !readOnlyReason}

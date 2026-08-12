@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -85,14 +86,19 @@ function render(ui: ReactNode) {
 // summary Health reads for its payment dimension, the roster the owner
 // row resolves against, and the signals feed. `overrides` answers with
 // whatever the test is actually about.
-function stub(overrides: Record<string, (req: Request) => Response> = {}) {
+function stub(
+  overrides: Record<
+    string,
+    (req: Request) => Response | Promise<Response>
+  > = {},
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
       for (const [suffix, respond] of Object.entries(overrides)) {
         if (pathname.endsWith(suffix)) {
-          return respond(request);
+          return await respond(request);
         }
       }
       if (pathname.endsWith("/finance-summary")) {
@@ -186,6 +192,91 @@ describe("CompanyRail", () => {
     // not blanks.
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
     expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
+  });
+
+  it("opens and saves the LinkedIn URL inline even when one is already set", async () => {
+    let patchBody: unknown;
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          patchBody = await request.json();
+          return jsonResponse({ ...org, version: 2 });
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    // The value is already set, which is exactly the case that used to render
+    // a bare link with no control in any branch — there was nothing to open.
+    // Waits for /me's grant to resolve first: the button exists only once
+    // `canEdit` turns true, same as every other inline control here.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change LinkedIn URL" }),
+    );
+    const input = screen.getByLabelText("LinkedIn URL");
+    await userEvent.clear(input);
+    await userEvent.type(input, "https://linkedin.com/company/brandt-gmbh");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(patchBody).toMatchObject({
+        linkedin_url: "https://linkedin.com/company/brandt-gmbh",
+      }),
+    );
+  });
+
+  it("edits owner through the same roster-backed control the header uses", async () => {
+    let patchBody: unknown;
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/users": () =>
+        jsonResponse({
+          data: [
+            { id: "u-1", display_name: "Mira Voss" },
+            { id: "u-2", display_name: "Ravi Shah" },
+          ],
+          page: emptyPage,
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          patchBody = await request.json();
+          return jsonResponse({ ...org, version: 2 });
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Mira Voss")).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Change Owner" }));
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("option", { name: "Ravi Shah" }));
+    await waitFor(() => expect(patchBody).toMatchObject({ owner_id: "u-2" }));
   });
 
   it("shows the account's rating in the Health summary rather than a count", () => {
