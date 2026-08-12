@@ -7,7 +7,7 @@ import { ifMatch } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
-import { InlineChoice, InlineText } from "../design-system/inlinechoice";
+import { InlineChoice } from "../design-system/inlinechoice";
 import { Chip } from "../design-system/readings";
 import { ProvenanceTag } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
@@ -485,53 +485,30 @@ export function CompanyActionBadges({
   );
 }
 
-// CompanyDescription is the one-line "what this company does" under the title,
-// editable where it is read (plan §4.1). Absent, it is still pressable — an
-// unwritten description is the case a rep most wants to fix, and a line that
-// only appears once it exists can never be started.
+// CompanyDescription is the one-line "what this company does" under the
+// title — READ-ONLY here (plan §4.1's editable line moved to the rail's
+// Details grid, companyraildetails.tsx's DescriptionRow, which is where a
+// reader goes to fill fields in). A second editable control on the same
+// field, wired to a second PATCH, is the duplicate-control defect the
+// lifecycle row was fixed for; this is the same fix one field over. Absent
+// entirely rather than shown empty: an unwritten description with no
+// pressable to start it here would be a dead end pointing nowhere at the
+// field that actually writes it.
 export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
-  const t = useT();
-  const canUpdate = useCan("organization", "update");
-  const readOnlyReason = useCompanyReadOnlyReason(org);
-  const patch = useCompanyFieldPatch(org);
   const value = org.description ?? "";
   // The line is drawn only when it says something the chips below it do not.
-  // Nothing written earns no prompt: the chips already answer what this
-  // company does, so an invitation here asks the reader for what the header
-  // states one row down. A description that merely repeats the industry earns
-  // no line either — a reader who sees the same words twice reads the second
+  // Nothing written earns no line: the details grid is where that gets
+  // filled in now. A description that merely repeats the industry earns no
+  // line either — a reader who sees the same words twice reads the second
   // copy as a different fact and looks for the difference. Enrichment writes
   // this field from the same source the industry comes from, so the two
-  // matching is the common case, not a freak one. The field stays writable
-  // where a reader goes to fill fields in — the record's details.
+  // matching is the common case, not a freak one.
   const industry = org.industry?.trim().toLowerCase() ?? "";
   if (!value || value.trim().toLowerCase() === industry) {
     return null;
   }
-  return (
-    <p className="co-description">
-      {/* Keyed by the record, so navigating to another company while the line
-          is open REMOUNTS the control rather than re-pointing it. Without the
-          key the draft typed for company A survives, and pressing Save then
-          writes it to company B with nothing on screen saying so — the same
-          trap the composer is keyed against. */}
-      <InlineText
-        key={org.id}
-        label={t("co.description.label")}
-        value={value}
-        placeholder={t("co.description.placeholder")}
-        maxLength={COMPANY_DESCRIPTION_MAX}
-        canEdit={canUpdate && !readOnlyReason}
-        readOnlyReason={readOnlyReason}
-        onSave={(next) => patch({ description: next || null })}
-      />
-    </p>
-  );
+  return <p className="co-description">{value}</p>;
 }
-
-// The column's own CHECK bound (core 0203). Stated here so the field stops the
-// reader at the limit rather than letting the server refuse the save.
-const COMPANY_DESCRIPTION_MAX = 500;
 
 // CompanyChips is the header's row of facts: where the company is on the web,
 // where it is on the map, what it does and how big it is (plan §4.1). It

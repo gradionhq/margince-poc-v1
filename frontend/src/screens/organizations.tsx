@@ -58,14 +58,13 @@ import {
   PeopleCard,
   RECORD_ZONE,
   RecentActivityPanel,
-  type SectionState,
   StateStrip,
   type SuggestionAction,
   sectionState,
   useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
-import { ListAction, NewDealAction, TagAction } from "./companyactions";
+import { NewDealAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyLastOffer } from "./companycommercial";
 import { CompanyDocumentsCard } from "./companydocuments";
@@ -2477,51 +2476,8 @@ function CompanyOverviewStack({
           <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
           {/* What happened lately, grouped by day. */}
           <RecentActivityPanel view={view} onOpenHistory={onOpenHistory} />
-          {/* The write half of how the account is filed. The rail
-              (companyrail.tsx) shows the tags and list memberships
-              themselves now, so this strip carries only the verbs that
-              change them — the display stays in the ONE place, and this is
-              not a second card showing it again. */}
-          {!readOnly && <CompanyFilingActions org={org} view={view} />}
         </>
       )}
-    </div>
-  );
-}
-
-// CompanyFilingActions renders each verb only once its own section has
-// actually answered (ready or empty) — the same rule TagsCard's own action
-// strip enforced, kept here since the strip that used to carry it is gone.
-// A caller who may not read tags has no business being offered a button to
-// add one, and a section that failed to load cannot say whether the write
-// would even make sense.
-function CompanyFilingActions({
-  org,
-  view,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-}>) {
-  const tagState = sectionState(
-    view,
-    "tags",
-    Boolean(view?.tags),
-    view?.tags?.length ?? 0,
-  );
-  const listState = sectionState(
-    view,
-    "list_memberships",
-    Boolean(view?.list_memberships),
-    view?.list_memberships?.length ?? 0,
-  );
-  const shows = (state: SectionState) => state === "ready" || state === "empty";
-  if (!shows(tagState) && !shows(listState)) {
-    return null;
-  }
-  return (
-    <div className="co-card-actions">
-      {shows(tagState) && <TagAction orgId={org.id} />}
-      {shows(listState) && <ListAction orgId={org.id} />}
     </div>
   );
 }

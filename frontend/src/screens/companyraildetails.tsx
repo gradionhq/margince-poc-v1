@@ -10,11 +10,7 @@ import {
   useCompanyFieldPatch,
   useCompanyReadOnlyReason,
 } from "./companyheader";
-import {
-  LIFECYCLE_LABELS,
-  LIFECYCLE_OPTIONS,
-  SIZE_BAND_OPTIONS,
-} from "./companylookups";
+import { LIFECYCLE_LABELS, SIZE_BAND_OPTIONS } from "./companylookups";
 import { EntityRef } from "./entityref";
 
 // The rail's own Details grid (companyrail.tsx's DetailsGrid), split into
@@ -26,6 +22,11 @@ type Organization = components["schemas"]["Organization"];
 type Lifecycle = NonNullable<Organization["lifecycle"]>;
 type UpdateOrganizationRequest =
   components["schemas"]["UpdateOrganizationRequest"];
+
+// The column's own CHECK bound (core 0203) — stops the reader at the limit
+// rather than letting the server refuse the save. Same figure companyheader.tsx
+// used to cap its own (now-removed) description control at.
+const DESCRIPTION_MAX_LENGTH = 500;
 
 /**
  * DetailsGrid draws the account's own fields as a label/value grid: legal
@@ -46,14 +47,20 @@ type UpdateOrganizationRequest =
  * gate on — rather than threaded down as a prop, so a caller cannot render
  * this grid writable on a record it should not be able to write.
  *
- * Owner, domain and address stay read-only here. Owner already has its own
- * roster-backed control in the header (`CompanyOwnerControl`) — repeating a
- * SECOND owner picker in the same page, wired to the same roster fetch, is
- * the duplication the header file exists to own once. Domain and address are
- * not scalar: `domains` is a replace-set on the wire (an edit here that wrote
- * only the primary domain back would silently drop every other one) and
- * `address` is a multi-field object no single InlineText round-trips. Both
- * need a purpose-built editor this grid does not attempt.
+ * Lifecycle, owner, domain and address stay read-only here. Lifecycle and
+ * owner already have their own controls in the header
+ * (`CompanyLifecycleControl`/`CompanyOwnerControl`) — a second editable
+ * lifecycle picker here PATCHes the same field through a second path, and a
+ * page with two "Change Account lifecycle" controls is a page offering the
+ * reader two different ways to do the one thing, wired to two independent
+ * bits of local edit state. The header is where a reader SETS things about
+ * an account; this grid is the reference surface, so it shows the value the
+ * header owns rather than a second way to write it. Domain and address are
+ * not scalar either, for an unrelated reason: `domains` is a replace-set on
+ * the wire (an edit here that wrote only the primary domain back would
+ * silently drop every other one) and `address` is a multi-field object no
+ * single InlineText round-trips. Both need a purpose-built editor this grid
+ * does not attempt.
  *
  * ABSENT VS WITHHELD, stated rather than built: this grid does not today
  * distinguish a field nobody has filled in from one the viewer's role cannot
@@ -114,46 +121,11 @@ function LegalNameRow({
   );
 }
 
-function LifecycleRow({
-  organization,
-  canEdit,
-  readOnlyReason,
-  patch,
-}: DetailsRowProps) {
-  const t = useT();
-  return (
-    <FieldRow label={t("org.lifecycle")}>
-      <InlineChoice
-        label={t("org.lifecycle")}
-        hideLabel
-        value={organization.lifecycle ?? "unknown"}
-        options={LIFECYCLE_OPTIONS.map((value) => ({
-          value,
-          label: t(LIFECYCLE_LABELS[value]),
-        }))}
-        canEdit={canEdit}
-        readOnlyReason={readOnlyReason}
-        render={(value) => t(LIFECYCLE_LABELS[value as Lifecycle])}
-        onSave={(next) =>
-          patch({
-            lifecycle: next as NonNullable<
-              UpdateOrganizationRequest["lifecycle"]
-            >,
-          })
-        }
-      />
-    </FieldRow>
-  );
-}
-
-// Owner, domain and address stay read-only here. Owner already has its own
-// roster-backed control in the header (`CompanyOwnerControl`) — repeating a
-// SECOND owner picker in the same page, wired to the same roster fetch, is
-// the duplication the header file exists to own once. Domain and address are
-// not scalar: `domains` is a replace-set on the wire (an edit here that wrote
-// only the primary domain back would silently drop every other one) and
-// `address` is a multi-field object no single InlineText round-trips. Both
-// need a purpose-built editor this grid does not attempt.
+// Lifecycle, owner, domain and address stay read-only here — see the
+// docblock above for why each one does. Grouped in one component (rather
+// than each getting its own row function like the editable fields) because
+// none of them needs `DetailsRowProps`' write-side props: no `canEdit`, no
+// `readOnlyReason`, no `patch`, just the record to read from.
 function ReadOnlyFactRows({
   organization,
 }: Readonly<{ organization: Organization }>) {
@@ -166,6 +138,11 @@ function ReadOnlyFactRows({
     .join(", ");
   return (
     <>
+      <FieldRow label={t("org.lifecycle")}>
+        {t(
+          LIFECYCLE_LABELS[(organization.lifecycle ?? "unknown") as Lifecycle],
+        )}
+      </FieldRow>
       <FieldRow label={t("co.pulse.owner")}>
         {organization.owner_id ? (
           <EntityRef kind="user" id={organization.owner_id} />
@@ -274,6 +251,7 @@ function DescriptionRow({
         label={t("co.description.label")}
         value={organization.description ?? ""}
         placeholder={t("co.description.placeholder")}
+        maxLength={DESCRIPTION_MAX_LENGTH}
         canEdit={canEdit}
         readOnlyReason={readOnlyReason}
         onSave={(next) => patch({ description: next || null })}
@@ -297,7 +275,6 @@ function DetailsGridBody({
   return (
     <FieldGrid>
       <LegalNameRow {...row} />
-      <LifecycleRow {...row} />
       <ReadOnlyFactRows organization={organization} />
       <IndustryRow {...row} />
       <SizeBandRow {...row} />

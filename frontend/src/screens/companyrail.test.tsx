@@ -320,12 +320,7 @@ describe("CompanyRail", () => {
   it("offers the add-tag and add-to-list verbs once each half has answered, on a writable record", async () => {
     stub();
     render(
-      <CompanyRail
-        orgId="o-1"
-        view={view()}
-        withPeople
-        composerOpen={false}
-      />,
+      <CompanyRail orgId="o-1" view={view()} withPeople composerOpen={false} />,
     );
     // Both halves answered `empty` (view()'s tags/list_memberships default to
     // []), so both verbs render beside the half they act on.
@@ -342,7 +337,9 @@ describe("CompanyRail", () => {
     render(
       <CompanyRail
         orgId="o-1"
-        view={view({ organization: { ...org, archived_at: "2026-06-02T00:00:00Z" } })}
+        view={view({
+          organization: { ...org, archived_at: "2026-06-02T00:00:00Z" },
+        })}
         withPeople
         composerOpen={false}
       />,
