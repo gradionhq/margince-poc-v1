@@ -44,11 +44,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
-// errFlipLeadReplayed aborts a lead landing that wrote nothing: the store
-// answered with a lead that already existed under its natural key rather than
-// creating one. Rolling back is what keeps the identity row out of the map —
-// see the disclosure note at the call site for why that matters.
-var errFlipLeadReplayed = errors.New("flip import: the lead replayed under its natural key")
+// errFlipReplayed aborts a landing that wrote nothing: the store answered with
+// a record that already existed under its natural key rather than creating one.
+// Rolling back is what keeps the identity row out of the map — see the
+// disclosure note at either call site for why that matters.
+var errFlipReplayed = errors.New("flip import: the record replayed under its natural key")
 
 // flipWriters implements migration.Writers for the overlay→native flip.
 type flipWriters struct {
@@ -150,6 +150,10 @@ func (w *flipWriters) importSourceSystem() string {
 // because something else already holds its natural key.
 const skipReasonNaturalKeyTaken = "natural_key_already_taken"
 
+// skipReasonDuplicateEmail marks an estate contact whose email a native person
+// already holds — a merge candidate the flip discloses rather than resolves.
+const skipReasonDuplicateEmail = "duplicate_email"
+
 func (w *flipWriters) cacheKey(object, ext string) string { return object + "/" + ext }
 
 // Exists answers whether the row's provenance already landed natively —
@@ -199,23 +203,6 @@ func flipImportable(object string) bool {
 	}
 }
 
-// remember records the external→native identity in the engine-owned map
-// (and the per-run cache), so a later page, a resumed run, and the
-// association phase all resolve the same row.
-//
-// This is the two-transaction landing flipreconcile.go repairs, still used by
-// the two classes this change did not convert: the deal, whose landing takes a
-// second transaction of its own anyway (born open, then advanced to its
-// terminal stage), and the activity, whose store has accepted a caller's
-// transaction since LogActivityTx and is simply next.
-func (w *flipWriters) remember(ctx context.Context, object, ext string, id ids.UUID) error {
-	if err := w.identities.RecordIdentity(ctx, w.runID, w.incumbent, object, ext, id); err != nil {
-		return err
-	}
-	w.cacheLanded(object, ext, id)
-	return nil
-}
-
 // cacheLanded caches an external→native binding whose identity row is already
 // COMMITTED.
 //
@@ -233,9 +220,9 @@ func (w *flipWriters) cacheLanded(object, ext string, id ids.UUID) {
 //
 // create returns the id it wrote; the identity row goes in beside it, so a
 // process that dies mid-landing leaves neither — rather than a record the
-// resume cannot name and would create a second time. flipreconcile.go stays:
-// it adopts orphans left by attempts that predate this, and by the classes
-// still landing in two steps.
+// resume cannot name and would create a second time. flipreconcile.go remains
+// the repair for the classes that still land in two steps (see remember), and
+// for orphans already in the estate.
 func (w *flipWriters) landRecord(ctx context.Context, object, ext string, create func(tx pgx.Tx) (ids.UUID, error)) (ids.UUID, error) {
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
@@ -376,7 +363,7 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 	if _, err := w.landRecord(ctx, flipObjectPerson, row.ExternalID, func(tx pgx.Tx) (ids.UUID, error) {
 		person, err := w.people.CreatePersonTx(ctx, tx, in)
 		if err != nil {
-			return ids.UUID{}, err
+			return ids.UUID{}, fmt.Errorf("flip import: creating person %s: %w", row.ExternalID, err)
 		}
 		return ids.UUID(person.Id), nil
 	}); err != nil {
@@ -384,11 +371,12 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		if errors.As(err, &dup) {
 			// An estate contact whose email already belongs to a native
 			// person is a merge candidate, never auto-merged (AC-M9's
-			// posture) — disclosed as a skip, not silently dropped. The
-			// landing transaction rolled back, so no identity row names it.
-			return migration.EnsureResult{Skipped: true, SkipReason: "duplicate_email"}, nil
+			// posture) — disclosed as a skip, not silently dropped. Nothing
+			// of it is left behind: the landing rolled back, so no identity
+			// row names a person this run did not create.
+			return migration.EnsureResult{Skipped: true, SkipReason: skipReasonDuplicateEmail}, nil
 		}
-		return migration.EnsureResult{}, fmt.Errorf("flip import: creating person %s: %w", row.ExternalID, err)
+		return migration.EnsureResult{}, err
 	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
@@ -416,11 +404,11 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 			return ids.UUID{}, fmt.Errorf("flip import: creating lead %s: %w", ext, err)
 		}
 		if !created {
-			return ids.UUID{}, errFlipLeadReplayed
+			return ids.UUID{}, errFlipReplayed
 		}
 		return ids.UUID(lead.Id), nil
 	}); err != nil {
-		if errors.Is(err, errFlipLeadReplayed) {
+		if errors.Is(err, errFlipReplayed) {
 			// The identity map did not know this row, yet the store replayed
 			// an existing one under the flip's namespaced key. It is NOT
 			// adopted into the map: recording a row this run did not create
@@ -456,16 +444,21 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 	if due, ok := overlayTime(row.Fields, "due_at"); ok {
 		in.DueAt = &due
 	}
-	activity, created, err := w.activities.LogActivity(ctx, in)
-	if err != nil {
-		return migration.EnsureResult{}, fmt.Errorf("flip import: logging activity %s: %w", ext, err)
-	}
-	if !created {
-		// See ensureLead: not adopted into the identity map, and
-		// disclosed rather than treated as converged.
-		return migration.EnsureResult{Skipped: true, SkipReason: skipReasonNaturalKeyTaken}, nil
-	}
-	if err := w.remember(ctx, flipObjectActivity, ext, ids.UUID(activity.Id)); err != nil {
+	if _, err := w.landRecord(ctx, flipObjectActivity, ext, func(tx pgx.Tx) (ids.UUID, error) {
+		activity, created, err := w.activities.LogActivityTx(ctx, tx, in)
+		if err != nil {
+			return ids.UUID{}, fmt.Errorf("flip import: logging activity %s: %w", ext, err)
+		}
+		if !created {
+			return ids.UUID{}, errFlipReplayed
+		}
+		return ids.UUID(activity.Id), nil
+	}); err != nil {
+		if errors.Is(err, errFlipReplayed) {
+			// See ensureLead: not adopted into the identity map, and
+			// disclosed rather than treated as converged.
+			return migration.EnsureResult{Skipped: true, SkipReason: skipReasonNaturalKeyTaken}, nil
+		}
 		return migration.EnsureResult{}, err
 	}
 	return migration.EnsureResult{Created: true}, nil

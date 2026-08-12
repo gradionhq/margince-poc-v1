@@ -362,3 +362,35 @@ func TestCreateLeadTxRunsOnTheCallersOnlyConnection(t *testing.T) {
 		t.Fatalf("err = %v, want the custom-field refusal", err)
 	}
 }
+
+func TestCreateDealTxRunsOnTheCallersOnlyConnection(t *testing.T) {
+	f := setupTxSeam(t)
+	pipeline, stage, _ := DealFixture(t, f.e)
+	col := f.defineTxSeamField(t, "deal", "Renewal Risk")
+	f.requireCatalogAnswers(t, "deal")
+
+	var created crmcontracts.Deal
+	if err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		var err error
+		created, err = f.deals.CreateDealTx(f.ctx, tx, deals.CreateDealInput{
+			Name: "Difference Engine", PipelineID: pipeline, StageID: stage, Source: "ui",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("creating the deal inside the caller's transaction: %v — a timeout here is the seam waiting for a second connection the caller's transaction holds", err)
+	}
+	if created.Name != "Difference Engine" {
+		t.Errorf("created deal = %+v, want the one the caller asked for", created)
+	}
+
+	err := database.WithWorkspaceTx(f.ctx, f.pool, func(tx pgx.Tx) error {
+		_, err := f.deals.CreateDealTx(f.ctx, tx, deals.CreateDealInput{
+			Name: "Analytical Engine", PipelineID: pipeline, StageID: stage, Source: "ui",
+			CustomFields: map[string]any{col: "high"},
+		})
+		return err
+	})
+	if !errors.Is(err, deals.ErrCustomFieldsNeedTheStoresOwnTransaction) {
+		t.Fatalf("err = %v, want the custom-field refusal", err)
+	}
+}

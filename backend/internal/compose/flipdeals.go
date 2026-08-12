@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -50,14 +52,22 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 	if closeAt, ok := overlayTime(row.Fields, "expected_close_date"); ok {
 		in.ExpectedClose = &closeAt
 	}
-	deal, err := w.deals.CreateDeal(ctx, in)
+	// The deal is BORN open and advanced afterwards, so its landing and its
+	// close are two transactions by the store's own rule. The landing itself
+	// is one: the open deal and the identity row that names it commit
+	// together, which is what stops a crash here leaving a deal the resume
+	// cannot name. The close's own window is settleAdoptedDeal's to finish.
+	landed, err := w.landRecord(ctx, flipObjectDeal, row.ExternalID, func(tx pgx.Tx) (ids.UUID, error) {
+		deal, err := w.deals.CreateDealTx(ctx, tx, in)
+		if err != nil {
+			return ids.UUID{}, fmt.Errorf("flip import: creating deal %s: %w", row.ExternalID, err)
+		}
+		return ids.UUID(deal.Id), nil
+	})
 	if err != nil {
-		return migration.EnsureResult{}, fmt.Errorf("flip import: creating deal %s: %w", row.ExternalID, err)
-	}
-	dealID := ids.From[ids.DealKind](ids.UUID(deal.Id))
-	if err := w.remember(ctx, flipObjectDeal, row.ExternalID, ids.UUID(deal.Id)); err != nil {
 		return migration.EnsureResult{}, err
 	}
+	dealID := ids.From[ids.DealKind](landed)
 
 	// A closed estate deal is born open (the store's open-birth-stage
 	// rule), then advanced to the terminal stage — the same won/lost path

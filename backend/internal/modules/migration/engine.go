@@ -99,10 +99,11 @@ type AssocResult struct {
 type Writers interface {
 	Exists(ctx context.Context, object, externalID string) (bool, error)
 	// ReconcileIdentities repairs the record of what already landed
-	// before a RESUMED run walks its source again. The native create and
-	// the identity write are two transactions, so a process that died
-	// between them left a record nothing can now recognize — and the
-	// resume would create it a second time. Called only when resuming.
+	// before a RESUMED run walks its source again: a writer whose native
+	// create and identity write were separate transactions left records
+	// nothing can now recognize, and the resume would create them a
+	// second time. Called only when resuming, and answering nothing when
+	// the writer lands both in one transaction.
 	ReconcileIdentities(ctx context.Context) error
 	Ensure(ctx context.Context, object string, row Row) (EnsureResult, error)
 	Associate(ctx context.Context, a Assoc) (AssocResult, error)

@@ -5,11 +5,17 @@ package compose
 
 // Repairing the identity map after a crashed flip.
 //
-// A record lands in two steps that are NOT one transaction: the owning
-// module store creates the native row (its own write shape — domain row
-// + audit + outbox), then the engine's identity map records what that
-// external id became. A process that dies between them leaves a created
-// record the resume cannot see, and the resume would create it again.
+// A landing is one transaction: the native row and the identity map row
+// that names it commit together, so a process that dies mid-landing
+// leaves neither. What this repairs is what predates that — a record
+// created by an earlier attempt, when the two were separate transactions
+// and a crash between them left something the resume cannot recognize
+// and would create a second time.
+//
+// One window survives by design and is not this scan's to close: a deal
+// is born on an open stage and advanced to its terminal one afterwards
+// (the store's open-birth rule), so a crash there leaves a MAPPED deal
+// parked open. settleAdoptedDeal finishes it.
 //
 // The repair is possible because the flip stamps `source` inside the
 // RESERVED import namespace, which every client-facing create wire

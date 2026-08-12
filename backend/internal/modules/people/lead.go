@@ -143,7 +143,7 @@ func createLeadInTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput, by strin
 		return crmcontracts.Lead{}, false, err
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
+	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, leadCompanyColumn: in.CompanyName})
 	if err != nil {
 		return crmcontracts.Lead{}, false, fmt.Errorf("audit lead create: %w", err)
 	}
