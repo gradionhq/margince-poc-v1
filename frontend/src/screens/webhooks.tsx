@@ -827,8 +827,11 @@ export function WebhooksCard() {
   const canCreateHere = canCreate && query.data?.deliveryEnabled === true;
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader title={t("webhooks.title")} sub={t("webhooks.sub")} />
+    <Card
+      style={{ marginBottom: "var(--space-4)" }}
+      title={t("webhooks.title")}
+      sub={t("webhooks.sub")}
+    >
       {canCreateHere && (
         <div style={{ marginBottom: "var(--space-3)" }}>
           <Button
@@ -887,6 +890,6 @@ export function WebhooksCard() {
           onClose={() => setRevealedSecret(null)}
         />
       )}
-    </section>
+    </Card>
   );
 }

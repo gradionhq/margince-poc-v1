@@ -24,7 +24,7 @@
     "gen:events": "openapi-typescript ../backend/api/public-events.yaml --enum-values -o src/api/public-events.ts",
     "gen:composed-types": "openapi-typescript ../build/composition/api/crm.yaml -o ../build/composition-frontend/schema.d.ts",
     "gen:events:composed": "openapi-typescript ../build/composition/api/public-events.yaml --enum-values -o src/api/public-events.ts",
-    "build:composed": "tsc -p tsconfig.composed.json && vite build",
+    "build:composed": "tsc -p tsconfig.composed.json && vite build && node scripts/build-mcp-apps.mjs",
     "e2e": "pnpm build && playwright test",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build -o storybook-static"

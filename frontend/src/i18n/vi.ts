@@ -20,12 +20,11 @@ export const vi = {
     "Ledger Green (ADR-0040) — giá trị chuẩn khớp với bản mockup trong spec; test ghim chúng lại.",
   "theme.toDark": "Giao diện tối",
   "theme.toLight": "Giao diện sáng",
-  // Giao diện đang dùng — dòng trong menu tài khoản. Hai nhãn phía trên là tên
-  // của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
+  // Hai giao diện là hai lựa chọn của một nhóm — Cài đặt → Tài khoản hiện cả hai
+  // cùng lúc, nên mỗi nhãn nói nó LÀ gì chứ không nói cú nhấp làm gì. Hai nhãn
+  // phía trên là tên của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
   "theme.light": "Sáng",
   "theme.dark": "Tối",
-  "theme.switchToDark": "Chuyển sang giao diện tối",
-  "theme.switchToLight": "Chuyển sang giao diện sáng",
 
   "section.surfaces": "Bề mặt",
   "section.accentAi": "Màu nhấn & AI",
@@ -108,12 +107,16 @@ export const vi = {
   "shell.collapse": "Thu gọn thanh bên",
   "shell.expand": "Mở rộng thanh bên",
   "shell.accountAria": "Tài khoản",
-  "shell.accountSettings": "Cài đặt tài khoản",
+  "shell.account": "Tài khoản",
   "shell.theme": "Giao diện",
   "shell.views": "Chế độ xem",
   "shell.more": "Thêm",
   "shell.unknownPage": "Không tìm thấy",
   "shell.closeMenu": "Đóng",
+  "shell.navBack": "Quay lại",
+  "shell.navBackTo": "Quay lại {name}",
+  "shell.navTop": "Điều hướng",
+  "shell.sectionSwitch": "{name} — chuyển mục",
   "agent.title": "Margince AI",
   "agent.regionAria": "Trạng thái Margince AI",
   "agent.configured": "Đã cấu hình",
@@ -1675,6 +1678,8 @@ export const vi = {
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
   "settings.identity": "Bạn",
+  "settings.preferences": "Tùy chọn",
+  "settings.preferencesSub": "Giao diện và ngôn ngữ, cho trình duyệt này.",
   "role.admin": "Quản trị",
   "role.manager": "Quản lý",
   "role.rep": "Nhân viên kinh doanh",
@@ -1763,6 +1768,8 @@ export const vi = {
   "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
+  "settings.auditFilters": "Bộ lọc",
+  "settings.auditEntries": "Bản ghi",
   "settings.auditActor": "Tác nhân",
   "settings.auditEntity": "Loại thực thể",
   "settings.auditEntityId": "ID thực thể",
@@ -1906,6 +1913,7 @@ export const vi = {
   "ob.ai.tier.localSmall": "cục bộ, nhanh",
   "ob.ai.tier.cheapCloud": "đám mây, tiết kiệm",
   "ob.ai.tier.premium": "suy luận cao cấp",
+  "ob.ai.tier.frontier": "suy luận tiên phong",
   "ob.ai.tier.localLarge": "cục bộ, mạnh",
   // The rail footer's plain-language line: the exact ids sit one click away
   // in the runtime chip's "Configured AI" row, so this says only what a
@@ -3344,7 +3352,6 @@ export const vi = {
   "settings.customFieldsSub":
     "Thêm một trường có kiểu vào đối tượng lõi — không cần code, không cần triển khai.",
   "settings.openCustomFields": "Mở trường tuỳ chỉnh",
-  "settings.navAria": "Các mục cài đặt",
   "settings.tab.account": "Tài khoản",
   "settings.tab.company": "Bối cảnh công ty",
   "settings.tab.ai": "AI & tự chủ",
@@ -3356,7 +3363,7 @@ export const vi = {
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Tích hợp",
   "settings.tab.overlay": "Overlay",
-  "settings.group.you": "Cài đặt của bạn",
+  "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
@@ -3470,6 +3477,7 @@ export const vi = {
   "settings.voice.addSource": "Thêm mẫu văn",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
+  "settings.voice.buildsTitle": "Bản dựng",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -3496,10 +3504,12 @@ export const vi = {
   "extAccess.openUnit": "Mở trang {name}",
   "extAccess.noPage":
     "{name} đã được ghép vào API, nhưng bản dựng ứng dụng này không có trang cho nó — ứng dụng có lẽ cũ hơn máy chủ.",
+  "extAccess.brings.heading": "Đơn vị này mang theo những gì",
   "extAccess.brings.objects": "Đối tượng phân quyền",
   "extAccess.brings.routes": "Tuyến đường dẫn",
   "extAccess.brings.jobs": "Tác vụ nền",
   "extAccess.brings.none": "Không có",
+  "extAccess.grants.heading": "Ai được dùng nó",
   "extAccess.noObjects":
     "Đơn vị này không đăng ký đối tượng phân quyền nào, nên không có gì để cấp.",
   "extAccess.roleColumn": "Vai trò",
@@ -3520,6 +3530,14 @@ export const vi = {
     "Mời thành viên, đặt vai trò và vô hiệu hoá quyền truy cập. Chỉ quản trị viên.",
   "users.empty": "Chưa có thành viên nào.",
   "users.adminOnly": "Chỉ quản trị viên mới quản lý được thành viên.",
+  "users.inviteTitle": "Mời một thành viên",
+  "users.inviteSub":
+    "Thêm một người vào bản cài đặt này và chọn vai trò họ bắt đầu với.",
+  "users.membersTitle": "Thành viên",
+  "users.membersSub":
+    "Mọi người đang giữ một chỗ ngồi ở đây, kể cả tài khoản đã vô hiệu hoá.",
+  "users.memberCount.one": "{count} thành viên",
+  "users.memberCount.other": "{count} thành viên",
   "users.emailLabel": "Email của thành viên mới",
   "users.nameLabel": "Họ tên thành viên mới",
   "users.emailPlaceholder": "name@company.com",
@@ -3527,6 +3545,10 @@ export const vi = {
   "users.deactivateConfirmTitle": "Vô hiệu hoá {name}?",
   "users.deactivateConfirmBody":
     "Người đó sẽ bị đăng xuất ở mọi nơi và mọi passport Agent của họ bị thu hồi ngay. Bạn có thể kích hoạt lại sau, nhưng họ sẽ phải đăng nhập lại.",
+  "users.deactivateAgentConfirmBody":
+    "Đây là danh tính Agent của không gian làm việc. Vô hiệu hoá nó sẽ dừng mọi tác vụ chạy mà không có người đứng sau, kể cả tiện ích mở rộng, cho đến khi bạn kích hoạt lại. Không ai mất quyền truy cập — nó không đăng nhập ở đâu cả.",
+  "users.agentSeat": "Agent",
+  "users.agentSeatRole": "Hành động theo passport, không theo vai trò",
   "users.roleLabel": "Vai trò cho thành viên mới",
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
@@ -3577,8 +3599,6 @@ export const vi = {
   "settings.companyViewSource": "Xem nguồn",
   "settings.companySave": "Lưu bối cảnh công ty",
   "settings.companySaved": "Đã lưu",
-  "settings.companyRefreshUnavailable":
-    "Lần làm mới từ website này không còn nữa.",
   "settings.companyRefreshUnreadable":
     "Chúng tôi đã mất dấu lượt đọc website này. Hãy bắt đầu làm mới lại.",
   "settings.companyRefreshStale":
@@ -3807,9 +3827,12 @@ export const vi = {
 
   "settings.tab.installation": "Cài đặt hệ thống",
   "settings.tab.capture": "Thu thập",
-  "installationSettings.title": "Cài đặt hệ thống",
-  "installationSettings.sub":
-    "Tên của bản cài đặt này, cùng múi giờ và đơn vị tiền tệ dùng để tính mọi báo cáo.",
+  "installationSettings.orgTitle": "Tổ chức",
+  "installationSettings.orgSub":
+    "Tên của bản cài đặt này và múi giờ dùng để tính mọi kỳ báo cáo.",
+  "installationSettings.currencyTitle": "Tiền tệ",
+  "installationSettings.currencySub":
+    "Đơn vị tiền tệ duy nhất mà mọi số liệu tổng hợp quy đổi về.",
   "installationSettings.name": "Tên tổ chức",
   "installationSettings.nameHint":
     "Hiển thị ở mọi nơi sản phẩm gọi tên tổ chức của bạn.",
@@ -3832,6 +3855,7 @@ export const vi = {
   "captureSettings.adminOnly":
     "Chỉ quản trị viên hoặc vận hành mới đổi được mục này.",
 
+  "ownDomains.companyTitle": "Tên miền từ hồ sơ công ty",
   "ownDomains.title": "Tên miền email của công ty",
   "ownDomains.sub":
     "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu. Kể cả với bạn.",
@@ -3923,7 +3947,7 @@ export const vi = {
   "embedreindex.estimateCost": "Chi phí ước tính:",
   "embedreindex.estimateQualityHeuristic":
     "Ước tính theo kinh nghiệm — mức sàn cho khối lượng khi chưa có số liệu, không phải chi tiêu đã quan sát được.",
-  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức theo từng tổ chức",
+  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức",
   "embedreindex.impact.normal": "bình thường",
   "embedreindex.impact.degraded": "sẽ chuyển sang chế độ tiết kiệm",
   "embedreindex.impact.queued": "sẽ bị xếp hàng",

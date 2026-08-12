@@ -1,0 +1,16 @@
+{
+  "pkg:github/actions/cache": "MIT",
+  "pkg:github/actions/checkout": "MIT",
+  "pkg:github/actions/download-artifact": "MIT",
+  "pkg:github/actions/setup-go": "MIT",
+  "pkg:github/actions/setup-node": "MIT",
+  "pkg:github/actions/upload-artifact": "MIT",
+  "pkg:github/crazy-max/ghaction-github-runtime": "MIT",
+  "pkg:github/docker/setup-buildx-action": "Apache-2.0",
+  "pkg:github/docker/setup-qemu-action": "Apache-2.0",
+  "pkg:github/dorny/paths-filter": "MIT",
+  "pkg:github/pnpm/action-setup": "MIT",
+  "pkg:github/reproducible-containers/buildkit-cache-dance": "Apache-2.0",
+  "pkg:pypi/ply": "BSD-3-Clause",
+  "pkg:pypi/semantic-version": "BSD-2-Clause"
+}

@@ -93,7 +93,7 @@ func (e *lendEnv) lend(svc *Service, rawPassportID string) (code string, lendabl
 func (e *lendEnv) revokeAndHold(t *testing.T, passportID ids.PassportID, fn func(tx pgx.Tx) error) {
 	t.Helper()
 	ctx := e.wsCtx(e.admin)
-	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
+	if err := e.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := e.svc.revokePassportTx(ctx, tx, e.admin, passportID); err != nil {
 			return err
 		}
@@ -114,11 +114,25 @@ func (e *lendEnv) revokeAndHold(t *testing.T, passportID ids.PassportID, fn func
 // live answer, and the deadline is a failure guard, not a race — the consent
 // either queues behind this transaction within it or the property under test is
 // simply false.
+//
+// Each round trip discards the statistics snapshot first, and without that the
+// round trips would not return a live answer at all. pg_stat_activity's row set
+// is materialized once per transaction and cached until it ends; this probe runs
+// INSIDE the revocation's own long-lived transaction, so a consent that arrives
+// on a connection dialled after the first look would be absent from every later
+// look no matter how long the loop ran. On an idle machine the pool has a warm
+// connection and the bug is invisible; under the lane's concurrency it is not,
+// and it reports itself as "the consent never contended" — a true-looking
+// failure about a consent queued squarely behind this transaction.
 func waitUntilBlockingSomebody(t *testing.T, tx pgx.Tx) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for ctx.Err() == nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("discarding the statistics snapshot before looking again: %v", err)
+		}
 		var blocked bool
 		err := tx.QueryRow(ctx, `
 			SELECT EXISTS (
@@ -170,14 +184,14 @@ func (e *lendEnv) codesAndLendAudits(t *testing.T) (codes, audits int) {
 //
 // The bound is a test instrument, not this endpoint's production behaviour: a
 // real consent waits, which the blocking case below is about.
-func lockWaitBoundedService(t *testing.T) *Service {
+func lockWaitBoundedService(t *testing.T, ws ids.WorkspaceID) *Service {
 	t.Helper()
 	pool, err := database.NewPool(context.Background(), lockBoundedDSN(t, 250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("opening the lock-bounded pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	return NewService(pool)
+	return NewServiceFor(database.BindTo(pool, ws))
 }
 
 // lockBoundedDSN adds lock_timeout to the test DSN through the URL's query, not
@@ -211,7 +225,7 @@ func lockBoundedDSN(t *testing.T, bound time.Duration) string {
 // Whatever the consent answered, nothing durable may exist afterwards.
 func TestAConsentRacingARevocationOfTheLentPassportWritesNoCode(t *testing.T) {
 	e := setupLendEnv(t, "lend-race-revoke")
-	bounded := lockWaitBoundedService(t)
+	bounded := lockWaitBoundedService(t, e.ws)
 
 	var (
 		code       string
@@ -285,7 +299,7 @@ func TestAConsentBlockedByARevocationRefusesInsteadOfMintingACode(t *testing.T) 
 // narrower request, and the courier itself is stored only as a hash.
 func TestAnUncontendedLendCommitsTheCodeAndItsAudit(t *testing.T) {
 	e := setupLendEnv(t, "lend-uncontended")
-	bounded := lockWaitBoundedService(t)
+	bounded := lockWaitBoundedService(t, e.ws)
 
 	code, lendable, err := e.lend(bounded, e.passport.String())
 	if err != nil {
@@ -317,7 +331,7 @@ func TestAnUncontendedLendCommitsTheCodeAndItsAudit(t *testing.T) {
 // any revocation.
 func TestALendIsUnaffectedByARevocationOfAnotherPassport(t *testing.T) {
 	e := setupLendEnv(t, "lend-other-passport")
-	bounded := lockWaitBoundedService(t)
+	bounded := lockWaitBoundedService(t, e.ws)
 	other := e.mintLendable(t, e.admin, []string{"read"})
 
 	var (

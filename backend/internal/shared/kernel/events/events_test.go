@@ -157,11 +157,10 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 func TestEnvelopeRoundTripPreservesEveryField(t *testing.T) {
 	passport := ids.NewV7()
 	env := Envelope{
-		EventID:     ids.NewV7(),
-		Type:        "deal.stage_changed",
-		Version:     1,
-		WorkspaceID: ids.NewV7(),
-		OccurredAt:  time.Date(2026, 7, 3, 10, 15, 30, 123e6, time.UTC),
+		EventID:    ids.NewV7(),
+		Type:       "deal.stage_changed",
+		Version:    1,
+		OccurredAt: time.Date(2026, 7, 3, 10, 15, 30, 123e6, time.UTC),
 		Actor: Actor{
 			Type:       "agent",
 			ID:         "agent:overnight",
@@ -207,14 +206,13 @@ func TestEventIDsAreTimeOrdered(t *testing.T) {
 func TestValidateRejectsTheDishonestEnvelopes(t *testing.T) {
 	valid := func() Envelope {
 		return Envelope{
-			EventID:     ids.NewV7(),
-			Type:        "person.created",
-			Version:     1,
-			WorkspaceID: ids.NewV7(),
-			OccurredAt:  time.Now().UTC(),
-			Actor:       Actor{Type: "human", ID: "human:x"},
-			Entity:      EntityRef{Type: "person", ID: ids.NewV7()},
-			Trace:       Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+			EventID:    ids.NewV7(),
+			Type:       "person.created",
+			Version:    1,
+			OccurredAt: time.Now().UTC(),
+			Actor:      Actor{Type: "human", ID: "human:x"},
+			Entity:     EntityRef{Type: "person", ID: ids.NewV7()},
+			Trace:      Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 		}
 	}
 
@@ -222,7 +220,6 @@ func TestValidateRejectsTheDishonestEnvelopes(t *testing.T) {
 		"zero event_id":       func(e *Envelope) { e.EventID = ids.Nil },
 		"uncataloged type":    func(e *Envelope) { e.Type = "person.exploded" },
 		"wrong version":       func(e *Envelope) { e.Version = 2 },
-		"missing workspace":   func(e *Envelope) { e.WorkspaceID = ids.Nil },
 		"missing occurred_at": func(e *Envelope) { e.OccurredAt = time.Time{} },
 		"missing actor":       func(e *Envelope) { e.Actor = Actor{} },
 		"missing entity":      func(e *Envelope) { e.Entity = EntityRef{} },

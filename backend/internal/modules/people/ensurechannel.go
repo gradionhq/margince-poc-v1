@@ -32,7 +32,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -87,7 +86,7 @@ func (s *Store) EnsureChannelCounterparty(ctx context.Context, in EnsureChannelC
 			errors.New("people: a channel counterparty needs both a provider and a channel user id")
 	}
 	var res EnsureChannelCounterpartyResult
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		res, err = s.ensureChannelCounterpartyTx(ctx, tx, in)
 		return err

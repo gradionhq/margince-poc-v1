@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -31,8 +31,9 @@ type Eraser interface {
 	ErasePerson(ctx context.Context, personID ids.UUID, reason string) error
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+// NewHandlers wires the transport over the installation-bound pool.
+func NewHandlers(db *database.DB) Handlers {
+	return Handlers{store: NewStore(db)}
 }
 
 // WithEraser returns a copy wired to the erase path.
@@ -144,7 +145,6 @@ func writeConsentErr(w http.ResponseWriter, r *http.Request, err error) {
 func wirePurpose(p Purpose) crmcontracts.ConsentPurpose {
 	return crmcontracts.ConsentPurpose{
 		Id:                  openapi_types.UUID(p.ID.UUID),
-		WorkspaceId:         openapi_types.UUID(p.WorkspaceID.UUID),
 		Key:                 p.Key,
 		Label:               p.Label,
 		RequiresDoubleOptIn: &p.RequiresDoubleOptIn,

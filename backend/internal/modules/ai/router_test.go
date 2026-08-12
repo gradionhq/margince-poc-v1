@@ -6,6 +6,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,88 @@ func TestRouterSovereignRemapsCloudTiersToLocal(t *testing.T) {
 	}
 	if resp.Text != "sovereign answer" || info.Tier != TierLocalLarge {
 		t.Fatalf("P-F task must land on local-large under sovereign: %+v", info)
+	}
+}
+
+// The gate P7 actually rests on: under sovereign, NO tier may be bound to a
+// cloud provider, so no cloud client is ever constructed. Asserted per tier
+// rather than for one sample, because a tier the validator skipped would be a
+// hole nothing downstream could close.
+func TestSovereignRefusesACloudBindingOnEveryTier(t *testing.T) {
+	for tier := range knownTiers {
+		cfg := fmt.Sprintf("profile: sovereign\ntiers:\n  %s: {provider: gemini}\nembeddings: {provider: fake}\n", tier)
+		if _, err := ParseRouting([]byte(cfg)); err == nil {
+			t.Errorf("tier %q accepts a cloud provider under sovereign — that binding would egress", tier)
+		}
+	}
+}
+
+// localTiers is the second line, and it is written as an allowlist of what is
+// SAFE so that an unclassified tier is remapped rather than let through. This
+// keeps it agreeing with the naming convention: a rung named local_* that
+// applyProfile would needlessly remap is a bug in the other direction, and one
+// NOT named local_* that it would pass through is the dangerous one.
+func TestEveryLocallyNamedTierIsClassifiedLocal(t *testing.T) {
+	for tier := range knownTiers {
+		named := strings.HasPrefix(string(tier), "local_")
+		if named != localTiers[tier] {
+			t.Errorf("tier %q: named local=%v but classified local=%v — applyProfile would %s under sovereign",
+				tier, named, localTiers[tier],
+				map[bool]string{true: "remap a local rung needlessly", false: "leave a cloud-named rung on the ladder"}[named])
+		}
+	}
+}
+
+// applyProfile is exercised directly here because no task ladder names frontier
+// yet: the sovereign guarantee has to hold for the rung BEFORE something routes
+// to it, not after.
+func TestApplyProfileRemapsFrontierUnderSovereign(t *testing.T) {
+	r := testRouter(map[Tier]model.Client{
+		TierLocalSmall: NewFakeClient(),
+		TierLocalLarge: NewFakeClient(),
+	}, &memMeter{}, DefaultMonthlyTokens, ProfileSovereign)
+	got := r.applyProfile([]Tier{TierFrontier, TierPremium})
+	if len(got) != 1 || got[0] != TierLocalLarge {
+		t.Fatalf("a frontier-led ladder must collapse to the local rung under sovereign, got %v", got)
+	}
+}
+
+// Economy mode steps one rung down, and frontier's step is premium — not
+// straight to a cheap tier, which would drop two capability classes at the
+// first sign of budget pressure.
+func TestFrontierDegradesToPremium(t *testing.T) {
+	if got := degradeTo[TierFrontier]; got != TierPremium {
+		t.Fatalf("frontier must degrade to premium, got %q", got)
+	}
+}
+
+// A tier with no degrade step would sit at full cost through the whole 80–100%
+// band, which is the one band economy mode exists to handle.
+func TestEveryTierHasADegradeStep(t *testing.T) {
+	for tier := range knownTiers {
+		if _, ok := degradeTo[tier]; !ok {
+			t.Errorf("tier %q has no degrade_to entry — economy mode would leave it at full cost", tier)
+		}
+	}
+}
+
+// The alarm's numerator must cover every rung billed above the cheap cloud
+// rate. A costlier rung left out counts toward the denominator only, so heavier
+// spend on it would report a LOWER share.
+func TestCostlyCloudTiersCoversEveryRungAbovePremium(t *testing.T) {
+	covered := map[Tier]bool{}
+	for _, tier := range costlyCloudTiers {
+		covered[tier] = true
+	}
+	for _, tier := range []Tier{TierPremium, TierFrontier} {
+		if !covered[tier] {
+			t.Errorf("tier %q is billed above the cheap cloud rate but is not in costlyCloudTiers — PremiumShare would under-report it", tier)
+		}
+	}
+	for _, tier := range costlyCloudTiers {
+		if localTiers[tier] {
+			t.Errorf("tier %q is local, so it has no cloud bill to alarm on", tier)
+		}
 	}
 }
 

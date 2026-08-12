@@ -116,7 +116,7 @@ func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *te
 
 func TestAcceptedEmployeeRangeFactFillsSizeBandWhenUnambiguous(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 	employeeRangeFact := func(value string) []people.DeepReadFact {
 		return []people.DeepReadFact{{

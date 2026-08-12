@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -79,6 +78,10 @@ func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids
 	// workspace, not one caller's row scope — the same posture as
 	// EmbedGen (embedgen.go:51-56) and pendingStats.
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
+	// The pass reads and writes THIS tenant: it is named as an argument, and
+	// the workspace a statement lands in is the handle's, so the enumerating
+	// store would rebuild its own tenant's index under every id it is given.
+	ws := s.forWorkspace(wsID)
 
 	// note says the run is still working, and restarts the pacing from the write
 	// that just landed rather than from when the caller wished it had.
@@ -103,7 +106,7 @@ func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids
 		if err := note(); err != nil {
 			return err
 		}
-		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
+		items, err := ws.liveEntitiesOf(wsCtx, entityType, src)
 		if err != nil {
 			return err
 		}
@@ -111,7 +114,7 @@ func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids
 			return err
 		}
 		for _, item := range items {
-			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
+			if _, err := ws.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
 				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
 			}
 			// Paced by the clock and not by a count of entities: an entity is not a
@@ -145,7 +148,7 @@ type liveEntity struct {
 // underneath the whole re-embed pass.
 func (s *Store) liveEntitiesOf(ctx context.Context, entityType string, src pendingSource) ([]liveEntity, error) {
 	var items []liveEntity
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		sql := fmt.Sprintf(`SELECT t.id, %s FROM %s t WHERE t.archived_at IS NULL`, src.text, src.table)
 		rows, err := tx.Query(ctx, sql)
 		if err != nil {

@@ -17,6 +17,7 @@ package approvals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -70,7 +71,7 @@ func setupStaging(t *testing.T) *stagingEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.pool, e.svc = pool, NewService(pool)
+	e.pool, e.svc = pool, NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
 	return e
 }
 
@@ -203,28 +204,24 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 // ordering it claims to exercise and pass having proved nothing.
 func waitForLockWaiter(t *testing.T, e *stagingEnv, done <-chan struct{}) {
 	t.Helper()
-	// Generous enough that a loaded machine cannot trip it, small enough that a
-	// genuine miss reports in seconds rather than minutes.
-	const maxProbes = 20_000
-	for probe := 0; probe < maxProbes; probe++ {
-		var waiting bool
-		if err := e.owner.QueryRow(context.Background(),
-			`SELECT EXISTS (SELECT 1 FROM pg_locks l
-			   JOIN pg_database d ON d.oid = l.database
-			  WHERE l.locktype = 'advisory' AND NOT l.granted
-			    AND d.datname = current_database())`).Scan(&waiting); err != nil {
-			t.Fatal(err)
-		}
-		if waiting {
-			return
-		}
-		select {
-		case <-done:
-			t.Fatal("the staging finished without ever blocking on the identity lock — it read the world before the competing pass wrote to it, which is the defect this test exists to catch")
-		default:
-		}
-	}
-	t.Fatalf("no backend waited on an advisory lock in this database within %d probes — the staging never reached the lock, so this run proved nothing", maxProbes)
+	waitForBlockedBackend(t, done,
+		"the staging finished without ever blocking on the identity lock — it read the world before the competing pass wrote to it, which is the defect this test exists to catch",
+		fmt.Sprintf("no backend waited on an advisory lock in this database within %s — the staging never reached the lock, so this run proved nothing", probeBudget),
+		func(ctx context.Context) (bool, error) {
+			// pg_locks reads the lock manager directly rather than the
+			// statistics snapshot, so it answers live even from inside a
+			// transaction. That is why this probe needs no
+			// pg_stat_clear_snapshot, unlike the pg_stat_activity one the bundle
+			// suite uses — and the competing transaction here is held on the
+			// pool, not on e.owner, so these probes are not inside it either.
+			var waiting bool
+			err := e.owner.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM pg_locks l
+				   JOIN pg_database d ON d.oid = l.database
+				  WHERE l.locktype = 'advisory' AND NOT l.granted
+				    AND d.datname = current_database())`).Scan(&waiting)
+			return waiting, err
+		})
 }
 
 // The refusal is narrow: only a REJECTED prior offer stops a staging. Everything

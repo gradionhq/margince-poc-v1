@@ -15,7 +15,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -51,7 +50,7 @@ func (s *Store) ListTags(ctx context.Context, archived storekit.ArchivedFilter) 
 	}
 	var out []tagRow
 	truncated := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		sql := "SELECT " + tagColumns + " FROM tag"
 		if archived != storekit.IncludeArchived {
 			sql += " WHERE archived_at IS NULL"
@@ -88,7 +87,7 @@ func (s *Store) CreateTag(ctx context.Context, name string, color *string) (tagR
 		return tagRow{}, &BadInputError{Field: "name", Reason: "required"}
 	}
 	var out tagRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO tag (workspace_id, name, color)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
@@ -111,7 +110,7 @@ func (s *Store) ArchiveTag(ctx context.Context, id ids.TagID) (tagRow, error) {
 		return tagRow{}, err
 	}
 	var out tagRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx,
 			"UPDATE tag SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING "+tagColumns, id)
 		var err error
@@ -151,7 +150,7 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string
 		return taggableRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	var out taggableRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var archived *time.Time
 		err := tx.QueryRow(ctx, `SELECT archived_at FROM tag WHERE id = $1`, tagID).Scan(&archived)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && archived != nil) {
@@ -188,13 +187,12 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string
 
 func wireTag(t tagRow) crmcontracts.Tag {
 	return crmcontracts.Tag{
-		Id:          openapi_types.UUID(t.ID.UUID),
-		WorkspaceId: openapi_types.UUID(t.WorkspaceID.UUID),
-		Name:        t.Name,
-		Color:       t.Color,
-		CreatedAt:   &t.CreatedAt,
-		UpdatedAt:   &t.UpdatedAt,
-		ArchivedAt:  t.ArchivedAt,
+		Id:         openapi_types.UUID(t.ID.UUID),
+		Name:       t.Name,
+		Color:      t.Color,
+		CreatedAt:  &t.CreatedAt,
+		UpdatedAt:  &t.UpdatedAt,
+		ArchivedAt: t.ArchivedAt,
 	}
 }
 

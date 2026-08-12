@@ -23,9 +23,11 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // AppEnv is the heaviest of the three exported fixtures: a real compose handler
@@ -153,9 +155,15 @@ func (e *AppEnv) BootstrapWorkspace(t *testing.T) {
 	e.Slug = "fable-e2e" // slugify("Fable E2E")
 }
 
-// SetWorkspaceSeat flips a workspace's users to a seat type through the
+// SetWorkspaceSeat flips a workspace's PEOPLE to a seat type through the
 // owner connection, inside a workspace-bound transaction so RLS (FORCE)
 // admits the UPDATE. Used to drive the read-seat ceiling from a test.
+//
+// The agent seat is left alone because the schema refuses to demote it
+// (app_user_agent_is_full): an agent identity is never a read seat, and the
+// read ceiling reaches an agent through the human it acts for instead. Sweeping
+// it in would abort on the constraint, which a caller reads as a broken fixture
+// rather than as the rule it is.
 func (e *AppEnv) SetWorkspaceSeat(t *testing.T, slug, seat string) {
 	t.Helper()
 	ctx := context.Background()
@@ -172,7 +180,8 @@ func (e *AppEnv) SetWorkspaceSeat(t *testing.T, slug, seat string) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1`, wsID, seat); err != nil {
+	if _, err := tx.Exec(ctx,
+		`UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1 AND NOT is_agent`, wsID, seat); err != nil {
 		t.Fatalf("seat update: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -293,4 +302,24 @@ func applyRiverSchema(t *testing.T) {
 	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// DB is the app harness's installation-bound pool.
+//
+// RESOLVED, not pinned, unlike the lower-level harnesses: this env boots the
+// real server, which bootstraps one real installation — so the same resolver
+// production uses answers correctly here, and using it keeps the harness
+// honest about the path under test.
+func (e *AppEnv) DB() *database.DB {
+	return compose.InstallationDB(e.Pool)
+}
+
+// DBFor pins a handle to another workspace, for the suites that seed a second
+// one to prove it cannot be read from the first.
+//
+// The resolving DB above is right for everything the app itself does; it is
+// wrong the moment a test creates a workspace the installation does not know
+// about, because then there is no single installation to resolve.
+func (e *AppEnv) DBFor(ws ids.UUID) *database.DB {
+	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](ws))
 }

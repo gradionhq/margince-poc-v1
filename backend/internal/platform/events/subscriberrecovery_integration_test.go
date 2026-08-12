@@ -79,14 +79,13 @@ func publishProbe(ctx context.Context, t *testing.T, rdb *redis.Client, stream s
 	t.Helper()
 	const probeType = "activity.captured"
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        probeType,
-		Version:     kevents.VersionOf(probeType),
-		WorkspaceID: ids.NewV7(),
-		OccurredAt:  time.Now().UTC(),
-		Actor:       kevents.Actor{Type: "system", ID: "system"},
-		Entity:      kevents.EntityRef{Type: "activity", ID: ids.NewV7()},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       probeType,
+		Version:    kevents.VersionOf(probeType),
+		OccurredAt: time.Now().UTC(),
+		Actor:      kevents.Actor{Type: "system", ID: "system"},
+		Entity:     kevents.EntityRef{Type: "activity", ID: ids.NewV7()},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 	if err := env.Validate(); err != nil {
 		t.Fatalf("probe envelope: %v", err)

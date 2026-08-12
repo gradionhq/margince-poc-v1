@@ -1,0 +1,304 @@
+name: Release
+
+# Draft a margince-constellation release for every build that lands on main.
+# The release lives in the constellation dist service at test.margince.com,
+# not on GitHub.
+#
+# The flow, in order: draft the release versioned 1970.<build> (the build is
+# this workflow's run number, fitting the constellation YYYY.edition version
+# scheme; the year is pinned to the epoch FOR NOW so every PoC release orders
+# strictly below any real dated release) with the incremental patch and the
+# three freshly generated
+# source-tree SBOMs attached, then build the three role images through the
+# bake file (docker-bake.hcl), push them to the constellation registry, add
+# them to the draft as digest-pinned image references, and finally publish
+# the release. The dist service publishes only a complete draft (patch + all
+# three SBOMs), so a release that drafted without a patch stays a draft.
+#
+# Both the patch cut and the release upload go through the release-management
+# CLI (a closed-source tool built and published from
+# gradionhq/margince-constellation as a private container image), run here
+# against this repo's checkout: the product source the release describes lives
+# here, so the release is cut here. The upload authenticates with the dist
+# publisher token (the MARGINCE_DIST_PUBLISHER_TOKEN secret — only CI holds
+# it) against the dist service URL below.
+#
+# The patch range is the push's before..after — exactly what the push added.
+# On a branch creation (all-zeros github.event.before) or a force-push (a
+# before the fetched history no longer reaches) there is no ancestor to diff
+# from, so the release drafts without a patch. On a manual dispatch there is
+# no push range, so it falls back to the parent commit (HEAD~1..HEAD).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The release-management CLI image, published :latest from constellation's
+  # main (gradionhq/margince-constellation). The pull authenticates with the
+  # job's default GITHUB_TOKEN (packages: read).
+  RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
+  # The dist service of the constellation deployment the release is drafted
+  # into. The CLI reads this variable directly and refuses a non-https URL.
+  # ONE constellation deployment exists (test.margince.com), so main and test
+  # both draft into it; this becomes a per-ref selection when a production
+  # constellation exists.
+  MARGINCE_RELEASE_MANAGEMENT_DIST_URL: https://dist.test.margince.com
+
+jobs:
+  draft:
+    name: Draft release
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      # Pull the private release-management image from ghcr.io with the
+      # default GITHUB_TOKEN.
+      packages: read
+    outputs:
+      version: ${{ steps.draft.outputs.version }}
+      patched: ${{ steps.draft.outputs.patched }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history so both ends of the range resolve; the shallow default
+          # would not carry the before commit.
+          fetch-depth: 0
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      # The SBOM pipeline pins its SPDX validator to linux/amd64 (its
+      # dependency wheel hashes resolve for that platform), which this arm64
+      # runner can only execute emulated.
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      # Fresh SBOMs at the release commit, through the full pinned pipeline
+      # (generate, normalize, supplement, parity, validate). The dist service
+      # verifies that the SBOMs attest the bytes of every file the patch
+      # produces; both are derived from the same commit, so they agree by
+      # construction — the committed sboms/ may lag the tree and must not be
+      # uploaded as release artifacts.
+      - name: Generate the SBOMs at the release commit
+        run: make sbom
+      - name: Cut the patch and draft the release
+        id: draft
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The year is pinned to the epoch, not the calendar, while the flow
+          # is a PoC: a 1970.* version orders strictly below any real dated
+          # release, so nothing cut here can ever shadow one.
+          version="1970.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A push carries its previous tip in BEFORE; a manual dispatch carries
+          # nothing, so fall back to the parent commit. Two shapes of BEFORE
+          # mean there is no ancestor to diff from, and the release drafts
+          # without a patch: all-zeros (branch creation), and a commit the
+          # fetched history no longer reaches (a force-push discards its old
+          # tip, so even a full fetch of the new tip cannot resolve it).
+          # Ancestry is deliberately NOT required beyond that: a resolvable
+          # BEFORE that is no ancestor of AFTER (a force-push whose old tip
+          # another ref still reaches) still names the previously drafted
+          # state, and the tree diff from it is exactly the increment a
+          # consumer on that state needs.
+          base="$BEFORE"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
+          fi
+          patch_args=()
+          # The ref name is part of the patch filename; a branch name with a
+          # slash would make it a path into a directory that does not exist
+          # inside the CLI's mount, so flatten the separators.
+          patch_file="${GITHUB_REF_NAME//\//-}-$AFTER.patch"
+          if [ -n "$base" ] && ! printf '%s' "$base" | grep -qE '^0+$' \
+            && git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
+            # there and diff it with -repo. The image's own user is non-root and
+            # does not own the runner's checkout, so run as the runner's uid/gid —
+            # the CLI then writes the patch as the mount's owner. That uid has no
+            # passwd entry in the image, so point HOME at a writable path, and
+            # inject safe.directory via git's env config (no writable config file
+            # needed) for the CLI's git subprocess.
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -v "$PWD":/work \
+              -e HOME=/tmp \
+              -e GIT_CONFIG_COUNT=1 \
+              -e GIT_CONFIG_KEY_0=safe.directory \
+              -e GIT_CONFIG_VALUE_0='*' \
+              "$RELEASE_MANAGEMENT_IMAGE" \
+              create-patch -from "$base" -to "$AFTER" -repo . -out "$patch_file"
+            patch_args=(-patch "$patch_file")
+            echo "patched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No ancestor commit to diff from; drafting the release without a patch." >&2
+            echo "patched=false" >> "$GITHUB_OUTPUT"
+          fi
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/work \
+            -e HOME=/tmp \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            draft-release -version "$version" -revision "$AFTER" "${patch_args[@]}" \
+            -sbom-cyclonedx sboms/margince.cdx.json \
+            -sbom-spdx22 sboms/margince.spdx221.json \
+            -sbom-spdx30 sboms/margince.spdx300.json
+
+  # Build the three role images through the bake file (docker-bake.hcl), push
+  # them to ghcr, and add all three to the drafted release in ONE add-artifacts
+  # call, each as a digest-pinned reference (the digest is the identity; the
+  # version tag is recorded for humans). A release needs every role, so the
+  # images land in the draft together or not at all.
+  #
+  # `docker-image`, not `image`: the check-image-pins gate key-anchors every
+  # `image:` in a workflow as a container reference to digest-check, and that
+  # includes a job id.
+  docker-image:
+    name: Build docker container
+    needs: [draft]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      # Pull the private release-management image from ghcr.io; the baked
+      # images push to the constellation registry, not ghcr.
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # qemu runs the foreign runtime layers of the multi-platform bake; the
+      # builder stages cross-compile on the native platform (the Dockerfiles
+      # pin their builders to $BUILDPLATFORM).
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      # The docker-container driver: with the default docker driver the bake
+      # metadata file carries no pushed-manifest digest, and the digest is
+      # exactly what the release records.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # The runner is ephemeral, so every bake would otherwise start cold. Two
+      # caches bridge the runs, and they cover different things:
+      #   - CACHE=gha (docker-bake.hcl) exports the LAYER cache — its one
+      #     durable win is the dependency-download layer, which only busts
+      #     when a module pin changes. This step exposes the Actions cache
+      #     credentials buildx needs for type=gha.
+      #   - The cache MOUNTS (the Go compile cache, the pnpm store, corepack's
+      #     pnpm download, tsc's .tsbuildinfo) are not layers and no layer
+      #     cache carries them; actions/cache + buildkit-cache-dance below
+      #     save and restore their contents around the bake.
+      #
+      # Both cache steps carry continue-on-error: they only make the bake
+      # faster, so a cache-service outage or a broken injection must cost this
+      # run a cold bake, never the release. The bake and publish steps after
+      # them stay fatal.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: Restore the BuildKit cache-mount contents
+        id: mount-cache
+        continue-on-error: true
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .buildx-mount-cache
+          # Keyed by commit so every run saves its (grown) caches; the
+          # restore-key makes any previous run's save the starting point.
+          key: buildx-mounts-${{ github.sha }}
+          restore-keys: |
+            buildx-mounts-
+      - name: Inject the cache-mount contents into the builder
+        continue-on-error: true
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          utility-image: ghcr.io/containerd/busybox:1.36@sha256:7b3ccabffc97de872a30dfd234fd972a66d247c8cfc69b0550f276481852627c
+          cache-map: |
+            {
+              ".buildx-mount-cache/go-build": { "target": "/root/.cache/go-build", "id": "margince-gobuild" },
+              ".buildx-mount-cache/pnpm-store": { "target": "/pnpm-store", "id": "margince-pnpm-store" },
+              ".buildx-mount-cache/tsbuildinfo": { "target": "/app/frontend/node_modules/.tmp", "id": "margince-tsbuildinfo" },
+              ".buildx-mount-cache/corepack": { "target": "/root/.cache/node/corepack", "id": "margince-corepack" }
+            }
+          skip-extraction: ${{ steps.mount-cache.outputs.cache-hit }}
+      # ghcr only for pulling the private release-management CLI image; the
+      # baked images go to the constellation registry, authenticated as the
+      # registry publisher (the token-auth realm's reserved identity, whose
+      # grant admits push on margince/*).
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Log in to the constellation registry
+        env:
+          PUBLISHER_TOKEN: ${{ secrets.MARGINCE_AUTH_PUBLISHER_TOKEN }}
+        run: echo "$PUBLISHER_TOKEN" | docker login registry.test.margince.com -u _publisher --password-stdin
+      - name: Bake and push the images, add them to the draft
+        env:
+          REPO: registry.test.margince.com/margince
+          VERSION: ${{ needs.draft.outputs.version }}
+          PLATFORMS: linux/amd64,linux/arm64
+          CACHE: gha
+          MARGINCE_BUILD_REVISION: ${{ github.sha }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        run: |
+          set -euo pipefail
+          docker buildx bake --push \
+             --provenance "mode=max" \
+             --metadata-file bake-metadata.json
+          images=()
+          for role in api web worker; do
+            digest="$(jq -er --arg role "$role" '.[$role]."containerimage.digest"' bake-metadata.json)"
+            images+=(-image "$role=$REPO/$role:$VERSION@$digest")
+          done
+          docker run --rm \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            add-artifacts -version "$VERSION" "${images[@]}"
+
+  # Publish only after the images are attached, so a published release always
+  # carries its images even though the dist completeness gate only requires
+  # the patch and the SBOMs. A release that drafted without a patch cannot
+  # pass that gate, so it deliberately stays a draft (the degenerate
+  # branch-creation/force-push case).
+  publish:
+    name: Publish release
+    needs: [draft, docker-image]
+    # `!= 'false'`, not `== 'true'`: on a re-run of failed jobs the draft job
+    # does not re-execute and GitHub drops its outputs, so an equality test
+    # against 'true' silently skipped the publish of a fully patched release.
+    # Fail open on a missing output — the only release that must not publish
+    # is one that KNOWS it has no patch, and the dist completeness gate backs
+    # this up server-side with a 409. The implicit success() still applies, so
+    # a failed draft or image job keeps blocking the publish.
+    if: needs.draft.outputs.patched != 'false'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      # Pull the private release-management image from ghcr.io with the
+      # default GITHUB_TOKEN.
+      packages: read
+    steps:
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Publish the release
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+          MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN: ${{ secrets.MARGINCE_DIST_PUBLISHER_TOKEN }}
+        run: |
+          docker run --rm \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_URL \
+            -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            publish-release -version "$VERSION"

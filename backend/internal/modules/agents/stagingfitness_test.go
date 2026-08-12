@@ -11,10 +11,21 @@ package agents
 // lives elsewhere — one with no args entry fails here, and one that forgets the
 // guard fails here too.
 //
-// Two boundaries this walk does NOT cover, stated so neither reads as covered:
-//   - update_record stages through stageConflicts, not StageInfo, so it is
-//     invisible here; TestUpdateRecordRefusesStagingForATargetHeldElsewhere is
-//     its pin, and that test fails if its guard is removed.
+// Two tools answer a DIFFERENT question here, and both are walked rather than
+// excused:
+//   - update_record stages twice over. Its per-field residue goes through
+//     stageConflicts, which this walk cannot see —
+//     TestUpdateRecordRefusesStagingForATargetHeldElsewhere is that path's pin.
+//     Its StageInfo is the whole-call staging the contract's per-record-type
+//     tier floor produces (#982), and that one IS walked here, because it reads
+//     the record it patches exactly as its 🟡 siblings do.
+//   - create_record stages a CREATE, which names no existing record, so there is
+//     no target whose system of record could be elsewhere and nothing for
+//     refuseStagingElsewhere to be called about. It is held to the invariant it
+//     does have — stagesACreate below — rather than dropped from the count, so a
+//     create that began inventing a target still fails something.
+//
+// One boundary this walk does NOT cover, stated so it does not read as covered:
 //   - the walk builds only RegisterCoreTools and RegisterCommsTools. Every
 //     stageable tool lives in one of the two today; one registered by a third
 //     family would escape, which is what the count assertion below is for — it
@@ -57,6 +68,22 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 		// while proving nothing.
 		"book_meeting": fmt.Sprintf(
 			`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","subject":"s","links":[{"entity_type":"deal","entity_id":%q}]}`, deal),
+		// The account-started send has no anchor either, and for the same
+		// reason: it starts the conversation instead of answering one. Its
+		// links are what carry the refusal here.
+		"send_account_email": fmt.Sprintf(
+			`{"to":["a@example.test"],"subject":"s","body":"b","consent_purpose":"support",`+
+				`"links":[{"entity_type":"organization","entity_id":%q}]}`, ids.NewV7()),
+		// The whole-call staging the tier floor produces (#982). It patches an
+		// existing row, so it carries the same obligation as its siblings.
+		"update_record": fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"full_name":"X"}}`, person),
+	}
+	// A create names no existing record, so it has no target to probe. What it
+	// owes instead is to stage the shape it claims: the record TYPE, and no id —
+	// an id here would be a target the approvals surface probes for row scope and
+	// pins a version against, neither of which exists yet.
+	stagesACreate := map[string]string{
+		"create_record": `{"record_type":"person","fields":{"full_name":"Fresh"}}`,
 	}
 
 	registry := NewRegistry(&recordingApprovals{}, nil)
@@ -75,6 +102,18 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 			continue
 		}
 		walked++
+		if in, creates := stagesACreate[name]; creates {
+			info, err := stageable.StageInfo(context.Background(), json.RawMessage(in))
+			if err != nil {
+				t.Errorf("%s.StageInfo err = %v, want a staged create — a create reads no record, "+
+					"so nothing here should refuse it", name, err)
+			}
+			if !info.TargetID.IsZero() {
+				t.Errorf("%s staged target id %s; a create has no row yet, and naming one makes the "+
+					"approvals surface probe and pin a record that does not exist", name, info.TargetID)
+			}
+			continue
+		}
 		in, known := args[name]
 		if !known {
 			t.Errorf("%s can stage an approval but this pin carries no arguments for it — "+
@@ -86,9 +125,9 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 				"no human can release, because redemption re-reads a row this record does not have", name, err)
 		}
 	}
-	if walked != len(args) {
+	if pinned := len(args) + len(stagesACreate); walked != pinned {
 		t.Errorf("walked %d stageable core tools, pinned %d — the core set changed, so a staging site "+
-			"may now be unexercised", walked, len(args))
+			"may now be unexercised", walked, pinned)
 	}
 }
 

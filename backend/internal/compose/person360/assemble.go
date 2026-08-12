@@ -70,8 +70,15 @@ func (s *Service) Assemble(ctx context.Context, personID ids.PersonID) (crmcontr
 		AsOf:            now,
 		SectionsOmitted: []crmcontracts.Person360SectionsOmitted{},
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		person, err := s.people.GetPersonTx(ctx, tx, personID, storekit.LiveOnly)
+	// The custom-field catalog is read above the transaction, not inside it:
+	// it opens one of its own, and this page holds the only connection its
+	// sections have for as long as it runs.
+	active, err := s.people.ActivePersonColumns(ctx)
+	if err != nil {
+		return crmcontracts.Person360{}, err
+	}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		person, err := s.people.GetPersonTx(ctx, tx, personID, storekit.LiveOnly, active)
 		if err != nil {
 			return err
 		}

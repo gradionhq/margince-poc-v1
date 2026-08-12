@@ -107,7 +107,7 @@ func TestAC_TG_6_IdentityPhoneDisagreementIsAConflictNotAMerge(t *testing.T) {
 		t.Fatal("two exact lanes named different people and no conflict was reported — the disagreement would be resolved silently")
 	}
 
-	recorded, err := people.NewStore(c.Pool).EnqueueIdentityConflict(admin, *conflict,
+	recorded, err := people.NewStore(c.DB()).EnqueueIdentityConflict(admin, *conflict,
 		"telegram:"+fmt.Sprintf("%d", telegramBotID)+":"+account+":1", "connector:telegram")
 	if err != nil {
 		t.Fatalf("EnqueueIdentityConflict: %v", err)
@@ -315,8 +315,8 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	first := telegramUpdate{updateID: 5701, messageID: 71, senderID: 770701, username: "racer", firstName: "Nadia", text: "first"}
 	second := telegramUpdate{updateID: 5702, messageID: 72, senderID: 770701, username: "racer", firstName: "Nadia", text: "second"}
 
-	sink := capture.NewSink(c.Pool).
-		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.Pool)})
+	sink := capture.NewSink(c.DB()).
+		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.DB())})
 	ctx := c.channelConnectorCtx(t)
 
 	start := make(chan struct{})
@@ -409,7 +409,7 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := privacy.NewEraser(c.Pool).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
+	if err := privacy.NewEraser(c.DB()).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := c.channelIdentities(t, before); n != 0 {

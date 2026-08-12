@@ -34,7 +34,7 @@ import (
 // and the run that meant to fail loudly would hang instead.
 func (e *dedupeEnv) holdOrgNameLock(ctx context.Context, t *testing.T) (pgx.Tx, int) {
 	t.Helper()
-	tx, err := e.store.pool.Begin(ctx)
+	tx, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the lock holder's transaction: %v", err)
 	}

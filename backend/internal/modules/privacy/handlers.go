@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -20,10 +20,12 @@ import (
 // engines run behind the DSR queue and the worker, not their own
 // routes).
 type Handlers struct {
-	pool *pgxpool.Pool
+	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers { return Handlers{pool: pool} }
+// NewHandlers wires the transport over the installation-bound pool.
+func NewHandlers(db *database.DB) Handlers { return Handlers{db: db} }
 
 // ListAuditLog implements (GET /audit-log).
 func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params crmcontracts.ListAuditLogParams) {
@@ -41,7 +43,7 @@ func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params cr
 		f.EntityID = &entityID
 	}
 
-	page, err := ListAuditLog(r.Context(), h.pool, f)
+	page, err := ListAuditLog(r.Context(), h.db, f)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -69,7 +71,6 @@ func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params cr
 func auditEntryToWire(e AuditEntry) (crmcontracts.AuditLogEntry, error) {
 	out := crmcontracts.AuditLogEntry{
 		Id:                openapi_types.UUID(e.ID),
-		WorkspaceId:       openapi_types.UUID(e.WorkspaceID.UUID),
 		ActorType:         crmcontracts.AuditLogEntryActorType(e.ActorType),
 		ActorId:           e.ActorID,
 		Action:            crmcontracts.AuditLogEntryAction(e.Action),

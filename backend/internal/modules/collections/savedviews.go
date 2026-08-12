@@ -15,7 +15,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -56,7 +55,6 @@ func wireSavedView(v savedViewRow) crmcontracts.SavedView {
 	scope := crmcontracts.SavedViewSharedScope(v.SharedScope)
 	return crmcontracts.SavedView{
 		Id:          openapi_types.UUID(v.ID.UUID),
-		WorkspaceId: openapi_types.UUID(v.WorkspaceID.UUID),
 		OwnerId:     openapi_types.UUID(v.OwnerID.UUID),
 		SharedScope: &scope,
 		Resource:    crmcontracts.SavedViewResource(v.Resource),
@@ -107,7 +105,7 @@ func (s *Store) ListSavedViews(ctx context.Context, resource *string, archived s
 	}
 	var out []savedViewRow
 	truncated := false
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		where := []string{fmt.Sprintf("owner_id = $%d", arg(owner))}
@@ -164,7 +162,7 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 		return savedViewRow{}, &BadInputError{Field: "query", Reason: "must not be null"}
 	}
 	var out savedViewRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO saved_view (workspace_id, owner_id, shared_scope, resource, name, query)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'private', $2, $3, $4)
@@ -191,7 +189,7 @@ func (s *Store) GetSavedView(ctx context.Context, id ids.SavedViewID) (savedView
 		return savedViewRow{}, err
 	}
 	var out savedViewRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanSavedView(tx.QueryRow(ctx,
 			selectSavedView+"id = $1 AND owner_id = $2", id, owner))
@@ -219,7 +217,7 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.SavedViewID, in Upda
 		return savedViewRow{}, err
 	}
 	var out savedViewRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		current, err := scanSavedView(tx.QueryRow(ctx,
 			selectSavedView+"id = $1 AND owner_id = $2 AND archived_at IS NULL", id, owner))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -261,7 +259,7 @@ func (s *Store) ArchiveSavedView(ctx context.Context, id ids.SavedViewID) (saved
 		return savedViewRow{}, err
 	}
 	var out savedViewRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx,
 			"UPDATE saved_view SET archived_at = now() WHERE id = $1 AND owner_id = $2 AND archived_at IS NULL RETURNING "+savedViewColumns,
 			id, owner)

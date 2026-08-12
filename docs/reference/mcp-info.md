@@ -2,7 +2,7 @@
 
 <!-- Generated together with mcp-info.json; do not edit by hand. -->
 
-Generated from the served MCP surface by `go test ./internal/compose/ -run TestPublishedMCPSurface -update-mcp-info`; do not edit by hand. This is the ALL-SCOPE view: tools/list and resources/list are both filtered per caller, so a passport holding fewer scopes is served less than this. It is the CORE catalog: extension units register onto the same registry and are not composed here. It is captured as an Apps-capable host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; a client that does not declare the UI extension is served no such member. The `ui://` view descriptors ARE included, and a deployment publishes each only once its boot has fetched and admitted that document, so an api serving neither advertises neither.
+Generated from the served MCP surface by `go test ./internal/compose/ -run TestPublishedMCPSurface -update-mcp-info`; do not edit by hand. This is the ALL-SCOPE view: tools/list and resources/list are both filtered per caller, so a passport holding fewer scopes is served less than this. It is the CORE catalog: extension units register onto the same registry and are not composed here. It is captured as an Apps-capable host sees it, so a tool bound to a view carries `_meta.ui.resourceUri`; only a MODERN request that declined the UI extension is served no such member — the handshake era, which has no way to declare one, is served views. The `ui://` view descriptors ARE included, and a deployment publishes each only once its boot has fetched and admitted that document, so an api serving neither advertises neither.
 
 `mcp-info.json` beside this page is the same surface byte for byte, as a client
 receives it. This page is rendered from that file.
@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 37 |
+| Tools | 38 |
 | Resources | 8 |
-| Tool catalog | 102.5 KB |
+| Tool catalog | 105.9 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 27028 |
+| Approx. wire tokens | 27884 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -23,6 +23,24 @@ Those are the WIRE bytes: they carry each tool's output schema and the governanc
 clause the transport appends. The Surface-B listing a run re-sends every step is
 smaller — name, description and input schema only — and is held against its own
 budget in `agenttooldescriptions_test.go`.
+
+### What the tool catalog is made of
+
+| Part | Bytes | Share | In a run's prompt? |
+|---|---:|---:|---|
+| Output schemas | 44.9 KB | 42% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 28.5 KB | 26% | Yes, every step |
+| Input schemas | 24.4 KB | 23% | Yes, every step |
+| _Names, annotations, punctuation_ | 8.1 KB | 7% | Partly |
+| **Description + input schema** | **52.9 KB** | **49%** | **the recurring cost** |
+
+So the headline total is dominated by the part a model is never charged for, and
+descriptions are a minority of it. Trimming the copy to shrink the total trades a
+MEASURED gain — the same copy took gemini's tool selection from 0.80 to 0.87, and
+one restraint scenario from 0/3 to 3/3 on a single sentence — for bytes that were
+not the cost. `agenttooldescriptions_test.go` records that argument and the
+budget decision it produced; the room is bought by publishing a vocabulary as a
+resource, the way `margince://schema/record-fields` did, not by writing less.
 
 ## Index
 
@@ -37,7 +55,7 @@ budget in `agenttooldescriptions_test.go`.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (37)
+### Tools (38)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -72,7 +90,8 @@ budget in `agenttooldescriptions_test.go`.
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.0 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
-| [`search_records`](#search_records) | Search records | yes |  | 2.5 KB |
+| [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.1 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 2.6 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
@@ -462,7 +481,7 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
 
 **Advance a deal to a stage**
 
-Move a deal to a different stage of its pipeline. The stage is named by id, not by label, and the id of the stage you are moving TO comes from list_pipelines — call it first, because a deal you have read carries only the stage it is already in. Moving onto a stage that closes the deal as won or lost is a decision a person makes: it is staged for approval and needs a lost_reason when the stage is a losing one. Read the target stage's semantic rather than guessing it from its name. Use progress_deal when the move should also leave a note explaining it, which is almost always what a person means by moving a deal on. Send if_version with the version you read of the deal, and keep the staged approval id when a closing move comes back for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+Move a deal to a different stage of its pipeline. The stage is named by id, not by label, and the id of the stage you are moving TO comes from list_pipelines — call it first, because a deal you have read carries only the stage it is already in. Moving onto or off a stage that closes the deal as won or lost is a decision a person makes: it is staged for approval and needs a lost_reason when the stage is a losing one. Read the target stage's semantic rather than guessing it from its name. Use progress_deal when the move should also leave a note explaining it, which is almost always what a person means by moving a deal on. Send if_version with the version you read of the deal, and keep the staged approval id when a closing move comes back for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -2775,7 +2794,7 @@ Enumerate the people, organizations, deals, leads or projects that meet exact co
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Narrow the list. Every operand is a string, booleans included (\"true\"). Each record_type takes only its own filters: person — owner_id organization — lifecycle (unknown|target|prospect|opportunity|customer|former_customer|disqualified), owner_id, relationship_type (customer|partner|supplier|investor|portfolio_company|competitor|other) deal — organization_id, owner_id, partner_org_id, partner_sourced (boolean), pipeline_id, project_id, stage_id, stalled (boolean), status (open|won|lost) lead — owner_id, status (new|working|promoted|disqualified) project — key, organization_id, owner_id, phase (initiative|pursuing|delivering|closed) A pipeline_id or stage_id comes from list_pipelines; nothing else on this surface yields one.",
+      "description": "Narrow the list. Every operand is a string, booleans included (\"true\"). Each record_type takes only its own filters: person — owner_id, tag organization — domain, lifecycle (unknown|target|prospect|opportunity|customer|former_customer|disqualified), owner_id, relationship_type (customer|partner|supplier|investor|portfolio_company|competitor|other) deal — organization_id, owner_id, partner_org_id, partner_sourced (boolean), pipeline_id, project_id, stage_id, stalled (boolean), status (open|won|lost) lead — min_score (integer), owner_id, status (new|working|promoted|disqualified) project — key, organization_id, owner_id, phase (initiative|pursuing|delivering|closed) A pipeline_id or stage_id comes from list_pipelines; nothing else on this surface yields one.",
       "type": "object"
     },
     "limit": {
@@ -3839,7 +3858,7 @@ Renders its result in [`ui://margince/handoff.html`](#handoff_view), visible to 
 
 **Progress a deal with a note**
 
-Move a deal to a new stage and leave a note on its timeline saying why, in one call. The move commits first and the note follows it, so a note that fails to write does not put the deal back — the answer says so, and the note is then log_activity's to retry. The note itself is optional. Same rules as the bare move otherwise: call list_pipelines for the id of the stage you are moving to, and closing a deal as won or lost is staged for a person to approve. Use advance_deal when there is genuinely nothing to say about the move, and log_activity when something happened but the deal did not move. Send if_version with the version you read of the deal; keep the staged approval id if a closing move is sent for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+Move a deal to a new stage and leave a note on its timeline saying why, in one call. The move commits first and the note follows it, so a note that fails to write does not put the deal back — the answer says so, and the note is then log_activity's to retry. The note itself is optional. Same rules as the bare move otherwise: call list_pipelines for the id of the stage you are moving to, and moving onto or off a stage that closes a deal as won or lost is staged for a person to approve. Use advance_deal when there is genuinely nothing to say about the move, and log_activity when something happened but the deal did not move. Send if_version with the version you read of the deal; keep the staged approval id if a closing move is sent for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -5963,7 +5982,7 @@ Find people, organizations, deals, leads and projects when you know roughly what
   "additionalProperties": false,
   "properties": {
     "cursor": {
-      "description": "Keyset cursor (single record_type only)",
+      "description": "Keyset cursor from the previous page, which a page reporting more always carries. A sweep of every type resumes by it too.",
       "type": "string"
     },
     "limit": {
@@ -5976,7 +5995,7 @@ Find people, organizations, deals, leads and projects when you know roughly what
       "type": "string"
     },
     "record_type": {
-      "description": "Restrict to one type; omit to sweep all five",
+      "description": "Restrict to one type; omit to sweep every type this workspace serves, which is not always all of these",
       "enum": [
         "person",
         "organization",
@@ -6035,6 +6054,199 @@ Find people, organizations, deals, leads and projects when you know roughly what
       },
       "required": [
         "records"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### send_account_email
+
+**Start an email conversation from a record**
+
+Put a mail on the wire to a real recipient, from this workspace, starting a new conversation rather than answering one, and file it on the records it is about. It sends EXACTLY the subject and body it is given and composes nothing. It needs at least one link naming the records the conversation belongs to and is refused without one. Every recipient must have granted the consent purpose the call names, and a person approves the send before it leaves — a message leaving the workspace cannot be recalled. Use send_email when the message answers a conversation already recorded here: that keeps the reply on its own thread, where this starts a separate one beside it. Keep the staged approval id and re-send the identical text and links: the approval is bound to that exact message. The activity_id that comes back is the new conversation. (Governance: a person approves every call before it runs; requires passport scope "send".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "description": "Set on retry after a human approved the staged call",
+      "format": "uuid",
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "cc": {
+      "items": {
+        "format": "email",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "consent_purpose": {
+      "description": "Purpose key the recipients must have granted",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "links": {
+      "description": "The records this conversation is filed under; at least one. The send is refused without it.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "entity_type": {
+            "enum": [
+              "person",
+              "organization",
+              "deal",
+              "lead"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 25,
+      "minItems": 1,
+      "type": "array"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "to": {
+      "items": {
+        "format": "email",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "to",
+    "subject",
+    "body",
+    "consent_purpose",
+    "links"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "activity_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "status"
       ],
       "type": "object"
     },

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -40,18 +41,17 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 			return workflow.RunResult{}, &workflow.StagedApprovalError{ApprovalID: stagedApproval}
 		}},
 	}
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	for _, h := range handlers {
 		fx.seedAutomation(t, h.name)
 		engine.RegisterWorkflow(h)
 	}
 
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: fx.ws,
-		OccurredAt:  time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 	if err := engine.HandleEvent(context.Background(), env); err == nil {
 		t.Fatal("HandleEvent swallowed the handler failures — the dispatcher must still surface them")
@@ -89,15 +89,14 @@ func TestFailedRunReasonNeverLeaksRawProviderErrorInternals(t *testing.T) {
 		},
 	}
 	fx.seedAutomation(t, h.name)
-	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: this fixture carries no owner_id, so the match-time gate skips before ever touching it
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), nil) // nil resolver: this fixture carries no owner_id, so the match-time gate skips before ever touching it
 	engine.RegisterWorkflow(h)
 
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: fx.ws,
-		OccurredAt:  time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 	if err := engine.HandleEvent(context.Background(), env); err == nil {
 		t.Fatal("HandleEvent swallowed the apply failure")
@@ -195,11 +194,10 @@ func assertRejectionBlocksParkedRun(t *testing.T, fx *autoFixture, engine *Workf
 			t.Fatal(err)
 		}
 		return kevents.Envelope{
-			EventID:     ids.NewV7(),
-			Type:        "approval.decided",
-			WorkspaceID: fx.ws,
-			Entity:      kevents.EntityRef{Type: "approval", ID: stagedApproval.UUID},
-			Payload:     payload,
+			EventID: ids.NewV7(),
+			Type:    "approval.decided",
+			Entity:  kevents.EntityRef{Type: "approval", ID: stagedApproval.UUID},
+			Payload: payload,
 		}
 	}
 	if err := engine.HandleApprovalDecided(context.Background(), decided("approved")); err != nil {

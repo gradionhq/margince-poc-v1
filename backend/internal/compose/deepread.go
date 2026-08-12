@@ -140,15 +140,15 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
 		pool:        pool,
-		people:      people.NewStore(pool),
+		people:      people.NewStore(InstallationDB(pool)),
 		crawler:     newSiteCrawler(fetcher, caps),
 		extract:     evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
 		triageBrain: triageBrain,
 		fetch:       fetcher,
 		blob:        blob,
-		approvals:   approvals.NewService(pool),
+		approvals:   approvals.NewService(InstallationDB(pool)),
 		authority:   identity.NewService(pool),
-		autoEnrich:  capture.NewAutoEnrichStore(pool),
+		autoEnrich:  capture.NewAutoEnrichStore(InstallationDB(pool)),
 		settings:    capture.NewSettings(NewSettingsStore(pool)),
 		log:         log,
 		caps:        caps,

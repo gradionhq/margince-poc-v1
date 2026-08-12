@@ -38,7 +38,7 @@ func (h Handlers) GetFieldHistory(w http.ResponseWriter, r *http.Request, params
 		f.ActorType = &at
 	}
 
-	page, err := ListFieldHistory(r.Context(), h.pool, f)
+	page, err := ListFieldHistory(r.Context(), h.db, f)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

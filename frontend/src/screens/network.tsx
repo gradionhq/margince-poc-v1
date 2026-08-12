@@ -4,12 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  EmptyState,
-  SectionHeader,
-  Skeleton,
-} from "../design-system/atoms";
+import { Badge, Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import "./network.css";
@@ -101,8 +96,7 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
   const colleagues = query.data?.colleagues ?? [];
 
   return (
-    <section className="card net-card">
-      <SectionHeader title={t("network.title")} />
+    <Card className="net-card" title={t("network.title")}>
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="80%" />}
       {!overlay && query.isError && (
@@ -138,7 +132,7 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -154,8 +148,7 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
   const risks = query.data?.risks ?? [];
 
   return (
-    <section className="card net-card">
-      <SectionHeader title={t("coverage.title")} />
+    <Card className="net-card" title={t("coverage.title")}>
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="60%" />}
       {!overlay && query.isError && (
@@ -189,6 +182,6 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }

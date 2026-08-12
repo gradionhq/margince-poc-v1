@@ -11,7 +11,8 @@ package integration
 // and get/list reads like core fields. Store-level suites prove the
 // value semantics (six-type round trip, drop-on-mismatch, unknown-key
 // drop, retired-field hiding, workspace isolation, the audit diff); the
-// HTTP suite proves the wire flatten — cf_ keys ride the payload
+// HTTP suite — customfields_values_http_integration_test.go, which moved to
+// integration/customfields — proves the wire flatten — cf_ keys ride the payload
 // TOP-LEVEL through the generated types' additionalProperties — plus
 // the picklist CHECK → 422 mapping over the real compose wiring.
 
@@ -31,7 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// cfvPerms is cfAdminPerms plus the organization grants this suite's
+// cfvPerms is CustomFieldAdminPerms plus the organization grants this suite's
 // org round trip needs.
 var cfvPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
@@ -62,9 +63,17 @@ func setupCFV(t *testing.T) cfvFixture {
 	return cfvFixture{
 		e:     e,
 		svc:   svc,
-		store: people.NewStore(e.Pool).WithFieldCatalog(svc),
+		store: people.NewStore(e.DB()).WithFieldCatalog(svc),
 		ctx:   e.As(e.Rep1, nil, cfvPerms),
 	}
+}
+
+// storeFor is the fixture's people store bound to ANOTHER workspace, for the
+// isolation arms: a write lands in the workspace its handle names, so tenant B
+// needs a store of its own. The field catalog is the same service — the physical
+// column is shared, which is the whole point of the arms below.
+func (f cfvFixture) storeFor(ws ids.UUID) *people.Store {
+	return people.NewStore(f.e.DBFor(ws)).WithFieldCatalog(f.svc)
 }
 
 // defineField creates one active custom field and returns its physical
@@ -429,8 +438,8 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "gold")
 
-	_, ctxB := seedSecondWorkspace(t, OwnerConn(t))
-	inB, err := f.store.CreatePerson(ctxB, people.CreatePersonInput{
+	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
+	inB, err := f.storeFor(wsB).CreatePerson(ctxB, people.CreatePersonInput{
 		FullName: "Tenant B Person", Source: "ui",
 		CustomFields: map[string]any{col: "gold"},
 	})

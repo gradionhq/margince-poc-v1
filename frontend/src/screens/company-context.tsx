@@ -36,6 +36,14 @@ type SiteRead = components["schemas"]["CompanySiteRead"];
 type Comparison = components["schemas"]["CompanySiteReadComparison"];
 type Resolution = components["schemas"]["CompanySiteReadResolution"];
 
+/** What the reviewer had on screen at the moment they applied the refresh. */
+type RefreshChoice = Readonly<{
+  current: CompanyInput;
+  read: SiteRead;
+  selected: Set<string>;
+  resolutions: Record<string, Resolution>;
+}>;
+
 const EMPTY_COMPANY_INPUT: CompanyInput = {
   display_name: "",
   website: "",
@@ -354,22 +362,28 @@ export function CompanyContextCard() {
     );
   }, [siteRead.data?.comparisons]);
 
+  // Everything the confirm sends arrives as the mutation's VARIABLE, for the
+  // reason spelled out on startRefresh above: react-query re-arms a mutation's
+  // options in a passive effect, so a click landing between commit and that
+  // effect runs the previous render's closure. Read through one, `form` and the
+  // read are null and the reviewer is told their refresh is unavailable while
+  // it is on the screen in front of them; `selected` and `resolutions` are
+  // worse, because a stale pair sends a set of choices nobody made. The click
+  // handler belongs to the committed render, so what it passes is what the
+  // reviewer sees.
   const confirm = useMutation({
-    mutationFn: async () => {
-      if (!siteRead.data || !form) {
-        throwProblem({ title: t("settings.companyRefreshUnavailable") });
-      }
+    mutationFn: async (choice: RefreshChoice) => {
       const body = refreshConfirmation(
-        form,
-        siteRead.data,
-        selected,
-        resolutions,
+        choice.current,
+        choice.read,
+        choice.selected,
+        choice.resolutions,
       );
       const { data, error, response } = await api.POST(
         "/company/site-reads/{readId}/confirm",
         {
           params: {
-            path: { readId: siteRead.data.id },
+            path: { readId: choice.read.id },
             header: { "Idempotency-Key": crypto.randomUUID() },
           },
           body,
@@ -392,6 +406,10 @@ export function CompanyContextCard() {
   });
 
   const refreshFailure = refreshProblem(startRefresh, siteRead, t);
+  // Bound to a const so the narrowing below survives into the confirm handler:
+  // TypeScript discards a narrowed PROPERTY access inside a closure, and the
+  // whole point of that handler is to carry the read rather than re-read it.
+  const read = siteRead.data;
 
   if (capabilities.data && !capabilities.data.read_enabled) {
     return null;
@@ -483,9 +501,9 @@ export function CompanyContextCard() {
               {refreshFailure !== null && (
                 <p className="company-context-error">{refreshFailure}</p>
               )}
-              {siteRead.data && (
+              {read && (
                 <RefreshReview
-                  read={siteRead.data}
+                  read={read}
                   selected={selected}
                   resolutions={resolutions}
                   onToggle={(key) => setSelected(toggleSet(selected, key))}
@@ -495,7 +513,14 @@ export function CompanyContextCard() {
                       [resolution.key]: resolution,
                     })
                   }
-                  onConfirm={() => confirm.mutate()}
+                  onConfirm={() =>
+                    confirm.mutate({
+                      current: form,
+                      read,
+                      selected,
+                      resolutions,
+                    })
+                  }
                   confirming={confirm.isPending}
                   error={
                     confirm.error

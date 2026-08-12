@@ -70,12 +70,12 @@ func TestNotifyFiringWithNoTransportLandsAVisibleSkippedRun(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Notify Probe Deal", pipeline, open, nil)
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 	engine.RegisterSystemWorkflow(notifyNoTransportProbe{})
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {
@@ -154,7 +154,7 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Add To List Probe Deal", pipeline, open, nil)
 
-	listsStore := collections.NewStore(e.Pool)
+	listsStore := collections.NewStore(e.DB())
 	// The harness AdminPerms grants the core record objects but not `list`,
 	// so seed the probe list as a seeded user carrying an explicit list
 	// grant — the automation firing below is what the test exercises, not
@@ -169,12 +169,12 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 		t.Fatalf("seeding the probe list: %v", err)
 	}
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 	engine.RegisterSystemWorkflow(addToListProbe{listID: list.ID, lists: testListsAdapter{store: listsStore}})
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {
@@ -258,12 +258,12 @@ func TestDraftEmailFiringLandsTheComposedDraftOnTheRunRecord(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Draft Email Probe Deal", pipeline, open, nil)
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 	engine.RegisterSystemWorkflow(draftEmailProbe{comms: draftingComms{subject: "Re: next step", body: "Following up on our last conversation."}})
 
 	ctx := context.Background()
 	if err := engine.HandleEvent(ctx, kevents.Envelope{
-		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
+		EventID: ids.NewV7(), Type: "deal.stage_changed",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "deal", ID: dealID},
 	}); err != nil {

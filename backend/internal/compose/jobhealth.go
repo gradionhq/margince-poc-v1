@@ -18,14 +18,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -164,11 +162,11 @@ func (h jobHealthHandlers) GetJobHealth(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	httperr.WriteJSON(w, http.StatusOK, jobHealthResponse(wsID, health))
+	httperr.WriteJSON(w, http.StatusOK, jobHealthResponse(health))
 }
 
 // jobHealthResponse maps the scoped read onto the contract.
-func jobHealthResponse(workspaceID ids.UUID, health jobs.Health) crmcontracts.JobHealth {
+func jobHealthResponse(health jobs.Health) crmcontracts.JobHealth {
 	kinds := make([]crmcontracts.JobKindHealth, 0, len(health.Kinds))
 	for _, k := range health.Kinds {
 		kinds = append(kinds, crmcontracts.JobKindHealth{
@@ -186,12 +184,7 @@ func jobHealthResponse(workspaceID ids.UUID, health jobs.Health) crmcontracts.Jo
 	failures := make([]crmcontracts.JobFailure, 0, len(health.Failures))
 	for _, f := range health.Failures {
 		failures = append(failures, crmcontracts.JobFailure{
-			Kind: f.Kind,
-			// Either null (a dispatcher) or the caller's own workspace: the
-			// scope admits no third possibility, so the id is taken from the
-			// authenticated principal rather than re-parsed out of a jsonb
-			// value whose format nothing constrains.
-			WorkspaceId: callerOrDispatcher(workspaceID, f.WorkspaceID),
+			Kind:        f.Kind,
 			State:       crmcontracts.JobFailureState(f.State),
 			Attempt:     f.Attempt,
 			MaxAttempts: f.MaxAttempts,
@@ -202,27 +195,10 @@ func jobHealthResponse(workspaceID ids.UUID, health jobs.Health) crmcontracts.Jo
 	}
 
 	return crmcontracts.JobHealth{
-		WorkspaceId:    openapi_types.UUID(workspaceID),
 		GeneratedAt:    time.Now().UTC(),
 		Kinds:          kinds,
 		RecentFailures: failures,
 	}
-}
-
-// callerOrDispatcher answers the workspace a failure belongs to.
-//
-// The scoped read admits a row only when its workspace key is the caller's
-// own or is null, so a present key is the caller's workspace by
-// construction — which is why the id comes from the authenticated
-// principal rather than from the jsonb value. That value is app-written
-// with no database constraint behind it, and re-parsing it here would let
-// a malformed row decide what this endpoint reports.
-func callerOrDispatcher(caller ids.UUID, stored *string) *openapi_types.UUID {
-	if stored == nil {
-		return nil
-	}
-	id := openapi_types.UUID(caller)
-	return &id
 }
 
 // secondsOrAbsent TRUNCATES a measured age to whole seconds, and keeps an

@@ -119,16 +119,18 @@ func TestPreserveSetIntegrity(t *testing.T) {
 	}
 }
 
-// TestClearWorkspaceOutboxScopesToWorkspace proves the one sweep target with
-// NO RLS backstop — event_outbox has no workspace_id column, so its tenant
-// boundary rests entirely on the envelope text match — actually scopes to the
-// bound workspace: this workspace's rows go, a foreign workspace's survive.
-func TestClearWorkspaceOutboxScopesToWorkspace(t *testing.T) {
+// TestClearWorkspaceOutboxEmptiesTheStagedEvents is the reset's outbox half: a
+// reset that left staged events behind would ship events naming rows it had
+// just deleted.
+//
+// It used to assert that a foreign workspace's rows SURVIVED, and the delete
+// matched on the envelope's tenant to do it. The envelope carries no tenant now
+// (ADR-0091 §6) and an installation holds one, so there is no other tenant's
+// event to spare — every staged row belongs to the installation being reset.
+func TestClearWorkspaceOutboxEmptiesTheStagedEvents(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
-	foreign := ids.NewV7()
-	e.WsExec(t, `INSERT INTO event_outbox (stream, envelope) VALUES ('t', jsonb_build_object('workspace_id', $1::text))`, e.WS)
-	e.WsExec(t, `INSERT INTO event_outbox (stream, envelope) VALUES ('t', jsonb_build_object('workspace_id', $1::text))`, foreign)
+	e.WsExec(t, `INSERT INTO event_outbox (stream, envelope) VALUES ('t', jsonb_build_object('type', 'x'))`)
 
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		return clearWorkspaceOutbox(ctx, tx)
@@ -136,11 +138,8 @@ func TestClearWorkspaceOutboxScopesToWorkspace(t *testing.T) {
 		t.Fatalf("clear: %v", err)
 	}
 
-	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE envelope->>'workspace_id' = $1`, e.WS.String()); n != 0 {
-		t.Fatalf("this workspace's outbox rows = %d, want 0", n)
-	}
-	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE envelope->>'workspace_id' = $1`, foreign.String()); n != 1 {
-		t.Fatalf("foreign workspace's outbox rows = %d, want 1 (must survive)", n)
+	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox`); n != 0 {
+		t.Fatalf("staged outbox rows after the reset = %d, want 0", n)
 	}
 }
 

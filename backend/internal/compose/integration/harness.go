@@ -109,9 +109,9 @@ func Setup(t *testing.T) *Env {
 	// last and sees a package that has genuinely stopped.
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
-	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool, installseam.Deals())
-	e.Activities = activities.NewStore(pool)
+	e.People = people.NewStore(harnessDB(pool, e.WS))
+	e.Deals = deals.NewStore(harnessDB(pool, e.WS), installseam.Deals())
+	e.Activities = activities.NewStore(harnessDB(pool, e.WS))
 	return e
 }
 
@@ -308,14 +308,24 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 	})
 }
 
-// PersonIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
-// the entity a people-store call targets — the suites' spelling of the
-// contracts-edge ids.From widening (the harness keeps its fixture ids
-// untyped so every module's suite can share them).
-func PersonIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
+// The id wideners assert a harness-seeded untyped id as the entity a people-store
+// call targets — the suites' spelling of the contracts-edge ids.From widening. The
+// harness keeps its fixture ids untyped so every module's suite can share them,
+// and each suite widens at the call it makes.
+//
+// Only PersonIDOf is exported, because integration/channels widens person ids from
+// outside this package. The other three have no caller beyond it, and a suite
+// package that later needs one exports it then.
+
+// PersonIDOf widens a harness fixture id to a person id.
+func PersonIDOf(u ids.UUID) ids.PersonID { return ids.From[ids.PersonKind](u) }
+
+// orgIDOf widens a harness fixture id to an organization id.
 func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
-func leadIDOf(u ids.UUID) ids.LeadID        { return ids.From[ids.LeadKind](u) }
-func projectIDOf(u ids.UUID) ids.ProjectID  { return ids.From[ids.ProjectKind](u) }
+
+// leadIDOf widens a harness fixture id to a lead id.
+func leadIDOf(u ids.UUID) ids.LeadID       { return ids.From[ids.LeadKind](u) }
+func projectIDOf(u ids.UUID) ids.ProjectID { return ids.From[ids.ProjectKind](u) }
 
 // userIDPtr types an optional harness user id (Env keeps its fixture ids
 // untyped so every module's suite can use them) for people's typed inputs.
@@ -350,13 +360,16 @@ func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 	return ids.UUID(org.Id)
 }
 
-// SeedOrgAs creates an ownerless organization under the caller's own
-// context — unlike SeedOrg (always e.Admin(), the harness's one primary
-// workspace), this lets a cross-tenant suite seed a fixture in a SECOND
-// workspace's own context.
-func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, name string) ids.UUID {
+// SeedOrgAs creates an ownerless organization in a SECOND workspace, under
+// that workspace's own context — unlike SeedOrg, which always writes the
+// harness's primary workspace as e.Admin().
+//
+// It names the workspace as well as the ctx because the row lands wherever the
+// STORE is bound: the harness's own store would stamp the second tenant's ids
+// into the first tenant's transaction, which RLS refuses.
+func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, ws ids.UUID, name string) ids.UUID {
 	t.Helper()
-	org, err := e.People.CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
+	org, err := e.PeopleFor(ws).CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
 	if err != nil {
 		t.Fatal(err)
 	}

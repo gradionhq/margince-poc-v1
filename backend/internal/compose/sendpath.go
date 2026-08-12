@@ -77,7 +77,7 @@ type SendPath struct {
 // learning loop exists.
 func (p SendPath) withPoolDefaults(pool *pgxpool.Pool) SendPath {
 	if p.DraftOutcome == nil {
-		p.DraftOutcome = ai.NewVoiceStore(pool)
+		p.DraftOutcome = ai.NewVoiceStore(InstallationDB(pool))
 	}
 	if p.ChannelRecipients == nil {
 		p.ChannelRecipients = channelReachability{}
@@ -122,8 +122,8 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 // override and never the source of the default.
 func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 	send = send.withPoolDefaults(pool)
-	return activities.NewStore(pool).
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}).
+	return activities.NewStore(InstallationDB(pool)).
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		WithPublicBaseURL(send.PublicBaseURL).
 		WithSendAuthority(send.SendAuthority).
 		WithChannelReachability(send.ChannelRecipients).
@@ -142,7 +142,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
 		store:         sendStore(pool, send),
-		gate:          consent.NewGate(consent.NewStore(pool)),
+		gate:          consent.NewGate(consent.NewStore(InstallationDB(pool))),
 		draft:         drafter,
 		stager:        send.Delivery,
 		channelStager: send.Delivery,

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -56,11 +55,11 @@ type runCall struct {
 // It intentionally grants the same create fallback as the unbound onboarding
 // dossier itself: before an anchor company exists, its installer may still
 // inspect the model calls that their own setup action caused.
-type RunTransparency struct{ pool *pgxpool.Pool }
+type RunTransparency struct{ db *database.DB }
 
 // NewRunTransparency constructs the RLS-bound correlated-run reader.
-func NewRunTransparency(pool *pgxpool.Pool) *RunTransparency {
-	return &RunTransparency{pool: pool}
+func NewRunTransparency(db *database.DB) *RunTransparency {
+	return &RunTransparency{db: db}
 }
 
 // Get returns the complete attempt and cost account for one correlation id.
@@ -71,7 +70,7 @@ func (s *RunTransparency) Get(ctx context.Context, correlationID ids.UUID) (RunS
 		}
 	}
 	calls := []runCall{}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT c.task, c.tier, c.provider, c.model_id, c.served_model,
 				c.served_identity_source,

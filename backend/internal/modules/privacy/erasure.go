@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -47,14 +46,16 @@ const evidenceKeyRetentionAction = "retention_action"
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {
-	pool *pgxpool.Pool
+	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
+	db *database.DB
 	// blob purges the subject's attachment objects (Art. 17 reaches the
 	// bytes, not only the row). nil in a deployment with no object store —
 	// where no upload path could have stored an object either.
 	blob blobstore.Store
 }
 
-func NewEraser(pool *pgxpool.Pool) *Eraser { return &Eraser{pool: pool} }
+// NewEraser binds the erasure pass to the installation's pool.
+func NewEraser(db *database.DB) *Eraser { return &Eraser{db: db} }
 
 // WithBlobstore returns an eraser that also purges attachment objects.
 // Compose passes the object store so erasure reaches the bytes behind the
@@ -85,7 +86,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 	// activity selectors applies here too: erasing the person a Handelsbrief
 	// hangs off must not destroy the correspondence itself below its floor.
 	floorInterval, floorAnchor := statutoryFloorArgs()
-	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	return e.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", subject.UUID); err != nil {
 			return err
 		}

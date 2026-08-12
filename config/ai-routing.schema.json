@@ -16,7 +16,7 @@
       "type": "object",
       "minProperties": 1,
       "additionalProperties": false,
-      "propertyNames": { "enum": ["local_small", "cheap_cloud", "premium", "local_large"] },
+      "propertyNames": { "enum": ["local_small", "cheap_cloud", "premium", "frontier", "local_large"] },
       "patternProperties": { ".*": { "$ref": "#/$defs/binding" } }
     },
     "embeddings": {

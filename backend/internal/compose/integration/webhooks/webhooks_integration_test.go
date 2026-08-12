@@ -45,6 +45,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -162,8 +163,19 @@ func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webh
 	return newTestDelivererWithResolver(we, now, client, identity.NewService(we.pool))
 }
 
+// newTestDelivererOn builds a deliverer over a handle the CALLER bound. The
+// retry fan-out hands its worker one handle per workspace it sweeps, so a
+// fixture that reuses a single deliverer across tenants would sweep the first
+// one twice — and read as the fan-out working.
+func newTestDelivererOn(we *webhookEnv, db *database.DB, now *time.Time, client *http.Client) *webhooks.Deliverer {
+	store := webhooks.NewStore(db, we.cipher)
+	clock := func() time.Time { return *now }
+	return webhooks.NewDeliverer(store, client, clock, identity.NewService(we.pool),
+		slog.New(slog.NewTextHandler(os.Stderr, nil)))
+}
+
 func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
-	store := webhooks.NewStore(we.pool, we.cipher)
+	store := webhooks.NewStore(database.BindTo(we.pool, ids.From[ids.WorkspaceKind](we.wsID)), we.cipher)
 	clock := func() time.Time { return *now }
 	return webhooks.NewDeliverer(store, client, clock, resolver,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -175,14 +187,13 @@ func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.C
 // path is exercised separately by revoking the owner.
 func makeEnvelope(wsID ids.UUID, eventType string) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     kevents.VersionOf(eventType),
-		WorkspaceID: wsID,
-		OccurredAt:  time.Now().UTC(),
-		Actor:       kevents.Actor{Type: "system", ID: "system"},
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    kevents.VersionOf(eventType),
+		OccurredAt: time.Now().UTC(),
+		Actor:      kevents.Actor{Type: "system", ID: "system"},
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 }
 
@@ -227,7 +238,7 @@ func TestNewWebhookDelivererBuildsFromKey(t *testing.T) {
 	valid := base64.StdEncoding.EncodeToString(make([]byte, webhooks.WebhookKeyBytes))
 	d, err := compose.NewWebhookDeliverer(we.pool, valid, log)
 	if err != nil || d == nil {
-		t.Fatalf("NewWebhookDeliverer(valid) d=%v err=%v", d, err)
+		t.Fatalf("NewWebhookDeliverer(valid) returned a nil factory: err=%v", err)
 	}
 	if _, err := compose.NewWebhookDeliverer(we.pool, "not base64!!!", log); err == nil {
 		t.Fatal("NewWebhookDeliverer must reject a non-base64 key")

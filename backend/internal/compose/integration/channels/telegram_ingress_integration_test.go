@@ -172,7 +172,7 @@ func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPerson
 	reader := c.strangerRepCtx(t, map[string]principal.ObjectGrant{
 		"person": {Read: true}, "activity": {Read: true},
 	})
-	store := people.NewStore(c.Pool)
+	store := people.NewStore(c.DB())
 
 	shared, err := ids.ParseAs[ids.PersonKind](personID)
 	if err != nil {
@@ -427,7 +427,7 @@ func TestOneInboundMessageLeavesOneRawEvidenceRowAndIsExportedOnce(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.Pool, ids.From[ids.PersonKind](person))
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.DB(), ids.From[ids.PersonKind](person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

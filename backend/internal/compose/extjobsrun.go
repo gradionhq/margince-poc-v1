@@ -119,23 +119,20 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// dispatcher's own retry a clean slate, which is the same argument
 	// dispatchWith makes for its atomic insert.
 	//
-	// A SEATLESS workspace is SKIPPED, and counted. This is a reversal of the
-	// original posture (enqueue anyway, let the child fail loudly at the
-	// authority derivation) and the reason is the combination, not either half:
-	// nothing in the product creates an agent seat yet (#656), and a unit ships
-	// enabled at whatever cadence it declares — notes's is 60s. Enqueueing
-	// meant every fresh installation ran a job that failed three times a minute
-	// per workspace forever, filling the worker log and river_job with
-	// discarded rows, for a condition that is not a fault: the installation is
-	// legitimately in a state the product has no path out of yet.
+	// A SEATLESS workspace is SKIPPED, and counted, rather than enqueued to fail
+	// at the authority derivation. Bootstrap now writes a workspace its agent
+	// seat, so this is no longer the state every fresh installation is in — it
+	// is reached when an operator archives or deactivates that seat, which is a
+	// posture they are entitled to hold. A unit ships enabled at whatever
+	// cadence it declares (notes's is 60s), so enqueueing would answer that
+	// choice with three discarded rows a minute per workspace, forever.
 	//
-	// The argument the old comment made against skipping — that silence leaves
-	// the capability just as dead — is right about silence and wrong about
-	// skipping. It is answered by the GAUGE rather than by an error storm: a
-	// known-absent precondition is its own class, reported as a number an
-	// operator can alert on, not as a failure that says the tick broke. Same
-	// posture the mixed-build gauge takes for a condition an installation is
-	// allowed to be in.
+	// The argument against skipping — that silence leaves the capability just as
+	// dead — is right about silence and wrong about skipping. It is answered by
+	// the GAUGE rather than by an error storm: a known-absent precondition is
+	// its own class, reported as a number an operator can alert on, not as a
+	// failure that says the tick broke. Same posture the mixed-build gauge takes
+	// for a condition an installation is allowed to be in.
 	seated := make([]ids.UUID, 0, len(workspaces))
 	actors := make(map[ids.UUID]ids.UUID, len(workspaces))
 	seatless := 0
@@ -158,7 +155,7 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 		// exists for the operator who has already read the gauge and turned the
 		// level up to find out which dispatch it came from.
 		slog.DebugContext(ctx, "extensions: skipping workspaces with no agent seat",
-			"kind", w.decl.ChildKind(), "seatless", seatless, "seated", len(seated), "issue", 656)
+			"kind", w.decl.ChildKind(), "seatless", seatless, "seated", len(seated))
 	}
 	workspaces = seated
 	child := w.decl.ChildKind()
@@ -178,10 +175,10 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 // work nobody asked for.
 //
 // A workspace with no live agent seat answers the ZERO id, which the caller
-// reads as "skip and count" rather than as an actor to enqueue under. Nothing
-// in the product sets is_agent yet (margince-poc-v1#656, which carries the
-// hand-insert workaround), so on a fresh installation this is the answer for
-// every workspace — see Work for why that is a gauge and not an error storm.
+// reads as "skip and count" rather than as an actor to enqueue under. Bootstrap
+// writes every new installation its seat, so that answer means an operator has
+// since archived or deactivated it — see Work for why that is a gauge and not
+// an error storm.
 //
 // The zero id is returned rather than an error because a seatless tenant is not
 // a fault: the read succeeded and the answer is "none". An error here would put

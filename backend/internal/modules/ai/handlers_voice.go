@@ -14,10 +14,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -50,11 +50,11 @@ type Handlers struct {
 // rates is the ADR-0067 price sheet the usage read prices ai_call
 // against at read time (price-on-read) — the same pool, RLS scoped like
 // every other tenant read.
-func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
+func NewHandlers(db *database.DB, budget BudgetPolicy) Handlers {
 	return Handlers{
-		voice: NewVoiceStore(pool), meter: NewMeter(pool), budget: budget,
-		calls: NewCallReadStore(pool), rates: NewRateStore(pool),
-		feedback:      NewFeedbackStore(pool),
+		voice: NewVoiceStore(db), meter: NewMeter(db), budget: budget,
+		calls: NewCallReadStore(db), rates: NewRateStore(db),
+		feedback:      NewFeedbackStore(db),
 		publicProfile: NewPublicProfile("unconfigured", RoutingConfig{}),
 	}
 }

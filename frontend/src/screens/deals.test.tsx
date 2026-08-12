@@ -53,7 +53,6 @@ type Offer = components["schemas"]["Offer"];
 const stages: Stage[] = [
   {
     id: "s1",
-    workspace_id: "w",
     pipeline_id: "pl",
     name: "Qualify",
     position: 1,
@@ -62,7 +61,6 @@ const stages: Stage[] = [
   },
   {
     id: "s2",
-    workspace_id: "w",
     pipeline_id: "pl",
     name: "Proposal",
     position: 2,
@@ -71,7 +69,6 @@ const stages: Stage[] = [
   },
   {
     id: "s3",
-    workspace_id: "w",
     pipeline_id: "pl",
     name: "Won",
     position: 3,
@@ -83,7 +80,6 @@ const stages: Stage[] = [
 function deal(overrides: Partial<Deal>): Deal {
   return {
     id: "d1",
-    workspace_id: "w",
     name: "Fleet retrofit",
     amount_minor: 4_800_000,
     currency: "EUR",
@@ -101,7 +97,6 @@ function deal(overrides: Partial<Deal>): Deal {
 function offer(overrides: Partial<Offer>): Offer {
   return {
     id: "o1",
-    workspace_id: "w",
     deal_id: "d1",
     offer_number: "OFF-0001",
     revision: 1,
@@ -223,7 +218,6 @@ function stubBackend(
         data: opts.pipelines ?? [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
@@ -261,7 +255,6 @@ function stubBackend(
           id: "u-me",
           email: "me@acme.test",
           display_name: "Me",
-          workspace_id: "w",
           timezone: "UTC",
           status: "active",
           is_agent: false,
@@ -438,7 +431,6 @@ describe("DealsScreen", () => {
             id: "u-me",
             email: "me@acme.test",
             display_name: "Me",
-            workspace_id: "w",
             timezone: "UTC",
             status: "active",
             is_agent: false,
@@ -488,7 +480,6 @@ describe("DealsScreen", () => {
             id: "u-me",
             email: "me@acme.test",
             display_name: "Me",
-            workspace_id: "w",
             timezone: "UTC",
             status: "active",
             is_agent: false,
@@ -537,7 +528,6 @@ describe("DealsScreen filters", () => {
         pipelines: [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
@@ -545,7 +535,6 @@ describe("DealsScreen filters", () => {
           },
           {
             id: "pl2",
-            workspace_id: "w",
             name: "Renewals",
             is_default: false,
             position: 1,
@@ -574,7 +563,6 @@ describe("DealsScreen filters", () => {
         pipelines: [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
@@ -582,7 +570,6 @@ describe("DealsScreen filters", () => {
           },
           {
             id: "pl2",
-            workspace_id: "w",
             name: "Renewals",
             is_default: false,
             position: 1,
@@ -723,7 +710,6 @@ describe("DealScreen — overlay mode write affordances", () => {
             id: "u-me",
             email: "me@acme.test",
             display_name: "Me",
-            workspace_id: "w",
             timezone: "UTC",
             status: "active",
             is_agent: false,

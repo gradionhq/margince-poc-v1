@@ -18,6 +18,46 @@ func contractWith(pathItem string) []byte {
 
 // yogiOperation is a well-formed extension operation, indented for a paths
 // mapping. Cases below substitute one line of it.
+// TestABodylessOperationAssemblesItsSchemaFromItsQueryParameters: the derived
+// input schema is what an MCP client hands a model AND what the serving seam
+// decodes against, so its exact shape is pinned. `required` is asserted sorted
+// because it is a list: YAML declaration order reaching the emitted literal
+// would make a reordering of the contract look like a changed argument contract,
+// and the manifest digest covers it.
+func TestABodylessOperationAssemblesItsSchemaFromItsQueryParameters(t *testing.T) {
+	verbs, err := verbsInContract("crm.yaml", oneUnit(), contractWith(getOperationWith(
+		"        - name: payload\n          in: query\n          required: true\n          schema: {type: string}\n"+
+			"        - name: limit\n          in: query\n          schema: {type: integer}\n"+
+			"        - name: exact\n          in: query\n          required: true\n          schema: {type: boolean}\n")))
+	if err != nil {
+		t.Fatalf("a GET declaring flat query parameters must generate: %v", err)
+	}
+	if len(verbs) != 1 {
+		t.Fatalf("got %d verbs, want 1", len(verbs))
+	}
+	const want = `{"type":"object","properties":{"exact":{"type":"boolean"},"limit":{"type":"integer"},` +
+		`"payload":{"type":"string"}},"required":["exact","payload"],"additionalProperties":false}`
+	if got := string(verbs[0].verb.InputSchema); got != want {
+		t.Errorf("InputSchema =\n  %s\nwant\n  %s", got, want)
+	}
+}
+
+// TestABodylessOperationWithNoParametersTakesTheEmptyObject: the common bodyless
+// case — a list, a status probe. The empty object rather than nil, because "takes
+// no arguments" is a fact worth publishing to a model rather than a gap a
+// default fills in downstream.
+func TestABodylessOperationWithNoParametersTakesTheEmptyObject(t *testing.T) {
+	verbs, err := verbsInContract("crm.yaml", oneUnit(), contractWith(
+		"  /ext/u/quote:\n    get:\n      operationId: uQuote\n      x-mcp-tool:\n        verb: u_quote\n"+
+			"        version: 1.0.0\n        tier: auto_execute\n        scope: read\n        description: Does one thing.\n"))
+	if err != nil {
+		t.Fatalf("a GET taking no arguments must generate: %v", err)
+	}
+	if got, want := string(verbs[0].verb.InputSchema), `{"type":"object","additionalProperties":false}`; got != want {
+		t.Errorf("InputSchema = %s, want %s", got, want)
+	}
+}
+
 const yogiOperation = `  /ext/u/quote:
     post:
       operationId: uQuote
@@ -44,6 +84,22 @@ const yogiOperation = `  /ext/u/quote:
 `
 
 func oneUnit() []extensionUnit { return []extensionUnit{{Name: "u"}} }
+
+// getOperationWith is yogiOperation as a GET taking the given parameters block:
+// the body swapped for a query, which is the bodyless shape every case about
+// query arguments needs. The parameters text is indented to sit under
+// `parameters:` at the operation level.
+func getOperationWith(parameters string) string {
+	const body = `      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+`
+	return strings.Replace(
+		strings.Replace(yogiOperation, "    post:", "    get:", 1),
+		body, "      parameters:\n"+parameters, 1)
+}
 
 // TestExtensionVerbsReadsAnOperationOutOfTheMergedContract is the happy path:
 // the whole declaration comes out of the document, including the schemas, which
@@ -157,9 +213,56 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: strings.Replace(yogiOperation, "scope: read", "scope: admin", 1),
 			wantErr:  "not in the Passport scope vocabulary",
 		},
-		"a GET, which carries no body": {
+		// A GET is admitted now, so what is refused is declaring its arguments in
+		// the place a GET does not read. Both directions, because arguments on the
+		// unread side are published to every client and then silently dropped on
+		// every call — which is the failure the old blanket GET refusal was
+		// avoiding, kept as a named one.
+		"a GET that declares a requestBody": {
 			pathItem: strings.Replace(yogiOperation, "    post:", "    get:", 1),
-			wantErr:  "is not one an extension operation may declare",
+			wantErr:  "carries no body",
+		},
+		"a POST that declares query parameters": {
+			pathItem: strings.Replace(yogiOperation, "      requestBody:",
+				"      parameters:\n        - name: limit\n          in: query\n          schema: {type: integer}\n      requestBody:", 1),
+			wantErr: "published and never read",
+		},
+		// The query parameter rules. Each is a shape the seam could not decode, so
+		// each fails at the declaration rather than at the first call.
+		"a query parameter with no schema": {
+			pathItem: getOperationWith("        - name: payload\n          in: query\n"),
+			wantErr:  "declares no schema",
+		},
+		"a parameter that is not in the query": {
+			pathItem: getOperationWith("        - name: id\n          in: header\n          schema: {type: string}\n"),
+			wantErr:  "arguments from the query string only",
+		},
+		"the same query parameter twice": {
+			pathItem: getOperationWith(
+				"        - name: payload\n          in: query\n          schema: {type: string}\n" +
+					"        - name: payload\n          in: query\n          schema: {type: string}\n"),
+			wantErr: "twice",
+		},
+		"a $ref in a query parameter's schema": {
+			pathItem: getOperationWith("        - name: payload\n          in: query\n          schema: {$ref: '#/components/schemas/Thing'}\n"),
+			wantErr:  "$ref",
+		},
+		// The query schema this generator assembles is then held to
+		// Verb.validateQueryEncodable, so a structured query argument is refused
+		// through the same path a hand-written one would be.
+		"a query parameter whose type has structure": {
+			pathItem: getOperationWith("        - name: filter\n          in: query\n          schema: {type: object}\n"),
+			wantErr:  "query string carries flat",
+		},
+		// Shared, path-item-level parameters. OpenAPI applies them to every
+		// operation beneath; this reader looks only at an operation's own, so
+		// ignoring them would publish an argument to every client and read it
+		// nowhere — the route would refuse `?limit=5` as unknown, forever. Harmless
+		// before GET and DELETE were admissible, an authoring trap after.
+		"shared parameters on the path item": {
+			pathItem: strings.Replace(yogiOperation, "  /ext/u/quote:\n",
+				"  /ext/u/quote:\n    parameters:\n      - name: limit\n        in: query\n        schema: {type: integer}\n", 1),
+			wantErr: "read by nothing",
 		},
 		"no requestBody": {
 			pathItem: "  /ext/u/quote:\n    post:\n      operationId: uQuote\n      x-mcp-tool:\n        verb: u_quote\n        version: 1.0.0\n        tier: auto_execute\n        scope: read\n        description: Does one thing.\n",

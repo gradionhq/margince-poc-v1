@@ -66,7 +66,7 @@ type acceptEnv struct {
 func setupExtractionAccept(t *testing.T) acceptEnv {
 	t.Helper()
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
@@ -205,7 +205,7 @@ func TestAcceptAttachmentExtractionEditFlipsProvenanceAndCapturedBy(t *testing.T
 
 func TestAcceptAttachmentExtractionRefusesNonDealAttachment(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	org := e.SeedOrg(t, "Non-Deal Accept Parent", &e.Rep1)
 	att := uploadScanTestAttachmentForOrg(e.Admin(), t, h, org, "org-notes.pdf", []byte("org bytes"))
 	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
@@ -345,7 +345,7 @@ func TestAcceptAttachmentExtractionEmptySeamGroundsNothing(t *testing.T) {
 // the extractor ever sees the bytes, with zero writes.
 func TestAcceptAttachmentExtractionRefusesWhileScanning(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
@@ -365,7 +365,7 @@ func TestAcceptAttachmentExtractionRefusesWhileScanning(t *testing.T) {
 // case for a quarantined verdict — terminal, never accepted.
 func TestAcceptAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
@@ -399,10 +399,15 @@ func TestExtractionAcceptDealUpdateAndNotesShareOneTransaction(t *testing.T) {
 	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, AdminPerms)
 
 	forced := errors.New("forced rollback to prove the shared transaction")
-	err := database.WithWorkspaceTx(ctx, a.Pool, func(tx pgx.Tx) error {
+	// The catalog read belongs above the transaction, as it does in Accept().
+	active, err := a.Deals.ActiveDealColumns(ctx)
+	if err != nil {
+		t.Fatalf("reading the deal's active custom columns: %v", err)
+	}
+	err = database.WithWorkspaceTx(ctx, a.Pool, func(tx pgx.Tx) error {
 		if _, err := a.Deals.UpdateDealTx(ctx, tx, ids.From[ids.DealKind](a.deal), deals.UpdateDealInput{
 			Name: strPtr("Rolled Back Name"),
-		}); err != nil {
+		}, active); err != nil {
 			return err
 		}
 		if _, _, err := a.Activities.LogActivityTx(ctx, tx, activities.LogActivityInput{

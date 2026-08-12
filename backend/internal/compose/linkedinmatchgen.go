@@ -92,7 +92,14 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 	if env.Entity.ID == ids.Nil {
 		return nil
 	}
-	ctx = g.matchContext(ctx, env)
+	// The workspace is this consumer's own — the envelope carries none
+	// (ADR-0091 §6) — and the two passes below still take it as an argument
+	// because they enumerate owners inside it.
+	ws, err := InstallationDB(g.pool).Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = g.matchContext(ctx, env, ws.UUID)
 
 	switch env.Entity.Type {
 	case matchEntityPerson:
@@ -103,7 +110,7 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 		// both match arms already require archived_at IS NULL, so an archive
 		// needs no reaction, and a merge arrives as an update on the target.
 		case "person.created", "person.updated", "person.merged", "person.restored":
-			return g.matchPerson(ctx, env.WorkspaceID, env.Entity.ID)
+			return g.matchPerson(ctx, ws.UUID, env.Entity.ID)
 		}
 	case matchEntityOrganization:
 		switch env.Type {
@@ -112,7 +119,7 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 		// pass is workspace-wide because a new account can unblock ghosts
 		// belonging to any member.
 		case "organization.created", "organization.updated", "organization.merged":
-			return g.matchWorkspace(ctx, env.WorkspaceID)
+			return g.matchWorkspace(ctx, ws.UUID)
 		}
 	}
 	return nil
@@ -185,12 +192,12 @@ func (g *LinkedInMatchGen) matchWorkspace(ctx context.Context, workspace ids.UUI
 		})
 }
 
-// matchContext binds the envelope's workspace and the maintenance principal the
+// matchContext binds the consumer's workspace and the maintenance principal the
 // OWNER enumeration runs under. The per-owner passes replace this actor with
 // the member's own authority before any record is read — this one only reaches
 // linkedin_connection and the roster.
-func (g *LinkedInMatchGen) matchContext(ctx context.Context, env events.Envelope) context.Context {
-	ctx = principal.WithWorkspaceID(ctx, env.WorkspaceID)
+func (g *LinkedInMatchGen) matchContext(ctx context.Context, env events.Envelope, ws ids.UUID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, ws)
 	ctx = principal.WithCorrelationID(ctx, env.Trace.CorrelationID)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:linkedin_match",

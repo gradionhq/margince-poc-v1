@@ -38,7 +38,7 @@ func (f fakeFetcher) Fetch(_ context.Context, _ string) (webread.Doc, error) {
 func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	rates := ai.NewRateStore(e.Pool)
+	rates := ai.NewRateStore(e.DB())
 
 	// The sheet currently prices opus input at 5.
 	if _, err := rates.SetModelRate(adminCtx, ai.SetModelRateInput{
@@ -60,7 +60,7 @@ func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 
 	m := modelCostRefresh{
 		rates:   rates,
-		svc:     approvals.NewService(e.Pool),
+		svc:     approvals.NewService(e.DB()),
 		fetcher: fakeFetcher{text: "some pricing page text"},
 		brain:   fakeBrain{text: extraction},
 		sources: []pricingSource{{Provider: "anthropic", URL: "https://prices.test/pricing"}},
@@ -103,8 +103,8 @@ func extractionFixture(provider, modelID, inputUsd string) string {
 func runModelRefresh(t *testing.T, e *integration.Env, extraction string) {
 	t.Helper()
 	m := modelCostRefresh{
-		rates:   ai.NewRateStore(e.Pool),
-		svc:     approvals.NewService(e.Pool),
+		rates:   ai.NewRateStore(e.DB()),
+		svc:     approvals.NewService(e.DB()),
 		fetcher: fakeFetcher{text: "pricing page text"},
 		brain:   fakeBrain{text: extraction},
 		sources: []pricingSource{{Provider: "acme", URL: "https://prices.test/pricing"}},
@@ -122,7 +122,7 @@ func runModelRefresh(t *testing.T, e *integration.Env, extraction string) {
 func TestModelRefreshDiffsAgainstEffectiveTodayAndSupersedes(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	rates := ai.NewRateStore(e.Pool)
+	rates := ai.NewRateStore(e.DB())
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 
 	// Today the model costs input=5; tomorrow a scheduled row already says 6.

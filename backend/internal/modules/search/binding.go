@@ -65,7 +65,7 @@ var pendingSources = map[string]pendingSource{
 // completed reindex.
 func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) error {
 	// rls-exempt: deployment metadata, no workspace_id (embed_store_binding, migration 0114) — this write must not ride a per-workspace GUC tx.
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Pool().Exec(ctx, `
 		INSERT INTO embed_store_binding (singleton, populated_identity, status)
 		VALUES (true, $1, 'idle')
 		ON CONFLICT (singleton) DO NOTHING`, configuredIdentity)
@@ -86,7 +86,7 @@ func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) erro
 // status endpoint, not the readiness probe.
 func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status string, updatedAt time.Time, err error) {
 	// rls-exempt: deployment metadata, no workspace_id
-	err = s.pool.QueryRow(ctx, `SELECT populated_identity, status, updated_at FROM embed_store_binding WHERE singleton`).
+	err = s.db.Pool().QueryRow(ctx, `SELECT populated_identity, status, updated_at FROM embed_store_binding WHERE singleton`).
 		Scan(&identity, &status, &updatedAt)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("search: reading binding marker: %w", err)
@@ -182,7 +182,7 @@ func (s *Store) ClaimAndEnqueueReembedding(ctx context.Context, claim ReembedCla
 	// job enqueue share one non-tenant transaction so a rolled-back enqueue
 	// always undoes the claim; WithInfraTx is the platform's cross-tenant
 	// tx shape (no GUC to bind, there is no tenant here).
-	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE embed_store_binding
 			SET status = 'reembedding', reembedding_run = $1, reembedding_identity = $2,
@@ -229,7 +229,7 @@ func refusedClaimReason(ctx context.Context, tx pgx.Tx) error {
 // ErrReembeddingSuperseded, and the enqueue never happens.
 func (s *Store) SeedReembeddingFleet(ctx context.Context, run ids.UUID, workspaces []ids.WorkspaceID, enqueue func(tx pgx.Tx) error) error {
 	// rls-exempt: deployment metadata, no workspace_id
-	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE embed_store_binding SET reembedding_pending = $2, updated_at = now()
 			WHERE reembedding_run = $1 AND cardinality(reembedding_pending) = 0`, run, workspaces)
@@ -262,7 +262,7 @@ func (s *Store) SeedReembeddingFleet(ctx context.Context, run ids.UUID, workspac
 // breaks the steal, not just the straggler.
 func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, workspace ids.WorkspaceID) error {
 	// rls-exempt: deployment metadata, no workspace_id
-	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		var remaining int
 		err := tx.QueryRow(ctx, `
 			UPDATE embed_store_binding
@@ -305,7 +305,7 @@ const ReembedProgressStaleness = 5 * time.Minute
 // keep the marker of the run that replaced it looking alive.
 func (s *Store) noteReembedProgress(ctx context.Context, run ids.UUID) error {
 	// rls-exempt: deployment metadata, no workspace_id
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Pool().Exec(ctx, `
 		UPDATE embed_store_binding SET updated_at = now() WHERE reembedding_run = $1`, run)
 	if err != nil {
 		return fmt.Errorf("search: recording reembed progress: %w", err)
@@ -319,7 +319,7 @@ func (s *Store) noteReembedProgress(ctx context.Context, run ids.UUID) error {
 // take the marker away from children that are already working.
 func (s *Store) ReleaseReembedding(ctx context.Context, run ids.UUID) error {
 	// rls-exempt: deployment metadata, no workspace_id
-	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		return releaseReembeddingTx(ctx, tx, run)
 	})
 }
@@ -410,7 +410,10 @@ func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[i
 		// scope would silently under-report entities the caller cannot see.
 		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 
-		count, length, err := s.workspacePending(wsCtx, currentIdentity)
+		// A store bound to THIS tenant: the workspace a read is scoped to is
+		// the handle's, so counting every workspace through the enumerating
+		// store would report the same tenant's total under every id.
+		count, length, err := s.forWorkspace(wsID).workspacePending(wsCtx, currentIdentity)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -441,7 +444,7 @@ func systemWorkspaceContext(ctx context.Context, wsID ids.UUID) context.Context 
 // per-workspace rollup loop from.
 func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error) {
 	// rls-exempt: fleet enumeration — the workspace table lists every tenant before the per-workspace tx each caller opens next (compose/dispatch.go enumerateWorkspaces is the sanctioned spelling; backend/jobfleetscan_test.go ratifies this site as a read).
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.Pool().Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("search: enumerating workspaces: %w", err)
 	}
@@ -456,7 +459,7 @@ func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error
 // summing counts and text lengths across all of them for the workspace
 // bound in ctx.
 func (s *Store) workspacePending(ctx context.Context, currentIdentity string) (count int, length int64, err error) {
-	txErr := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	txErr := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		for entityType, src := range pendingSources {
 			sql := fmt.Sprintf(`
 				SELECT count(*), coalesce(sum(octet_length(btrim(%s))), 0)

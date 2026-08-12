@@ -180,8 +180,8 @@ func seedMirrorAndLiveFixture(ctx context.Context, t *testing.T, ms *MirrorStore
 // ModifiedAt — the one path this port ever answers Authoritative:true
 // on for an overlay-mode workspace.
 func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862042"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -229,8 +229,8 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 // than erroring. Charging only on success would let an unbounded run of
 // failing force-fresh reads hammer HubSpot without the meter ever shedding.
 func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862042"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -271,7 +271,7 @@ func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
 // NOT emit mirror.budget_degraded.
 func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862077"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -311,8 +311,12 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 	var eventCount int
 	if err := pool.QueryRow(
 		context.Background(),
-		`SELECT count(*) FROM event_outbox WHERE envelope->>'workspace_id' = $1 AND envelope->>'type' = 'mirror.budget_degraded'`,
-		ws.String(),
+		// Scoped by SUBJECT, not by tenant: the envelope carries no workspace
+		// (ADR-0091 §6) and this package's tests share one database.
+		`SELECT count(*) FROM event_outbox
+		  WHERE envelope->>'type' = 'mirror.budget_degraded'
+		    AND envelope->'entity'->>'id' = $1`,
+		id.String(),
 	).Scan(&eventCount); err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -330,7 +334,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 // silent quality drop would not leave behind.
 func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862099"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -385,9 +389,8 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 		context.Background(),
 		`SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'mirror.budget_degraded'
-		   AND envelope->>'workspace_id' = $1
-		   AND envelope->'entity'->>'id' = $2`,
-		ws.String(), id.String(),
+		   AND envelope->'entity'->>'id' = $1`,
+		id.String(),
 	).Scan(&eventCount); err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}

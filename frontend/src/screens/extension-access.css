@@ -2,45 +2,53 @@
    matrices. Structure only; every colour reads a design token (ds-purity gate)
    and every gap reads the --space-* scale (ds-spacing gate). */
 
-.ext-units {
+/* The lead card and one card per composed unit, in one column. */
+.ext-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-.ext-unit + .ext-unit {
-  border-top: 1px solid var(--borderSubtle);
-  padding-top: var(--space-4);
-}
-
-.ext-unit-head {
+/* The version badge and the link to the unit's own page, in the unit card's
+   action slot. The design-system slot never shrinks, so the pair carries its
+   own wrapping row — at 390px "Version 0.3.1" and "Open the notes page" cannot
+   share a line with each other, let alone with the unit name. */
+.ext-unit-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-2);
-}
-
-.ext-unit-name {
-  font-size: var(--fs-lead);
-  font-weight: 600;
-  margin: 0;
-  color: var(--textPrimary);
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-/* The link to the unit's own page, and the sentence that stands in for it when
-   this build of the SPA has no page to link to. Both sit on the same line under
-   the unit heading, so the block reads the same either way. */
+.ext-unit > .section-header > .section-header-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .ext-unit-link {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  margin-top: var(--space-1);
   color: var(--accent);
   overflow-wrap: anywhere;
 }
 
+/* What the unit brings, and who may use it: two named blocks inside the unit
+   card, so a reader can tell the inventory from the grants at a glance. */
+.ext-block {
+  margin-top: var(--space-4);
+}
+
+.ext-block-title {
+  margin: 0 0 var(--space-2);
+  color: var(--textSecondary);
+}
+
+/* The sentence that stands in for the page link when this build of the SPA has
+   no page to link to. It is a whole explanation, not a control, so it leads the
+   card body while the link it replaces sits in the heading row. */
 .ext-unit-nopage {
   display: flex;
   align-items: flex-start;
@@ -48,7 +56,7 @@
 }
 
 .ext-brings {
-  margin: var(--space-3) 0 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -111,8 +119,16 @@
   color: var(--textContent);
 }
 
+/* One inset panel per registered object, stacked. The panel supplies the
+   separation the matrices used to lack; the gap keeps two of them apart. */
+.ext-objects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .ext-object {
-  margin-top: var(--space-3);
+  min-width: 0;
 }
 
 /* The matrix is five columns wide at minimum; on a 390px viewport it scrolls

@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"math"
 	"strconv"
 	"strings"
@@ -28,7 +27,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -79,10 +77,6 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
-	wsID, err := overlayWorkspaceID(ctx)
-	if err != nil {
-		return crmcontracts.Person{}, err
-	}
 	syncedAt := rec.Freshness.LastSyncedAt
 	// Prefer the canonical full_name the mapping already assembled (OVA-MAP-3:
 	// firstname+lastname → email local part → stable placeholder) so the wire
@@ -99,17 +93,16 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		fullName = overlayUnnamed
 	}
 	return crmcontracts.Person{
-		Id:          openapi_types.UUID(rec.Ref.ID),
-		WorkspaceId: wsID,
-		Source:      overlaySource,
-		CapturedBy:  ptrString(overlayCapturedByValue),
-		FullName:    fullName,
-		FirstName:   fieldStringPtr(fields, "first_name"),
-		LastName:    fieldStringPtr(fields, "last_name"),
-		Title:       fieldStringPtr(fields, "title"),
-		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
-		Raw:         &fields,
+		Id:         openapi_types.UUID(rec.Ref.ID),
+		Source:     overlaySource,
+		CapturedBy: ptrString(overlayCapturedByValue),
+		FullName:   fullName,
+		FirstName:  fieldStringPtr(fields, "first_name"),
+		LastName:   fieldStringPtr(fields, "last_name"),
+		Title:      fieldStringPtr(fields, "title"),
+		CreatedAt:  syncedAt,
+		UpdatedAt:  syncedAt,
+		Raw:        &fields,
 	}, nil
 }
 
@@ -122,10 +115,6 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
-	wsID, err := overlayWorkspaceID(ctx)
-	if err != nil {
-		return crmcontracts.Organization{}, err
-	}
 	syncedAt := rec.Freshness.LastSyncedAt
 	displayName := strings.TrimSpace(fieldString(fields, "display_name"))
 	if displayName == "" {
@@ -133,7 +122,6 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	}
 	org := crmcontracts.Organization{
 		Id:          openapi_types.UUID(rec.Ref.ID),
-		WorkspaceId: wsID,
 		Source:      overlaySource,
 		CapturedBy:  ptrString(overlayCapturedByValue),
 		DisplayName: displayName,
@@ -215,26 +203,21 @@ func overlayWireDeal(ctx context.Context, rec datasource.Record) (crmcontracts.D
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	wsID, err := overlayWorkspaceID(ctx)
-	if err != nil {
-		return crmcontracts.Deal{}, err
-	}
 	syncedAt := rec.Freshness.LastSyncedAt
 	name := strings.TrimSpace(fieldString(fields, "name"))
 	if name == "" {
 		name = overlayUnnamed
 	}
 	deal := crmcontracts.Deal{
-		Id:          openapi_types.UUID(rec.Ref.ID),
-		WorkspaceId: wsID,
-		Source:      overlaySource,
-		CapturedBy:  ptrString(overlayCapturedByValue),
-		Name:        name,
-		Currency:    fieldStringPtr(fields, "currency"),
-		Status:      overlayDealStatus(fieldString(fields, "stage_id")),
-		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
-		Raw:         &fields,
+		Id:         openapi_types.UUID(rec.Ref.ID),
+		Source:     overlaySource,
+		CapturedBy: ptrString(overlayCapturedByValue),
+		Name:       name,
+		Currency:   fieldStringPtr(fields, "currency"),
+		Status:     overlayDealStatus(fieldString(fields, "stage_id")),
+		CreatedAt:  syncedAt,
+		UpdatedAt:  syncedAt,
+		Raw:        &fields,
 	}
 	if minor, ok := fieldInt64(fields, "amount_minor"); ok {
 		deal.AmountMinor = &minor
@@ -268,14 +251,9 @@ func overlayWireLead(ctx context.Context, rec datasource.Record) (crmcontracts.L
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	wsID, err := overlayWorkspaceID(ctx)
-	if err != nil {
-		return crmcontracts.Lead{}, err
-	}
 	syncedAt := rec.Freshness.LastSyncedAt
 	lead := crmcontracts.Lead{
 		Id:          openapi_types.UUID(rec.Ref.ID),
-		WorkspaceId: wsID,
 		Source:      overlaySource,
 		CapturedBy:  ptrString(overlayCapturedByValue),
 		FullName:    fieldStringPtr(fields, "full_name"),
@@ -308,10 +286,6 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
-	wsID, err := overlayWorkspaceID(ctx)
-	if err != nil {
-		return crmcontracts.Activity{}, err
-	}
 	syncedAt := rec.Freshness.LastSyncedAt
 	kind := crmcontracts.ActivityKind(fieldString(fields, "kind"))
 	if !kind.Valid() {
@@ -322,17 +296,16 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		occurredAt = ts
 	}
 	act := crmcontracts.Activity{
-		Id:          openapi_types.UUID(rec.Ref.ID),
-		WorkspaceId: wsID,
-		Source:      overlaySource,
-		CapturedBy:  ptrString(overlayCapturedByValue),
-		Kind:        kind,
-		Subject:     fieldStringPtr(fields, "subject"),
-		Body:        fieldStringPtr(fields, "body"),
-		OccurredAt:  occurredAt,
-		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
-		Raw:         &fields,
+		Id:         openapi_types.UUID(rec.Ref.ID),
+		Source:     overlaySource,
+		CapturedBy: ptrString(overlayCapturedByValue),
+		Kind:       kind,
+		Subject:    fieldStringPtr(fields, "subject"),
+		Body:       fieldStringPtr(fields, "body"),
+		OccurredAt: occurredAt,
+		CreatedAt:  syncedAt,
+		UpdatedAt:  syncedAt,
+		Raw:        &fields,
 	}
 	if dir := crmcontracts.ActivityDirection(strings.ToLower(fieldString(fields, "direction"))); dir == crmcontracts.ActivityDirectionInbound || dir == crmcontracts.ActivityDirectionOutbound {
 		act.Direction = &dir
@@ -397,18 +370,6 @@ func overlayPersonEmail(fields map[string]any) string {
 		return ""
 	}
 	return strings.TrimSpace(email)
-}
-
-// overlayWorkspaceID stamps the caller's own workspace. The overlay read
-// path only ever runs under a workspace-bound ctx (isOverlay answered
-// true, which requires one) — an unbound ctx here is a broken invariant
-// and surfaces as an error, never a zero-workspace stamp on the wire.
-func overlayWorkspaceID(ctx context.Context) (openapi_types.UUID, error) {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return openapi_types.UUID{}, errors.New("overlay wire: no workspace bound to the request context")
-	}
-	return openapi_types.UUID(wsID), nil
 }
 
 // fieldString answers the string value of a canonical field, "" when

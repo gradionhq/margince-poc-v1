@@ -375,7 +375,6 @@ func readStage(ctx context.Context, tx pgx.Tx, id ids.StageID, archived storekit
 		return crmcontracts.Stage{}, err
 	}
 	out.Id = openapi_types.UUID(stageID)
-	out.WorkspaceId = openapi_types.UUID(wsID)
 	out.PipelineId = openapi_types.UUID(pipelineID)
 	return out, nil
 }

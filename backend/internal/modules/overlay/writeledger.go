@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
@@ -59,15 +58,16 @@ const (
 // production) hash-collision path deterministically without a real collision;
 // the open/expiry clock itself is always the database's, never a wall clock.
 type WriteLedger struct {
-	pool   *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db     *database.DB
 	window time.Duration
 	hash   func(string) string
 }
 
 // NewWriteLedger builds the production ledger: SHA-256 value hashing and the
 // default 24h open window.
-func NewWriteLedger(pool *pgxpool.Pool) *WriteLedger {
-	return &WriteLedger{pool: pool, window: DefaultLedgerWindow, hash: sha256Hex}
+func NewWriteLedger(db *database.DB) *WriteLedger {
+	return &WriteLedger{db: db, window: DefaultLedgerWindow, hash: sha256Hex}
 }
 
 // sha256Hex is OVA-PARAM-4's pinned value hash: SHA-256 over the canonicalized
@@ -92,7 +92,7 @@ func (l *WriteLedger) OpenEntries(ctx context.Context, objectClass, externalID s
 	if len(props) == 0 {
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+	return l.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := assertActiveConnection(ctx, tx); err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func (l *WriteLedger) OpenEntries(ctx context.Context, objectClass, externalID s
 func (l *WriteLedger) Classify(ctx context.Context, objectClass, externalID, property, value string) (Classification, error) {
 	incomingHash := l.hash(value)
 	var result Classification
-	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+	err := l.db.Tx(ctx, func(tx pgx.Tx) error {
 		var storedValue string
 		scanErr := tx.QueryRow(ctx, `
 			SELECT value_canonical FROM overlay_write_ledger
@@ -170,7 +170,7 @@ func (l *WriteLedger) Classify(ctx context.Context, objectClass, externalID, pro
 // only reclaims space. Returns the number of rows removed.
 func (l *WriteLedger) PruneExpired(ctx context.Context) (int64, error) {
 	var removed int64
-	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+	err := l.db.Tx(ctx, func(tx pgx.Tx) error {
 		// pgx returns a usable (zero) CommandTag alongside an error, so reading
 		// RowsAffected before returning execErr is safe — on failure removed
 		// stays 0 and the outer guard discards it.
@@ -224,7 +224,7 @@ func haltedTx(ctx context.Context, tx pgx.Tx) (bool, error) {
 // trigger is a SHA-256 value-hash collision, which does not occur in practice.
 func (l *WriteLedger) Halted(ctx context.Context) (bool, error) {
 	var halted bool
-	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+	err := l.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		halted, err = haltedTx(ctx, tx)
 		return err

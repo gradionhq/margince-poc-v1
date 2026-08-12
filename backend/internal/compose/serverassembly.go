@@ -42,7 +42,7 @@ import (
 // people and a module never imports one: compose is where that edge is
 // made, as it is for every other cross-module dependency.
 func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
-	return people.NewHandlers(pool).
+	return people.NewHandlers(InstallationDB(pool)).
 		WithFieldCatalog(customfields.NewService(pool, nil)).
 		WithMatchStager(linkedInMatchStager(pool))
 }
@@ -50,15 +50,15 @@ func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
 // newActivitiesHandlers builds the timeline transport over the sibling
 // modules its inbound and outbound edges need.
 func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
-	return activities.NewHandlers(pool).
-		WithConsent(consent.NewGate(consent.NewStore(pool))).
+	return activities.NewHandlers(InstallationDB(pool)).
+		WithConsent(consent.NewGate(consent.NewStore(InstallationDB(pool)))).
 		// The public booking capture seams (feedback/14): people is the
 		// idempotent-on-email person path, consent records the
 		// passthrough — both injected here, never sibling imports.
-		WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}).
+		WithPublicBooking(people.NewStore(InstallationDB(pool)), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 		// preference token behind the List-Unsubscribe URL.
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)})
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))})
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture
@@ -67,17 +67,17 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 	// read the auto-enrich posture (all roles), toggle it (admin/ops).
 	s.captureSettingsHandlers = captureSettingsHandlers{store: capture.NewSettings(NewSettingsStore(pool))}
-	s.ownDomainHandlers = ownDomainHandlers{store: capture.NewOwnDomainStore(pool)}
+	s.ownDomainHandlers = ownDomainHandlers{store: capture.NewOwnDomainStore(InstallationDB(pool))}
 	// The installation's own identity and reporting basis (ADR-0090/A135):
 	// name, reporting zone, base currency — the last of which locks once a
 	// deal has converted against it (ADR-0085 §7).
 	s.installationSettingsHandlers = installationSettingsHandlers{
-		store: identity.NewInstallationSettings(pool, NewSettingsStore(pool)),
+		store: identity.NewInstallationSettings(InstallationDB(pool), NewSettingsStore(pool)),
 	}
 	// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
 	// domain control, and the only way an operator corrects a shipped
 	// baseline that is wrong about one of their customers.
-	s.consumerMailDomainHandlers = consumerMailDomainHandlers{store: capture.NewFreemailDomains(pool)}
+	s.consumerMailDomainHandlers = consumerMailDomainHandlers{store: capture.NewFreemailDomains(InstallationDB(pool))}
 }
 
 // wireExportSurface binds the two export transports.
@@ -86,7 +86,7 @@ func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// predicate engine + the bundle writer's open-format rendering; the
 	// collections store resolves a saved view / dynamic list source
 	// behind its own visibility gate.
-	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)}
+	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(InstallationDB(pool))}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }
 
@@ -97,12 +97,12 @@ func (s *Server) wireOnboardingSurface(pool *pgxpool.Pool) {
 	// The installation's own company (the 0083 anchor). Its own store
 	// instance, like every other people-backed shadow here: the company
 	// form's write shape is people's, the transport is compose's.
-	s.companyHandlers = companyHandlers{store: people.NewStore(pool), rollout: companyContextRolloutOnboarding}
+	s.companyHandlers = companyHandlers{store: people.NewStore(InstallationDB(pool)), rollout: companyContextRolloutOnboarding}
 	s.siteReadHandlers = siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding}
 	s.onboardingStateHandlers = onboardingStateHandlers{
-		state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
+		state: identity.NewOnboardingStore(InstallationDB(pool)), company: people.NewStore(InstallationDB(pool)),
 		proposal: &onboardingProposalEngine{
-			state: identity.NewOnboardingStore(pool), people: people.NewStore(pool),
+			state: identity.NewOnboardingStore(InstallationDB(pool)), people: people.NewStore(InstallationDB(pool)),
 			rollout: companyContextRolloutOnboarding,
 		},
 	}
@@ -133,16 +133,10 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// The model lane is nil here: WithAccountBrief binds the api role's
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
-	s.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
-	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
+	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
-	// The account-started draft reads through the same 360 and writes nothing,
-	// so it needs no pool of its own. Nil lane here for the same reason as the
-	// brief's: WithAccountDraft binds the api role's, and without it the
-	// endpoint answers from its deterministic floor rather than 501-ing.
-	s.accountDraftHandlers = accountdraft.NewHandlers(
-		accountdraft.NewService(s.org360Svc, nil), s.sorDispatch.isOverlay)
 	// The dossier reads the SAME people store the 360 and the brief read, so
 	// the three cannot drift about what a company's facts are. No model lane is
 	// wired yet: every assembly is the deterministic floor and says so.
@@ -156,6 +150,19 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
 	s.orgDossierHandlers = orgdossier.NewHandlers(
 		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
+	// AFTER the dossier service exists: the drafter takes it as a dependency,
+	// and a nil *Service handed through the interface is not the nil INTERFACE
+	// the drafter guards against — it would pass the guard and panic on the
+	// first account draft.
+	//
+	// The account-started draft reads through the same 360 and writes nothing,
+	// so it needs no pool of its own. Nil lane here for the same reason as the
+	// brief's: WithAccountDraft binds the api role's, and without it the
+	// endpoint answers from its deterministic floor rather than 501-ing.
+	s.accountDraftHandlers = accountdraft.NewHandlers(
+		accountdraft.NewService(s.org360Svc, nil).
+			WithEnvelope(draftEnvelope(pool, s.log)).
+			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

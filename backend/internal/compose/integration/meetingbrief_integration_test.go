@@ -31,8 +31,8 @@ import (
 )
 
 func meetingBriefService(e *Env) *meetingbrief.Service {
-	view := person360.NewService(e.Pool, e.People, consent.NewStore(e.Pool),
-		ai.NewFeedbackStore(e.Pool), func() time.Time { return roomFixedNow })
+	view := person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
+		ai.NewFeedbackStore(e.DB()), func() time.Time { return roomFixedNow })
 	return meetingbrief.NewService(e.Pool, view, e.People, func() time.Time { return roomFixedNow })
 }
 

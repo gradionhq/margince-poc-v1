@@ -77,7 +77,7 @@ func TestEndToEnd_humanEditPrecedenceOnAgentUpdate(t *testing.T) {
 	if status := e.Call(t, "GET", "/v1/people/"+person.ID, nil, bearer, &current); status != 200 || current.FullName != "Greta Human" {
 		t.Fatalf("staged overwrite must not have executed: %d %q", status, current.FullName)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// A human decision releases it; the identical retry lands the patch.
 	if status := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, nil, nil); status != 200 {
@@ -180,7 +180,7 @@ func stagePersonAndAgent(t *testing.T, e *apptest.AppEnv, fullName, label string
 // passport per call, exactly as the stdio/hosted transports do.
 func mcpAgentInvoker(t *testing.T, agentToken string) func(tool, args string) (json.RawMessage, error) {
 	t.Helper()
-	pool, err := database.NewPool(context.Background(), envDSN(t))
+	pool, err := database.NewPool(context.Background(), apptest.AppDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}

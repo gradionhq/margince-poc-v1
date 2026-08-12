@@ -104,7 +104,7 @@ func TestErasureRemovesTheSubjectFromTheRelationshipGraph(t *testing.T) {
 		t.Fatalf("the edge was not created in the first place (%d rows)", n)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "subject request"); err != nil {
+	if err := privacy.NewEraser(InstallationDB(e.Pool)).ErasePerson(e.Admin(), person, "subject request"); err != nil {
 		t.Fatalf("erasing: %v", err)
 	}
 

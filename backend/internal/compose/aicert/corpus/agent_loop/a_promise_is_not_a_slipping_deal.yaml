@@ -1,0 +1,36 @@
+name: a_promise_is_not_a_slipping_deal
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: What have we told customers we would do and not actually done yet?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e20
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: acting rep — user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: review_commitments
+  rubric: >
+    The goal asks what is owed and undelivered, which is the open-task set
+    review_commitments exists to answer, and it names no record to answer it
+    about. Score high only if the turn calls review_commitments — with no
+    arguments, or with a limit; there is no id here to narrow by and none is
+    needed.
+
+    whats_slipping_this_week is the near miss, and review_commitments' own copy
+    names it as the wrong reach: it answers which DEALS are at risk of stalling,
+    which is a question about pipeline movement rather than about a promise
+    somebody made. A turn taking it has answered a different question fluently,
+    which is the failure worth catching here.
+
+    catch_me_up_on is the other reach, and it is worse: it is built around ONE
+    record, the goal names none, and a turn calling it had to pick an account
+    the person never asked about.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

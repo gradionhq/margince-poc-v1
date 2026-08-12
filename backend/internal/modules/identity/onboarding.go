@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -142,11 +141,14 @@ func invalidOnboarding(field, reason string) error {
 }
 
 // OnboardingStore owns per-human resumable wizard checkpoints.
-type OnboardingStore struct{ pool *pgxpool.Pool }
+// OnboardingStore's db binds the workspace this store runs for (ADR-0091 §9
+// step 3).
+type OnboardingStore struct{ db *database.DB }
 
-// NewOnboardingStore builds the workspace-scoped checkpoint store.
-func NewOnboardingStore(pool *pgxpool.Pool) *OnboardingStore {
-	return &OnboardingStore{pool: pool}
+// NewOnboardingStore opens the workspace-scoped checkpoint store on a handle
+// already bound to the workspace it serves.
+func NewOnboardingStore(db *database.DB) *OnboardingStore {
+	return &OnboardingStore{db: db}
 }
 
 func onboardingActor(ctx context.Context, mutate bool) (principal.Principal, error) {
@@ -167,7 +169,7 @@ func (s *OnboardingStore) Get(ctx context.Context) (OnboardingState, error) {
 		return OnboardingState{}, err
 	}
 	var state OnboardingState
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var draft []byte
 		row := tx.QueryRow(ctx, `SELECT id, path, step, source_mode, website_url, site_read_id,
 			company_draft, selected_fact_keys, voice_skipped, connect_skipped, version,
@@ -200,7 +202,7 @@ func (s *OnboardingStore) Put(
 	}
 
 	var state OnboardingState
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		companyExists, companyComplete, err := readCompanyState(ctx, tx)
 		if err != nil {
 			return err

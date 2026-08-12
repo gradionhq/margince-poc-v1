@@ -205,7 +205,7 @@ type Extension struct {
 	// that owns no tables leaves it nil, and that is the common case.
 	//
 	// EMBEDDED, not read back from the source tree, because the process
-	// that applies it is a bare binary: Dockerfile.api ships
+	// that applies it is a bare binary: the api image ships
 	// /usr/local/bin/margince-migrate and no repository, so a
 	// path-relative read would apply a unit's migrations in dev and CI —
 	// where the checkout is right there — and silently none in

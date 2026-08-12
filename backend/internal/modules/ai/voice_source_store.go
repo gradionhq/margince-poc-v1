@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -34,7 +33,7 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 		source  VoiceCorpusSource
 		summary CorpusSummary
 	)
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		source, summary, err = s.ingestPreparedSource(ctx, tx, profileID, prepared)
 		return err
@@ -51,7 +50,7 @@ func (s *VoiceStore) PreviewSource(ctx context.Context, profileID ids.UUID, form
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
 		return CorpusPreview{}, err
 	}
-	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := s.visibleProfile(ctx, tx, profileID)
 		return err
 	}); err != nil {
@@ -203,7 +202,7 @@ func (s *VoiceStore) ListSources(ctx context.Context, profileID ids.UUID) ([]Voi
 		sources []VoiceCorpusSource
 		summary CorpusSummary
 	)
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		p, err := s.visibleProfile(ctx, tx, profileID)
 		if err != nil {
 			return err

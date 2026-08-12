@@ -4,6 +4,7 @@ import { type ReactNode, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
 import {
   Button,
+  Card,
   Checkbox,
   Field,
   type FieldControl,
@@ -359,10 +360,10 @@ function RepeatableRowsField({
         // Rows have no stable identity until saved — index is the only key
         // available, and reordering never happens (add appends, remove
         // filters), so it's safe here.
-        <div
+        <Card
+          as="div"
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are unordered-append/remove only
           key={index}
-          className="card"
           style={{
             display: "flex",
             flexWrap: "wrap",
@@ -399,7 +400,7 @@ function RepeatableRowsField({
           <Button small type="button" onClick={() => removeRow(index)}>
             {t("field.removeRow")}
           </Button>
-        </div>
+        </Card>
       ))}
       <Button small type="button" onClick={() => setRows([...rows, {}])}>
         {field.addLabel ? t(field.addLabel) : fieldLabel(field, t)}

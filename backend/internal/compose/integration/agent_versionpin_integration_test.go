@@ -74,7 +74,7 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 		problem.Code != "approval_required" {
 		t.Fatalf("agent archive → %d %q, want 403 approval_required", status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The staged row carries a pin the agent never supplied.
 	var pin *int64

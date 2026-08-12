@@ -21,6 +21,127 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-12 (later still) — the tenant leaves the bus and the wire (PRs #1036, #1049, foundation#1284)
+
+ADR-0091 §9 **step 4**, the parts that do not wait on the schema. The envelope
+carries no `workspace_id`, and neither do thirty contract response schemas —
+the spec's own `crm.yaml` landed first, which is what contract-first means when
+the change is yours to write.
+
+The consumers are the interesting half. Every one that read the tenant off the
+envelope now takes it from what it was BUILT with — its store's handle, or the
+installation resolver where it holds no store. That is step 3's rule arriving at
+the bus: which tenant a component serves is a property of its construction, not
+of the message it is handed.
+
+Three ledger writes went further and take the tenant from the TRANSACTION —
+`audit_log`, `system_log`, and the advisory key in `LockWriteIdentity`, all
+reading `current_setting('app.workspace_id')` in SQL. Read from ctx, two things
+could disagree invisibly: a ledger row and the domain row it records, and two
+writers of one record taking different lock keys. The domain INSERTs deliberately
+did NOT follow — their binds vanish with the column in §8 phase D.
+
+That change surfaced a genuine test defect: the lock-contention racer opened a
+transaction without binding its workspace, so under a transaction-derived key it
+contended with nobody and would have reported a working lock as broken. A test
+supplying its own version of production, exactly as the review-loop rule warns.
+
+On the wire, two shapes collapsed rather than losing a field, because a per-tenant
+breakdown of a single tenant is the total repeated: embed-reindex status dropped
+`per_workspace`, and its preview keeps one `utilization_impact` instead of an
+array of one.
+
+The breaking-change gate was satisfied through its ratified-resync allowlist —
+the mechanism's intended use, keyed on the exact (base blob, new blob) pair so
+any later contract edit restores the stable gate.
+
+Filed, not fixed: **#1048** — the data reset drains the outbox in a transaction
+of its own and sweeps domain rows in another, so an event staged between them
+survives the sweep. Pre-existing since #513; closing it means a reset lock on
+every outbox writer, which is a change to the shared write shape rather than a
+line in the sweep.
+
+## 2026-08-12 (later) — identity too: step 3 is complete (PR #1010)
+
+The entry below called identity a slice with real fixture work, and it was —
+just a smaller one than it looked. The self-reference is a non-issue:
+`InstallationWorkspace` reads no tenant table, so
+`svc.db = database.Bind(pool, svc.InstallationWorkspace)` resolves fine at
+runtime. What actually needed doing was the fixtures, and the reason is the
+module's own invariant turned on itself: identity REFUSES when a second
+workspace exists, and its suites bootstrap an installation per test — so the
+one module that defines the singleton is the one whose tests can never resolve
+one. `NewServiceFor` is what they use; each names the workspace it just created.
+
+One real defect fell out of it, and it is the shape to watch for in step 4: the
+tool registry's admission gate built an identity service of its own rather than
+taking the registry's handle, so a registry pinned to a named workspace admitted
+through a service resolving a different one. An ungoverned-agent refusal answered
+`ErrMultipleWorkspaces` instead of the refusal it exists to assert. **A component
+that carries a handle must pass THAT handle to everything it constructs** — the
+gate now does.
+
+CodeRabbit caught the other one, correctly: the mechanical rewrite had turned
+`s.pool` into `s.db.Pool()` in identity's roster pager, which kept the old
+ctx-derived binding and silently bypassed a pinned service. Worth knowing that
+the rewrite has exactly this failure mode wherever a helper takes a pool and
+opens its own workspace transaction; roster was the only one left in the tree.
+
+## 2026-08-12 — every module but identity opens on a pool that knows its workspace (PRs #976, #984, #992, #999, #1002)
+
+ADR-0091 §9 **step 3** is done except `identity`. `platform/database.DB` — a pool
+plus the workspace it binds — replaced `WithWorkspaceTx(ctx, pool, …)` across
+twenty modules, and `DB.Tx` is the SAME GUC spelling, so RLS stayed armed the
+whole way and the tenant-isolation suite stayed the mechanical proof that an
+edit of this size was faithful. That is the point of doing the Go plumbing
+before the schema: the phase that deletes the proof comes after.
+
+**What the sweep actually found** is that there are exactly three ways a caller
+knows which tenant it is, and that they had been indistinguishable while the
+answer came from the ctx. They are now an argument at the call site: request
+paths and bus consumers RESOLVE the installation's singleton
+(`compose.InstallationDB`), fleet passes PIN from their job args
+(`workspaceJobDB`, or `DB.ForWorkspace` inside a store that walks the fleet
+itself), and raw-SQL harnesses PIN per tenant (`Env.DB()` / `Env.DBFor(ws)`).
+
+**Four fleet passes were reading the tenant off the ctx while their store
+carried it on its handle**, and each therefore swept ONE workspace repeatedly
+while reporting the fan-out as working: the webhook retry deliverer, the agent
+scheduler, search's pending rollup and its re-embed. None of them was found by
+reading — every one surfaced as a loud failure in a cross-tenant suite
+(a refusal, an FK violation, an RLS denial). Not once did a mis-binding show up
+as a silent cross-tenant READ, which is the property the whole shape rests on.
+
+**A composed surface now says which workspace it was built for.**
+`NewRegistryFor`, `NewProviderFor` and `NewOverlayProviderFor` are the pinned
+siblings of the resolving constructors: a server resolves the singleton, a suite
+that seeds a second workspace on purpose has no singleton to resolve and names
+the one it means. The same distinction fixed a test that had been passing
+vacuously — an existence-hiding arm asserts not-found, so a provider bound to
+the wrong workspace passed it without ever reaching the rows whose hiding it
+exists to prove.
+
+**The flip and its reconstruction bind the workspace the OPERATOR is acting in**,
+not the installation's. That is not a test concession: a rebuild lands where the
+human ordered it, which on a clean instance is a workspace the server never
+resolved at boot.
+
+**identity is the one module left.** A self-bound handle is legal —
+`InstallationWorkspace` reads no tenant table, so a service holding a handle
+that resolves through it is not circular at runtime — and it compiles and passes
+the unit lane. It does not pass identity's own integration suites, nor the CIMD
+and agent-seat lanes, which drive several tenants through one service on
+purpose. That is a slice with real fixture work, not a rename.
+
+One process note, paid for twice: a PR here cannot merge with an unresolved
+review thread (`required_review_thread_resolution`), and CodeRabbit had learned
+a rule that does not exist in this repo — "`backend/**/*.go`: Never edit" — and
+was applying it to every changed file. What CLAUDE.md actually forbids is the
+short DO NOT TOUCH list (generated files, shipped core migrations, the RLS/GUC
+contract, the apperrors registry). The learning was corrected in a reply on
+#999; if it resurfaces, correct it again rather than resolving twenty threads by
+hand.
+
 ## 2026-08-11 — the lane says where its own time goes, 222s → 207s (PRs #854, #859, #861)
 
 Three changes, and the first is the one that matters after the other two are

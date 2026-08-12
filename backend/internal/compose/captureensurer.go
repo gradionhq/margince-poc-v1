@@ -32,7 +32,7 @@ import (
 // of them would silently fall back to the shipped baseline and ignore the
 // workspace's own corrections.
 func newCounterpartyStore(pool *pgxpool.Pool) *people.Store {
-	return people.NewStore(pool).WithConsumerMail(capture.MatcherTx)
+	return people.NewStore(InstallationDB(pool)).WithConsumerMail(capture.MatcherTx)
 }
 
 // peopleEnsurer adapts the people module's auto-create engine onto

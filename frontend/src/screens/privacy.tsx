@@ -10,10 +10,10 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
   EmptyState,
   Field,
-  SectionHeader,
   SegmentedControl,
   Skeleton,
   Textarea,
@@ -133,7 +133,7 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
   }
 
   return (
-    <div className="card card-inset purpose-form">
+    <Card as="div" inset className="purpose-form">
       <p className="t-caption purpose-form-warning">
         {t("privacy.purposeAppendOnly")}
       </p>
@@ -185,7 +185,7 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
           {t("privacy.purposeCreate")}
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -203,13 +203,15 @@ export function ConsentPurposesCard() {
     },
   });
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <div className="list-head">
-        <SectionHeader title={t("settings.purposes")} />
+    <Card
+      title={t("settings.purposes")}
+      actions={
         <Button small onClick={() => setAdding((value) => !value)}>
           {t("privacy.addPurpose")}
         </Button>
-      </div>
+      }
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
@@ -233,7 +235,7 @@ export function ConsentPurposesCard() {
           </div>
         )}
       </QueryGate>
-    </section>
+    </Card>
   );
 }
 
@@ -328,7 +330,7 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   }
 
   return (
-    <div className="card card-inset dsr-form">
+    <Card as="div" inset className="dsr-form">
       <div className="form-stack">
         <Field label={t("privacy.kind")}>
           {(control) => (
@@ -408,7 +410,7 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
           {t("privacy.openRequest")}
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -578,7 +580,7 @@ function DsrRow({
         {overdue && <Badge tone="danger">{t("privacy.overdue")}</Badge>}
       </Button>
       {expanded && (
-        <div id={panelId} className="card card-inset dsr-expanded">
+        <Card as="div" inset id={panelId} className="dsr-expanded">
           <div className="form-stack">
             <div className="field">
               {SUBJECT_UUID_RE.test(dsr.subject_ref) ? (
@@ -655,7 +657,7 @@ function DsrRow({
               </>
             )}
           </div>
-        </div>
+        </Card>
       )}
     </li>
   );
@@ -693,23 +695,27 @@ function FulfilErasureModal({
   const queryClient = useQueryClient();
   const [typed, setTyped] = useState("");
 
+  // Both the staged request and the operator's resolution arrive as the
+  // mutation's variable rather than through this closure. react-query re-arms
+  // a mutation's options in a passive effect, so a confirm landing between the
+  // commit that stages a request and that effect runs the previous render's
+  // function. On the most destructive action in the product that matters twice
+  // over: read through a stale closure, `dsr` is null and the erasure refuses,
+  // and `resolution` is whatever the operator had typed one render ago.
   const patch = useMutation({
-    mutationFn: async () => {
-      if (!dsr) {
-        // The confirm button only exists while a request is staged in
-        // `dsr` — this guard only protects a stale closure, never a real path.
-        throw new Error("no request selected");
-      }
+    mutationFn: async (
+      fulfilment: Readonly<{ request: DataSubjectRequest; resolution: string }>,
+    ) => {
       const body: UpdateDataSubjectRequest = { status: "fulfilled" };
       // Same omit-if-blank rule as the row's own plain PATCH above: a blank
       // resolution key would still be a value the server writes over
       // whatever it already had stored, so it only rides along when there is
       // something to write.
-      if (resolution.trim()) {
-        body.resolution = resolution.trim();
+      if (fulfilment.resolution.trim()) {
+        body.resolution = fulfilment.resolution.trim();
       }
       const { data, error } = await api.PATCH("/data-subject-requests/{id}", {
-        params: { path: { id: dsr.id } },
+        params: { path: { id: fulfilment.request.id } },
         body,
       });
       if (error) {
@@ -769,7 +775,7 @@ function FulfilErasureModal({
       confirmDisabled={
         typed.trim().toUpperCase() !== "ERASE" || held || movedOn
       }
-      onConfirm={() => dsr && patch.mutate()}
+      onConfirm={() => dsr && patch.mutate({ request: dsr, resolution })}
       pending={patch.isPending}
       error={errorMessage}
     >
@@ -921,16 +927,15 @@ export function PrivacyInboxCard() {
   }
 
   return (
-    <section className="card">
-      <div className="list-head">
-        <SectionHeader
-          title={t("settings.privacy")}
-          sub={t("settings.privacySub")}
-        />
+    <Card
+      title={t("settings.privacy")}
+      sub={t("settings.privacySub")}
+      actions={
         <Button small onClick={() => setCreating((value) => !value)}>
           {t("privacy.newRequest")}
         </Button>
-      </div>
+      }
+    >
       {creating && <NewDsrForm onDone={() => setCreating(false)} />}
       {/* .filter-tabs puts the gap below the tabs so it holds for every body
           state (rows, empty, loading), not just a populated list. */}
@@ -948,6 +953,6 @@ export function PrivacyInboxCard() {
         resolution={fulfilling?.resolution ?? ""}
         onClose={() => setFulfilling(null)}
       />
-    </section>
+    </Card>
   );
 }

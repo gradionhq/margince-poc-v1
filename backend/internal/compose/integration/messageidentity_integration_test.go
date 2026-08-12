@@ -104,7 +104,7 @@ func (p *preflightEnv) captureEcho(t *testing.T, stored []byte) {
 	if err != nil {
 		t.Fatalf("the provider's stored copy does not parse:\n%s\n%v", stored, err)
 	}
-	if _, err := capture.NewSink(p.Pool).Upsert(p.connectorCtx(t),
+	if _, err := capture.NewSink(p.DB()).Upsert(p.connectorCtx(t),
 		msg.AttestSentByOwner(true).ToRecord("gmail", stored)); err != nil {
 		t.Fatalf("capturing the provider's own copy: %v", err)
 	}

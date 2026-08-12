@@ -316,7 +316,6 @@ func scanProduct(row pgx.Row, extra ...any) (crmcontracts.Product, error) {
 		return p, fmt.Errorf("default_tax_rate is not numeric: %w", err)
 	}
 	p.Id = openapi_types.UUID(id)
-	p.WorkspaceId = openapi_types.UUID(wsID)
 	p.DefaultTaxRate = rate
 	p.CapturedBy = &capturedBy
 	p.Version = &version

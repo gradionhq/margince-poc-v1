@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -86,12 +87,17 @@ func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunner
 	// the bus. Without the blobstore its erase action leaves the attachment
 	// objects behind; without the invalidator the aggregates keep counting
 	// interactions that no longer exist.
-	retention := privacy.NewRetentionService(pool, cfg.Blobstore, log).
-		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
-			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
-		})
+	// Built per job rather than once: this pass is fleet-wide, so the
+	// workspace is the one the job names, not the one an installation
+	// resolver would find.
+	retention := func(db *database.DB) *privacy.RetentionService {
+		return privacy.NewRetentionService(db, cfg.Blobstore, log).
+			WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
+				return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
+			})
+	}
 	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool})
-	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention})
+	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{pool: pool, retention: retention})
 	return periodicFor(cfg, PrivacyRetentionArgs{})
 }
 
@@ -136,7 +142,8 @@ func (a PrivacyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 
 // privacyRetentionWorkspaceWorker evaluates one workspace.
 type privacyRetentionWorkspaceWorker struct {
-	retention *privacy.RetentionService
+	pool      *pgxpool.Pool
+	retention func(*database.DB) *privacy.RetentionService
 }
 
 func (w *privacyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[PrivacyRetentionWorkspaceArgs]) error {
@@ -144,7 +151,11 @@ func (w *privacyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.J
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	return jobs.FaultContext(ctx, w.retention.EvaluateWorkspace(retentionPassProvenance(wsCtx)))
+	db, err := workspaceJobDB(w.pool, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, w.retention(db).EvaluateWorkspace(retentionPassProvenance(wsCtx)))
 }
 
 // retentionPassProvenance names who acted and under which pass. The engine

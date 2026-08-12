@@ -106,7 +106,12 @@ func (g *PersonAutoEnrich) HandleEvent(ctx context.Context, env events.Envelope)
 	default:
 		return nil
 	}
-	return g.enrich(g.systemContext(ctx, env), ids.From[ids.PersonKind](subject))
+	// The envelope carries no tenant (ADR-0091 §6); the store's handle names it.
+	ws, err := InstallationDB(g.pool).Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	return g.enrich(g.systemContext(ctx, env, ws.UUID), ids.From[ids.PersonKind](subject))
 }
 
 // survivorOf reads the surviving person out of a person.merged payload.
@@ -130,8 +135,8 @@ func survivorOf(env events.Envelope) (ids.UUID, bool) {
 // under. The fill is not a human's edit and must not be recorded as one, and
 // the correlation id carries through so the fill traces back to the event
 // that caused it.
-func (g *PersonAutoEnrich) systemContext(ctx context.Context, env events.Envelope) context.Context {
-	ctx = principal.WithWorkspaceID(ctx, env.WorkspaceID)
+func (g *PersonAutoEnrich) systemContext(ctx context.Context, env events.Envelope, ws ids.UUID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, ws)
 	ctx = principal.WithCorrelationID(ctx, env.Trace.CorrelationID)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: autoEnrichActor,

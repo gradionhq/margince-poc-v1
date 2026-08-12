@@ -19,6 +19,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -111,7 +113,7 @@ func TestTwoConcurrentFirstChannelMessagesConvergeOnOnePerson(t *testing.T) {
 // long as the holder lives, and a call that never takes it never waits at all.
 // The bound is a failure guard, not a race — the holding transaction stays open
 // across the whole call below.
-func lockWaitBoundedStore(t *testing.T) *Store {
+func lockWaitBoundedStore(t *testing.T, ws ids.UUID) *Store {
 	t.Helper()
 	cfg, err := pgxpool.ParseConfig(os.Getenv("MARGINCE_TEST_APP_DSN"))
 	if err != nil {
@@ -127,7 +129,7 @@ func lockWaitBoundedStore(t *testing.T) *Store {
 		t.Fatalf("opening the lock-bounded pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	return NewStore(pool)
+	return NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 }
 
 // An Art. 17 erasure holds the subject's account lock from its purge until its
@@ -161,9 +163,9 @@ func TestEnsureRefusesToCreateARivalDuringErasure(t *testing.T) {
 	}
 
 	in := e.channelEnsureInput(ctx, t, ci, subjectName)
-	bounded := lockWaitBoundedStore(t)
+	bounded := lockWaitBoundedStore(t, e.ws)
 	var ensureErr error
-	if err := database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
 			{Provider: ci.Provider, ChannelUserID: ci.ChannelUserID},
 		}); err != nil {
@@ -240,17 +242,17 @@ func TestAnInboundMessageConcurrentWithAMergeLinksTheSurvivor(t *testing.T) {
 }
 
 // handleUpdatedEventCount counts the person.updated envelopes a handle refresh
-// staged. event_outbox is a global infra table outside RLS, so the count scopes
-// itself on the envelope's own workspace and subject.
+// staged. event_outbox is a global infra table outside RLS, and the envelope no
+// longer names a tenant (ADR-0091 §6), so the count scopes itself on the
+// subject — which is what the assertion is about anyway.
 func (e *dedupeEnv) handleUpdatedEventCount(ctx context.Context, t *testing.T, personID ids.PersonID) int {
 	t.Helper()
 	return e.countInWorkspace(ctx, t, `
 		SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'person.updated'
-		   AND envelope->>'workspace_id' = $1::text
-		   AND envelope->'entity'->>'id' = $2::text
+		   AND envelope->'entity'->>'id' = $1::text
 		   AND envelope->'payload'->'changed_fields'->'channel_username' IS NOT NULL`,
-		e.ws, personID)
+		personID)
 }
 
 // beginBlockingRefresh runs one whole handle refresh in a transaction the test
@@ -260,7 +262,7 @@ func (e *dedupeEnv) handleUpdatedEventCount(ctx context.Context, t *testing.T, p
 // guess about timing.
 func (e *dedupeEnv) beginBlockingRefresh(ctx context.Context, t *testing.T, ci connector.ChannelIdentity) (pgx.Tx, int) {
 	t.Helper()
-	tx, err := e.store.pool.Begin(ctx)
+	tx, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the blocking transaction: %v", err)
 	}
@@ -319,14 +321,14 @@ func (e *dedupeEnv) refreshInBackground(ctx context.Context, ci connector.Channe
 // failure this comment exists to prevent. Raise this number and that sum moves
 // with it.
 //
-// 60s was not enough under a twelve-shard lane — two tests on this helper
-// reddened two unrelated PRs in one day, each burning the full budget while the
-// writer never reached its lock (#898). The pacing below is the change that
-// addresses WHY; this is the headroom that covers a merely slow runner.
+// This number covers a merely slow runner and nothing else. It is deliberately
+// NOT the answer to the runs that burned a whole budget while the writer never
+// reached its lock: those were not slow, they were blind, and no budget reaches
+// blindness — see probeForWaiter, which is where that was actually fixed.
 const probeBudget = 90 * time.Second
 
-// probeInterval paces the poll, and it is the half of #898 that is about cause
-// rather than headroom.
+// probeInterval paces the poll. It is about the COST of watching, not about
+// whether the watching works — that is probeForWaiter's job.
 //
 // The probe calls pg_blocking_pids, which Postgres documents as needing
 // exclusive access to the lock manager's shared state for a short time and
@@ -368,21 +370,25 @@ func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T)
 func waitUntilBlockedIn[T any](ctx context.Context, t *testing.T, probe pgx.Tx, pid int, done <-chan T) (T, bool) {
 	t.Helper()
 	var zero T
+	// The budget REPORTED is the one SUPPLIED. This function takes its deadline
+	// from the caller precisely so a caller can hand it a shorter one, and a
+	// message naming the probeBudget constant would misreport every caller that
+	// does.
+	budget := probeBudget
+	if deadline, ok := ctx.Deadline(); ok {
+		budget = time.Until(deadline).Round(time.Second)
+	}
 	pace := time.NewTicker(probeInterval)
 	defer pace.Stop()
 	for probes := 1; ; probes++ {
-		var blocked bool
-		switch err := probe.QueryRow(ctx, `
-			SELECT EXISTS (
-			  SELECT 1 FROM pg_stat_activity a
-			   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
-			pid).Scan(&blocked); {
+		blocked, err := probeForWaiter(ctx, probe, pid)
+		switch {
 		case err != nil && ctx.Err() != nil:
 			if result, finished := racerFinished(done); finished {
 				return result, true
 			}
 			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
-				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+				"reached the lock nor returned, so this run proved nothing", budget, probes)
 		case err != nil:
 			t.Fatalf("probing for a waiting backend: %v", err)
 		}
@@ -403,10 +409,46 @@ func waitUntilBlockedIn[T any](ctx context.Context, t *testing.T, probe pgx.Tx, 
 				return result, true
 			}
 			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
-				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+				"reached the lock nor returned, so this run proved nothing", budget, probes)
 		case <-pace.C:
 		}
 	}
+}
+
+// probeForWaiter asks once whether any backend is waiting on a lock pid holds.
+//
+// It discards the statistics snapshot first, and THAT is why this is a function
+// rather than a query inlined in the loop above. pg_stat_activity's row set is
+// materialized once per transaction and then cached until that transaction
+// ends: a backend that connects after the probing transaction's first look is
+// missing from every later look, permanently. The probe runs on the lock
+// HOLDER's transaction, which stays open for the whole race, while the racer
+// arrives on a pooled connection the pool may only dial once the race is under
+// way — so the observer could be structurally blind to the one backend it
+// exists to see, and would then report "the writer never reached the lock"
+// about a writer parked squarely on it.
+//
+// That is the failure this helper kept producing on CI and never on an idle
+// machine, where the pool always had a warm connection to hand (#548). It is
+// not slowness, so neither of the two budget increases it outlived could have
+// helped. pg_stat_clear_snapshot drops the cache, which is what makes every
+// probe a look at the live set rather than a re-reading of the first one.
+//
+// Only the row set goes stale. pg_blocking_pids is a function call evaluated
+// per probe and always reports the live lock manager, which is exactly why the
+// bug hid: whenever the racer's connection happened to pre-date the first look,
+// its blocking state was reported correctly and the test passed.
+func probeForWaiter(ctx context.Context, probe pgx.Tx, pid int) (bool, error) {
+	if _, err := probe.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil {
+		return false, err
+	}
+	var blocked bool
+	err := probe.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM pg_stat_activity a
+		   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
+		pid).Scan(&blocked)
+	return blocked, err
 }
 
 // racerFinished asks once more whether the racer has an answer waiting.
@@ -442,6 +484,84 @@ func mustBlockOn(t *testing.T, probe pgx.Tx, pid int, done <-chan error) {
 		t.Fatalf("the second writer finished (%v) without ever waiting on the first — "+
 			"it never reached the binding, so this run exercises no ordering at all", err)
 	}
+}
+
+// The probe sees a backend that dials AFTER it has started looking.
+//
+// Every contention test in this package rests on that, and none of them assert
+// it, because on a machine with a warm pool it holds by accident: the racer's
+// connection already exists when the probing transaction takes its first look,
+// so the transaction-scoped statistics snapshot happens to contain it. Under
+// the lane's concurrency the pool has no idle connection to hand, the racer
+// dials one mid-race, and a probe that trusts that snapshot cannot ever see it.
+//
+// So the ordering is PINNED here rather than raced for: the first look is taken
+// deliberately while no racer exists, and the racer then arrives on a connection
+// dialled afterwards. That makes this test fail on a laptop against the bug it
+// describes, instead of only on a loaded runner.
+func TestTheProbeSeesABackendThatDialsAfterItsFirstLook(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	holder, pid := e.holdOrgNameLock(ctx, t)
+
+	// The look that used to freeze this transaction's view of who is connected.
+	switch waiting, err := probeForWaiter(ctx, holder, pid); {
+	case err != nil:
+		t.Fatalf("the probe's first look: %v", err)
+	case waiting:
+		t.Fatal("something was already queued on the holder before the racer existed — " +
+			"this run cannot tell a working probe from a blind one")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- takeOrgNameLockOnAFreshConnection(ctx) }()
+
+	// A budget of its own, and a short one. This racer dials and blocks in
+	// milliseconds, so a longer wait only delays the report — and it keeps this
+	// test out of probeBudget's arithmetic, which is sized for the five call
+	// sites that genuinely need the long one.
+	probing, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err, finished := waitUntilBlockedIn(probing, t, holder, pid, done); finished {
+		t.Fatalf("the racer finished (%v) without ever waiting on a lock it cannot hold — "+
+			"the holder still owns it, so the only way to finish is not to have reached it", err)
+	}
+}
+
+// takeOrgNameLockOnAFreshConnection contends for the workspace's
+// organization-name write identity from a backend that did not exist when this
+// call began, and returns once it holds it — which is only after the holder
+// lets go. Its own connection is the point: a pooled one may pre-date the
+// probe's first look, and then it proves nothing about a racer that does not.
+func takeOrgNameLockOnAFreshConnection(ctx context.Context) (err error) {
+	conn, err := pgx.Connect(ctx, os.Getenv("MARGINCE_TEST_APP_DSN"))
+	if err != nil {
+		return fmt.Errorf("dialling the racer's own connection: %w", err)
+	}
+	defer func() { err = errors.Join(err, conn.Close(context.Background())) }()
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("opening the racer's transaction: %w", err)
+	}
+	// The lock is held for the transaction, so releasing it IS the rollback.
+	defer func() {
+		if rollback := tx.Rollback(context.Background()); !errors.Is(rollback, pgx.ErrTxClosed) {
+			err = errors.Join(err, rollback)
+		}
+	}()
+	// Bind the workspace, as every real writer's transaction does: the advisory
+	// key is built from the TRANSACTION's binding, so a racer that skipped it
+	// would take a different key and contend with nobody — the test would then
+	// report a working lock as broken.
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("the racer's context carries no workspace")
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
+		return fmt.Errorf("binding the racer's workspace: %w", err)
+	}
+	return lockOrgNameWrites(ctx, tx)
 }
 
 // The trail has to name the handle a refresh actually displaced. Two messages
@@ -539,7 +659,7 @@ func TestAFinishedRacerIsNotReportedAsAMissAtTheBudgetBoundary(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 
-	probe, err := e.store.pool.Begin(ctx)
+	probe, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the probe transaction: %v", err)
 	}

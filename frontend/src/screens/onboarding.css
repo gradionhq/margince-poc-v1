@@ -1248,8 +1248,8 @@
 .dedupe-card {
   margin-top: var(--space-4);
   padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
 }
 .dedupe-head {
   display: flex;
@@ -1265,22 +1265,22 @@
 .dedupe-evidence td {
   text-align: left;
   padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--borderSubtle);
 }
 .dedupe-evidence tr[data-signal="collide"] td {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 .dedupe-actions {
   display: flex;
   gap: var(--space-3);
 }
 .dedupe-error {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 .dedupe-undo {
   background: none;
   border: none;
-  color: var(--color-text-muted);
+  color: var(--textMeta);
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
@@ -2224,18 +2224,6 @@
 .mw-review .core-findings {
   margin-top: 0;
   box-shadow: none;
-}
-/* The workbench pane is the scroller the dossier's head sticks against, and the
-   pane pads its content. The head has to negate the pane's padding as well as
-   the panel's own, or content scrolls past it in the uncovered band. */
-.mw-artifact .ob-live {
-  --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-6));
-}
-@media (max-width: 900px) {
-  /* The pane's padding steps down with it (margince-workbench.css). */
-  .mw-artifact .ob-live {
-    --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-4));
-  }
 }
 .ob-company-review {
   margin-top: var(--space-6);

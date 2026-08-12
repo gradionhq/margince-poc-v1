@@ -27,7 +27,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -45,6 +44,22 @@ const auditVerbPasswordLinkIssued = "password_link_issued"
 // here would hand the admin a link that is dead on arrival — recreating exactly
 // the silent-failure this whole feature exists to remove.
 var errMemberNotActive = errors.New("identity: the member is not active")
+
+// errAgentSeatHasNoPassword refuses a link for the workspace's agent seat.
+//
+// That seat is a machine identity: it is written with no password_hash, which
+// is what makes it a thing that cannot sign in. Login's no-password branch
+// refuses it, and forgot-password cannot even find it — that lookup requires an
+// existing hash. This path is the one door left open, because issuing here does
+// not require the target to hold a password already. Redeeming a link minted
+// for it would give an identity with no person behind it a working credential,
+// and every session opened with it would be attributable to "the agent" with
+// nothing recording which human actually signed in.
+//
+// Refused at the SERVICE and not by hiding the button: the roster lists the seat
+// (a client has to resolve it as the owner of the records it owns) and this
+// endpoint is reachable without the screen.
+var errAgentSeatHasNoPassword = errors.New("identity: the agent seat has no password to set")
 
 // IssuePasswordLink mints a single-use set-password token for a member and
 // returns the raw token with its expiry, for the caller to render as a link.
@@ -80,7 +95,7 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 	}
 	ctx = actorCtx(ctx, actor)
 	var expiresAt time.Time
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		superseded, err := supersedeSetPasswordTokens(ctx, tx, userID)
 		if err != nil {
 			return err
@@ -132,9 +147,10 @@ func lockMemberForTokenIssue(ctx context.Context, tx pgx.Tx, userID ids.UserID) 
 	return err
 }
 
-// supersedeSetPasswordTokens refuses a non-active member and consumes their
-// outstanding unused set-password tokens, reporting how many it consumed for
-// the audit image.
+// supersedeSetPasswordTokens refuses a target that must not receive a link —
+// the agent seat, and a member who is not active — and consumes the remaining
+// target's outstanding unused set-password tokens, reporting how many it
+// consumed for the audit image.
 //
 // The member is read WITHOUT a row lock (see lockMemberForTokenIssue). A
 // deactivation committing between this check and the insert would leave a token
@@ -145,14 +161,21 @@ func supersedeSetPasswordTokens(ctx context.Context, tx pgx.Tx, userID ids.UserI
 		return 0, err
 	}
 	var status string
+	var isAgent bool
 	err := tx.QueryRow(ctx,
-		`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL`,
-		userID).Scan(&status)
+		`SELECT status, is_agent FROM app_user WHERE id = $1 AND archived_at IS NULL`,
+		userID).Scan(&status, &isAgent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return 0, err
+	}
+	// Before the status check, because it is the more fundamental refusal: an
+	// inactive member can be reactivated and then issued a link, while nothing
+	// an admin can do makes the agent seat a thing that signs in.
+	if isAgent {
+		return 0, errAgentSeatHasNoPassword
 	}
 	if status != userStatusActive {
 		return 0, errMemberNotActive

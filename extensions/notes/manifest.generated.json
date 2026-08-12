@@ -43,13 +43,13 @@
       "operation": "agent.tool.invoke",
       "operation_id": "notesList",
       "route": "/ext/notes/list",
-      "method": "POST",
+      "method": "GET",
       "scopes": [
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "6a731d214ba5e51de4ad7e0ea992f5eeea6b8f64897c606b55362e6ef133004b",
-      "digest": "sha256:3d10f86089b241087f34fa1eb8cc41ddf8ef41e81dc3bae4e5e8377cff586328"
+      "fragment_hash": "c4a57e463deaea98556893f1b4b238e2d2ad37b98be490dc8f78504e574024e7",
+      "digest": "sha256:c3c53abef296ce589431c13e301c72fac6860895af4a961add3800be559d16fe"
     },
     {
       "id": "tool/remove_note",
@@ -59,13 +59,13 @@
       "operation": "agent.tool.invoke",
       "operation_id": "notesRemove",
       "route": "/ext/notes/remove",
-      "method": "POST",
+      "method": "DELETE",
       "scopes": [
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "70b53d4b8ad01fe9d718948f2a72c2a1db2ed43c355cd401d2d2da69308e8caa",
-      "digest": "sha256:53d83cfd12a11b6779cbedff6e53ca074e98967e7ee69d1320f969ca5bf56314"
+      "fragment_hash": "87115ec136fcc0786a4fb3633d83f7e1f4ee77118f10092daf7b13f1ca24998b",
+      "digest": "sha256:a5d7b650df0e23f8439f6365545ac76f36308d791d13b9fe2ba42e4c589b62e0"
     },
     {
       "id": "tool/sign_payload",
@@ -91,13 +91,13 @@
       "operation": "agent.tool.invoke",
       "operation_id": "notesSigningKeyStatus",
       "route": "/ext/notes/signing-key/status",
-      "method": "POST",
+      "method": "GET",
       "scopes": [
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "ab98fd6b0734330d25d74129076cbc281fe3af9602c2a468568f7c1567b9b1ea",
-      "digest": "sha256:4fac1a41aec0c89ac10445bec6efe79c6f9ffc788b455bcdd172fba76523a0bc"
+      "fragment_hash": "98da6d4195ac90243b3da165144441c74b6f81df196b7d0ec8fbf3526ee59b35",
+      "digest": "sha256:e3f7d9e5d9f5dc9d0fb1e2a07f75f59a621651d7721342156448cacc5adf2b0c"
     },
     {
       "id": "tool/store_signing_key",
@@ -107,13 +107,13 @@
       "operation": "agent.tool.invoke",
       "operation_id": "notesStoreSigningKey",
       "route": "/ext/notes/signing-key",
-      "method": "POST",
+      "method": "PUT",
       "scopes": [
         "write"
       ],
       "tier": "auto_execute",
       "fragment_hash": "b054c835e7f67499542ba80509eddb106daee43f2da0643575f8131ba641cb45",
-      "digest": "sha256:9bc9e19c0c284f9be21cc0cc8e446e91252923fa6737d56a076b391ea8b45db4"
+      "digest": "sha256:1959e81090b075ddc17695035fe07b8aa22405fc33216de175fdc105df97c90a"
     }
   ],
   "secrets": [

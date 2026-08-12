@@ -325,7 +325,7 @@ var _ crmcontracts.ServerInterface = Server{}
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
 	// note): active cf_* deal columns ride deal payloads on both surfaces.
-	dealsH := deals.NewHandlers(pool, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
+	dealsH := deals.NewHandlers(InstallationDB(pool), DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
 	// serves the already-bound singleton organization.
@@ -361,35 +361,35 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: newActivitiesHandlers(pool),
-		searchHandlers:     search.NewHandlers(pool),
+		searchHandlers:     search.NewHandlers(InstallationDB(pool)),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
 		// read rather than answer anything at all.
 		jobHealthHandlers: jobHealthHandlers{pool: pool},
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.
-		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
-		collectionsHandlers: collections.NewHandlers(pool),
+		consentHandlers:     consent.NewHandlers(InstallationDB(pool)).WithEraser(privacy.NewEraser(InstallationDB(pool))),
+		collectionsHandlers: collections.NewHandlers(InstallationDB(pool)),
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
-		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
-		privacyHandlers:    privacy.NewHandlers(pool),
-		automationHandlers: automation.NewHandlers(pool),
-		voiceHandlers:      ai.NewHandlers(pool, NewSeatBudget(pool)),
+		financeHandlers:    finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
+		signalsHandlers:    signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
+		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
+		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
+		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
-		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
+		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))),
 		Reads:             network.NewReads(pool),
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
-		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		strengthHandlers:  strengthHandlers{people: people.NewStore(InstallationDB(pool)), now: time.Now},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
-		quotasHandlers:       quotas.NewHandlers(pool, identity.BaseCurrencyOf),
+		quotasHandlers:       quotas.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
 		// The accept-write's default engine rides the honest-empty NoOp
 		// extractor (nothing is ever grounded, so nothing is acceptable);
 		// WithExtractor rebuilds it together with the activities read so
@@ -401,7 +401,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the environment). Without it those paths answer an honest 503.
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
-		dealsStore:       deals.NewStore(pool, DealsInstallation()),
+		dealsStore:       deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
@@ -451,7 +451,7 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The gate and the registry take the SAME meter pointer: one refuses on the
 	// bound, the other pays into it, and a surface where those were two
 	// counters would step an agent up against a number nothing was charging.
-	s.toolRegistry = registryWithGate(pool,
+	s.toolRegistry = registryWithGate(InstallationDB(pool),
 		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
 		s.retrievalEmbedder,

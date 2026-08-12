@@ -58,7 +58,7 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
   background: var(--bgElevated);
-  color: var(--textContent);
+  color: var(--textPrimary);
   font-size: 13px;
   line-height: 1.2;
   white-space: nowrap;

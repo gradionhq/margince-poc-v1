@@ -22,7 +22,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -173,7 +172,7 @@ func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	}
 	countCtx, cancel := detachedWrite(ctx)
 	defer cancel()
-	err := database.WithWorkspaceTx(countCtx, c.registry.pool, func(tx pgx.Tx) error {
+	err := c.registry.db.Tx(countCtx, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(countCtx, `
 			UPDATE capture_backfill
 			SET people_created = people_created + $2, organizations_created = organizations_created + $3
@@ -238,7 +237,7 @@ func (c *pageProgress) persist(ctx context.Context, pacing flushPacing) {
 // commit will refuse the same page and cancel the run, and until it does the
 // screen must not show work that is about to be thrown away.
 func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUID, generation int, t pageTally) error {
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET inflight_scanned = $2, inflight_captured = $3, inflight_skipped = $4,

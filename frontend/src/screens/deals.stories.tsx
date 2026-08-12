@@ -51,7 +51,6 @@ export const FxNoDate: Story = {
 
 const deal = {
   id: "d1",
-  workspace_id: "w",
   name: "Fleet retrofit",
   amount_minor: 4_800_000,
   currency: "EUR",
@@ -66,7 +65,6 @@ const deal = {
 
 const offer = {
   id: "o1",
-  workspace_id: "w",
   deal_id: "d1",
   offer_number: "OFF-0001",
   revision: 1,

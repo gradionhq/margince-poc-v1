@@ -22,7 +22,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -76,7 +75,7 @@ func (s *Service) SelectablePassports(ctx context.Context, id Identity) ([]Conse
 		return nil, err
 	}
 	var out []ConsentOption
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, label, scopes, expires_at
 			FROM passport
@@ -188,7 +187,7 @@ func lockLentPassport(
 // database problem is never mistaken for a client that does not exist.
 func (s *Service) liveClient(ctx context.Context, clientID string) (string, error) {
 	var name string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT c.client_name FROM oauth_client c WHERE c.client_id = $1 AND `+liveClientPredicate,
 			clientID).Scan(&name)

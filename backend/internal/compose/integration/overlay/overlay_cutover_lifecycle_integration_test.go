@@ -227,7 +227,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 		t.Fatalf("seeding the clean workspace admin: %v", err)
 	}
 	cleanCtx := flipAdminCtx(ws, user.UUID)
-	if err := deals.NewHandlers(f.pool, compose.DealsInstallation()).SeedWorkspaceDefaults(cleanCtx); err != nil {
+	if err := deals.NewHandlers(database.BindTo(f.pool, ids.From[ids.WorkspaceKind](ws)), compose.DealsInstallation()).SeedWorkspaceDefaults(cleanCtx); err != nil {
 		t.Fatalf("seeding the clean workspace's default pipeline: %v", err)
 	}
 	return cleanCtx

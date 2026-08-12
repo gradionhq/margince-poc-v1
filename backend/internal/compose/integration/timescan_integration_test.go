@@ -71,7 +71,7 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	seedNoActivityReminder(t, owner, e.WS)
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	scanner := compose.NewTimeScannerWithClock(e.Pool, now, quiet)
+	scanner := compose.NewTimeScannerWithClock(e.DB(), now, quiet)
 
 	// Pass 1: the deal is stale, so the reminder fires exactly once.
 	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {

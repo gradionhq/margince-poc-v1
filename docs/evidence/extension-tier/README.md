@@ -50,7 +50,7 @@ make dev DEV_SLUG=vid            # db margince_dev_vid, api :18401, composed vit
 
 # prerequisite 0 — RBAC grants, raw SQL (there is no /roles endpoint).
 # TWO objects now: the signing operations gained their own, ext_notes_signing_key.
-psql -h localhost -p 55432 -U margince_owner -d margince_dev_vid <<'SQL'
+psql -h localhost -p 15432 -U margince_owner -d margince_dev_vid <<'SQL'
 UPDATE role SET permissions = jsonb_set(permissions,'{objects,ext_notes_note}',
    '{"create":true,"read":true,"update":true,"delete":true}'::jsonb,true), updated_at=now()
  WHERE key='admin' AND archived_at IS NULL;
@@ -65,7 +65,9 @@ UPDATE role SET permissions = jsonb_set(permissions,'{objects,ext_notes_signing_
  WHERE key='read_only' AND archived_at IS NULL;
 SQL
 
-# prerequisite 0b — an agent seat, or the heartbeat tick cannot run (issue #656)
+# prerequisite 0b — an agent seat, or the heartbeat tick cannot run. NO LONGER NEEDED: bootstrap
+# writes the seat and 0216_agent_seat_backfill gives it to a database bootstrapped before that.
+# Kept because it is what this recording was made with; re-running it now inserts a second seat.
 psql … -c "INSERT INTO app_user (workspace_id,email,display_name,status,is_agent,seat_type)
            SELECT id,'agent@demo.test','Demo Agent Seat','active',true,'full' FROM workspace LIMIT 1;"
 

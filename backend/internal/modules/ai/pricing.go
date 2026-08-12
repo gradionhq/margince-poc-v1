@@ -115,14 +115,27 @@ func vendorSheetRates(day time.Time) []ModelRate {
 		// date, so the undated family's sheet price applies verbatim.
 		rateOn(day, providerAnthropic, "claude-haiku-4-5-20251001", 1_000_000, 5_000_000, 100_000, 1_250_000),
 
-		// Gemini (verified 2026-07-20): cache read = 0.1x input; Gemini's
-		// implicit context caching carries no separate write charge. Prices
-		// are config/ai-routing.example.yaml's default bindings — premium
-		// (gemini-3.5-flash) and cheap_cloud (gemini-3.1-flash-lite). Both
-		// carry a >200k-token tier Gemini charges at a higher rate; the
-		// sub-200k sheet price is seeded here as the common case.
+		// Gemini: cache read = 0.1x input; Gemini's implicit context caching
+		// carries no separate write charge. Prices are
+		// config/ai-routing.example.yaml's default bindings — premium
+		// (gemini-3.5-flash), cheap_cloud (gemini-3.1-flash-lite) and frontier
+		// (gemini-3.1-pro-preview). Both Flash rows are flat: their rate does
+		// not vary with prompt size, so what is seeded is what a call of any
+		// length pays. This CORRECTS the 2026-07-20 note that had them carrying
+		// a >200k tier — that is Pro's pricing shape, ascribed to the Flash rows
+		// in error; reconfirmed against the live sheet 2026-08-12.
 		rateOn(day, providerGemini, "gemini-3.5-flash", 1_500_000, 9_000_000, 150_000, 0),
 		rateOn(day, providerGemini, "gemini-3.1-flash-lite", 250_000, 1_500_000, 25_000, 0),
+		// gemini-3.1-pro-preview is the example file's frontier binding, and the
+		// only Gemini row here whose rate varies with prompt size (verified
+		// 2026-08-12). Seeded at the <=200k sheet price, which is the common
+		// case; above that boundary Google charges $4.00/$18.00 and a call
+		// UNDER-reports its cost by that difference. Explicit caching adds
+		// $4.50/MTok/hour to STORE the cache, which none of the four billed
+		// buckets can express — folding it into a token bucket would misreport
+		// every call that never touched the cache, so it is recorded here
+		// rather than priced.
+		rateOn(day, providerGemini, "gemini-3.1-pro-preview", 2_000_000, 12_000_000, 200_000, 0),
 
 		// OpenAI: config/ai-routing.example.yaml's commented cheap_cloud
 		// binding names "gpt-5-mini", which no longer appears on OpenAI's

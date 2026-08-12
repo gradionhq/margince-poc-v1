@@ -131,7 +131,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 		pool:   pool,
 		svc: compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, nil, logger, nil,
 			compose.SendPath{}, compose.WithSpecResolver(stagingSpec)),
-		store:      runner.NewStore(pool),
+		store:      runner.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID))),
 		brain:      brain,
 		wsID:       wsID,
 		wsCtx:      principal.WithWorkspaceID(context.Background(), wsID),
@@ -366,11 +366,10 @@ func decidedEnvelope(wsID ids.UUID, approvalID, verdict string) kevents.Envelope
 	id, _ := ids.Parse(approvalID)
 	payload, _ := json.Marshal(map[string]string{"verdict": verdict})
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        "approval.decided",
-		WorkspaceID: wsID,
-		Entity:      kevents.EntityRef{Type: "approval", ID: id},
-		Payload:     payload,
+		EventID: ids.NewV7(),
+		Type:    "approval.decided",
+		Entity:  kevents.EntityRef{Type: "approval", ID: id},
+		Payload: payload,
 	}
 }
 

@@ -85,6 +85,15 @@ type UseCompanyReadArgs = Readonly<{
   adoptedRead?: CompanySiteRead | null;
 }>;
 
+/**
+ * How often an in-flight site read is re-fetched while it is still queued or
+ * reading. Exported because a test that waits for the SECOND poll is waiting on
+ * this cadence, and a budget written as a round number cannot be seen to
+ * disagree with it — the disagreement surfaces only as a flake on a loaded
+ * machine.
+ */
+export const READ_POLL_MS = 800;
+
 export function useCompanyRead({
   dispatch,
   machine,
@@ -283,7 +292,7 @@ export function useCompanyRead({
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === "queued" || status === "reading") {
-        return 800;
+        return READ_POLL_MS;
       }
       return status === "deferred" ? 60_000 : false;
     },

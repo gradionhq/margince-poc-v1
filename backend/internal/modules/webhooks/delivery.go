@@ -94,7 +94,13 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 	if err != nil {
 		return fmt.Errorf("webhooks: marshaling envelope %s: %w", env.EventID, err)
 	}
-	wsCtx := d.systemContext(ctx, env.WorkspaceID)
+	// The tenant is this deliverer's own: the fan-out builds one per workspace
+	// it sweeps, and the envelope carries none (ADR-0091 §6).
+	ws, err := d.store.db.Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	wsCtx := d.systemContext(ctx, ws.UUID)
 	cands, err := d.store.matchingSubscriptions(wsCtx, env.Type)
 	if err != nil {
 		return fmt.Errorf("webhooks: matching subscriptions for %s: %w", env.Type, err)
@@ -154,7 +160,11 @@ func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, owner
 	if d.resolver == nil {
 		return false, errors.New("webhooks: no principal resolver configured for owner-scoped fan-out")
 	}
-	rbac, err := d.resolver.EffectiveRBAC(ctx, env.WorkspaceID, ownerID)
+	ws, err := d.store.db.Workspace(ctx)
+	if err != nil {
+		return false, err
+	}
+	rbac, err := d.resolver.EffectiveRBAC(ctx, ws.UUID, ownerID)
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return false, nil
 	}

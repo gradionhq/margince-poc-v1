@@ -39,14 +39,14 @@ import (
 // the store an assertion can read the request back through.
 func setupErasureDSR(t *testing.T, e *Env, subjectRef string) (consent.Handlers, *consent.Store, ids.UUID) {
 	t.Helper()
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 	created, err := store.CreateDSR(e.Admin(), consent.CreateDSRInput{
 		Kind: "erasure", SubjectRef: subjectRef, DueAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("creating erasure DSR: %v", err)
 	}
-	h := consent.NewHandlers(e.Pool).WithEraser(privacy.NewEraser(e.Pool))
+	h := consent.NewHandlers(e.DB()).WithEraser(privacy.NewEraser(e.DB()))
 	return h, store, created.ID
 }
 
@@ -204,7 +204,7 @@ func TestFulfillErasureHoldsTheRequestLockedAcrossTheErase(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Locked Subject", nil)
 
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(e.DB())
 	created, err := store.CreateDSR(e.Admin(), consent.CreateDSRInput{
 		Kind: "erasure", SubjectRef: personID.String(), DueAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
 	})
@@ -212,11 +212,11 @@ func TestFulfillErasureHoldsTheRequestLockedAcrossTheErase(t *testing.T) {
 		t.Fatalf("creating erasure DSR: %v", err)
 	}
 	gate := &gatedEraser{
-		inner:   privacy.NewEraser(e.Pool),
+		inner:   privacy.NewEraser(e.DB()),
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	h := consent.NewHandlers(e.Pool).WithEraser(gate)
+	h := consent.NewHandlers(e.DB()).WithEraser(gate)
 
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {

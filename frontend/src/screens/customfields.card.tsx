@@ -3,7 +3,7 @@
 // — a field with no stored value is absent, and a record with no custom values
 // renders nothing at all rather than an empty card.
 
-import { SectionHeader } from "../design-system/atoms";
+import { Card } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
 import { customFieldDisplay, useObjectCustomFields } from "./customfields.form";
 import type { CfObject } from "./customfields.logic";
@@ -34,8 +34,10 @@ export function CustomFieldsCard({
   }
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("cf.formSection")} />
+    <Card
+      title={t("cf.formSection")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       <dl className="firmo">
         {rows.map(({ field, value }) => (
           <div key={field.column_name}>
@@ -44,6 +46,6 @@ export function CustomFieldsCard({
           </div>
         ))}
       </dl>
-    </section>
+    </Card>
   );
 }

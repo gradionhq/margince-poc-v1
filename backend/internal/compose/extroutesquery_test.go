@@ -1,0 +1,342 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package compose
+
+// A bodyless extension operation's arguments come from the query string, and
+// this file is where that decode is held to its declaration.
+//
+// It is tested this closely because it is the ONLY thing checking those
+// arguments. Nothing downstream validates a tool's input against its declared
+// schema — this codebase carries no jsonschema dependency by choice (see
+// automation's catalog for the same decision) — so a value the decode lets
+// through reaches a unit's handler as whatever it happened to parse as. A
+// tolerant decode here is not a lenient API, it is a handler receiving a string
+// where its declaration promised an integer.
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
+
+// queryVerb is a read-scoped GET declaring one argument of each query-encodable
+// type, with `payload` required — the shape notes's signature read has, widened
+// to cover every primitive the decode must coerce.
+func queryVerb() extension.Verb {
+	v := unitVerb("alpha", "sign_payload", extension.TierAutoExecute, extension.ScopeRead)
+	v.Method = http.MethodGet
+	v.InputSchema = json.RawMessage(`{"type":"object","properties":{` +
+		`"payload":{"type":"string"},"limit":{"type":"integer"},` +
+		`"ratio":{"type":"number"},"exact":{"type":"boolean"}},` +
+		`"required":["payload"],"additionalProperties":false}`)
+	return v
+}
+
+// echoArgs mounts one verb behind an invoker that seals the arguments it was
+// given, so a case can assert the exact JSON that reached the tool. Sealed
+// because the real invoker seals: the route unwraps the envelope, and a stub
+// answering bare bytes would test a seam shape that does not exist.
+func echoArgs(t *testing.T, v extension.Verb) *http.ServeMux {
+	t.Helper()
+	mux := http.NewServeMux()
+	verbs := []extension.Verb{v}
+	if _, err := MountExtensionRoutes(mux, verbs, allServed(verbs),
+		func(_ context.Context, _ string, in json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"schema_version":"1.0.0","trace_id":"019fe351-1f62-749f-ac9f-a89d5a81abfa",` +
+				`"freshness":{"authoritative":true},"trust":"t0","evidence":[],"warnings":[],` +
+				`"data":` + string(in) + `}`), nil
+		}); err != nil {
+		t.Fatalf("mounting the query verb: %v", err)
+	}
+	return mux
+}
+
+// TestAQueryArgumentArrivesAsItsDeclaredJsonType: the coercion, which is the
+// whole point of the decode. A query value is always text, and the declaration
+// is what says what it must become — so this asserts the JSON that reaches the
+// tool, not merely that the call succeeded.
+func TestAQueryArgumentArrivesAsItsDeclaredJsonType(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/v1/ext/alpha/sign-payload?payload=hello&limit=7&ratio=1.5&exact=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	// Keys sorted, because the arguments are marshalled from a map: one call's
+	// document must not differ from another's by query order alone.
+	const want = `{"exact":true,"limit":7,"payload":"hello","ratio":1.5}`
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("arguments =\n  %s\nwant\n  %s", got, want)
+	}
+}
+
+// TestAnIntegerIsRemarshalledRatherThanPassedThrough: text that PARSES is not
+// necessarily text JSON accepts in that position. "007" and "%2B7" both parse to
+// 7, and passing the original through would put a token in the arguments
+// document that no JSON reader would accept as a number — a handler unmarshalling
+// its own arguments would fail on input this route called valid.
+//
+// The sign is percent-encoded because a bare `+` in a query string IS a space,
+// so `limit=+7` is the value " 7" and correctly refused. That is the decode
+// reading the query the way the URL spec defines it, not a special case.
+func TestAnIntegerIsRemarshalledRatherThanPassedThrough(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for _, query := range []string{"limit=007", "limit=%2B7"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&"+query, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200 (body %s)", query, rec.Code, rec.Body)
+		}
+		if got, want := rec.Body.String(), `{"limit":7,"payload":"p"}`; got != want {
+			t.Errorf("%s: arguments = %s, want %s", query, got, want)
+		}
+	}
+}
+
+// TestAnOmittedOptionalArgumentIsAbsentRatherThanNull: an argument the caller did
+// not send must not appear at all. Sending it as null would hand the handler a
+// value its declaration does not describe — `{"type":"integer"}` does not admit
+// null — and "absent" and "explicitly nothing" are different statements.
+func TestAnOmittedOptionalArgumentIsAbsentRatherThanNull(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/sign-payload?payload=only", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	if got, want := rec.Body.String(), `{"payload":"only"}`; got != want {
+		t.Fatalf("arguments = %s, want %s", got, want)
+	}
+}
+
+// TestTheQueryDecodeRefusesWhatNothingElseWouldCatch: one case per refusal.
+//
+// Every row here would otherwise reach a unit's handler, because no schema
+// validator stands between this decode and the tool. A refusal naming the
+// argument is the answer; the alternative is not a permissive API but a handler
+// holding a value of the wrong type, or an argument the caller believes they sent.
+//
+// 422, not 400: httperr.Validation is the core surface's own vocabulary for a
+// well-formed request carrying unusable input, and an extension route answering
+// a different status for the same class of fault would be a second convention.
+func TestTheQueryDecodeRefusesWhatNothingElseWouldCatch(t *testing.T) {
+	for name, tc := range map[string]struct{ query, wantCode string }{
+		"an argument this operation does not declare": {"payload=p&nope=1", "unknown_parameter"},
+		// Silently dropping it is the failure this prevents: the caller sent a
+		// filter, the tool never saw it, and the answer looks like an unfiltered
+		// result rather than an error.
+		"a misspelled argument name":  {"payload=p&limitt=5", "unknown_parameter"},
+		"a repeated argument":         {"payload=a&payload=b", "repeated_parameter"},
+		"a required argument missing": {"limit=5", "missing_parameter"},
+		"an integer that is not one":  {"payload=p&limit=many", "invalid_type"},
+		"an integer given a decimal":  {"payload=p&limit=1.5", "invalid_type"},
+		"a number that is not one":    {"payload=p&ratio=lots", "invalid_type"},
+		// A bare `+` in a query string is a space per the URL spec, so this is the
+		// value " 7" rather than a signed 7 — refused, and the reason it is refused
+		// is worth a row so a future edit does not "fix" it by trimming.
+		"an integer whose sign was not encoded": {"payload=p&limit=+7", "invalid_type"},
+		// The loose boolean spellings, each a convention some client uses and none
+		// the contract states. Guessing which was meant is how a flag reads false.
+		"a boolean spelled 1":   {"payload=p&exact=1", "invalid_type"},
+		"a boolean spelled yes": {"payload=p&exact=yes", "invalid_type"},
+		"a boolean cased True":  {"payload=p&exact=True", "invalid_type"},
+		// Bytes that are not text. json.Marshal does not refuse invalid UTF-8, it
+		// SUBSTITUTES U+FFFD — so this reached a handler as a string the caller never
+		// sent, and a handler signing or storing it would act on the repair. A
+		// contract's `string` means text.
+		"a string of invalid UTF-8": {"payload=%ff", "invalid_type"},
+		"invalid UTF-8 mid-string":  {"payload=ab%c3(cd", "invalid_type"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mux := echoArgs(t, queryVerb())
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/sign-payload?"+tc.query, nil))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 (body %s)", rec.Code, rec.Body)
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantCode) {
+				t.Errorf("the refusal does not carry %q: %s", tc.wantCode, rec.Body)
+			}
+		})
+	}
+}
+
+// TestAMalformedQueryIsRefusedRatherThanPartiallyRead: the entry point's own
+// strictness, which the strict decode below it cannot supply.
+//
+// r.URL.Query() runs the same parser and DISCARDS its error, keeping the pairs
+// that parsed and dropping the ones that did not. Under it every rule in `decode`
+// was applied to a value set the caller had not sent:
+//
+//   - an optional argument with a bad escape vanished, and the call succeeded
+//     without it — the silent loss the unknown_parameter refusal exists to stop;
+//   - a repeated argument whose second copy was malformed arrived single-valued,
+//     so the repeated_parameter refusal never fired and the seam picked a winner;
+//   - a semicolon anywhere dropped the WHOLE query, so a route with no required
+//     arguments answered 200 having read none of them.
+//
+// Each row below is one of those, and each is a 422 now.
+func TestAMalformedQueryIsRefusedRatherThanPartiallyRead(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for name, query := range map[string]string{
+		"a bad escape in an optional argument":   "payload=p&exact=%zz",
+		"a bad escape in a repeated argument":    "payload=a&payload=%zz",
+		"a bad escape in the required argument":  "payload=%zz",
+		"a semicolon separator":                  "payload=p;limit=5",
+		"a bad escape in an argument's own name": "%zz=1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/sign-payload?"+query, nil))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 (body %s)", rec.Code, rec.Body)
+			}
+			if !strings.Contains(rec.Body.String(), "malformed_query") {
+				t.Errorf("the refusal does not carry malformed_query: %s", rec.Body)
+			}
+		})
+	}
+}
+
+// TestTheNumberGrammarIsTheContractsAndNotStrconvs: ParseFloat is far more
+// permissive than JSON, so the accepted spellings are pinned on both sides.
+//
+// The refused rows were each accepted before: "NaN", "Inf" and "Infinity" parsed
+// and were then rejected by json.Marshal FAILING, which handed the caller Go's
+// own error text as the validation detail; the hex and underscored forms parsed
+// and were served, so a handler received 1024 from "0x1p10" — a value no client
+// generated from the published schema would ever send.
+func TestTheNumberGrammarIsTheContractsAndNotStrconvs(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for _, text := range []string{"NaN", "nan", "Inf", "-Inf", "Infinity", "0x1p10", "1_0"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&ratio="+text, nil))
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("ratio=%s: status = %d, want 422 (body %s)", text, rec.Code, rec.Body)
+			continue
+		}
+		// The refusal is this seam's own sentence. A stdlib error reaching a client
+		// is an internal detail leaking through a validation message.
+		if body := rec.Body.String(); strings.Contains(body, "json:") || strings.Contains(body, "strconv") {
+			t.Errorf("ratio=%s: the refusal leaks an internal error: %s", text, body)
+		}
+	}
+	// And the spellings JSON does write still arrive, so the guard is a grammar and
+	// not a ban on exponents or signs.
+	for text, want := range map[string]string{
+		"1.5": "1.5", "1e3": "1000", "-2.5": "-2.5", "+2": "2", "007": "7", "0.0": "0",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&ratio="+url.QueryEscape(text), nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("ratio=%s: status = %d, want 200 (body %s)", text, rec.Code, rec.Body)
+			continue
+		}
+		if got := rec.Body.String(); got != `{"payload":"p","ratio":`+want+`}` {
+			t.Errorf("ratio=%s: arguments = %s, want ratio %s", text, got, want)
+		}
+	}
+}
+
+// TestTheRefusalNamesTheSameArgumentEveryTime: `decode` returns on the first bad
+// argument, and its input is a map — so an unsorted walk named one of two bad
+// arguments on this call and the other on the next. A client, or a client's test,
+// cannot be written against a refusal that moves.
+func TestTheRefusalNamesTheSameArgumentEveryTime(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	for range 20 {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+			"/v1/ext/alpha/sign-payload?payload=p&limit=many&ratio=lots", nil))
+		// "limit" sorts before "ratio", so it is the one named, every time.
+		if !strings.Contains(rec.Body.String(), `"field":"limit"`) {
+			t.Fatalf("the refusal did not name limit: %s", rec.Body)
+		}
+	}
+}
+
+// TestABodylessRouteIgnoresARequestBody: the contract says this operation has no
+// body, so the seam does not read one — not even to reject it. Reading it would
+// make the route's behaviour depend on something no client was told to send, and
+// a caller who sent arguments both ways would get one of the two silently.
+func TestABodylessRouteIgnoresARequestBody(t *testing.T) {
+	mux := echoArgs(t, queryVerb())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/sign-payload?payload=query",
+		strings.NewReader(`{"payload":"body"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	// The QUERY's value, and only it.
+	if got, want := rec.Body.String(), `{"payload":"query"}`; got != want {
+		t.Fatalf("arguments = %s, want %s", got, want)
+	}
+}
+
+// TestQueryArgumentsForRefusesADeclarationItCannotDescribe: the mount-time half.
+// Verb.Validate already refuses everything this trips on, so reaching it means
+// the served declaration did not come through that path — and a route that
+// quietly accepted no arguments would be worse than a boot that stops, because
+// every call would then look successful and do the wrong thing.
+func TestQueryArgumentsForRefusesADeclarationItCannotDescribe(t *testing.T) {
+	// Required names an argument the schema does not declare: nothing a caller
+	// could send would ever satisfy it, so the route can never answer 200.
+	unsatisfiable := queryVerb()
+	unsatisfiable.InputSchema = json.RawMessage(
+		`{"type":"object","properties":{"payload":{"type":"string"}},"required":["missing"]}`)
+	if _, err := queryArgumentsFor(unsatisfiable); err == nil {
+		t.Error("a required argument the schema does not declare was accepted")
+	}
+	malformed := queryVerb()
+	malformed.InputSchema = json.RawMessage(`{"type":"object","properties":[]}`)
+	if _, err := queryArgumentsFor(malformed); err == nil {
+		t.Error("an input schema this route cannot read was accepted")
+	}
+	// And the mount refuses such a declaration rather than serving it, which is
+	// the behaviour that matters: argumentReaderFor is what MountExtensionRoutes
+	// calls, and a route that quietly accepted no arguments would answer 200 to
+	// every call while doing the wrong thing.
+	if _, err := argumentReaderFor(unsatisfiable); err == nil {
+		t.Error("the mount accepted a declaration whose arguments cannot be described")
+	}
+}
+
+// TestABodyMethodReadsItsArgumentsFromTheBody: the reader a body-carrying method
+// gets is the body one, and it applies the empty-object default. Asserted through
+// argumentReaderFor rather than by inspecting a flag, because the reader IS the
+// choice — a route holds only the one its own declaration produced, so it cannot
+// read a body it has no schema for.
+func TestABodyMethodReadsItsArgumentsFromTheBody(t *testing.T) {
+	post := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeWrite)
+	read, err := argumentReaderFor(post)
+	if err != nil {
+		t.Fatalf("a POST must resolve a reader: %v", err)
+	}
+	got, err := read(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"k":1}`)))
+	if err != nil {
+		t.Fatalf("reading a body: %v", err)
+	}
+	if string(got) != `{"k":1}` {
+		t.Errorf("arguments = %s, want the body verbatim", got)
+	}
+	// An absent body is the empty object, not a refusal — and a query string is
+	// ignored, because this operation's arguments are not there.
+	got, err = read(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/x?k=2", nil))
+	if err != nil {
+		t.Fatalf("reading an absent body: %v", err)
+	}
+	if string(got) != `{}` {
+		t.Errorf("arguments = %s, want the empty-object default", got)
+	}
+}

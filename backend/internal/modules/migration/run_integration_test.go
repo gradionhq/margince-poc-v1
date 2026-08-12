@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -26,7 +25,7 @@ import (
 // needs (the overlay module's testsupport_integration.go pattern). It
 // fails loudly rather than skipping — a silently skipped gate looks
 // exactly like a passing one.
-func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (context.Context, *pgxpool.Pool) {
+func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (context.Context, *database.DB) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -74,7 +73,9 @@ func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (co
 			RowScope: principal.RowScopeAll,
 		},
 	})
-	return opCtx, pool
+	// The handle as well as the ctx: a store writes the workspace its handle
+	// binds, so a second tenant needs one of its own.
+	return opCtx, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
 }
 
 func adminImportRunGrant() map[string]principal.ObjectGrant {
@@ -84,8 +85,8 @@ func adminImportRunGrant() map[string]principal.ObjectGrant {
 }
 
 func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
-	ctx, pool := testWorkspaceCtx(t, adminImportRunGrant())
-	s := NewRunStore(pool)
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
 
 	run, err := s.Create(ctx, CreateRunInput{Connector: ConnectorMirror, SourceRef: "snap-test", Source: "overlay:flip"})
 	if err != nil {
@@ -149,7 +150,7 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 
 	// Every gate audited: create + fail + resume + complete.
 	var audits int
-	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err = db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM audit_log WHERE entity_type = 'import_run' AND entity_id = $1`,
 			run.ID).Scan(&audits)
@@ -163,8 +164,8 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 }
 
 func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
-	ctxA, pool := testWorkspaceCtx(t, adminImportRunGrant())
-	s := NewRunStore(pool)
+	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(dbA)
 	run, err := s.Create(ctxA, CreateRunInput{Connector: ConnectorMirror, SourceRef: "snap-a", Source: "overlay:flip"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -191,14 +192,18 @@ func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
 	// Another workspace neither sees that identity nor may reference the
 	// run: the composite FK rejects a cross-workspace run at the
 	// database, not merely through RLS visibility.
-	ctxB, _ := testWorkspaceCtx(t, adminImportRunGrant())
-	if _, found, err := s.LookupIdentity(ctxB, "hubspot", "person", "p-1"); err != nil || found {
+	// Workspace B asks through a store of its own: the workspace a statement
+	// runs in is the handle's, so driving A's store with B's ctx would answer
+	// A's rows and this fence would prove nothing.
+	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
+	sB := NewRunStore(dbB)
+	if _, found, err := sB.LookupIdentity(ctxB, "hubspot", "person", "p-1"); err != nil || found {
 		t.Fatalf("workspace B resolved workspace A's identity (found=%v, err=%v)", found, err)
 	}
 	// Rejected AND existence-hiding: a bare constraint error would tell
 	// workspace B that A's run id is real, which is the thing row scope
 	// is supposed to withhold.
-	err = s.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7())
+	err = sB.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7())
 	if err == nil {
 		t.Fatal("recording an identity against ANOTHER workspace's run must be rejected by the database")
 	}
@@ -211,15 +216,15 @@ func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
 }
 
 func TestRunStoreForeignWorkspaceReadsNotFound(t *testing.T) {
-	ctxA, pool := testWorkspaceCtx(t, adminImportRunGrant())
-	s := NewRunStore(pool)
+	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(dbA)
 	run, err := s.Create(ctxA, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	ctxB, _ := testWorkspaceCtx(t, adminImportRunGrant())
-	if _, err := NewRunStore(pool).Get(ctxB, run.ID); !errors.Is(err, apperrors.ErrNotFound) {
+	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
+	if _, err := NewRunStore(dbB).Get(ctxB, run.ID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("foreign-workspace Get err = %v, want ErrNotFound (existence-hiding)", err)
 	}
 }

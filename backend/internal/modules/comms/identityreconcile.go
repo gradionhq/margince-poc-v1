@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -122,7 +121,7 @@ func (s *Store) reKeyGuarded(ctx context.Context, deliveryID ids.UUID, activityI
 			err = fmt.Errorf("comms: the message-identity reconcile panicked: %v", r)
 		}
 	}()
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return s.reKey(ctx, tx, deliveryID, activityID, staged, stamped)
 	})
 }
@@ -158,7 +157,7 @@ func (s *Store) reKey(ctx context.Context, tx pgx.Tx, deliveryID ids.UUID, activ
 // worst case is now what it should always have been: a degradation nobody is
 // told about in the database, rather than a second email.
 func (s *Store) breadcrumb(ctx context.Context, deliveryID ids.UUID, staged, stamped string, cause error) {
-	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := storekit.LogSystem(ctx, tx, "comms_identity_reconcile_failed", map[string]any{
 			"delivery_id":         deliveryID.String(),
 			"staged_message_id":   staged,

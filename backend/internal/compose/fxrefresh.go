@@ -302,8 +302,8 @@ func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefresh
 
 func newFxRefreshWorker(pool *pgxpool.Pool, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {
 	return &fxRefreshWorker{refresh: fxRefresh{
-		store:               deals.NewStore(pool, DealsInstallation()),
-		svc:                 approvals.NewService(pool),
+		store:               deals.NewStore(InstallationDB(pool), DealsInstallation()),
+		svc:                 approvals.NewService(InstallationDB(pool)),
 		fetcher:             webread.New(),
 		brain:               brain,
 		url:                 url,

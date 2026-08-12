@@ -73,7 +73,7 @@ func setupLeadLinkedIn(t *testing.T) *linkedinEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(pool)
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
 	return e
 }
 

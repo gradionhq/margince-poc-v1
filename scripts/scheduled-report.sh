@@ -87,6 +87,28 @@ So the breakage may predate the most recent commit. Reproduce locally with
     || unreported=1
 fi
 
+if [ "${CACHE_RESULT:-}" = "failure" ]; then
+  report "the Actions build-cache reaper is failing" bug \
+"\`scripts/reap-build-caches.sh\` failed on the scheduled run: $RUN_URL
+
+This one degrades quietly, which is why it is filed rather than left as a red
+run. A repository gets 10 GB of Actions cache and one push to \`main\` writes
+about 5 GB of Go build cache, so without the reaper the quota fills and GitHub
+evicts least-recently-used — which reaches \`node-cache\`, \`gate-binaries\` and
+\`setup-go\` first, because each is read once per run while a build cache is read
+by every Go job. Nothing breaks; the cheap caches are evicted by the expensive
+ones and several lanes just get slower, with no failure to point at.
+
+The reaper is written to refuse rather than guess, so the likely cause is a
+deliberate change it cannot interpret: the cache key shape moved. If
+\`.github/actions/go-build-cache\` no longer ends its key with a commit sha, or
+the \`go-build-\` prefix changed, teach the script the new shape —
+\`scripts/test-reap-build-caches.sh\` covers both refusals.
+
+Inspect without deleting anything: \`DRY_RUN=1 scripts/reap-build-caches.sh\`."\
+    || unreported=1
+fi
+
 if [ "$unreported" -ne 0 ]; then
   echo "FAIL: at least one finding could not be filed — the run above names what was broken, but an issue for it does not exist" >&2
   exit 1

@@ -67,7 +67,7 @@ func seatedTitle(t *testing.T, e *integration.Env, person ids.UUID) *string {
 
 func TestApplySitePersonFieldsMatchesAnEmployeeByName(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", nil)
 	person := seatEmployee(t, e, org, "Bob Builder", "")
 
@@ -111,7 +111,7 @@ func TestApplySitePersonFieldsMatchesAnEmployeeByName(t *testing.T) {
 
 func TestApplySitePersonFieldsRefusesToGuess(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", nil)
 	seatEmployee(t, e, org, "Chris Taylor", "")
 	seatEmployee(t, e, org, "Chris Taylor", "")
@@ -147,7 +147,7 @@ func TestApplySitePersonFieldsRefusesToGuess(t *testing.T) {
 
 func TestApplySitePersonFieldsStaysInsideTheCompany(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	acme := e.SeedOrg(t, "Acme", nil)
 	other := e.SeedOrg(t, "Other", nil)
 	person := seatEmployee(t, e, other, "Dana Reed", "dana@other.example")
@@ -172,7 +172,7 @@ func TestApplySitePersonFieldsStaysInsideTheCompany(t *testing.T) {
 
 func TestApplySitePersonFieldsNeverTouchesAHumansAnswer(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", nil)
 	person := seatEmployee(t, e, org, "Erin Vance", "erin@acme.example")
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

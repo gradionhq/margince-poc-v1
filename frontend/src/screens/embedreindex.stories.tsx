@@ -16,7 +16,6 @@ const STATUS_NEEDED = {
   entities_pending: 128,
   per_workspace: [
     {
-      workspace_id: "018f3a1b-0000-7000-8000-000000000001",
       entities_pending: 128,
     },
   ],
@@ -38,7 +37,6 @@ const PREVIEW = {
   computed_at: "2026-07-22T00:00:00Z",
   per_workspace: [
     {
-      workspace_id: "018f3a1b-0000-7000-8000-000000000001",
       entities_pending: 128,
       estimated_ai_tokens: 34_500,
       utilization_impact: "degraded",

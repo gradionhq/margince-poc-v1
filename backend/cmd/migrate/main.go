@@ -42,20 +42,27 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "migrate:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
 	}
 	direction := args[0]
 
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (owner role)")
+	// The usage text goes where the caller says, so a test can assert what it
+	// contains. flag writes to os.Stderr otherwise, out of reach of any assertion.
+	fs.SetOutput(stderr)
+	// Registered with an EMPTY default and resolved after parsing. flag echoes a
+	// non-empty default in its usage output — `(default "postgres://…")` — and this
+	// value carries a password, so any default read from the environment here
+	// reaches stderr on a mistyped flag. On CI that stderr is a public build log.
+	dsn := fs.String("dsn", "", "Postgres DSN (owner role); default MARGINCE_OWNER_DSN, else MARGINCE_DSN")
 	steps := fs.Int("steps", 1, "migrations to revert (down only)")
 	email := fs.String("email", "", "user email (reset-password only)")
 	name := fs.String("name", "", "database name (recreate-db, drop-db, db-exists only)")
@@ -63,11 +70,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	if *dsn == "" {
-		return errors.New("migrate: --dsn or MARGINCE_DSN required")
+	resolved, err := resolveDSN(fs, *dsn)
+	if err != nil {
+		return err
 	}
 
-	conn, err := pgx.Connect(ctx, *dsn)
+	conn, err := pgx.Connect(ctx, resolved)
 	if err != nil {
 		return fmt.Errorf("migrate: connecting: %w", err)
 	}
@@ -89,31 +97,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return up(ctx, conn, *dsn, core, custom, exts, stdout)
+		return up(ctx, conn, resolved, core, custom, exts, stdout)
 	case "down":
-		// Down reverts the SQL namespaces only — custom first (it sits on top
-		// of core), --steps at a time. River's schema is infrastructure with
-		// its own migrator; rolling it back is a separate deliberate step, not
-		// folded into this counter (a plain `down` must never surprise the
-		// operator by dropping a River migration). An extension's namespace is
-		// excluded for the same reason and one more: its down-migration DROPs
-		// the unit's tables, so a `--steps 1` aimed at the fork's last change
-		// must never reach a tenant's extension data.
-		reverted, err := dbmigrate.Down(ctx, conn, custom, *steps)
-		if err != nil {
-			return err
-		}
-		if reverted < *steps {
-			more, err := dbmigrate.Down(ctx, conn, core, *steps-reverted)
-			if err != nil {
-				return err
-			}
-			reverted += more
-		}
-		if _, err := fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted); err != nil {
-			return fmt.Errorf("migrate down: writing the confirmation: %w", err)
-		}
-		return nil
+		return down(ctx, conn, core, custom, *steps, stdout)
 	case "reset-password":
 		return resetPassword(ctx, conn, *email, os.Stdin, stdout)
 	case "recreate-db":
@@ -137,6 +123,34 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // custom, not a second one: Up holds a cluster-wide advisory lock for the
 // length of one call, and splitting the lanes would open a window between
 // them in which a second migrator could interleave.
+// down reverts the SQL namespaces, custom first, --steps at a time. It mirrors up
+// above; the reasoning for what it deliberately leaves alone is in the body.
+func down(ctx context.Context, conn *pgx.Conn, core, custom dbmigrate.Namespace, steps int, stdout io.Writer) error {
+	// Down reverts the SQL namespaces only — custom first (it sits on top
+	// of core), --steps at a time. River's schema is infrastructure with
+	// its own migrator; rolling it back is a separate deliberate step, not
+	// folded into this counter (a plain `down` must never surprise the
+	// operator by dropping a River migration). An extension's namespace is
+	// excluded for the same reason and one more: its down-migration DROPs
+	// the unit's tables, so a `--steps 1` aimed at the fork's last change
+	// must never reach a tenant's extension data.
+	reverted, err := dbmigrate.Down(ctx, conn, custom, steps)
+	if err != nil {
+		return err
+	}
+	if reverted < steps {
+		more, err := dbmigrate.Down(ctx, conn, core, steps-reverted)
+		if err != nil {
+			return err
+		}
+		reverted += more
+	}
+	if _, err := fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted); err != nil {
+		return fmt.Errorf("migrate down: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
 func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.Namespace, exts []dbmigrate.Namespace, stdout io.Writer) error {
 	if err := reportExtensionNamespaces(exts, stdout); err != nil {
 		return err
@@ -201,7 +215,7 @@ CREATE INDEX IF NOT EXISTS river_job_workspace_arg
 // its own schema_migrations_ext_<name>.
 //
 // The bytes come from the unit's own embedded FS, so this works in the
-// deployed image, where there is no extensions/ tree to read (Dockerfile.api
+// deployed image, where there is no extensions/ tree to read (the api image
 // ships the binary alone).
 //
 // Sorted by unit name. No unit's schema may depend on another's — each owns

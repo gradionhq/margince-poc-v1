@@ -152,7 +152,7 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 	if getStatus := e.Call(t, "GET", "/v1/people/"+created.ID, nil, bearer, nil); getStatus != 200 {
 		t.Fatalf("staged archive must not have executed; GET → %d", getStatus)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The agent may STAGE but never APPROVE — including its own staging.
 	var denyBody struct {
@@ -180,22 +180,6 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 	if e.Call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem) == 200 {
 		t.Fatal("a consumed approval token authorized a second effect")
 	}
-}
-
-// extractStagedApprovalID pulls the staged approval's id out of the 403
-// approval_required detail — the same reference the human inbox lists.
-func extractStagedApprovalID(t *testing.T, detail string) string {
-	t.Helper()
-	const marker = "staged as approval "
-	i := strings.Index(detail, marker)
-	if i < 0 {
-		t.Fatalf("no staged approval reference in %q", detail)
-	}
-	rest := detail[i+len(marker):]
-	if j := strings.IndexByte(rest, ' '); j > 0 {
-		rest = rest[:j]
-	}
-	return rest
 }
 
 // C2: a read seat is a hard capability ceiling — a read-seat human may read

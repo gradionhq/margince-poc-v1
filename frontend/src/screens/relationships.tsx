@@ -11,12 +11,12 @@ import { isOption } from "../app/options";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   EmptyState,
   Field,
   Modal,
   SearchField,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
@@ -307,13 +307,12 @@ function AddRelationshipAction({
     };
   }, [open, term, entity]);
 
+  // The picked target arrives as the mutation's variable, not through this
+  // closure: react-query re-arms a mutation's options in a passive effect, so a
+  // submit landing between the commit that enables the button and that effect
+  // runs the previous render's function — where nothing had been picked yet.
   const mutation = useMutation({
-    mutationFn: async () => {
-      if (!target) {
-        // The submit button is disabled until a target is picked — this
-        // guard only protects against a stale closure, never a real path.
-        throw new Error("no target selected");
-      }
+    mutationFn: async (target: Candidate) => {
       const body: CreateRelationshipRequest = {
         kind,
         role: role.trim() || undefined,
@@ -457,7 +456,7 @@ function AddRelationshipAction({
               small
               variant="primary"
               disabled={!target || mutation.isPending}
-              onClick={() => mutation.mutate()}
+              onClick={() => target && mutation.mutate(target)}
               data-testid="add-relationship-submit"
             >
               {t("create.save")}
@@ -521,11 +520,10 @@ export function RelationshipsTab({
   });
 
   return (
-    <section className="card">
-      <div className="list-head">
-        <SectionHeader title={t("tab.relationships")} />
-        <AddRelationshipAction scope={scope} />
-      </div>
+    <Card
+      title={t("tab.relationships")}
+      actions={<AddRelationshipAction scope={scope} />}
+    >
       <QueryGate query={query}>
         {(rows) =>
           rows.length === 0 ? (
@@ -658,6 +656,6 @@ export function RelationshipsTab({
           </Button>
         </div>
       </Modal>
-    </section>
+    </Card>
   );
 }

@@ -130,7 +130,7 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 // the deployment's suppression-list additions and the logger; the zero value is
 // the baselines and the default logger.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
-	r := capture.NewRegistry(pool, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
+	r := capture.NewRegistry(InstallationDB(pool), newCaptureSink(pool, cfg), identity.NewService(pool), vault)
 	// The standing IMAP connector needs no deployment config — credentials
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
@@ -157,13 +157,13 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		triage: newDomainTriageTrigger(pool, cfg.logger()),
 		log:    cfg.logger(),
 	}
-	return capture.NewSink(pool).
+	return capture.NewSink(InstallationDB(pool)).
 		// The files a captured message carried, written by the module that owns
 		// the attachment table. Built here, from the store, so every role that
 		// composes a sink gets the same one — the worker runs mail capture and
 		// never sees the api's options.
-		WithFileKeeper(capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(cfg.Blob)}).
-		WithStager(mergeStager{svc: approvals.NewService(pool)}).
+		WithFileKeeper(capturedFileKeeper{store: activities.NewStore(InstallationDB(pool)).WithBlobstore(cfg.Blob)}).
+		WithStager(mergeStager{svc: approvals.NewService(InstallationDB(pool))}).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
 		// chokepoint — composed here so capture never imports people. The

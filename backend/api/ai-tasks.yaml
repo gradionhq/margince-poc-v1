@@ -11,7 +11,7 @@
 # tools/gen-aitasks compiles that copy into the binary (tasks_gen.go) behind a
 # drift gate, the same mechanism crm.yaml already uses for the HTTP contract.
 # Tier→model binding (which concrete provider/model serves local_small /
-# cheap_cloud / premium / local_large) stays a per-deployment runtime config
+# cheap_cloud / premium / frontier / local_large) stays a per-deployment config
 # (config/ai-routing.yaml, §1.4) — editing THAT never requires a rebuild.
 # Editing the ladders/posture below is a routing-POLICY change: it requires a
 # spec update here, the mirrored edit in the build repo, `make gen`, and a
@@ -56,7 +56,12 @@
 # required certification band — the certification lane is paid and BYOK-gated,
 # so it reports release readiness (naming its provider/model binding) and never
 # gates a merge.
-tiers: [local_small, cheap_cloud, premium, local_large]
+#
+# frontier sits one rung above premium: the strongest model a deployment is
+# willing to pay for. No task ladder selects it — it is declared so an operator
+# can bind one, and so a task that genuinely needs the top rung has a name to
+# reach for without redefining what premium means for every other task.
+tiers: [local_small, cheap_cloud, premium, frontier, local_large]
 
 tasks:
   capture_classify:
@@ -119,9 +124,9 @@ tasks:
     execution_mode: interactive
     on_budget_exhausted: degrade
     status: shipped
-    sites: [reply]
+    sites: [reply, person, account]
     company_context: {scopes: [positioning, sales, proof, market], token_budget: 1400}
-    doc: "One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site."
+    doc: "Three sites, one task: the reply to an activity, the person page's composer, and the company page's first-touch outbound. They differ in what a draft is grounded IN, and share the rules block every drafting surface writes under (compose/draftrules). The reply site alone has two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a fourth site; the composers gain theirs when Voice DNA reaches them."
 
   nl_search:
     ladder: [cheap_cloud, premium]
@@ -253,6 +258,7 @@ embed:
   cost_unit: per_entity
 
 degrade_to:
+  frontier: premium
   premium: cheap_cloud
   cheap_cloud: local_small
   local_large: local_small

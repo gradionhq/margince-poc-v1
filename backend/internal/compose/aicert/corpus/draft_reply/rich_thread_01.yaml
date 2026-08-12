@@ -1,0 +1,121 @@
+name: rich_german_thread_with_a_long_ask
+task: draft_reply
+site: reply
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+fixture:
+  activity:
+    output_language: de
+    conversation_state: weeks
+    silence_days: '26'
+    now: '2026-08-12T09:00:00Z'
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+    thread: inbound_mail
+    recipient: Priya
+    register: du
+    subject: Corvia CRM - erstes Feedback
+    body: "From: p.raman@example.com\nTo: anna.krueger@example.com\n\nAnna, danke\
+      \ fürs Teilen des Decks … das habe ich gründlich durchgearbeitet und gegen HubSpot,\
+      \ Salesforce, Dynamics und HighLevel gehalten – anbei mein erstes Feedback -\
+      \ in German, war für mich effizienter, du kannst ja übersetzen lassen … \U0001F609\
+      \n\nIch hab‘ darauf basierend auch mal einen ersten Draft eine Landingpage<https://aurelis.Northwindde/hubfs/Import/Corvia_Landingpage_DACH.html>\
+      \ skizziert, folgende Gedanken dazu:\n\n\n  *   Kampagnen-Hook: „Datensouveränität“\n\
+      \  *   DACH-Vertrauensanker durchgehend: „Made in Europe\", DSGVO, EU AI Act\
+      \ ready, Hosting DE/AT/CH, plus Risk-Reversal-Microcopy („Ihre Angaben bleiben\
+      \ in der EU. Kein SDR-Spam.\").\n  *   Einwand-Behandlung als FAQ (Datenzugriff,\
+      \ Compliance, Migration, was nach dem Download passiert) und ein CISO-Testimonial\
+      \ mit „0 Drittland-Zugriffe\" als Beweis-Anker.\n\nUnd ja, ich möchte gerne\
+      \ über einen eurer drei Design-Partner-Slots für 2026 sprechen, bevor die öffentlich\
+      \ sind. Ich suche kein Pilotprojekt, ich möchte sehr gerne partizipieren auf\
+      \ Grund meiner Einschätzung zur Kategorie: Corvia ist nicht das nächste bessere\
+      \ CRM, sondern kann die erste souveräne AI Business Platform Europas werden.\
+      \ Das Deck verkauft heute aber überwiegend ein CRM, und damit tretet ihr (noch\
+      \ zu sehr) direkt gegen Salesforce und HubSpot auf einem Feld an, auf dem m.E\
+      \ nur verloren werden kann ...\n\nSouveränität plus KI plus regulatorische Sicherheit\
+      \ ist dagegen ein Feld, das so noch keiner besetzt; und genau da will ich mit\
+      \ rein. Dazu kurze Anmerkungen zu meinem Feedback anbei: Ihr sprecht zu sehr\
+      \ Engineering, der Markt entscheidet nach meiner Erfahrung hier kaufmännisch;\
+      \ der Business Case für CEO und CFO fehlt; das Deck redet fast nur mit dem CIO,\
+      \ nicht mit der ganzen Buying-Group. „Built for the Betriebsrat\", eines eurer\
+      \ stärksten DACH-Argumente, steht versteckt auf einer Folie statt im Zentrum.\
+      \ Das ist lösbar, aber nicht mit Engineering-Sprache.\n\nUnd hier kommt der\
+      \ Punkt, warum ein Slot an northwind für euch mehr wert ist als ein klassischer\
+      \ Pilot:\n\n  *   DACH-Marktzugang in genau eurem Zielsegment. Unser ICP ist\
+      \ regulierter Mittelstand „Rund ums Haus & Büro\", B2B2C, gehobener Mittelstand.\
+      \ Das ist exakt die Klientel, für die Souveränität, AI Act und Betriebsrat ein\
+      \ realer Schmerz sind.\n  *   Echte Pilotkandidaten aus unserem Adress-Bestand,\
+      \ statt dass ihr sie kalt akquirieren müsst.\n  *   Positionierung und Messaging,\
+      \ also genau das, was dem Deck heute fehlt. Wir machen Creative Growth für den\
+      \ Mittelstand; das Übersetzen von Technik in Kaufargumente ist unser Kerngeschäft,\
+      \ nicht eures.\n  *   northwind als eigener Design-Partner. Wir prüfen Corvia\
+      \ für unser zweites System of Record (parallel zu HubSpot) und können das offen\
+      \ als Referenz fahren, „Schuster mit eigenen Schuhen\".\n\nIch will keine austauschbare\
+      \ Implementierungspartner-Rolle, das ist die Rolle, die heute hunderte HubSpot-Partner\
+      \ ausfüllen; hab‘ ich schon \U0001F603 Ich wünsche mir eine definierte DACH-Rolle\
+      \ – unser Partner-Agreement weiterentwickelt …\n\nKonkreter nächster Schritt:\
+      \ ein gemeinsames Deep-Dive Update mit deiner Rückmeldung auf meine Punkte +\
+      \ ein Blick ins System – und gemeinsamer Planung zur „Vermarktung“ in DACH.\n\
+      \nWas meinst du?\n\nViele Grüße, Priya\n\n\n\n\nPriya Raman\nCEO\n\nNorthwind\
+      \ GmbH   Creative Growth\nLeopoldstraße 154    80804 München\nTel. +4989244413225\
+      \ +4917610042069\np.raman@example.com\nDirekt Termin buchen<https://experience.Northwindde/meetings/priya-raman>\
+      \ | Northwindde<http://Northwindde>\n\n\n\nGeschäftsführung: Uwe Middeke, Priya\
+      \ S. Raman\nAmtsgericht München HRB 136 167   USt-Id: DE21 444 16 48\n\nDiese\
+      \ E-Mail und alle möglicherweise enthaltenen Anhänge enthalten vertrauliche\
+      \ Informationen, die ausschließlich für die in der E-Mail genannten Adressaten\
+      \ bestimmt sind. Sollten Sie diese E-Mail irrtümlich erhalten haben, bitten\
+      \ wir Sie, uns dies mitzuteilen und die Nachricht unwiderruflich zu löschen.\n\
+      This email and any files transmitted with it are confidential and intended solely\
+      \ for the use of the individual or entity to whom they are addressed. If you\
+      \ have received this email in error please notify the system manager and irreversibly\
+      \ delete this mail.\n"
+    intent: Auf das Feedback eingehen und das vorgeschlagene Deep-Dive-Gespräch aufsetzen.
+  voice: null
+expect:
+  outcome: accepted
+  answer: plain
+  rubric: 'A long, specific message deserves a specific answer, and this fixture exists
+
+    because the short ones did not measure that: a draft can pass every other case
+
+    by being politely vague, and this one floors that.
+
+
+    Ground it in what the message SAYS. It raises several distinct points — the
+
+    positioning away from a CRM comparison, the argument aimed at the works council,
+
+    the shift from engineering language to commercial language for the buying group,
+
+    and a proposal that the sender''s own company take one of the design-partner
+
+    slots. A draft that engages with at least two of them by name scores well. One
+
+    that answers "thank you for your feedback, shall we have a call" has read
+
+    nothing and cannot score above degraded, however well written it is.
+
+
+    Pick up the ask. The message proposes a deep dive; the intent says to set it up.
+
+    A draft that proposes something else, or asks vaguely for "a short update",
+
+    has ignored what was actually requested.
+
+
+    German throughout, and du throughout — the correspondence is on du terms and the
+
+    register is given. A draft that switches to Sie mid-message, or writes English,
+
+    scores at the floor whatever else it gets right.
+
+
+    Invent nothing. No date, no figure, no commitment the message did not contain.
+
+    Naming a specific next step the sender never proposed is invention even when it
+
+    sounds helpful.'
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -98,7 +98,7 @@ func setupFinance(t *testing.T) *financeEnv {
 	// derived status, the credit-note placement. Injecting the literal keeps
 	// it that way, and keeps the suite indifferent to where the installation
 	// stores its currency.
-	e.store = NewStore(pool, func(context.Context, pgx.Tx) (string, error) {
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)), func(context.Context, pgx.Tx) (string, error) {
 		return "EUR", nil
 	})
 
@@ -155,7 +155,7 @@ func (e *financeEnv) summaryAtEpoch(
 	t *testing.T, orgID ids.OrganizationID,
 ) crmcontracts.OrganizationFinanceSummary {
 	t.Helper()
-	at := NewStore(e.store.pool, e.store.baseCurrency).
+	at := NewStore(e.store.db, e.store.baseCurrency).
 		WithClock(func() time.Time { return offlineEpoch })
 	out, err := at.SummaryFor(e.ctx, orgID)
 	if err != nil {
@@ -348,13 +348,13 @@ func TestCrossingADueDateDoesNotRewriteTheLedger(t *testing.T) {
 	e := setupFinance(t)
 	ctx, provider := e.ctx, e.provider()
 
-	atEpoch := NewStore(e.store.pool, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch })
+	atEpoch := NewStore(e.store.db, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch })
 	if _, err := atEpoch.SyncConnection(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	// A year later, with the SAME source. Every open invoice is now long past
 	// due, so a status-in-the-hash implementation would rewrite them all.
-	later := NewStore(e.store.pool, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch.AddDate(1, 0, 0) })
+	later := NewStore(e.store.db, e.store.baseCurrency).WithClock(func() time.Time { return offlineEpoch.AddDate(1, 0, 0) })
 	second, err := later.SyncConnection(ctx, provider)
 	if err != nil {
 		t.Fatal(err)

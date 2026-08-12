@@ -62,7 +62,7 @@ func (f *fakeChannelSender) SendMessage(_ context.Context, _ connector.Auth, m c
 func (e *storeEnv) inFlightAt(t *testing.T, id ids.UUID) *time.Time {
 	t.Helper()
 	var at *time.Time
-	if err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(e.ctx, `SELECT inflight_at FROM comms_outbound WHERE id = $1`, id).Scan(&at)
 	}); err != nil {
 		t.Fatalf("reading the in-flight marker of %s: %v", id, err)

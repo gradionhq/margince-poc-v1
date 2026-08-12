@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -113,7 +114,7 @@ func (w *overlayRefetchWorker) resolveRefetchTarget(ctx context.Context, job *ri
 	if conn.Incumbent != incumbentHubSpot {
 		return nil, overlay.DueOverlayConnection{}, false, nil
 	}
-	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
+	if halted, err := overlay.NewWriteLedger(database.BindTo(w.pool, ids.From[ids.WorkspaceKind](job.Args.Workspace))).Halted(wsCtx); err != nil {
 		return nil, overlay.DueOverlayConnection{}, false, fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
 	} else if halted {
 		w.log.WarnContext(wsCtx, "overlay refetch: mirror is halted (ledger collision), skipping",

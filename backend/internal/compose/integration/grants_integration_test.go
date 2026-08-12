@@ -31,7 +31,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Shared Secret', $3, 'manual', 'human:x')`, e.Rep3)
 
 	repCtx := e.AsTeamRep(e.Rep1, e.Team1)
-	peopleStore := people.NewStore(e.Pool)
+	peopleStore := people.NewStore(e.DB())
 
 	// Before the grant: team scope hides rep3's record from rep1.
 	if _, err := peopleStore.GetPerson(repCtx, PersonIDOf(foreign), storekit.LiveOnly); err == nil {

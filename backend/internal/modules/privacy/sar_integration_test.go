@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,8 +32,11 @@ import (
 // sarIdentifierEnv is one workspace holding one subject who carries a LIVE and
 // a RETIRED identifier of each kind the export projects.
 type sarIdentifierEnv struct {
-	ctx    context.Context
-	pool   *pgxpool.Pool
+	ctx context.Context
+	// db is pinned to the workspace this fixture created: the handle is where
+	// "which tenant am I" lives now (ADR-0091 §9 step 3), and this env builds
+	// its workspace by raw SQL rather than through the installation resolver.
+	db     *database.DB
 	person ids.PersonID
 }
 
@@ -87,7 +89,11 @@ func setupSARIdentifiers(t *testing.T) *sarIdentifierEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	return &sarIdentifierEnv{ctx: exportContext(ws, user), pool: pool, person: person}
+	return &sarIdentifierEnv{
+		ctx:    exportContext(ws, user),
+		db:     database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)),
+		person: person,
+	}
 }
 
 // seedIdentifierPairs gives the subject one live and one retired row of each
@@ -158,7 +164,7 @@ const (
 func TestTheSARExportDistinguishesARetiredBindingFromALiveOne(t *testing.T) {
 	e := setupSARIdentifiers(t)
 
-	pkg, err := AssembleSAR(e.ctx, e.pool, e.person)
+	pkg, err := AssembleSAR(e.ctx, e.db, e.person)
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

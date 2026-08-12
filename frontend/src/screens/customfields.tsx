@@ -15,6 +15,7 @@ import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   EmptyState,
   Field,
@@ -115,9 +116,9 @@ export function FieldBuilder({
   };
 
   return (
-    <section
-      className="card cf-builder"
-      aria-label={t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
+    <Card
+      className="cf-builder"
+      ariaLabel={t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
     >
       <header className="cf-builder-head">
         <h3 className="section-header">
@@ -262,7 +263,7 @@ export function FieldBuilder({
           {t("cf.reset")}
         </Button>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -510,7 +511,6 @@ function stagedField(draft: NewFieldDraft, createdBy: string): CustomField {
   const now = new Date().toISOString();
   return {
     id: STAGED_ID,
-    workspace_id: "",
     object: draft.object,
     label: draft.label,
     slug: slug(draft.label),
@@ -716,10 +716,7 @@ export function CustomFieldsScreen() {
         })}
       </fieldset>
 
-      <section className="card">
-        <SectionHeader
-          title={t("cf.onObject", { object: t(`cf.obj.${object}`) })}
-        />
+      <Card title={t("cf.onObject", { object: t(`cf.obj.${object}`) })}>
         <QueryGate query={list}>
           {(page) => (
             <FieldTable
@@ -732,7 +729,7 @@ export function CustomFieldsScreen() {
             />
           )}
         </QueryGate>
-      </section>
+      </Card>
 
       {canCreate ? (
         <FieldBuilder
@@ -746,8 +743,7 @@ export function CustomFieldsScreen() {
         <p className="t-caption">{t("cf.noPermission")}</p>
       )}
 
-      <section className="card">
-        <SectionHeader title={t("cf.audit.title")} />
+      <Card title={t("cf.audit.title")}>
         <AuditRail
           entries={audit.data?.data ?? []}
           isError={audit.isError}
@@ -755,7 +751,7 @@ export function CustomFieldsScreen() {
           meUserId={meUserId}
         />
         <p className="t-caption">{t("cf.audit.footer")}</p>
-      </section>
+      </Card>
 
       {toast && (
         <div className="toast-region">

@@ -8,6 +8,7 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   Modal,
   SectionHeader,
   SegmentedControl,
@@ -381,13 +382,14 @@ function LeadLifecycle({
   const meId = me.data?.user?.id;
 
   return (
-    <div
-      className="card card-inset"
+    <Card
+      as="div"
+      inset
       style={{
-        marginTop: 14,
+        marginTop: "var(--space-4)",
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--space-3)",
       }}
     >
       {isOpenStatus(lead.status) && (
@@ -520,7 +522,7 @@ function LeadLifecycle({
           {problemMessageOf(patch.error, t)}
         </span>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -759,7 +761,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
     <div className="wrap lead-surface">
       <QueryGate query={leadQuery}>
         {(lead) => (
-          <div className="card lead-detail">
+          <Card as="div" className="lead-detail">
             <div className="list-head">
               {/* The lead's name is this page's name: the shell's page head
                   yields to a record route and prints only the trail that leads
@@ -874,7 +876,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               <RecordHistoryTab kind="lead" id={lead.id} />
             )}
             {tab === "history" && overlay && <OverlayUnavailable />}
-          </div>
+          </Card>
         )}
       </QueryGate>
     </div>

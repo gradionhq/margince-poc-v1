@@ -179,11 +179,11 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs s
 	// would not be exercised by these tests, and the pacing knobs below are
 	// deliberately inert (no policies, a bound nothing here reaches).
 	dispatcher := comms.NewDispatcher(
-		comms.NewStore(p.Pool, time.Now, activities.NewStore(p.Pool)),
+		comms.NewStore(compose.InstallationDB(p.Pool), time.Now, activities.NewStore(compose.InstallationDB(p.Pool))),
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.Pool),
 		compose.NewSendAttachmentAuthority(p.Pool),
-		consent.NewGate(consent.NewStore(p.Pool)),
+		consent.NewGate(consent.NewStore(compose.InstallationDB(p.Pool))),
 		nil, time.Now, 24*time.Hour, 10,
 	)
 	// A job carries no session. The scope comes from the composition rather
@@ -251,7 +251,7 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 			echo.NaturalKey.SourceID, messageID)
 	}
 
-	if _, err := capture.NewSink(p.Pool).Upsert(p.connectorCtx(t), echo); err != nil {
+	if _, err := capture.NewSink(p.DB()).Upsert(p.connectorCtx(t), echo); err != nil {
 		t.Fatalf("capturing the provider's own copy: %v", err)
 	}
 

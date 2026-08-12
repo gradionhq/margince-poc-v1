@@ -15,11 +15,36 @@
 # https://host/v1/v1/ext/… to every generated client, and the composer refuses
 # it.
 #
-# EVERY operation is a POST, and that is the seam's rule rather than a style
-# choice: a served extension operation IS a governed tool invocation, its
-# arguments are the request body, and extension.Verb's validateMethod admits
-# only post/put/patch because GET and DELETE carry no body. So "list", "add" and
-# "remove" are three POST verbs on three paths rather than three methods on one.
+# THE METHOD IS PART OF THE DECLARATION, and this unit is the worked example —
+# read it before choosing one for your own operation.
+#
+# All five verbs are admissible. Where the arguments live follows from the
+# method, not from preference: a POST, PUT or PATCH takes them from the request
+# body, and a GET or DELETE takes them from the query string, coerced against the
+# types declared under `parameters` (compose/extroutes.go). Declaring them on the
+# side the method does not read is refused at generation, because arguments
+# published to every client and then dropped on every call is worse than a
+# refusal an author can read.
+#
+# Two rules the generator enforces, both about not lying:
+#
+#   - A GET may not request a mutating scope. The human seat ceiling classifies a
+#     mutation BY METHOD (identity.serveAsHuman), so a mutating GET is a read
+#     seat's route to a write. This is the one rule here that is a security
+#     boundary rather than a convention.
+#   - A PUT, PATCH or DELETE may not request `read`. Each means "change this", and
+#     a method that announces a change for an operation that changes nothing is a
+#     declaration a reviewer trusts and a client guards against for no reason.
+#
+# POST is the one method with no rule, because POST is the RPC method: it states
+# only "here are some arguments, run this". That makes it the honest choice when
+# a read's arguments do not belong in a URL — see the signature operation below,
+# which stays a POST deliberately and says why.
+#
+# So this unit publishes a GET list, a GET status, a POST add, a PUT signing-key,
+# a DELETE remove, and a POST signature. PATCH is unused: notes has no
+# edit-a-note operation, and inventing one to complete the set would be an
+# operation that exists for a demo rather than for a user.
 overlay: 1.0.0
 info:
   title: notes
@@ -27,7 +52,14 @@ info:
 actions:
   - target: $.paths['/ext/notes/list']
     update:
-      post:
+      # GET, and it takes no arguments at all — the plainest bodyless shape, and
+      # the one most reads have. It declares no `parameters` and no requestBody,
+      # so the tool receives the empty object.
+      #
+      # It was a POST until GET was admissible, which cost this operation the one
+      # thing that mattered: a read seat could not call it, because the seat
+      # ceiling reads the method and every extension route was unsafe.
+      get:
         operationId: notesList
         summary: List this workspace's demo notes.
         tags: [Extensions]
@@ -54,13 +86,6 @@ actions:
             notepad table and changes nothing, so no person, company or deal is
             involved either way. Each note carries an id that the remove
             operation takes.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
         responses:
           '200':
             description: The workspace's notes, newest first.
@@ -232,7 +257,14 @@ actions:
 
   - target: $.paths['/ext/notes/remove']
     update:
-      post:
+      # DELETE, and this is the worked example of a bodyless method that DOES take
+      # an argument: the id rides the query string.
+      #
+      # The path is still /remove rather than /ext/notes/{id}, because an
+      # extension route may carry no path template (extension.Verb's route
+      # grammar) — admitting one would make this seam route and decode paths, and
+      # a query argument does the same job with a decode that already exists.
+      delete:
         operationId: notesRemove
         summary: Remove one note from the demo notepad.
         tags: [Extensions]
@@ -249,23 +281,27 @@ actions:
             report whether a note was actually removed. An id this workspace
             does not hold removes nothing and is not an error. It touches only
             the extension's own notepad table.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [id]
-                properties:
-                  # The id is a UUID, and declaring it as a bare string was a
-                  # contract that lied by omission: a generated caller could
-                  # submit schema-valid input the route then answered 500 to,
-                  # because the value reaches PostgreSQL's ::uuid cast. The
-                  # handler checks the same shape (notes.go) — the schema tells
-                  # a client, the handler enforces it, and nothing between the
-                  # two validates a body against the schema.
-                  id: { type: string, format: uuid, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
+        parameters:
+          # A query parameter, because DELETE carries no body. `required: true`
+          # reaches the assembled input schema's `required` list, and the seam
+          # refuses a call that omits it before the handler runs.
+          #
+          # The id is a UUID, and declaring it as a bare string was a contract
+          # that lied by omission: a generated caller could submit schema-valid
+          # input the route then answered 500 to, because the value reaches
+          # PostgreSQL's ::uuid cast. The handler checks the same shape
+          # (notes.go) — the schema tells a client, the handler enforces it.
+          #
+          # The `format` and `pattern` are published to clients and are NOT
+          # enforced by the seam: its query decode coerces a value to the declared
+          # TYPE (here, string) and nothing finer, because no schema validator
+          # stands between it and the handler. That division is the same one the
+          # body path has always had.
+          - name: id
+            in: query
+            required: true
+            description: The id of the note to remove.
+            schema: { type: string, format: uuid, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
         responses:
           '200':
             description: Whether a note was removed.
@@ -282,7 +318,11 @@ actions:
 
   - target: $.paths['/ext/notes/signing-key']
     update:
-      post:
+      # PUT, because storing the key REPLACES whatever this workspace held: the
+      # same call made twice leaves the same state, which is what PUT means and
+      # POST does not. It keeps a body — the key is a secret, and a secret in a
+      # URL is a secret in the access log (see the signature operation).
+      put:
         operationId: notesStoreSigningKey
         summary: Store this workspace's demo signing key.
         tags: [Extensions]
@@ -342,7 +382,10 @@ actions:
 
   - target: $.paths['/ext/notes/signing-key/status']
     update:
-      post:
+      # GET: a zero-argument read, like the list above. Note that the same PATH
+      # PREFIX carries a PUT (the store, above) and this GET on /status — two
+      # operations, two paths, each with the method its own semantic asks for.
+      get:
         operationId: notesSigningKeyStatus
         summary: Report whether a demo signing key is stored.
         tags: [Extensions]
@@ -363,13 +406,6 @@ actions:
             It answers a single boolean and returns no part of the key, masked
             or otherwise — presence is the only fact about a stored credential
             this unit ever discloses.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
         responses:
           '200':
             description: Whether a key is stored.
@@ -386,6 +422,30 @@ actions:
 
   - target: $.paths['/ext/notes/signature']
     update:
+      # POST, and it is a READ — the case where the rules admit a GET and the
+      # right answer is still POST. Copy this reasoning, not the mechanical
+      # conversion.
+      #
+      # A GET would put the payload in the URL, and a URL is not a private place:
+      # it lands in the browser's history, in a Referer header, and in the logs of
+      # any proxy in between — and it is the part of a request people copy and
+      # paste to each other. Signing input is the caller's data, and a URL is the
+      # one place a request carries data that outlives it.
+      #
+      # NOT because of this installation's own access log: httpserver.AccessLog
+      # records the METHOD, PATH and status and never r.URL.RawQuery, so the query
+      # arguments this seam now decodes do not reach an operator's log at all. Said
+      # plainly because the reverse is easy to assume — and because if that ever
+      # changes, every bodyless operation's arguments change with it.
+      #
+      # The size settles it independently: the payload is up to 4096 characters,
+      # and a request line is capped far lower than a body — by proxies, and here
+      # by Go's own 1 MB default for the request line and headers together.
+      #
+      # The cost is real and worth naming: because this stays a POST, the seat
+      # ceiling classifies it as mutating, so a read seat cannot call a read.
+      # Fixing THAT means classifying from the declared scope rather than the
+      # method — which is the open question the method rules here only narrow.
       post:
         operationId: notesSignPayload
         summary: HMAC-sign a payload with the stored demo signing key.

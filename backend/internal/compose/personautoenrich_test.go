@@ -46,12 +46,11 @@ func TestPersonAutoEnrichWritesAsASystemPrincipal(t *testing.T) {
 	g := &PersonAutoEnrich{}
 	ws := ids.NewV7()
 	env := events.Envelope{
-		Type:        "person.created",
-		Entity:      events.EntityRef{Type: "person", ID: ids.NewV7()},
-		WorkspaceID: ws,
+		Type:   "person.created",
+		Entity: events.EntityRef{Type: "person", ID: ids.NewV7()},
 	}
 
-	ctx := g.systemContext(context.Background(), env)
+	ctx := g.systemContext(context.Background(), env, ws)
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		t.Fatal("the pass writes with no principal at all")

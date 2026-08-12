@@ -33,7 +33,7 @@ func TestListSignalsByOrganizationCoversResolvedAndDirectSubjects(t *testing.T) 
 	e := Setup(t)
 	owner := OwnerConn(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, signalReaderPerms)
-	store := signals.NewStore(e.Pool, nil)
+	store := signals.NewStore(e.DB(), nil)
 
 	acme := e.SeedOrg(t, "Acme", &e.Rep1)
 	other := e.SeedOrg(t, "Contoso", &e.Rep1)

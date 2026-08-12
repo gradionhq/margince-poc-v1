@@ -436,7 +436,6 @@ func (h Handlers) meResponse(
 	return crmcontracts.MeResponse{
 		User: crmcontracts.User{
 			Id:          openapi_types.UUID(id.UserID.UUID),
-			WorkspaceId: openapi_types.UUID(id.WorkspaceID.UUID),
 			Email:       openapi_types.Email(id.Email),
 			DisplayName: id.DisplayName,
 			Status:      "active",

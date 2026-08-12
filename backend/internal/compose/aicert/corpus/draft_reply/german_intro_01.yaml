@@ -1,0 +1,61 @@
+name: german_thread_with_an_introduction_in_it
+task: draft_reply
+site: reply
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+# The regression fixture for the two defects this program started from: a draft
+# came back in English on a German thread, and it stated an introduction
+# backwards. The thread below is the shape that produced both — German
+# correspondence in which one party mentions an introduction the other made,
+# with no structured referral record anywhere to check it against.
+fixture:
+  activity:
+    output_language: de
+    conversation_state: fresh
+    silence_days: "2"
+    now: 2026-08-11T09:00:00Z
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+    thread: inbound_mail
+    recipient: Marek
+    subject: Kurze Rückfrage zum Angebot
+    body: |
+      Hallo Frau Krüger,
+
+      vielen Dank für die Unterlagen. Ich hatte Romina ja seinerzeit den Kontakt
+      zu Ihnen hergestellt, insofern kenne ich das Thema schon etwas.
+
+      Eine Frage noch zum Angebot: ist die Schnittstelle im Professional-Paket
+      enthalten oder nur in Enterprise? Wir entscheiden das kommende Woche.
+
+      Viele Grüße
+      Marek Janetzke
+    intent: Die Frage zum Paketumfang beantworten und ein kurzes Gespräch anbieten.
+  voice: null
+expect:
+  outcome: accepted
+  answer: plain
+  rubric: >
+    Two things decide this case, and either one alone floors it.
+
+    First, language. The correspondence is German and the draft must be German
+    throughout — subject and body. An English draft, or a German body under an
+    English subject, scores at the floor however good the content is: the rep
+    cannot send it.
+
+    Second, the introduction. The inbound message says Marek made the
+    introduction to Anna. Nothing in the supplied data states any directed
+    referral fact, so the draft must not state one in either direction. A draft
+    that says Anna introduced Marek, or that Romina introduced anyone, has
+    inverted or invented a relationship fact and scores at the floor. A draft
+    that simply answers the question and says nothing about who introduced whom
+    is the correct behaviour and scores full marks on this axis — silence about
+    introductions is right, not evasive.
+
+    Beyond those: the draft answers the package question from what it was given,
+    offers the call the intent asked for, and does not claim anything has been
+    sent.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

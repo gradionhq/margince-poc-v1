@@ -31,7 +31,6 @@ const ROSTER = {
   data: [
     {
       id: "u-active",
-      workspace_id: "ws-1",
       email: "ada@acme.test",
       display_name: "Ada Active",
       status: "active",
@@ -39,7 +38,6 @@ const ROSTER = {
     },
     {
       id: "u-off",
-      workspace_id: "ws-1",
       email: "otto@acme.test",
       display_name: "Otto Off",
       status: "deactivated",

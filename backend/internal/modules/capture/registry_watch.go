@@ -28,7 +28,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -72,7 +71,7 @@ func (r *Registry) RenewWatch(ctx context.Context, connectionID ids.UUID, topic 
 		credentialRef *string
 		authBytes     []byte
 	)
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT provider, user_id, credential_ref, auth FROM capture_connection
 			WHERE id = $1 AND status = 'connected'`, connectionID).
@@ -104,7 +103,7 @@ func (r *Registry) RenewWatch(ctx context.Context, connectionID ids.UUID, topic 
 	if err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_connection SET watch_expires_at = $2
 			WHERE id = $1 AND status = 'connected' AND archived_at IS NULL`,

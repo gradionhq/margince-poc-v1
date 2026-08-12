@@ -64,7 +64,7 @@ func TestWireSubscriptionMapsEveryFieldAndHidesNoSecret(t *testing.T) {
 	if got.TargetUrl != s.TargetURL || string(got.State) != s.State || got.Version != s.Version {
 		t.Fatalf("scalar fields not mapped: %+v", got)
 	}
-	if ids.UUID(got.Id) != s.ID || ids.UUID(got.OwnerId) != s.OwnerID || ids.UUID(got.WorkspaceId) != s.WorkspaceID {
+	if ids.UUID(got.Id) != s.ID || ids.UUID(got.OwnerId) != s.OwnerID {
 		t.Fatal("id fields not mapped")
 	}
 	if got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) {
@@ -228,14 +228,14 @@ func TestOwnerCanSeeEarlyReturns(t *testing.T) {
 	d := NewDeliverer(NewStore(nil, nil), nil, nil, nil, log) // nil resolver
 
 	// An entity-less envelope names no subject to scope by → not visible.
-	entityless := kevents.Envelope{WorkspaceID: ids.NewV7()}
+	entityless := kevents.Envelope{}
 	if ok, err := d.ownerCanSee(context.Background(), entityless, ids.NewV7()); ok || err != nil {
 		t.Fatalf("entity-less ownerCanSee = (%v, %v), want (false, nil)", ok, err)
 	}
 
 	// An entity present but no resolver configured → a loud error, never a
 	// silent allow.
-	withEntity := kevents.Envelope{WorkspaceID: ids.NewV7(), Entity: kevents.EntityRef{Type: "deal", ID: ids.NewV7()}}
+	withEntity := kevents.Envelope{Entity: kevents.EntityRef{Type: "deal", ID: ids.NewV7()}}
 	if ok, err := d.ownerCanSee(context.Background(), withEntity, ids.NewV7()); ok || err == nil {
 		t.Fatalf("nil-resolver ownerCanSee = (%v, %v), want (false, err)", ok, err)
 	}

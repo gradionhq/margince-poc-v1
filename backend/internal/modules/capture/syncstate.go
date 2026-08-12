@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -106,7 +105,7 @@ func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID)
 	if err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := r.now()
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at,
@@ -145,7 +144,7 @@ func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID,
 	if err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := r.now()
 
 		var failures int

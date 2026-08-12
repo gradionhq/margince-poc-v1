@@ -160,8 +160,8 @@ func mapActorToOwner(ctx context.Context, t *testing.T, ms *MirrorStore) {
 // auto-execute tool — an unattended loop retrying a create that appears to
 // fail would mint a new invisible record every attempt.
 func TestProviderCreateIsRefusedBeforeReachingTheIncumbent(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 
@@ -191,8 +191,8 @@ func TestProviderCreateIsRefusedBeforeReachingTheIncumbent(t *testing.T) {
 // exactly as the echo webhook will present it — so the entry the receiver later
 // classifies against actually exists. Proves the producer half end to end.
 func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 
@@ -218,7 +218,7 @@ func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
 		updateProps: map[string]string{"firstname": "Ada"},
 		incClass:    "contacts",
 	}
-	ledger := NewWriteLedger(pool)
+	ledger := NewWriteLedger(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 	p := providerFor(ms, inc)
 	p.SetWriteLedger(ledger, slog.New(slog.DiscardHandler))
 
@@ -245,8 +245,8 @@ func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
 // surfaces it to the caller AND leaves the mirror row exactly as it was —
 // the mirror is never advanced ahead of an incumbent ack.
 func TestProviderUpdateRejectsIncumbentSkewLeavingMirrorUntouched(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 
@@ -293,8 +293,8 @@ func TestProviderUpdateRejectsIncumbentSkewLeavingMirrorUntouched(t *testing.T) 
 // TestProviderUpdateMirrorsResultOnAck: a successful incumbent update is
 // re-mirrored, so the mirror reflects the acked state.
 func TestProviderUpdateMirrorsResultOnAck(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 
@@ -331,8 +331,8 @@ func TestProviderUpdateMirrorsResultOnAck(t *testing.T) {
 // TestProviderArchivePurgesMirror: Archive removes the mirror row after the
 // incumbent archive so it stops being readable.
 func TestProviderArchivePurgesMirror(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 

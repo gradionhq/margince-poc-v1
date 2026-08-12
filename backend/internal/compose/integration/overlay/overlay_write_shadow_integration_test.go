@@ -90,7 +90,7 @@ func setupOverlayWrite(t *testing.T) overlayWriteEnv {
 		t.Fatalf("parsing workspace id: %v", err)
 	}
 
-	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
 	actorCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(actorCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)

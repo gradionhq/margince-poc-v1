@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -69,7 +70,7 @@ func reaches(accounts map[ids.UUID]string) stubReachability {
 // channelStore is the reply path as compose wires it: the identity seam on the
 // store, where every transport reaches it.
 func (e *sendEnv) channelStore(reach ChannelReachability) *Store {
-	return NewStore(e.pool).WithChannelReachability(reach)
+	return NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithChannelReachability(reach)
 }
 
 // seedChannelAnchor writes the captured conversation being answered: an inbound

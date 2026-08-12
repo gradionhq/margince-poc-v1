@@ -26,6 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // sweptRecords is a minimal in-memory Incumbent exercising ONLY Modified
@@ -119,15 +120,14 @@ func (e *fixtureMethodError) Error() string {
 // TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded's own
 // query documents), so no workspace GUC is needed to read it, only to
 // filter by workspace in the query itself.
-func countMirrorConflictEvents(ctx context.Context, pool *pgxpool.Pool, ws, externalID string) (int, error) {
+func countMirrorConflictEvents(ctx context.Context, pool *pgxpool.Pool, externalID string) (int, error) {
 	var count int
 	err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'mirror.conflict'
-		   AND envelope->>'workspace_id' = $1
-		   AND envelope->'payload'->>'external_id' = $2`,
-		ws, externalID,
+		   AND envelope->'payload'->>'external_id' = $1`,
+		externalID,
 	).Scan(&count)
 	return count, err
 }
@@ -155,7 +155,7 @@ func setSyncState(ctx context.Context, pool *pgxpool.Pool, objectClass, external
 // watermark advances to the swept record's ModifiedAt.
 func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const objectClass = "organization"
 	const externalID = "61655665850"
@@ -200,7 +200,7 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 		t.Fatalf("mirror row baseline = %v, want %v", row.UpdatedAtBaseline, newBaseline)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -227,8 +227,8 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-conflict-fence-secret"})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -249,7 +249,7 @@ func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) 
 		t.Fatalf("emitMirrorConflict after disconnect = %v, want ErrConnectionGone", err)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) 
 // row the sweep never actually changed.
 func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const objectClass = "organization"
 	const externalID = "61655665851"
@@ -314,7 +314,7 @@ func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 		t.Fatalf("sync_state = %q, want %q (unchanged)", row.SyncState, syncStatePendingSync)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}

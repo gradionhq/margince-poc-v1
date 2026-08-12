@@ -93,7 +93,7 @@ func TestAConcurrentCloseSurvivesTheAutoExecutedMoveThatRacedIt(t *testing.T) {
 		SystemOfRecordProvider: native, t: t, as: human, won: won.UUID,
 	}
 	registry := agents.NewRegistry(
-		approvalsAdapter{svc: approvals.NewService(e.Pool)}, auth.NewGate(adminSeat{}))
+		approvalsAdapter{svc: approvals.NewService(e.DB())}, auth.NewGate(adminSeat{}))
 	// The stage resolver reads pipeline configuration and nothing this race
 	// touches, so it goes straight to the real provider — only the RECORD read
 	// carries the interleaving.

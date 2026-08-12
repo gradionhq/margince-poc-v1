@@ -32,7 +32,6 @@ const ROSTER = {
   data: [
     {
       id: "u-active",
-      workspace_id: "ws-1",
       email: "ada@acme.test",
       display_name: "Ada Active",
       status: "active",
@@ -41,7 +40,6 @@ const ROSTER = {
     },
     {
       id: "u-off",
-      workspace_id: "ws-1",
       email: "otto@acme.test",
       display_name: "Otto Off",
       status: "deactivated",
@@ -50,11 +48,21 @@ const ROSTER = {
     },
     {
       id: "u-none",
-      workspace_id: "ws-1",
       email: "nora@acme.test",
       display_name: "Nora None",
       status: "active",
       is_agent: false,
+      roles: [],
+    },
+    // The workspace's agent identity, which bootstrap writes into every
+    // installation — so every case in this suite renders the roster a real
+    // admin sees, rather than a people-only one that no longer exists.
+    {
+      id: "u-agent",
+      email: "agent@acme.gradion.local",
+      display_name: "Gradion Agent",
+      status: "active",
+      is_agent: true,
       roles: [],
     },
   ],
@@ -101,6 +109,11 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
         user: { email: "admin@acme.test" },
         roles: ["admin"],
         teams: [],
+        // The installation CAN mint set-password links. Without this the card
+        // withholds that action from every row, and any assertion that one
+        // particular row lacks it passes without the row having anything to do
+        // with it.
+        admin_password_link: true,
       });
     }
     if (req.url.includes("/users") && req.method === "GET") {
@@ -113,6 +126,19 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
       body = undefined;
     }
     calls.push({ method: req.method, url: req.url, body });
+    // The link mint answers its own shape. With admin_password_link on, the
+    // invite flow opens the link dialog itself, and a generic user row handed
+    // to it renders an expiry from `undefined` — an unhandled error rather
+    // than a failed assertion, which fails the run without naming a test.
+    if (req.url.includes("/password-link")) {
+      return jsonResponse(
+        {
+          set_password_url: "https://crm.example.test/set-password?t=fixture",
+          expires_at: "2026-08-18T09:00:00Z",
+        },
+        201,
+      );
+    }
     return jsonResponse({ ...ROSTER.data[0], id: "u-new" }, 201);
   });
 }
@@ -157,6 +183,37 @@ describe("UsersAdminCard", () => {
     // so this cannot pass on the loading render.
     await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
     expect(screen.queryByText("Ada Active")).toBeNull();
+    // The notice is the WHOLE surface a non-admin gets: neither admin card is
+    // rendered, so there is no invite form and no roster heading to reach.
+    expect(
+      screen.queryByRole("heading", { name: /invite a member/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Members$/ })).toBeNull();
+  });
+
+  it("splits inviting and the roster into their own cards", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    expect(
+      screen.getByRole("heading", { name: /invite a member/i }),
+    ).toBeTruthy();
+    const members = screen
+      .getByRole("heading", { name: /^Members$/ })
+      .closest("section");
+    if (!(members instanceof HTMLElement)) {
+      throw new Error("the roster is not a card of its own");
+    }
+    // The count states what the roster holds — the deactivated member and the
+    // workspace's own agent seat included, because the read opts into both and a
+    // count that skipped either would disagree with the rows beneath it.
+    expect(within(members).getByText("4 members")).toBeTruthy();
+    expect(within(members).getAllByRole("listitem").length).toBe(4);
+    // And the invite fields are not in it: two cards, two surfaces.
+    expect(
+      within(members).queryByPlaceholderText("name@company.com"),
+    ).toBeNull();
   });
 
   it("renders the include-inactive roster with per-status actions", async () => {
@@ -171,6 +228,60 @@ describe("UsersAdminCard", () => {
     const off = screen.getByText("Otto Off").closest("li") as HTMLElement;
     expect(within(active).getByText("Deactivate")).toBeTruthy();
     expect(within(off).getByText("Reactivate")).toBeTruthy();
+  });
+
+  // The agent seat is listed — a client resolving the owner of a record it owns
+  // has to find it — but it is not a colleague, and the row has to say so. Each
+  // absence below is a control the server refuses anyway, so offering it could
+  // only produce a 409 an admin cannot act on.
+  it("marks the agent seat and offers it no control meant for a person", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
+
+    const agent = rowFor("Gradion Agent");
+    expect(within(agent).getByText("Agent")).toBeTruthy();
+    // No role control at all, not a disabled one: the seat's authority comes
+    // from a passport and the person it names, never from a role of its own.
+    expect(
+      within(agent).queryByRole("combobox", { name: /set role for/i }),
+    ).toBeNull();
+    expect(within(agent).getByText(/acts under a passport/i)).toBeTruthy();
+    // No set-password link: the seat holds no password by construction, which
+    // is what makes it a thing that signs in nowhere.
+    expect(
+      within(agent).queryByRole("button", { name: /set-password link/i }),
+    ).toBeNull();
+
+    // A person's row is untouched by any of that — and the link's absence above
+    // has to be about the AGENT rather than about an installation that mints no
+    // links at all, so the same control is asserted PRESENT here.
+    const person = rowFor("Nora None");
+    expect(roleSelect(person, "Nora None")).toBeTruthy();
+    expect(within(person).queryByText("Agent")).toBeNull();
+    expect(
+      within(person).getByRole("button", { name: /set-password link/i }),
+    ).toBeTruthy();
+  });
+
+  // Deactivating the seat stays offered — an operator is entitled to that — but
+  // what it stops is invisible from this screen, and the body written for a
+  // person describes sessions and sign-ins that the seat has none of.
+  it("warns what stops before deactivating the agent seat", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
+
+    await userEvent.click(
+      within(rowFor("Gradion Agent")).getByRole("button", {
+        name: /deactivate/i,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/every job that runs with nobody/i),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/signed out everywhere/i)).toBeNull();
   });
 
   it("invites a member with the entered email, name, and role", async () => {

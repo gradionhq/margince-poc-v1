@@ -21,10 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
-
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -78,18 +77,23 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	e := integration.Setup(t)
 	stager := &recordingStager{}
 	adapter := commsAdapter{
-		store:  activities.NewStore(e.Pool),
-		gate:   consent.NewGate(consent.NewStore(e.Pool)),
+		store:  activities.NewStore(e.DB()),
+		gate:   consent.NewGate(consent.NewStore(InstallationDB(e.Pool))),
 		stager: stager,
 	}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	anchorID := ids.NewV7()
+	// INBOUND, and that is load-bearing rather than fixture decoration: only a
+	// mail thread somebody actually wrote to us earns a reply prefix
+	// (activities.IsMailThread), so an anchor carrying no direction is a topic
+	// WE picked and is drafted as "About …". This test answers a customer's
+	// mail, so the row has to be one.
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+			INSERT INTO activity (id, workspace_id, kind, direction, subject, occurred_at, source, captured_by)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'email', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
+			        'email', 'inbound', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
 		return err
 	})
 	if err != nil {
@@ -171,7 +175,7 @@ func assertModelAndFallbackDrafts(ctx context.Context, t *testing.T, adapter com
 func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 	e := integration.Setup(t)
 	target := e.SeedPerson(t, "Briefing Target", &e.Rep1)
-	retriever := search.NewRetriever(search.NewStore(e.Pool), nil)
+	retriever := search.NewRetriever(search.NewStore(e.DB()), nil)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	assembled, err := retriever.AssembleContext(ctx,

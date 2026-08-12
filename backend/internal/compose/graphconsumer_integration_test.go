@@ -32,13 +32,12 @@ import (
 // envelopeFor builds one bus envelope the way the relay ships it.
 func envelopeFor(ws ids.UUID, eventType, entityType string, entity ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     1,
-		WorkspaceID: ws,
-		OccurredAt:  time.Now().UTC(),
-		Entity:      kevents.EntityRef{Type: entityType, ID: entity},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    1,
+		OccurredAt: time.Now().UTC(),
+		Entity:     kevents.EntityRef{Type: entityType, ID: entity},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7()},
 	}
 }
 
@@ -87,7 +86,7 @@ func TestTheConsumerFoldsAnActivityEventAndIgnoresWhatIsNotItsBusiness(t *testin
 	person := seedGraphPerson(t, e, "Consumed Contact")
 	activityID := seedExchange(t, e, person)
 
-	gen := search.NewGraphEdgeGen(search.NewStore(e.Pool))
+	gen := search.NewGraphEdgeGen(search.NewStore(e.DB()))
 	ctx := context.Background()
 
 	// An event for an entity this projection does not care about must answer
@@ -125,7 +124,7 @@ func TestRetentionAppliedReachesTheConsumer(t *testing.T) {
 	person := seedGraphPerson(t, e, "Retained Contact")
 	activityID := seedExchange(t, e, person)
 
-	gen := search.NewGraphEdgeGen(search.NewStore(e.Pool))
+	gen := search.NewGraphEdgeGen(search.NewStore(e.DB()))
 	ctx := context.Background()
 	if err := gen.HandleEvent(ctx, envelopeFor(e.WS, "activity.captured", "activity", activityID)); err != nil {
 		t.Fatalf("folding: %v", err)

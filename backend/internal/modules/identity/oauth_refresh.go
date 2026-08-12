@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -115,7 +114,7 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 		refresh string
 		reused  bool
 	)
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		issued, refresh, reused, err = s.rotateRefreshTokenTx(ctx, tx, in)
 		return err

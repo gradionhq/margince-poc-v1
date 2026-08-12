@@ -72,7 +72,7 @@ func lockWaitBoundedPool(t *testing.T) *pgxpool.Pool {
 // the entire erasure — no goroutine, no clock, no ordering to get lucky with.
 func eraseWhileAccountIsLocked(t *testing.T, e *integration.Env, person ids.UUID, lockedAccount string) error {
 	t.Helper()
-	eraser := privacy.NewEraser(lockWaitBoundedPool(t))
+	eraser := privacy.NewEraser(database.BindTo(lockWaitBoundedPool(t), ids.From[ids.WorkspaceKind](e.WS)))
 	admin := e.Admin()
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	var eraseErr error

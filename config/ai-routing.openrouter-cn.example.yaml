@@ -38,6 +38,15 @@ tiers:
     base_url: https://openrouter.ai/api
     model: z-ai/glm-5.2                    # CN · $0.97/$3.04 · 1.05M · #5
 
+  # frontier is the rung above premium and no task ladder selects it. Bound to
+  # the same model as premium for the reason the EU file gives: glm-5.2 is the
+  # strongest CN model measured here, so a different id on this rung would be a
+  # guess, not a pick.
+  frontier:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: z-ai/glm-5.2                    # CN · $0.97/$3.04 · 1.05M · #5
+
 # embeddings — bge-m3 is 1024 native, the same width as the EU file's
 # mistral-embed-2312, so switching between the two files needs no dimensions
 # edit and no re-embed. The native-width rule is the EU file's §embeddings note:

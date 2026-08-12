@@ -45,7 +45,6 @@ jobs:
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
-  #   docker   = the root Dockerfile.* + .dockerignore — gates the image builds
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -56,7 +55,6 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
-      docker: ${{ steps.filter.outputs.docker }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,9 +129,6 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
-            docker:
-              - 'Dockerfile.*'
-              - '.dockerignore'
             # Everything that can change WHICH packages are in the tree, and
             # therefore which licenses the gate below judges. `**/pnpm-lock.yaml`
             # is globbed on purpose: a Renovate lockfile-only PR is precisely
@@ -456,6 +451,16 @@ jobs:
         working-directory: .
         run: make check-image-pins
 
+      # The dev stack's published host ports stay below the ephemeral floor.
+      # This one is cheap here and expensive anywhere else: a port inside the
+      # kernel's ephemeral range loses its bind to an unrelated process's client
+      # port only sometimes, so the failure it prevents arrives as a `make db-up`
+      # flake in a job that had nothing to do with ports. Same shape as the pins
+      # above — pure bash, no toolchain, and `make check-backend` runs it too.
+      - name: Dev-stack host ports
+        working-directory: .
+        run: make check-host-ports
+
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
   # package (compose/integration, minutes of serial tests) floors any
@@ -522,7 +527,13 @@ jobs:
           # nproc-derived default leaves the slice mostly waiting on Postgres.
           INTEGRATION_JOBS: 16
         run: make test-integration
+      # `!cancelled()` and not the default success(): a RED shard is exactly when
+      # somebody needs this artifact, and on failure the script writes the
+      # failing packages' logs + a failure-summary.txt into the same directory.
+      # Uploading only on green kept the evidence for the runs that did not need
+      # it and destroyed it with the runner for the runs that did.
       - name: Upload the shard manifest + coverage pods
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: integration-shard-${{ matrix.shard }}
@@ -604,8 +615,12 @@ jobs:
   integration:
     name: integration (RLS + erasure + HTTP e2e)
     needs: [changes, integration-shards, integration-unit-coverage]
+    # `always()`, for the reason spelled out on the `frontend` fan-in below: a
+    # skipped required check counts as passing, and `!cancelled()` is false for
+    # every job once a run is cancelled — so cancelling mid-lane would have
+    # skipped this check and greened it. The assertion below sees `cancelled`.
     if: >-
-      !cancelled()
+      always()
       && needs.changes.outputs.backend == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -679,65 +694,6 @@ jobs:
           fi
           make check-ext-migrations
 
-  # The root Dockerfiles (api, web, worker) are consumed only by downstream
-  # deploy tooling — no other job builds them, so without this gate a FROM
-  # bump (Renovate's dockerfile manager auto-merges when green) or a stage
-  # restructure would ship untested: the change matches no other classifier
-  # scope, every meaningful job skips, and the PR looks green. The
-  # `docker-images` fan-in below is the required check; a build the deploy
-  # pipeline would reject fails the merge here instead.
-  docker-image:
-    name: docker image (${{ matrix.role }})
-    needs: [changes]
-    if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      # A broken web image must not hide whether api/worker still build.
-      fail-fast: false
-      matrix:
-        # `role`, not `image`: the check-image-pins gate key-anchors every
-        # `image:` in a workflow as a container reference to digest-check.
-        role: [api, web, worker]
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the image
-        # ONE revision for every role, so the api and the web tier can be
-        # compared at run time. github.sha is immutable for this run; a role
-        # that does not declare the ARG simply ignores it.
-        run: docker build --build-arg MARGINCE_BUILD_REVISION=${{ github.sha }} -f Dockerfile.${{ matrix.role }} .
-
-  # The fan-in — the single required "docker images" context. Static-named
-  # because a path-skipped matrix job reports ONE check run under its
-  # unexpanded name ("docker image (${{ matrix.role }})"), so the expanded
-  # leg names can never be required contexts. Same shape as the integration
-  # fan-in: it must RUN and FAIL when a leg fails — `needs` alone would leave
-  # it skipped, and a skipped required check counts as passing.
-  docker-images:
-    name: docker images (api + web + worker)
-    needs: [changes, docker-image]
-    if: >-
-      !cancelled()
-      && needs.changes.outputs.docker == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - name: Every image built
-        env:
-          BUILD_RESULT: ${{ needs.docker-image.result }}
-        run: |
-          [ "$BUILD_RESULT" = "success" ] || { echo "docker image builds: $BUILD_RESULT"; exit 1; }
 
   vuln:
     name: govulncheck
@@ -963,7 +919,7 @@ jobs:
           # module — a stray GOWORK would break its resolution).
           GOWORK="$PWD/../go.work" go run ./tools/gen-composition
           GOWORK="$PWD/../build/composition/go.work" \
-            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:15432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do
@@ -981,10 +937,25 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/api.log" || true
 
-  # The frontend lane: Biome, Vitest, TypeScript, and the Vite production
-  # build. The root Makefile promises CI runs both lanes; this is that lane.
-  frontend:
-    name: frontend (biome + vitest + tsc + build)
+  # The frontend lane, run as THREE jobs that start together. Serially it was
+  # ~340s, of which the vitest suite alone was ~207s: the cheap greps, the type
+  # gates and the bundle all sat behind a test run that could not tell them
+  # anything. They share no state, so they share no queue either, and a Biome
+  # failure now reports in about a minute instead of six.
+  #
+  # The suite itself is NOT split further. Sharding it would need the shards'
+  # coverage merged, and the v8 provider enumerates a file's BRDA branch records
+  # from the ranges that actually executed — so two shards that both load a file
+  # describe its branches differently and the union inflates the denominator
+  # (measured: 12979/16413 merged against a true 9667/11231). Line coverage
+  # merges exactly; condition coverage does not, and a coverage number that is
+  # quietly wrong is worse than a slower lane. Issue #966 carries the numbers
+  # and the istanbul-provider fix that would unblock it.
+  #
+  # `frontend` itself is the fan-in below — the name is a required status check,
+  # and it stays the one that reports.
+  fe-quality:
+    name: fe-quality (ds gates + drift + biome + composed tsc)
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1005,30 +976,46 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      # Go, in the FRONTEND job (ADR-0069). `make check-fe` now covers both SPA
-      # lanes, and the composed one needs build/composition/frontend/ — which
-      # only gen-composition can produce. There is no Node-only shortcut: the
-      # registry is derived from the merged contracts, which the Go generator
-      # owns. Without a toolchain here the composed lane would have to be
-      # dropped from the merge gate, and the vanilla lane alone cannot catch a
-      # descriptor shape the SPA no longer compiles against.
+      # Go, in a FRONTEND job (ADR-0069). The composed SPA lane needs
+      # build/composition/frontend/ — which only gen-composition can produce.
+      # There is no Node-only shortcut: the registry is derived from the merged
+      # contracts, which the Go generator owns. Without a toolchain here the
+      # composed lane would have to be dropped from the merge gate, and the
+      # vanilla lane alone cannot catch a descriptor shape the SPA no longer
+      # compiles against. This is the only one of the three that composes, which
+      # is why the unit and bundle jobs below carry no Go setup.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # Both SPA lanes: `make check-fe` runs fe-typecheck-composed (compose,
-      # then typecheck against the generated registry) and then frontend-check
-      # (the vanilla lane's DS gates, biome, vitest, tsc and vite build). The
-      # composed target fails loudly if generation produced nothing rather than
-      # falling back to the committed empty-tree stub.
-      #
-      # FE_CHECK=check:ci instruments the ONE vitest run this lane already
-      # performs, so the lcov the sonarcloud job downloads is a by-product of
-      # the run that decides the verdict rather than a second execution of the
-      # same suite. Coverage costs about a third of a run; a repeat costs a
-      # whole one. The override is a command-line variable, so it reaches
-      # frontend-check through check-fe's sub-make.
-      - run: make check-fe FE_CHECK=check:ci
+      - run: make fe-quality
+
+  fe-unit:
+    name: fe-unit (vitest + coverage)
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # FE_COVERAGE=1 instruments the ONE vitest run this lane already performs,
+      # so the lcov the sonarcloud job downloads is a by-product of the run that
+      # decides the verdict rather than a second execution of the same suite.
+      - run: make fe-unit FE_COVERAGE=1
       - name: Upload FE coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -1036,12 +1023,84 @@ jobs:
           path: frontend/coverage/lcov.info
           if-no-files-found: ignore
           retention-days: 1
-      # The Storybook catalog must build — a story that fails to compile or
-      # register is caught deterministically here. The change-scoped render
-      # capture (make fe-uat) stays a coordinator lane, not a required gate.
-      - name: Storybook builds (stories compile + register)
-        working-directory: frontend
-        run: pnpm build-storybook
+
+  fe-bundle:
+    name: fe-bundle (vite build + storybook)
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # The production bundle and the Storybook catalog: a story that fails to
+      # compile or register is caught deterministically here. The change-scoped
+      # render capture (make fe-uat) stays a coordinator lane, not a required gate.
+      - run: make fe-bundle
+
+  # The fan-in. This job does no work — it exists to carry the name, because
+  # `frontend (biome + vitest + tsc + build)` is a REQUIRED status check and the
+  # three jobs above are not. Splitting the lane without it would retire the
+  # check every PR waits on.
+  #
+  # `always()` rather than the default, which is `success()` of every need: a job
+  # skipped because a dependency failed reports as SKIPPED, and GitHub counts a
+  # skipped required check as PASSING. Left alone, a red unit suite would have
+  # merged. `!cancelled()` is not enough either — it is false for every job the
+  # moment a run is cancelled, so cancelling the workflow while the long unit job
+  # was still going would skip this check and green the lane. `always()` runs it
+  # in both cases, and the assertion below sees `cancelled` and fails.
+  frontend:
+    name: frontend (biome + vitest + tsc + build)
+    needs: [changes, fe-quality, fe-unit, fe-bundle]
+    if: >-
+      always()
+      && needs.changes.outputs.frontend == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      # Each result carries its own job name rather than being matched to a
+      # separate name list by position: two lists kept in step would silently
+      # stop checking a fourth lane that was added to one and not the other.
+      - name: Every frontend lane passed
+        env:
+          RESULTS: >-
+            fe-quality=${{ needs.fe-quality.result }}
+            fe-unit=${{ needs.fe-unit.result }}
+            fe-bundle=${{ needs.fe-bundle.result }}
+        run: |
+          set -euo pipefail
+          [ -n "${RESULTS// /}" ] || { echo "no lane results to check" >&2; exit 1; }
+          failed=""
+          for result in $RESULTS; do
+            case "$result" in
+              *=success) ;;
+              *) failed="$failed $result" ;;
+            esac
+          done
+          if [ -n "$failed" ]; then
+            echo "the frontend lane did not pass:$failed" >&2
+            exit 1
+          fi
+          echo "fe-quality, fe-unit and fe-bundle all passed"
 
   # The UAT lane: the AC-<screen>-N screen-acceptance criteria as named
   # Playwright tests, plus the axe WCAG 2.2 AA gate, the 390px

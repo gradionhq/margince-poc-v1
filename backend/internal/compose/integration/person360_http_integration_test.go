@@ -33,8 +33,8 @@ func nativeWorkspace(context.Context) (bool, error) { return false, nil }
 
 func personHandlers(e *Env) person360.Handlers {
 	return person360.NewHandlers(
-		person360.NewService(e.Pool, e.People, consent.NewStore(e.Pool),
-			ai.NewFeedbackStore(e.Pool), func() time.Time { return roomFixedNow }),
+		person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
+			ai.NewFeedbackStore(e.DB()), func() time.Time { return roomFixedNow }),
 		nativeWorkspace,
 	)
 }

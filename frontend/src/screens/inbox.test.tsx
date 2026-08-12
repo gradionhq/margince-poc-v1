@@ -54,7 +54,6 @@ type Approval = components["schemas"]["Approval"];
 
 const approval: Approval = {
   id: "ap-1",
-  workspace_id: "w",
   kind: "send_email",
   status: "pending",
   proposed_by: "agent:runner",
@@ -763,7 +762,6 @@ describe("TasksScreen (B-EP09.12d)", () => {
   it("groups by due date honestly", () => {
     const base = {
       id: "t",
-      workspace_id: "w",
       kind: "task" as const,
       occurred_at: "2026-07-01T00:00:00Z",
       is_done: false,
@@ -801,7 +799,6 @@ describe("TasksScreen (B-EP09.12d)", () => {
           data: [
             {
               id: "t1",
-              workspace_id: "w",
               kind: "task",
               subject: "Call Anna",
               occurred_at: "2026-07-01T00:00:00Z",

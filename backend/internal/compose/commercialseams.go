@@ -48,7 +48,7 @@ const handoffScanLimit = 50
 // commitmentLister serves the open-promise set from the activities module's
 // own gated read.
 func commitmentLister(pool *pgxpool.Pool) agents.CommitmentLister {
-	store := activities.NewStore(pool)
+	store := activities.NewStore(InstallationDB(pool))
 	return func(ctx context.Context, in agents.CommitmentQuery) (agents.CommitmentSweep, error) {
 		tasks, truncated, err := store.ListOpenTasks(ctx, activities.ListOpenTasksInput{
 			AssigneeID: in.AssigneeID,
@@ -105,9 +105,9 @@ func asCommitments(tasks []activities.OpenTask) []agents.OpenCommitment {
 // project outside the caller's scope answers not-found exactly as reading it
 // directly would.
 func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
-	dealStore := deals.NewStore(pool, DealsInstallation())
-	peopleStore := people.NewStore(pool)
-	taskStore := activities.NewStore(pool)
+	dealStore := deals.NewStore(InstallationDB(pool), DealsInstallation())
+	peopleStore := people.NewStore(InstallationDB(pool))
+	taskStore := activities.NewStore(InstallationDB(pool))
 	seats := identity.NewService(pool)
 	return func(ctx context.Context, projectID ids.UUID) (agents.HandoffFacts, error) {
 		project, err := dealStore.GetProject(ctx,

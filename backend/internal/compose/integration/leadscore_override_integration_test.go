@@ -59,10 +59,10 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 
 func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	e := SetupSearch(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 	ctx := e.AsFullUser()
-	store := people.NewStore(e.Pool)
-	activityStore := activities.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
+	activityStore := activities.NewStore(e.DB())
 
 	// A working lead: decision-maker title (+15) from a high-intent source
 	// (+8) → machine fit is 23. Seeded at score 0 so a resumed recompute

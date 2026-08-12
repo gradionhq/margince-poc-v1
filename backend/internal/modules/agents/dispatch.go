@@ -368,10 +368,13 @@ func (s *Dispatcher) capabilities(modern bool) map[string]any {
 		// advertised would be entitled to expect one.
 		capabilities["extensions"] = map[string]any{extensionTasks: map[string]any{}}
 	}
-	// The App extension, on the same terms and for the same reason: a host told
-	// this server serves views is entitled to a document to prefetch, so the
-	// claim is derived from the assembled surface rather than declared.
-	if modern && s.appsServed() {
+	// The App extension is derived from the assembled surface for the same
+	// reason — a host told this server serves views is entitled to a document to
+	// prefetch — but it is advertised in BOTH eras, unlike Tasks. A handshake
+	// client is now served `_meta.ui` without declaring anything (appsOffered),
+	// so withholding the claim would leave the one era that receives views
+	// unable to see that it does.
+	if s.appsServed() {
 		extensions, claimed := capabilities["extensions"].(map[string]any)
 		if !claimed {
 			extensions = map[string]any{}

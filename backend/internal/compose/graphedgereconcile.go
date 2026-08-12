@@ -51,7 +51,7 @@ type graphEdgeReconcileWorker struct {
 }
 
 func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdgeReconcileWorker {
-	return &graphEdgeReconcileWorker{pool: pool, store: search.NewStore(pool), log: log}
+	return &graphEdgeReconcileWorker{pool: pool, store: search.NewStore(InstallationDB(pool)), log: log}
 }
 
 // Work enumerates the fleet and enqueues one rebuild per workspace; it

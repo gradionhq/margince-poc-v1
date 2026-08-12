@@ -15,7 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -74,7 +73,7 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 	}
 
 	fresh := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var existingHash, existingModel string
 		err := tx.QueryRow(ctx, `
 			SELECT chunk_hash, model FROM embedding
@@ -146,7 +145,7 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identit
 	}
 	limit = clampLimit(limit)
 	var hits []VectorHit
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		vecPos := arg(vectorLiteral(queryVec))

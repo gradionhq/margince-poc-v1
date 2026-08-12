@@ -112,7 +112,7 @@ func setupStore(t *testing.T) *storeEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(pool, func() time.Time { return e.clockValue }, honouredIdentity{})
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)), func() time.Time { return e.clockValue }, honouredIdentity{})
 	e.ctx = actorCtx(e.ws, e.user)
 	return e
 }
@@ -132,7 +132,7 @@ func actorCtx(ws ids.UUID, user ids.UserID) context.Context {
 func (e *storeEnv) stage(t *testing.T, in StageInput) ids.UUID {
 	t.Helper()
 	var id ids.UUID
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		var err error
 		id, err = e.store.StageTx(e.ctx, tx, in)
 		return err
@@ -213,7 +213,7 @@ func TestStagingADeliveryWithNoAddresseeIsRefused(t *testing.T) {
 	in := e.baseInput(e.activity, "msg-noaddressee@example.com")
 	in.Recipients, in.Cc = nil, nil
 
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		_, err := e.store.StageTx(e.ctx, tx, in)
 		return err
 	})
@@ -394,7 +394,7 @@ func TestRecordFailureLeavesTheDeliveryPendingForRetry(t *testing.T) {
 func TestStageTxRollsBackWithItsCallerTransaction(t *testing.T) {
 	e := setupStore(t)
 	in := e.baseInput(e.activity, "msg-rollback@example.com")
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := e.store.StageTx(e.ctx, tx, in); err != nil {
 			return err
 		}
@@ -427,7 +427,7 @@ func TestStagingTheSameMessageIDTwiceConflicts(t *testing.T) {
 	in := e.baseInput(e.activity, "msg-dupe@example.com")
 	e.stage(t, in)
 
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		_, err := e.store.StageTx(e.ctx, tx, e.baseInput(e.activity2, in.MessageID))
 		return err
 	})

@@ -36,7 +36,7 @@ import (
 func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	corr := ids.NewV7()
 	logical := ids.NewV7()
@@ -129,7 +129,7 @@ func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 func TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	logical := ids.NewV7()
 	terminalPayload := &ai.Payload{Request: json.RawMessage(`{"messages":[]}`), Response: json.RawMessage(`{"text":"ok"}`)}
@@ -206,7 +206,7 @@ func TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction(t *testing.T) 
 func TestEnsureConfigIsIdempotentAndFKsFromAICall(t *testing.T) {
 	e := Setup(t)
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	meter := ai.NewCallMeter(e.Pool)
+	meter := ai.NewCallMeter(e.DB())
 
 	snap := ai.ConfigSnapshot{
 		Hash: "test-config-hash", TaskContractHash: "task-hash",
@@ -254,7 +254,7 @@ func TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows(t *testing.T) {
 	overAge := seedEmbedCall(t, e, 91)
 	underAge := seedEmbedCall(t, e, 10)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestAICallPayloadRetentionAgesOutContentKeepingMetadata(t *testing.T) {
 	e.WsExec(t, `INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'ai_call_payload', 'content', 365, 'erase')`)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestAICallPayloadErasureCascadePurgesSubjectMentions(t *testing.T) {
 	control := seedAgedPayload(t, e, 1,
 		`{"messages":[{"role":"user","content":"unrelated request"}]}`)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "test"); err != nil {
 		t.Fatal(err)
 	}
 

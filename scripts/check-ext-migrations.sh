@@ -75,7 +75,7 @@ trap 'st=$?; if ! drop_clone "$db"; then echo "FAIL: gate db $db was not dropped
 # before it. Migrating a fresh database under the ROOT workspace makes the
 # gate's premise structurally true instead of incidentally true, and stops a
 # `make check` run mutating the template as a side effect.
-( cd backend && GOWORK="$root/go.work" go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$db")" >/dev/null )
+( cd backend && MARGINCE_OWNER_DSN="$(owner_clone_dsn "$db")" GOWORK="$root/go.work" go run ./cmd/migrate up >/dev/null )
 for unit in "${units[@]}"; do
   ( cd backend && GOWORK="$root/go.work" go run ./tools/extmigrategate \
       -unit "$unit" \

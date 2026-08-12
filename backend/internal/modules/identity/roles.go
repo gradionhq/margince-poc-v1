@@ -30,7 +30,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/policy"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -96,7 +95,7 @@ func (s *Service) ListRoles(ctx context.Context, actor Identity) ([]roleRow, err
 	}
 	ctx = actorCtx(ctx, actor)
 	var out []roleRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT key, name, is_system, version, permissions
 			   FROM role WHERE archived_at IS NULL ORDER BY key`)
@@ -146,7 +145,7 @@ func (s *Service) SetRoleObjectGrant(ctx context.Context, actor Identity, roleKe
 	}
 	ctx = actorCtx(ctx, actor)
 	var updated roleRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		updated, err = applyRoleObjectGrant(ctx, tx, roleKey, object, grant, ifVersion)
 		return err

@@ -98,7 +98,7 @@ func (e *sendEnv) asSendWorker() context.Context {
 func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, stamped string) {
 	t.Helper()
 	ctx := e.asSendWorker()
-	store := NewStore(e.pool)
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	if err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		return store.ReconcileMessageIdentityTx(ctx, tx, id, mintedIdentity, stamped)
 	}); err != nil {
@@ -113,7 +113,7 @@ func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, stamped string) {
 func (e *sendEnv) reconcileExpectingRefusal(t *testing.T, id ids.ActivityID) error {
 	t.Helper()
 	ctx := e.asSendWorker()
-	store := NewStore(e.pool)
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		return store.ReconcileMessageIdentityTx(ctx, tx, id, mintedIdentity, stampedIdentity)
 	})

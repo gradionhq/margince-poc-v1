@@ -85,7 +85,7 @@ func acmeDeepBrain() laneFake {
 // real approvals service, the deepread and site_lead accept effects wired
 // exactly as compose wires them in production.
 func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) (*siteDeepReadWorker, *approvals.Service) {
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
@@ -98,7 +98,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		// the REQUESTER's live grants, and a stub would let the tests pass
 		// while production asked the question with the wrong authority.
 		authority:  identity.NewService(e.Pool),
-		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
+		autoEnrich: capture.NewAutoEnrichStore(e.DB()),
 		settings:   capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc

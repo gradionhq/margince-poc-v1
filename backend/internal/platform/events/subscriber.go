@@ -16,7 +16,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // envelopeField is the single stream-entry field holding the envelope
@@ -258,24 +257,4 @@ func isBusyGroup(err error) bool {
 // longer exists.
 func isNoGroup(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "NOGROUP")
-}
-
-// ForWorkspace scopes a handler to one tenant: events for any other
-// workspace are acked without invoking it. This is the in-process
-// analogue of RLS on the bus (events.md §4.1 — workspace is a field, not
-// a stream, so the filter is the consumer's responsibility).
-//
-// Group-topology rule: a consumer GROUP must own ONE
-// handler. Redis partitions a group's entries across its consumers, so
-// two ForWorkspace handlers sharing a group would each ack away the
-// other tenant's events — silently dropping them. Scope per workspace
-// either by dispatching inside one group-wide handler or by giving each
-// workspace its own group, never by filtered consumers in a shared group.
-func ForWorkspace(workspaceID ids.UUID, next Handler) Handler {
-	return func(ctx context.Context, env kevents.Envelope) error {
-		if env.WorkspaceID != workspaceID {
-			return nil
-		}
-		return next(ctx, env)
-	}
 }

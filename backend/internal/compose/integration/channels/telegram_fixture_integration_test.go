@@ -308,7 +308,7 @@ func (c *telegramEnv) strangerRepCtx(t *testing.T, objects map[string]principal.
 // to the same vault the server holds so a token sealed here is a token the
 // poller can unseal.
 func (c *telegramEnv) channelStore() *capture.ChannelStore {
-	return capture.NewChannelStore(c.Pool, c.vault, c.api, c.log)
+	return capture.NewChannelStore(c.DB(), c.vault, c.api, c.log)
 }
 
 // connectBot binds the workspace's bot and records the live connection.

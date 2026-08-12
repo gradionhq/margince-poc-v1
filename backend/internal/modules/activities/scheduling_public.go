@@ -43,7 +43,7 @@ type BookingPage struct {
 // reads as absent.
 func (s *Store) ResolveBookingPage(ctx context.Context, slug string) (BookingPage, error) {
 	var page BookingPage
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
 			`SELECT workspace_id, host_user_id FROM booking_page WHERE slug = $1 AND revoked_at IS NULL`,
 			slug).Scan(&page.WorkspaceID, &page.HostUserID)

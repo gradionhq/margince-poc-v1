@@ -20,7 +20,7 @@ const (
 	TaskColdStart Task = "cold_start"
 	// TaskDealHealth is Declared, not built (ADR-0074).
 	TaskDealHealth Task = "deal_health"
-	// TaskDraftReply is One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site.
+	// TaskDraftReply is Three sites, one task: the reply to an activity, the person page's composer, and the company page's first-touch outbound. They differ in what a draft is grounded IN, and share the rules block every drafting surface writes under (compose/draftrules). The reply site alone has two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a fourth site; the composers gain theirs when Voice DNA reaches them.
 	TaskDraftReply Task = "draft_reply"
 	TaskEnrich     Task = "enrich"
 	// TaskGrowthFit is How well one company fits what we sell. The only site on the company view that must read OUR offering as well as theirs — a fit is a claim about two companies, and judging one against a guess about the other is what the DOSS-AC-13 band cap exists to stop. Our own context is never citable: evidence is target-side only, so a factor drawn from what we sell is labelled an assessment and still cites their records, or the grounding filter drops it (DOSS-AC-6). The band the model proposes is not the band served — the deterministic completeness gate can lower it to `unknown` or cap it at `moderate`, and never raises it.
@@ -64,13 +64,14 @@ const (
 	TierLocalSmall Tier = "local_small"
 	TierCheapCloud Tier = "cheap_cloud"
 	TierPremium    Tier = "premium"
+	TierFrontier   Tier = "frontier"
 	TierLocalLarge Tier = "local_large"
 )
 
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "5f568984678f428dedf2a7c0338bcd9b18e18906d7c7145b7b58abe9964fbefb"
+const TaskContractHash = "9ee37bacc7d67837c7d210b83471662d55f05d7a5f567efedbeeb79e46a238c5"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -131,6 +132,7 @@ var degradeTo = map[Tier]Tier{
 	TierLocalSmall: TierLocalSmall,
 	TierCheapCloud: TierLocalSmall,
 	TierPremium:    TierCheapCloud,
+	TierFrontier:   TierPremium,
 	TierLocalLarge: TierLocalSmall,
 }
 
@@ -166,6 +168,7 @@ var knownTiers = map[Tier]bool{
 	TierLocalSmall: true,
 	TierCheapCloud: true,
 	TierPremium:    true,
+	TierFrontier:   true,
 	TierLocalLarge: true,
 }
 
@@ -243,6 +246,8 @@ var taskSites = map[Task][]Site{
 	},
 	TaskDraftReply: {
 		{Name: "reply", Kind: "one_shot"},
+		{Name: "person", Kind: "one_shot"},
+		{Name: "account", Kind: "one_shot"},
 	},
 	TaskEnrich: {
 		{Name: "signature", Kind: "one_shot"},

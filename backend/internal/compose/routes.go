@@ -56,14 +56,14 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// this registry, so a registry built without one would refuse REST calls on
 	// a counter it then never paid — the exact half-a-control this change exists
 	// to remove.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
+	registry := registryWithGate(InstallationDB(pool), gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
 		companyEnricher{}, srv.retrievalEmbedder, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
 	// human read shadows (overlayread.go) ride this same instance.
 	provider := srv.sorDispatch
-	staging := approvalsAdapter{svc: approvals.NewService(pool)}
+	staging := approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}
 	// Wrap order: the generated router applies the slice left-to-right
 	// around the handler, so the LAST entry is outermost — idempotency
 	// must sit outside the agent gate so a staged-approval refusal is
@@ -147,8 +147,8 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// workspace-scoped call like any other /v1 route, and mounting it on the
 	// operational mux instead would win the longest-pattern match against
 	// "/v1/" and serve without a session. See extensionEdge.
-	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(
+	publicEdge := publicPreferences(consent.NewStore(InstallationDB(pool)), newPublicPreferenceLimiters())(
+		publicBooking(activities.NewStore(InstallationDB(pool)), newPublicBookingLimiters())(
 			extensionEdge(srv, log)(api),
 		),
 	)
@@ -257,8 +257,19 @@ func WithMetricsToken(token string) Option {
 //
 // The fall-through is a "/" pattern on the extension mux, not a lookup-then-
 // dispatch: ServeMux already resolves longest-pattern-wins, so registering next
-// as the catch-all makes it decide, and a method mismatch on a declared route
-// still produces its own 405 instead of leaking into the core router as a 404.
+// as the catch-all makes it decide.
+//
+// A method mismatch on a declared route therefore answers 404, not 405, and that
+// is worth stating because the obvious reading is the other one: ServeMux only
+// synthesises a 405 when the path matches patterns that differ from the request
+// solely by method AND nothing else matches, and the "/" catch-all here always
+// matches — so a POST to a declared GET route reaches the core router and 404s
+// there. This was invisible while every extension operation was a POST; now that
+// the method is part of what a unit declares, it is a routine answer, and a
+// client generated from the merged contract will see 404 for a verb it did not
+// generate. Fixing it would mean this edge deciding for itself whether a path is
+// one of ours before delegating, which is the lookup-then-dispatch the line above
+// deliberately avoids.
 //
 // A boot with no declared operations (the vanilla tree) returns next
 // unchanged — no mux, no allocation, and no route that could shadow a core one.

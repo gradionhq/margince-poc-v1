@@ -388,11 +388,11 @@ Jobs: []extension.Job{{Name: "heartbeat", Handle: heartbeat}},
 A job handler takes `(ctx, rt)` and no arguments — a tick has no caller. It cannot be confirm-first and
 it cannot request an outbound scope; both are refused at boot.
 
-> **Know before you ship a cadence:** nothing in the product creates an agent seat yet (**#656**), and a
-> tick needs one to name its initiator. A workspace with no agent seat is **skipped**, and the count is
-> reported as `margince_extension_job_seatless_workspaces` on the worker's `/metrics`. So on a fresh
-> installation your job will not run at all until an operator inserts a seat — pick a cadence that is
-> honest about that, and do not treat a silent job as a broken one without checking the gauge.
+> **Know before you ship a cadence:** a tick needs the workspace's agent seat to name its initiator.
+> Bootstrap writes one, so a fresh installation runs your job — but an operator who archives or
+> deactivates that seat silently stops every scheduled job at once. Such a workspace is **skipped**,
+> and the count is reported as `margince_extension_job_seatless_workspaces` on the worker's
+> `/metrics`. Do not treat a silent job as a broken one without reading that gauge first.
 
 ## Write the unit's own test
 
@@ -442,14 +442,13 @@ have to regenerate the composition and run the gates:
    the api and worker against the composed `GOWORK`, and starts Vite with
    `MARGINCE_COMPOSITION_FRONTEND` pointing at the composed frontend registry — so a unit's routes,
    its agent tools *and* `#/ext/<name>` are all live on the one port `make dev` prints. (It did not
-   set that variable until Task 14's UAT found the gap: only `Dockerfile.web` did, so the SPA
+   set that variable until Task 14's UAT found the gap: only the web image build did, so the SPA
    resolved the empty-tree registry and every unit route answered "no extension named …" while the
    api served it perfectly.)
 
-   A **scheduled job** needs one more thing that no product path creates yet: the workspace's agent
-   seat. Without it every tick fails at the authority derivation — see
-   [margince-poc-v1#656](https://github.com/gradionhq/margince-poc-v1/issues/656), which carries the
-   reproduction and the one-statement workaround.
+   A **scheduled job** needs the workspace's agent seat, which bootstrap writes. A database
+   bootstrapped before that landed gets it from the `0216_agent_seat_backfill` migration, so run
+   `make migrate` before wondering why a tick never fires.
 
 Push only once `make check` is **green** — not red, not still running. The vanilla stub check keeps
 passing because it's keyed on the *empty* `extensions/` tree; your unit only changes the composed

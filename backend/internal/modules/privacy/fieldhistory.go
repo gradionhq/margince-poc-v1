@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -128,7 +127,7 @@ const (
 // limit by the tail row's width. When a page fills exactly on a row
 // boundary, a cheap existence probe decides has_more — the row that
 // filled the page may have been the true last one.
-func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFilter) (FieldHistoryPage, error) {
+func ListFieldHistory(ctx context.Context, db *database.DB, f FieldHistoryFilter) (FieldHistoryPage, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
 		return FieldHistoryPage{}, apperrors.ErrPermissionDenied
@@ -154,7 +153,7 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 	mask := defaultFieldMasks[f.EntityType]
 
 	var page FieldHistoryPage
-	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// activity carries no owner_id — it row-scopes through its
 		// links (the entities it is attached to), so its visibility
 		// check dispatches to EnsureActivityVisible; every other entity

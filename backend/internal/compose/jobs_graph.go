@@ -36,7 +36,7 @@ func addGraphJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log
 	graphEdges := newGraphEdgeReconcileWorker(pool, log)
 	addDeclaredWorker[GraphEdgeReconcileArgs](reg, graphEdges)
 	addDeclaredWorker[GraphEdgeWorkspaceArgs](reg, &graphEdgeWorkspaceWorker{graphEdgeReconcileWorker: graphEdges})
-	rematch := newLinkedInRematchWorker(pool, people.NewStore(pool), identity.NewService(pool), log)
+	rematch := newLinkedInRematchWorker(pool, people.NewStore(InstallationDB(pool)), identity.NewService(pool), log)
 	addDeclaredWorker[LinkedInRematchArgs](reg, rematch)
 	addDeclaredWorker[LinkedInRematchWorkspaceArgs](reg, &linkedInRematchWorkspaceWorker{linkedInRematchWorker: rematch})
 	return slices.Concat(

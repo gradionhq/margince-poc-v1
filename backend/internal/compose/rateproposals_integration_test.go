@@ -29,9 +29,9 @@ import (
 )
 
 func rateSvc(e *integration.Env) *approvals.Service {
-	svc := approvals.NewService(e.Pool)
-	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(e.Pool, DealsInstallation())))
-	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(e.Pool)))
+	svc := approvals.NewService(e.DB())
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(e.DB(), DealsInstallation())))
+	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(e.DB())))
 	return svc
 }
 
@@ -130,7 +130,7 @@ func TestFxRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
-	store := deals.NewStore(e.Pool, DealsInstallation())
+	store := deals.NewStore(e.DB(), DealsInstallation())
 
 	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "GBP", Rate: "1.0"}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -165,7 +165,7 @@ func TestFxRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
 
 	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
 		map[string]string{"from_currency": "NOK", "rate": "0.09"}, "NOK")
-	if _, err := deals.NewStore(e.Pool, DealsInstallation()).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "NOK", Rate: "0.088"}); err != nil {
+	if _, err := deals.NewStore(e.DB(), DealsInstallation()).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "NOK", Rate: "0.088"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if _, err := svc.Decide(ctx, id, true, nil); !errors.Is(err, apperrors.ErrVersionSkew) {
@@ -180,7 +180,7 @@ func TestFxRateProposalApplyMatchingPriorApplies(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	if _, err := deals.NewStore(e.Pool, DealsInstallation()).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "DKK", Rate: "0.134"}); err != nil {
+	if _, err := deals.NewStore(e.DB(), DealsInstallation()).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "DKK", Rate: "0.134"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
@@ -200,7 +200,7 @@ func TestModelRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
-	rates := ai.NewRateStore(e.Pool)
+	rates := ai.NewRateStore(e.DB())
 
 	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "m", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
@@ -245,7 +245,7 @@ func TestModelRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
 			"provider": "acme", "model_id": "new",
 			"input_per_mtok": "3", "output_per_mtok": "15", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
 		}, "acme/new")
-	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+	if _, err := ai.NewRateStore(e.DB()).SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "new", InputUsd: "2", OutputUsd: "10", CacheReadUsd: "0", CacheWriteUsd: "0",
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -262,7 +262,7 @@ func TestModelRateProposalApplyMatchingPriorApplies(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+	if _, err := ai.NewRateStore(e.DB()).SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: "acme", ModelID: "m2", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -290,7 +290,7 @@ func TestModelRateProposalApplyMatchingPriorApplies(t *testing.T) {
 func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	seed := deals.NewStore(e.Pool, DealsInstallation())
+	seed := deals.NewStore(e.DB(), DealsInstallation())
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 	seedFx(ctx, t, seed, "SEK", "1.0", time.Time{})
 	seedFx(ctx, t, seed, "SEK", "9.9", tomorrow)
@@ -298,14 +298,14 @@ func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 	// The effect store's clock crosses midnight right after the precondition
 	// read: first sample = today, every later sample = the next day.
 	calls := 0
-	crossing := deals.NewStore(e.Pool, DealsInstallation()).WithClock(func() time.Time {
+	crossing := deals.NewStore(e.DB(), DealsInstallation()).WithClock(func() time.Time {
 		calls++
 		if calls == 1 {
 			return time.Now().UTC()
 		}
 		return time.Now().UTC().Add(24 * time.Hour)
 	})
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, crossing))
 
 	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
@@ -325,20 +325,20 @@ func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 func TestModelRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
-	seed := ai.NewRateStore(e.Pool)
+	seed := ai.NewRateStore(e.DB())
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 	seedModelRate(ctx, t, seed, "mx", "5", time.Time{})
 	seedModelRate(ctx, t, seed, "mx", "9", tomorrow)
 
 	calls := 0
-	crossing := ai.NewRateStore(e.Pool).WithClock(func() time.Time {
+	crossing := ai.NewRateStore(e.DB()).WithClock(func() time.Time {
 		calls++
 		if calls == 1 {
 			return time.Now().UTC()
 		}
 		return time.Now().UTC().Add(24 * time.Hour)
 	})
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, crossing))
 
 	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,

@@ -43,7 +43,7 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		"message":"I found the company name on the home page.",
 		"proposed_changes":[{"field":"display_name","value":"Acme","reason":"The page states it.","source_ids":["S1"]}],
 		"source_ids":["S1"]}`}}
-	engine := &deepReadEngine{people: env.People, brain: brain, runtime: ai.NewRunTransparency(env.Pool)}
+	engine := &deepReadEngine{people: env.People, brain: brain, runtime: ai.NewRunTransparency(env.DB())}
 
 	request := companyReadMessageRequest(human, t, read.ID.String(), "Please update the display name to Acme from the website.")
 	recorder := httptest.NewRecorder()

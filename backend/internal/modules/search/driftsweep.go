@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -79,7 +78,7 @@ func (s *Store) SweepWorkspaceEmbeddingDrift(ctx context.Context, wsID ids.Works
 // call free).
 func (s *Store) healEntity(ctx context.Context, entityType string, id ids.UUID, embedder Embedder) (bool, error) {
 	var text string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, embedText[entityType], id).Scan(&text)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -104,7 +103,7 @@ func (s *Store) healEntity(ctx context.Context, entityType string, id ids.UUID, 
 // model calls must not run under a held workspace tx).
 func (s *Store) pendingEntityIDs(ctx context.Context, entityType string, src pendingSource, currentIdentity string) ([]ids.UUID, error) {
 	var pendingIDs []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		sql := fmt.Sprintf(`
 			SELECT t.id FROM %s t
 			WHERE t.archived_at IS NULL

@@ -148,7 +148,8 @@ func writeTokenResponse(w http.ResponseWriter, issued IssuedPassport, refresh st
 //
 // refresh is empty unless the authorization carried offline_access.
 func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issued IssuedPassport, refresh string, err error) {
-	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
+	ctx := r.Context()
+	err = h.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		redeemed, err := h.consumeAuthCode(r, tx, code, verifier)
 		if err != nil {
 			return err
@@ -168,7 +169,7 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 			})
 		}
 
-		grantID, refreshToken, err := issueGrant(r.Context(), tx, issueGrantInput{
+		grantID, refreshToken, err := issueGrant(ctx, tx, issueGrantInput{
 			WorkspaceID:    redeemed.WorkspaceID,
 			UserID:         redeemed.UserID,
 			ClientID:       redeemed.ClientID,
@@ -185,7 +186,7 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 		// The label names the client the consent was for; the grant is what
 		// actually binds the passport to it.
 		label := oauthPassportLabel(redeemed.ClientID)
-		issued, err = mintPassport(r.Context(), tx,
+		issued, err = mintPassport(ctx, tx,
 			Identity{UserID: redeemed.UserID, WorkspaceID: redeemed.WorkspaceID},
 			IssuePassportInput{Label: &label, Scopes: passportScopes, TTL: h.accessTokenTTL()}, &grantID)
 		return err

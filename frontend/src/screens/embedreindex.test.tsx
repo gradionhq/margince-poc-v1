@@ -26,7 +26,6 @@ const STATUS_NEEDED = {
   entities_pending: 42,
   per_workspace: [
     {
-      workspace_id: "018f3a1b-0000-7000-8000-000000000001",
       entities_pending: 42,
     },
   ],
@@ -39,7 +38,6 @@ const STATUS_IDLE = {
   entities_pending: 0,
   per_workspace: [
     {
-      workspace_id: "018f3a1b-0000-7000-8000-000000000001",
       entities_pending: 0,
     },
   ],
@@ -61,14 +59,7 @@ const PREVIEW = {
   estimate_quality: "heuristic",
   currency: "USD",
   computed_at: "2026-07-22T00:00:00Z",
-  per_workspace: [
-    {
-      workspace_id: "018f3a1b-0000-7000-8000-000000000001",
-      entities_pending: 42,
-      estimated_ai_tokens: 12_000,
-      utilization_impact: "degraded",
-    },
-  ],
+  utilization_impact: "degraded",
 };
 
 // The card gates its status QUERY on read and its rebuild actions on update —
@@ -129,7 +120,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows the per-workspace estimate + utilization disclosure and disables confirm until the estimate loads", async () => {
+it("shows the estimate + utilization disclosure and disables confirm until the estimate loads", async () => {
   let resolvePreview: (value: Response) => void = () => {};
   const previewPromise = new Promise<Response>((resolve) => {
     resolvePreview = resolve;
@@ -152,7 +143,7 @@ it("shows the per-workspace estimate + utilization disclosure and disables confi
   expect(screen.getByText(/12,000/)).toBeTruthy();
   expect(screen.getByText(/\$3\.50|US\$3\.50/)).toBeTruthy();
   expect(screen.getByText(/heuristic/i)).toBeTruthy();
-  // The per-workspace utilization disclosure (AIRT-PARAM-9..11 band).
+  // The utilization disclosure (AIRT-PARAM-9..11 band).
   expect(screen.getByText(/would enter economy mode|degraded/i)).toBeTruthy();
 });
 

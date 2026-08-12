@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
 
@@ -44,18 +45,19 @@ type siteReadFlags struct {
 
 func parseSiteReadFlags(args []string) (siteReadFlags, error) {
 	fs := flag.NewFlagSet("worker siteread", flag.ContinueOnError)
+	var env cliflags.Env
 	var cfg siteReadFlags
 	fs.IntVar(&cfg.maxPages, "max-pages", 0, "crawl page cap; 0 takes the built-in default")
 	fs.IntVar(&cfg.maxBytes, "max-bytes", 0, "crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.wall, "wall", 0, "crawl wall clock; 0 takes the built-in default")
-	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml")
 	fs.StringVar(&cfg.modelSpec, "model", "", "direct model override, provider:model (e.g. anthropic:claude-sonnet-4-6)")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "offline fake model: crawl dry-run, extraction yields nothing")
 	fs.StringVar(&cfg.jsonPath, "json", "", "write the machine-readable report here ('-' = stdout). Diff two runs with: jq 'del(.crawl.duration_ms, .crawl.pages[].fetch_ms, .model_calls[].latency_ms)'")
 	fs.StringVar(&cfg.dumpDir, "dump-pages", "", "directory to save each fetched page's reduced text into")
 	fs.StringVar(&cfg.urlsFile, "urls-file", "", "file of seed URLs, one per line (# comments allowed)")
-	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")
+	env.String(fs, &cfg.logFormat, "log-format", "MARGINCE_LOG_FORMAT", "text", "log format: text|json")
 	// stdlib flag stops at the first positional; re-parsing the remainder
 	// lets URLs and flags interleave (`siteread https://x.de --ai-fake`).
 	rest := args

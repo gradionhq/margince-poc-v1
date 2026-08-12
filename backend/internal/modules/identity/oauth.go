@@ -89,8 +89,9 @@ func (h Handlers) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(r.Context(), `
+	ctx := r.Context()
+	err = h.svc.db.Tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
 			clientID, req.ClientName, req.RedirectURIs)
@@ -185,13 +186,14 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	if err := h.svc.resolveCIMDClient(r.Context(), req.ClientID); err != nil && !errors.Is(err, errNotCIMD) {
 		return authorizeRequest{}, "invalid_client", "unknown client_id"
 	}
-	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
+	ctx := r.Context()
+	err = h.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		var uris []string
 		// A disabled or deleted client reads as UNKNOWN, deliberately: the same
 		// answer an unregistered client_id gets, so the refusal tells an
 		// attacker nothing about whether a client exists and has been switched
 		// off.
-		err := tx.QueryRow(r.Context(),
+		err := tx.QueryRow(ctx,
 			`SELECT c.client_name, c.redirect_uris FROM oauth_client c
 			  WHERE c.client_id = $1 AND `+liveClientPredicate,
 			req.ClientID).Scan(&req.ClientName, &uris)

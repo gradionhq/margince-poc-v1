@@ -39,7 +39,6 @@ const PURPOSES = {
   data: [
     {
       id: "p1",
-      workspace_id: "w",
       key: "transactional",
       label: "Deal messages",
       requires_double_opt_in: false,
@@ -47,7 +46,6 @@ const PURPOSES = {
     },
     {
       id: "p2",
-      workspace_id: "w",
       key: "marketing_email",
       label: "Marketing",
       requires_double_opt_in: true,
@@ -136,7 +134,6 @@ describe("ConsentPurposesCard", () => {
         jsonResponse(
           {
             id: "p3",
-            workspace_id: "w",
             key: "events",
             label: "Events",
             requires_double_opt_in: false,
@@ -457,7 +454,6 @@ describe("PrivacyInboxCard", () => {
           data: [
             {
               id: "u1",
-              workspace_id: "w",
               email: "dpo@acme.test",
               display_name: "Dana DPO",
               status: "active",
@@ -465,7 +461,6 @@ describe("PrivacyInboxCard", () => {
             },
             {
               id: "u2",
-              workspace_id: "w",
               email: "bot@acme.test",
               display_name: "Bot",
               status: "active",
@@ -522,7 +517,6 @@ describe("PrivacyInboxCard", () => {
           data: [
             {
               id: "u1",
-              workspace_id: "w",
               email: "dpo@acme.test",
               display_name: "Dana DPO",
               status: "active",
@@ -558,7 +552,6 @@ describe("PrivacyInboxCard", () => {
           data: [
             {
               id: "u1",
-              workspace_id: "w",
               email: "dpo@acme.test",
               display_name: "Dana DPO",
               status: "active",

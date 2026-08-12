@@ -233,7 +233,7 @@ func TestTheSweepTellsAContractOnlyVerbFromAMissingOne(t *testing.T) {
 
 	// And the state is what the response says it is.
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/v1/ext/alpha/audit-records", strings.NewReader(`{}`)))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/audit-records", nil))
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("a contract-only route answered %d, want 501 (body %s)", rec.Code, rec.Body)
 	}
@@ -287,7 +287,11 @@ func TestTheLiveComposedSetHasNoUnhandledInvocation(t *testing.T) {
 func composedFixture() []extension.Verb {
 	crm := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
 	audit := unitVerb("alpha", "audit_records", extension.TierAutoExecute, extension.ScopeRead)
-	audit.Method = http.MethodPut
+	// A GET, so the fixture spans both argument sources as well as two methods:
+	// this one's arguments come from the query, the other two's from a body. It
+	// was a PUT until read-scoped mutating methods were refused — a read declared
+	// PUT is exactly the disagreement the method now may not carry.
+	audit.Method = http.MethodGet
 	beta := unitVerb("beta", "beta_ping", extension.TierAutoExecute, extension.ScopeRead)
 	return []extension.Verb{crm, audit, beta}
 }
@@ -325,14 +329,21 @@ func TestAnUndeclaredRouteCannotBeMounted(t *testing.T) {
 	templated.Route = "/ext/alpha/{id}"
 	otherUnit := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
 	otherUnit.Route = "/ext/beta/sync-contacts"
-	bodyless := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
-	bodyless.Method = http.MethodGet
+	// GET is admitted now (its arguments ride the query), so the method case that
+	// must still be refused is one outside the admitted set entirely.
+	unadmittedMethod := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
+	unadmittedMethod.Method = http.MethodHead
+	// And the pairing rule, which is the refusal admitting GET made necessary:
+	// a method that means "change this" may not name a read.
+	readScopedPut := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
+	readScopedPut.Method = http.MethodPut
 
 	for name, verb := range map[string]extension.Verb{
-		"a core route":             outsideNamespace,
-		"a path template":          templated,
-		"another unit's namespace": otherUnit,
-		"a method with no body":    bodyless,
+		"a core route":                      outsideNamespace,
+		"a path template":                   templated,
+		"another unit's namespace":          otherUnit,
+		"a method outside the admitted set": unadmittedMethod,
+		"a read-scoped PUT":                 readScopedPut,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := MountExtensionRoutes(http.NewServeMux(), []extension.Verb{verb}, nil, noopInvoker); err == nil {
@@ -383,12 +394,12 @@ func TestAMountedRouteInvokesItsDeclaredVerb(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/v1/ext/alpha/audit-records", strings.NewReader(`{"k":1}`)))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/ext/alpha/sync-contacts", strings.NewReader(`{"k":1}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
-	if called != "audit_records" {
-		t.Fatalf("invoked %q, want the declared verb audit_records", called)
+	if called != "sync_contacts" {
+		t.Fatalf("invoked %q, want the declared verb sync_contacts", called)
 	}
 	// The unit's payload, unwrapped from the envelope — the shape the
 	// operation's contract declares, and the only shape a generated client can
@@ -397,9 +408,21 @@ func TestAMountedRouteInvokesItsDeclaredVerb(t *testing.T) {
 		t.Fatalf("body = %s, want the tool's own payload verbatim", got)
 	}
 
-	// The method is part of the declaration, so a declared PUT does not answer
+	// The fixture's GET dispatches too, and its arguments come from the query
+	// rather than a body — the same seam, the other source. It declares none, so
+	// the empty object is what reaches the verb.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ext/alpha/audit-records", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"args":{}}` {
+		t.Fatalf("status = %d body = %s, want 200 and the empty-object default", rec.Code, rec.Body)
+	}
+	if called != "audit_records" {
+		t.Fatalf("invoked %q, want the declared verb audit_records", called)
+	}
+
+	// The method is part of the declaration, so a declared GET does not answer
 	// a POST. Without method-and-path patterns this would be a 200 on a verb
-	// the contract said was a PUT.
+	// the contract said was a GET.
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/ext/alpha/audit-records", strings.NewReader(`{}`)))
 	if rec.Code != http.StatusMethodNotAllowed {

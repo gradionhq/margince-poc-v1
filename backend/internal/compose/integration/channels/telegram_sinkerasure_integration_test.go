@@ -122,12 +122,12 @@ func TestTheSinkRefusesARecordNamingAnErasedChannelAccount(t *testing.T) {
 	seedChannelIdentity(t, e, person, "20301", "erased")
 
 	// A real erasure, so the suppression row is armed the way production arms it.
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
 	const body = "the erased subject's message text"
-	_, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), inboundChannelRecord("20301", body))
+	_, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), inboundChannelRecord("20301", body))
 	if !errors.Is(err, connector.ErrSkip) {
 		t.Fatalf("Upsert returned %v, want ErrSkip — an erased account's message must not become an activity", err)
 	}
@@ -145,7 +145,7 @@ func TestTheSinkWaitsForAnErasureHoldingTheRecordsAccount(t *testing.T) {
 	person := e.SeedPerson(t, "Live Subject", nil)
 	seedChannelIdentity(t, e, person, "20302", "live")
 
-	sink := capture.NewSink(lockWaitBoundedPool(t))
+	sink := capture.NewSink(database.BindTo(lockWaitBoundedPool(t), ids.From[ids.WorkspaceKind](e.WS)))
 	ctx := sinkConnectorCtx(e)
 
 	var upsertErr error
@@ -178,7 +178,7 @@ func TestTheSinkIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 	person := e.SeedPerson(t, "Live Subject", nil)
 	seedChannelIdentity(t, e, person, "20303", "live")
 
-	sink := capture.NewSink(lockWaitBoundedPool(t))
+	sink := capture.NewSink(database.BindTo(lockWaitBoundedPool(t), ids.From[ids.WorkspaceKind](e.WS)))
 	ctx := sinkConnectorCtx(e)
 
 	const body = "an unrelated account's message"
@@ -215,7 +215,7 @@ func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
 	rec := inboundChannelRecord("20304", "named twice")
 	rec.Counterparty.Email = "someone@example.com"
 
-	_, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec)
+	_, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec)
 	if !errors.Is(err, capture.ErrCounterpartyNamedTwice) {
 		t.Fatalf("Upsert returned %v, want ErrCounterpartyNamedTwice", err)
 	}
@@ -239,14 +239,14 @@ func TestAnErasureReachesAChannelActivityWithNoPersonLink(t *testing.T) {
 	seedChannelIdentity(t, e, person, "20401", "orphaned")
 
 	const body = "a message no link points at"
-	if _, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), inboundChannelRecord("20401", body)); err != nil {
+	if _, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), inboundChannelRecord("20401", body)); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM activity_link WHERE person_id = $1`, person); n != 0 {
 		t.Fatalf("the fixture linked the activity to the person (%d links); this test needs the UNLINKED state", n)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -274,7 +274,7 @@ func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
 	bystander := e.SeedPerson(t, "Bystander", nil)
 	seedChannelIdentity(t, e, bystander, "20502", "bystander")
 
-	sink := capture.NewSink(e.Pool)
+	sink := capture.NewSink(e.DB())
 	ctx := sinkConnectorCtx(e)
 	const bystanderBody = "the bystander's own message"
 	if _, err := sink.Upsert(ctx, inboundChannelRecord("20501", "the erased subject's message")); err != nil {
@@ -284,7 +284,7 @@ func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
 		t.Fatalf("Upsert (bystander): %v", err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), erased, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), erased, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -316,10 +316,10 @@ func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testin
 
 	const body = "a message inside the statutory floor"
 	rec := inboundChannelRecordAt("20601", body, time.Now().UTC())
-	if _, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec); err != nil {
+	if _, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := activityBodyCount(t, e, body); n != 1 {
@@ -337,7 +337,7 @@ func TestTheSinkRefusesHalfAChannelIdentity(t *testing.T) {
 	rec := inboundChannelRecord("20305", "half an identity")
 	rec.Counterparty.ChannelIdentity.Provider = ""
 
-	_, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec)
+	_, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec)
 	if !errors.Is(err, capture.ErrChannelIdentityIncomplete) {
 		t.Fatalf("Upsert returned %v, want ErrChannelIdentityIncomplete", err)
 	}

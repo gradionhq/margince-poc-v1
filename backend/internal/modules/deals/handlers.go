@@ -16,10 +16,10 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -37,8 +37,8 @@ type Handlers struct {
 
 // NewHandlers wires the transport over the RLS-bound app pool and the
 // installation's own values.
-func NewHandlers(pool *pgxpool.Pool, inst Installation) Handlers {
-	return Handlers{store: NewStore(pool, inst)}
+func NewHandlers(db *database.DB, inst Installation) Handlers {
+	return Handlers{store: NewStore(db, inst)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

@@ -74,7 +74,7 @@ func seedLoggedOrg(ctx context.Context, t *testing.T, e *Env, blob blobstore.Sto
 func TestOrganizationLogoStreamsTheStoredMarkUnderNonExecutableHeaders(t *testing.T) {
 	e := Setup(t)
 	blob := blobstore.NewMemory()
-	handlers := people.NewHandlers(e.Pool).WithBlobstore(blob)
+	handlers := people.NewHandlers(e.DB()).WithBlobstore(blob)
 	ctx := e.Admin()
 	want := logoPNG(t)
 	orgID := seedLoggedOrg(ctx, t, e, blob, want)
@@ -128,7 +128,7 @@ func TestOrganizationLogoIs404WithoutOneAnd501WithoutAnObjectStore(t *testing.T)
 	// No logo on file: a 404 the client renders as a monogram.
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+bareID.String()+"/logo", nil).WithContext(ctx)
-	people.NewHandlers(e.Pool).WithBlobstore(blob).GetOrganizationLogo(rec, req, crmcontracts.Id(bareID.UUID))
+	people.NewHandlers(e.DB()).WithBlobstore(blob).GetOrganizationLogo(rec, req, crmcontracts.Id(bareID.UUID))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET logo of a logo-less org = %d, want 404", rec.Code)
 	}
@@ -138,7 +138,7 @@ func TestOrganizationLogoIs404WithoutOneAnd501WithoutAnObjectStore(t *testing.T)
 	rec = httptest.NewRecorder()
 	missing := ids.NewV7()
 	req = httptest.NewRequest(http.MethodGet, "/v1/organizations/"+missing.String()+"/logo", nil).WithContext(ctx)
-	people.NewHandlers(e.Pool).WithBlobstore(blob).GetOrganizationLogo(rec, req, crmcontracts.Id(missing))
+	people.NewHandlers(e.DB()).WithBlobstore(blob).GetOrganizationLogo(rec, req, crmcontracts.Id(missing))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET logo of an unknown org = %d, want 404", rec.Code)
 	}
@@ -148,7 +148,7 @@ func TestOrganizationLogoIs404WithoutOneAnd501WithoutAnObjectStore(t *testing.T)
 	orgID := seedLoggedOrg(ctx, t, e, blob, logoPNG(t))
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/v1/organizations/"+orgID.String()+"/logo", nil).WithContext(ctx)
-	people.NewHandlers(e.Pool).GetOrganizationLogo(rec, req, crmcontracts.Id(orgID.UUID))
+	people.NewHandlers(e.DB()).GetOrganizationLogo(rec, req, crmcontracts.Id(orgID.UUID))
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("GET logo with no object store = %d, want 501", rec.Code)
 	}

@@ -1,0 +1,74 @@
+name: account_first_touch_with_a_deal_in_flight
+task: draft_reply
+site: account
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+# The account composer with something real to write about: an open deal and a
+# commitment we made. It is the case that separates grounding from invention —
+# the amount and the commitment ARE supplied, so using them is correct, while
+# anything beyond them is not.
+fixture:
+  envelope:
+    output_language: en
+    conversation_state: weeks
+    silence_days: "24"
+    now: 2026-08-11T09:00:00Z
+    sender_name: Anna Krüger
+    sender_email: anna.krueger@example.com
+  intent: Send the integration scope we promised and ask for a decision date.
+  company: Northwind Logistics
+  industry: Freight forwarding
+  description: Mid-market freight forwarder running its own dispatch software.
+  recipient:
+    id: 7b2e4c19-53f8-4a26-b71d-9e0c3a85f412
+    name: Priya Raman
+    first_name: Priya
+    title: Head of Operations
+    email: p.raman@example.com
+    relationship: warm
+    last_interaction: 2026-07-18T14:30:00Z
+  # No currency, and that is deliberate. A deal's amount does not decode from a
+  # fixture (AmountMinor is json:"-"), and a currency with no amount makes the
+  # marshaller emit "amount":"0.00" — so a fixture naming one would inject into
+  # the prompt the exact fabricated figure the rubric below penalizes. It is
+  # also a state production cannot build: findDeal sets both or neither.
+  deal:
+    id: c41a7f60-92db-4e83-a5c7-16b8f2049e3d
+    name: Dispatch integration
+    stage: proposal
+  commitment:
+    id: e93b5d27-4c81-49af-8236-7fa1c6e05b48
+    name: Send the integration scope document
+    due: 2026-07-25
+expect:
+  outcome: accepted
+  answer: written
+  rubric: >
+    An account this side has corresponded with, silent for 24 days, with one
+    open deal and one commitment we made and have not met.
+
+    The commitment is the spine. We said we would send the integration scope and
+    the due date has passed, so the draft should lead with it rather than open
+    with a generic check-in. A draft that never mentions it has missed the one
+    thing there was to write about and cannot score above degraded.
+
+    Grounding. The company, industry, description, deal name, stage and
+    commitment are all supplied and may be used. Anything else may not: no
+    amount and no currency were given, so any figure at all is invented and
+    scores at the floor. So is any date beyond the supplied due date, any named
+    competitor, and any claim about what the recipient thinks.
+
+    Time. 24 days is the "weeks" band. The draft must not assume Priya still has
+    the July conversation in mind — say what it was about rather than referring
+    to it — and must not write "just circling back" or "as discussed".
+
+    No internals. The relationship reading ("warm") is steering for the writer,
+    not something to say to her. A draft that mentions a relationship strength,
+    a score, or anything about other accounts scores at the floor.
+
+    Full marks for a short English message that leads with the overdue scope
+    document, asks for the decision date the intent named, and invents nothing.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

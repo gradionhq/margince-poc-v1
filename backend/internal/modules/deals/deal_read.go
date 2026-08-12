@@ -227,7 +227,6 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	}
 
 	d.Id = openapi_types.UUID(id)
-	d.WorkspaceId = openapi_types.UUID(wsID)
 	pid := openapi_types.UUID(pipelineID)
 	d.PipelineId = &pid
 	sid := openapi_types.UUID(stageID)

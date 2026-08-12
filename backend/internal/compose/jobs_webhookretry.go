@@ -17,6 +17,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -71,7 +72,7 @@ type WebhookRetryConfig struct {
 	//
 	// Nil is a role with no signing key, and there is then no way to sign a
 	// re-attempt: absent by omission, the posture JobRunnerConfig states.
-	Deliverer *webhooks.Deliverer
+	Deliverer func(*database.DB) *webhooks.Deliverer
 }
 
 // addWebhookRetryJobs registers the retry workers and returns the dispatcher's
@@ -83,7 +84,7 @@ func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConf
 		return nil
 	}
 	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool})
-	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
+	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{pool: pool, deliverer: cfg.WebhookRetry.Deliverer})
 	return periodicFor(cfg, WebhookRetryArgs{})
 }
 
@@ -127,7 +128,8 @@ func (a WebhookRetryWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // webhookRetryWorkspaceWorker sweeps one workspace.
 type webhookRetryWorkspaceWorker struct {
-	deliverer *webhooks.Deliverer
+	pool      *pgxpool.Pool
+	deliverer func(*database.DB) *webhooks.Deliverer
 }
 
 // Work binds the tenant and nothing else: the sweep re-sends deliveries that
@@ -138,5 +140,12 @@ func (w *webhookRetryWorkspaceWorker) Work(ctx context.Context, job *river.Job[W
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	return jobs.FaultContext(ctx, w.deliverer.SweepOnce(wsCtx))
+	// Built for the workspace THIS pass sweeps: the deliverer's store writes
+	// delivery rows, and a fleet pass cannot share one across the workspaces it
+	// re-attempts (ADR-0091 §9 step 3).
+	db, err := workspaceJobDB(w.pool, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, w.deliverer(db).SweepOnce(wsCtx))
 }

@@ -9,21 +9,24 @@ secrets, platform manifests) is yours to own — keep those in your own infra re
 
 | File | Purpose |
 |---|---|
-| `Dockerfile.api` | `cmd/api` (HTTP) + bundled `cmd/migrate`; applies migrations at boot |
-| `Dockerfile.worker` | `cmd/worker` — outbox relay, retention, Surface-B AI (no HTTP) |
-| `Dockerfile.web` | the Vite SPA behind nginx-unprivileged |
+| `Dockerfile` (target `api`) | `cmd/api` (HTTP) + bundled `cmd/migrate`; applies migrations at boot |
+| `Dockerfile` (target `worker`) | `cmd/worker` — outbox relay, retention, Surface-B AI (no HTTP) |
+| `Dockerfile` (target `web`) | the Vite SPA behind nginx-unprivileged |
 | `scripts/deploy/api-entrypoint.sh` | migrate as owner, then serve the API as app |
 | `scripts/deploy/worker-entrypoint.sh` | start the worker as app (no owner credential) |
 | `scripts/deploy/db-bootstrap.sql` | one-time DB role + database + extension setup |
 | `frontend/nginx.conf` | SPA static serving (listens on 8080, non-root) |
 
-All three images build with the **repo root** as context (the Go build folds in
-the `extensions/*` packs via `gen-composition`):
+The three roles live in the ONE root `Dockerfile`, each as a build target of
+the same name sharing a common Go builder base, and every image builds with
+the **repo root** as context (the Go build folds in the `extensions/*` packs
+via `gen-composition`; `docker buildx bake` builds all three through
+`docker-bake.hcl`):
 
 ```bash
-docker build -f Dockerfile.api    -t margince-api:local .
-docker build -f Dockerfile.worker -t margince-worker:local .
-docker build -f Dockerfile.web    -t margince-web:local .
+docker build --target api    -t margince-api:local .
+docker build --target worker -t margince-worker:local .
+docker build --target web    -t margince-web:local .
 ```
 
 ## The two-role database model (required — read this first)
@@ -91,10 +94,9 @@ api refuses to boot on that gate without it. Remove the `mcp` block to keep the
 connector off; the code default is off, so an absent block exposes nothing.
 
 Your `margince.yaml`'s `password_file` **must point to where the entrypoint writes
-`MARGINCE_ADMIN_PASSWORD`** — by default `secrets/admin-password` (i.e.
-`/app/secrets/admin-password`, the api's working dir is `/app`). Set that value in
-your config, or override the write path with `MARGINCE_ADMIN_PASSWORD_FILE` so the
-two agree. (The example config's default differs, so change it to match.)
+`MARGINCE_ADMIN_PASSWORD`** — `secrets/admin-password` (i.e.
+`/app/secrets/admin-password`; the api's working dir is `/app`). Set that value in
+your config. (The example config's default differs, so change it to match.)
 
 ## Routing
 

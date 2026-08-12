@@ -14,10 +14,10 @@ import {
   Avatar,
   Badge,
   Button,
+  Card,
   EmptyState,
   Field,
   Modal,
-  SectionHeader,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
@@ -553,14 +553,13 @@ export function SectionCard({
     state === "stale" ||
     state === "partial";
   return (
-    <section className="card co-card">
-      <SectionHeader title={title} />
+    <Card className="co-card" title={title}>
       <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
         {children}
       </SectionPart>
       {present && footer}
       {present && actions && <div className="co-card-actions">{actions}</div>}
-    </section>
+    </Card>
   );
 }
 

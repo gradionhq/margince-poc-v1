@@ -49,7 +49,7 @@ func TestThePersonListNarrowsByTagName(t *testing.T) {
 	tagged := e.SeedPerson(t, "Tagged Person", nil)
 	e.SeedPerson(t, "Untagged Person", nil)
 
-	tags := collections.NewStore(e.Pool)
+	tags := collections.NewStore(e.DB())
 	curator := tagCurator(e)
 	vip, err := tags.CreateTag(curator, "VIP", nil)
 	if err != nil {

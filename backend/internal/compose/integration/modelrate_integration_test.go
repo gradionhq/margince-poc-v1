@@ -35,7 +35,7 @@ func modelRateOf(rows []ai.ModelRateRow, provider, model string) (ai.ModelRateRo
 
 func TestModelRateAppendForwardAndConversion(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	ctx := e.Admin()
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
@@ -88,7 +88,7 @@ func TestModelRateAppendForwardAndConversion(t *testing.T) {
 
 func TestModelRateRejects(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	ctx := e.Admin()
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	base := ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: today}
@@ -114,7 +114,7 @@ func TestModelRateRejects(t *testing.T) {
 
 func TestModelRateWriteDeniedForNonAdmin(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	repCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
 	_, err := store.SetModelRate(repCtx, ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: time.Now().UTC()})
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -124,7 +124,7 @@ func TestModelRateWriteDeniedForNonAdmin(t *testing.T) {
 
 func TestModelRateReadDeniedForNonAdmin(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	roCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, ReadOnlyPerms)
 	if _, err := store.ListLatestModelRates(roCtx); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("read_only list err = %v, want ErrPermissionDenied", err)
@@ -133,7 +133,7 @@ func TestModelRateReadDeniedForNonAdmin(t *testing.T) {
 
 func TestModelRateWritesAuditRow(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	if _, err := store.SetModelRate(e.Admin(), ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: time.Now().UTC()}); err != nil {
 		t.Fatalf("set: %v", err)
 	}
@@ -144,11 +144,11 @@ func TestModelRateWritesAuditRow(t *testing.T) {
 
 func TestModelRateCrossWorkspaceIsolation(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	store := ai.NewRateStore(e.DB())
 	if _, err := store.SetModelRate(e.Admin(), ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: time.Now().UTC()}); err != nil {
 		t.Fatalf("set in workspace A: %v", err)
 	}
-	wsB, _ := seedSecondWorkspace(t, OwnerConn(t))
+	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
 	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
 	var n int
 	if err := database.WithWorkspaceTx(ctxB, e.Pool, func(tx pgx.Tx) error {
@@ -183,7 +183,7 @@ func TestModelRateCreateAndUpdateGrantsGateSeparately(t *testing.T) {
 	// OWN clock inside the transaction, so a real clock crossing UTC midnight
 	// between the two would refuse this write as past-dated.
 	today := pinnedRateDay()
-	store := ai.NewRateStore(e.Pool).WithClock(func() time.Time { return today })
+	store := ai.NewRateStore(e.DB()).WithClock(func() time.Time { return today })
 	setOn := func(ctx context.Context, input string, day time.Time) error {
 		_, err := store.SetModelRate(ctx, ai.SetModelRateInput{
 			Provider: "anthropic", ModelID: "m",
@@ -238,7 +238,7 @@ func TestModelRateOverwriteAuditsAsUpdate(t *testing.T) {
 	// Pinned so both writes land on the SAME day: a real clock crossing UTC
 	// midnight between them would create two rows and audit two creates.
 	today := pinnedRateDay()
-	store := ai.NewRateStore(e.Pool).WithClock(func() time.Time { return today })
+	store := ai.NewRateStore(e.DB()).WithClock(func() time.Time { return today })
 	ctx := e.Admin()
 	for _, price := range []string{"1", "2"} {
 		if _, err := store.SetModelRate(ctx, ai.SetModelRateInput{

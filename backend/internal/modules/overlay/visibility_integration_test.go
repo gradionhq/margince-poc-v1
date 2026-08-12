@@ -42,7 +42,7 @@ import (
 
 func TestVisibilityDenyJoinFourCases(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	actorA, ok := principal.Actor(ctx)
 	if !ok {
@@ -123,7 +123,7 @@ func TestVisibilityDenyJoinFourCases(t *testing.T) {
 // un-gated-read window ADR-0044 forbids on whichever one was skipped.
 func TestListAppliesTheSameDenyJoinAsGet(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	actor, _ := principal.Actor(ctx)
 	userA := ids.From[ids.UserKind](actor.UserID)
@@ -168,8 +168,8 @@ func TestListAppliesTheSameDenyJoinAsGet(t *testing.T) {
 // a record ingested before its owner is mapped stays hidden forever, with
 // no branch-1 remedy short of a full bulk refresh.
 func TestRecomputeForOwnerUnhidesAlreadyIngestedRecords(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	actor, _ := principal.Actor(ctx)
 	userA := ids.From[ids.UserKind](actor.UserID)
@@ -205,7 +205,7 @@ func TestRecomputeForOwnerUnhidesAlreadyIngestedRecords(t *testing.T) {
 // match).
 func TestUpsertUserMapAppliesThePinnedEmailRule(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-alice": "alice@example.com"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-alice": "alice@example.com"})
 
 	ctxAlice, aliceRaw := testWorkspaceCtxAsUser(t, ws, "  Alice@Example.com  ")
 	alice := ids.From[ids.UserKind](aliceRaw)
@@ -256,7 +256,7 @@ func TestUpsertUserMapAppliesThePinnedEmailRule(t *testing.T) {
 // user's email-sourced mapping is still correct.
 func TestIngestRevalidatesEmailSourcedMapOnOwnerChange(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-new": "carol@example.com"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-new": "carol@example.com"})
 
 	ctxDave, daveRaw := testWorkspaceCtxAsUser(t, ws, "dave@example.test")
 	dave := ids.From[ids.UserKind](daveRaw)
@@ -302,8 +302,8 @@ func TestIngestRevalidatesEmailSourcedMapOnOwnerChange(t *testing.T) {
 // mirrored record) since a fix that only re-clears the FIRST record found
 // would still leak.
 func TestUpsertUserMapRemapRevokesTheOldOwnersRecords(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	actor, _ := principal.Actor(ctx)
 	userA := ids.From[ids.UserKind](actor.UserID)
@@ -374,7 +374,7 @@ func TestUpsertUserMapRemapRevokesTheOldOwnersRecords(t *testing.T) {
 func TestRevalidateEmailMappingDeleteRevokesVisibility(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	emails := stubOwnerEmails{"owner-z": "dana@example.com"}
-	store := NewMirrorStore(pool, emails)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), emails)
 
 	ctxDana, danaRaw := testWorkspaceCtxAsUser(t, ws, "dana@example.com")
 	dana := ids.From[ids.UserKind](danaRaw)
@@ -421,7 +421,7 @@ func TestRevalidateEmailMappingDeleteRevokesVisibility(t *testing.T) {
 func TestRevalidateEmailMappingsPeriodicSweepCatchesEmailChangeAlone(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	emails := stubOwnerEmails{"owner-w": "erin@example.com"}
-	store := NewMirrorStore(pool, emails)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), emails)
 
 	ctxErin, erinRaw := testWorkspaceCtxAsUser(t, ws, "erin@example.com")
 	erin := ids.From[ids.UserKind](erinRaw)

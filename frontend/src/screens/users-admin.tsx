@@ -6,8 +6,8 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -66,44 +66,77 @@ export function UsersAdminCard() {
   // email works, the invite mail carries the link and this action would only
   // ever 409 — so it is not rendered at all.
   const canIssueLink = me.data?.admin_password_link ?? false;
-  return (
-    <section className="card">
-      <SectionHeader title={t("users.title")} sub={t("users.sub")} />
-      {/* Gate on the role probe itself so the admin-only notice appears only
-          once /me has actually answered — never as a flash while it loads. */}
-      <QueryGate query={me}>
-        {() =>
-          isAdmin ? (
-            <>
-              <InviteForm canIssueLink={canIssueLink} />
-              <QueryGate query={members}>
-                {(list) =>
-                  list.length === 0 ? (
-                    <EmptyState>
-                      <p className="t-small">{t("users.empty")}</p>
-                    </EmptyState>
-                  ) : (
-                    <ul className="users-list">
-                      {list.map((u) => (
-                        <MemberRow
-                          key={u.id}
-                          member={u}
-                          canIssueLink={canIssueLink}
-                        />
-                      ))}
-                    </ul>
-                  )
-                }
-              </QueryGate>
-            </>
-          ) : (
+  // Everything below the role probe is admin surface, so a caller who is not
+  // (yet) known to be an admin gets exactly one card: the page's own heading
+  // over the loading, error or admins-only state. Gating on the probe itself is
+  // what keeps the notice from flashing while /me is still in flight.
+  if (!isAdmin) {
+    return (
+      <Card title={t("users.title")} sub={t("users.sub")}>
+        <QueryGate query={me}>
+          {() => (
             <EmptyState>
               <p className="t-small">{t("users.adminOnly")}</p>
             </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
+  }
+  return (
+    <div className="users-stack">
+      <InviteForm canIssueLink={canIssueLink} />
+      <MembersCard members={members} canIssueLink={canIssueLink} />
+    </div>
+  );
+}
+
+function MembersCard({
+  members,
+  canIssueLink,
+}: Readonly<{
+  members: ReturnType<typeof useMembers>;
+  canIssueLink: boolean;
+}>) {
+  const t = useT();
+  const roster = members.data;
+  return (
+    <Card
+      title={t("users.membersTitle")}
+      sub={t("users.membersSub")}
+      // The count states what the roster holds, deactivated members included —
+      // the read opts into them, and a roster of twelve with three switched off
+      // is not a roster of nine. Nothing to count is said by the empty state
+      // below instead, so a "0 members" badge never doubles it.
+      actions={
+        roster && roster.length > 0 ? (
+          <Badge>
+            {t(
+              roster.length === 1
+                ? "users.memberCount.one"
+                : "users.memberCount.other",
+              { count: roster.length },
+            )}
+          </Badge>
+        ) : undefined
+      }
+    >
+      <QueryGate query={members}>
+        {(list) =>
+          list.length === 0 ? (
+            <EmptyState>
+              <p className="t-small">{t("users.empty")}</p>
+            </EmptyState>
+          ) : (
+            <ul className="users-list">
+              {list.map((u) => (
+                <MemberRow key={u.id} member={u} canIssueLink={canIssueLink} />
+              ))}
+            </ul>
           )
         }
       </QueryGate>
-    </section>
+    </Card>
   );
 }
 
@@ -152,8 +185,13 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    <form
-      className="users-invite"
+    // The card IS the form: submitting it is the only thing this surface does,
+    // so there is no inner element for the browser to associate the Enter key
+    // with other than the one carrying the heading.
+    <Card
+      as="form"
+      title={t("users.inviteTitle")}
+      sub={t("users.inviteSub")}
       onSubmit={(e) => {
         e.preventDefault();
         if (canInvite) {
@@ -161,35 +199,37 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         }
       }}
     >
-      <TextInput
-        aria-label={t("users.emailLabel")}
-        placeholder={t("users.emailPlaceholder")}
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-      <TextInput
-        aria-label={t("users.nameLabel")}
-        placeholder={t("users.namePlaceholder")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <Select
-        aria-label={t("users.roleLabel")}
-        value={role}
-        onChange={(value) => {
-          if (isOption(value, ROLES)) setRole(value);
-        }}
-        options={roleOptions(t)}
-      />
-      <Button variant="primary" small type="submit" disabled={!canInvite}>
-        <UserPlus aria-hidden /> {t("users.invite")}
-      </Button>
-      {error && (
-        <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
-          {error}
-        </p>
-      )}
+      <div className="users-invite">
+        <TextInput
+          aria-label={t("users.emailLabel")}
+          placeholder={t("users.emailPlaceholder")}
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <TextInput
+          aria-label={t("users.nameLabel")}
+          placeholder={t("users.namePlaceholder")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Select
+          aria-label={t("users.roleLabel")}
+          value={role}
+          onChange={(value) => {
+            if (isOption(value, ROLES)) setRole(value);
+          }}
+          options={roleOptions(t)}
+        />
+        <Button variant="primary" small type="submit" disabled={!canInvite}>
+          <UserPlus aria-hidden /> {t("users.invite")}
+        </Button>
+        {error && (
+          <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
+            {error}
+          </p>
+        )}
+      </div>
       {invited && (
         <PasswordLinkModal
           memberName={invited.name}
@@ -204,7 +244,63 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           }}
         />
       )}
-    </form>
+    </Card>
+  );
+}
+
+// The role cell: what a member's role reads as, and the control that changes it.
+//
+// An agent seat has neither, and gets the reason in their place. Its authority
+// is the passport granting it intersected with the person that passport names,
+// so a role on its own row grants nothing — the server refuses to write one, and
+// a control here would promise otherwise. A line rather than a disabled select
+// or a gap: the absence is a rule about what the seat IS, not a permission this
+// admin happens to lack.
+function RoleCell({
+  member,
+  pending,
+  inFlight,
+  onPick,
+}: Readonly<{
+  member: User;
+  pending: boolean;
+  inFlight?: Role;
+  onPick: (role: Role) => void;
+}>) {
+  const t = useT();
+  if (member.is_agent) {
+    return <span className="t-small">{t("users.agentSeatRole")}</span>;
+  }
+  // `roles` arrives only for an admin caller — which this card always is — and
+  // normally holds exactly one key. No key (an unassigned seat) and several keys
+  // both leave the select on its placeholder, because neither has one current
+  // role to show.
+  const heldRoles = member.roles ?? [];
+  const currentRole =
+    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
+  // A member holding SEVERAL roles is the case worth naming: any choice here
+  // replaces the whole set, so a neutral "Set role…" would let an admin strip
+  // privileges they never saw. The placeholder says what is held instead.
+  const placeholder =
+    heldRoles.length > 1
+      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
+      : t("users.setRole");
+  return (
+    // The unset state is the select's PLACEHOLDER, not an option: picking it
+    // back would set no role, so it belongs on the closed face and nowhere in
+    // the list. It is only ever seen when there is no single role to show.
+    <Select
+      aria-label={t("users.setRoleFor", { name: member.display_name })}
+      value={inFlight ?? currentRole}
+      placeholder={placeholder}
+      disabled={pending}
+      onChange={(value) => {
+        if (isOption(value, ROLES)) {
+          onPick(value);
+        }
+      }}
+      options={roleOptions(t)}
+    />
   );
 }
 
@@ -279,27 +375,6 @@ function MemberRow({
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
 
-  // The role the select reads back. `roles` arrives only for an admin caller —
-  // which this card always is — and normally holds exactly one key. No key (an
-  // unassigned seat) and several keys both leave the select on its placeholder,
-  // because neither has one current role to show.
-  const heldRoles = member.roles ?? [];
-  const currentRole =
-    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
-  // A member holding SEVERAL roles is the case worth naming: any choice here
-  // replaces the whole set, so a neutral "Set role…" would let an admin strip
-  // privileges they never saw. The placeholder says what is held instead.
-  const placeholder =
-    heldRoles.length > 1
-      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
-      : t("users.setRole");
-  // While a change is in flight the select shows the role being applied — and
-  // it stays in flight until the refreshed roster lands (see refresh), so the
-  // row never renders the replaced role. A FAILED change leaves the select on
-  // the role still held, which is what keeps a retry live: re-picking the same
-  // target still fires onChange.
-  const inFlightRole = setRole.isPending ? setRole.variables : undefined;
-
   return (
     <li className="users-row">
       <span className="users-who">
@@ -309,25 +384,28 @@ function MemberRow({
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
-      {/* The unset state is the select's PLACEHOLDER, not an option: picking it
-          back would set no role, so it belongs on the closed face and nowhere in
-          the list. It is only ever seen when there is no single role to show. */}
-      <Select
-        aria-label={t("users.setRoleFor", { name: member.display_name })}
-        value={inFlightRole ?? currentRole}
-        placeholder={placeholder}
-        disabled={pending}
-        onChange={(value) => {
-          if (isOption(value, ROLES)) {
-            setRole.mutate(value);
-          }
-        }}
-        options={roleOptions(t)}
+      {/* The workspace's agent identity sits in this roster because it OWNS
+          records — a client resolving an owner has to find it — so the row says
+          what it is rather than passing for a colleague. */}
+      {member.is_agent && <Badge tone="ai">{t("users.agentSeat")}</Badge>}
+      <RoleCell
+        member={member}
+        pending={pending}
+        // While a change is in flight the cell shows the role being applied —
+        // and it stays in flight until the refreshed roster lands (see refresh),
+        // so the row never renders the replaced role. A FAILED change leaves it
+        // on the role still held, which is what keeps a retry live: re-picking
+        // the same target still fires onChange.
+        inFlight={setRole.isPending ? setRole.variables : undefined}
+        onPick={(role) => setRole.mutate(role)}
       />
       {/* Only an ACTIVE member can redeem a link — redemption updates an active
           account and refuses otherwise — so offering one on a deactivated row
-          would hand the admin a link that is dead on arrival. */}
-      {canIssueLink && member.status === "active" && (
+          would hand the admin a link that is dead on arrival. The agent seat is
+          excluded for a different reason: it holds no password by construction,
+          which is what makes it a thing that signs in nowhere, and the server
+          refuses to mint it one. */}
+      {canIssueLink && !member.is_agent && member.status === "active" && (
         <Button small disabled={pending} onClick={openLink}>
           {t("users.link.action")}
         </Button>
@@ -357,7 +435,17 @@ function MemberRow({
         error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
       >
-        <p className="t-small">{t("users.deactivateConfirmBody")}</p>
+        {/* Deactivating the agent seat is a posture an operator is entitled to
+            take, so it stays offered — but what stops when they take it is
+            invisible from this screen, and the generic body (signed out, sessions
+            revoked) describes a person rather than what actually happens. */}
+        <p className="t-small">
+          {t(
+            member.is_agent
+              ? "users.deactivateAgentConfirmBody"
+              : "users.deactivateConfirmBody",
+          )}
+        </p>
       </ConfirmModal>
       {linkOpen && (
         <PasswordLinkModal

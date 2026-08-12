@@ -27,7 +27,6 @@ import (
 )
 
 type jobHealthDTO struct {
-	WorkspaceID string `json:"workspace_id"`
 	GeneratedAt string `json:"generated_at"`
 	Kinds       []struct {
 		Kind                    string `json:"kind"`
@@ -40,13 +39,12 @@ type jobHealthDTO struct {
 		OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds"`
 	} `json:"kinds"`
 	RecentFailures []struct {
-		Kind        string  `json:"kind"`
-		WorkspaceID *string `json:"workspace_id"`
-		State       string  `json:"state"`
-		Attempt     int     `json:"attempt"`
-		MaxAttempts int     `json:"max_attempts"`
-		FailedAt    string  `json:"failed_at"`
-		Reason      string  `json:"reason"`
+		Kind        string `json:"kind"`
+		State       string `json:"state"`
+		Attempt     int    `json:"attempt"`
+		MaxAttempts int    `json:"max_attempts"`
+		FailedAt    string `json:"failed_at"`
+		Reason      string `json:"reason"`
 	} `json:"recent_failures"`
 }
 
@@ -175,10 +173,6 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 
-	if report.WorkspaceID != mine {
-		t.Errorf("report is scoped to %s, want the caller's own %s", report.WorkspaceID, mine)
-	}
-
 	i, ok := kindOf(report, "privacy_retention_workspace")
 	if !ok {
 		t.Fatalf("the caller's own failing kind is missing from %+v", report.Kinds)
@@ -214,9 +208,6 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 	for _, f := range report.RecentFailures {
 		if f.Kind == "someone_elses_pass" {
 			t.Error("another workspace's failure reached the failure list")
-		}
-		if f.WorkspaceID != nil && *f.WorkspaceID != mine {
-			t.Errorf("a failure named workspace %s, which is not the caller's", *f.WorkspaceID)
 		}
 	}
 }
@@ -368,9 +359,6 @@ func TestJobHealthOnAnIdleFleetIsAnEmptyReportNotAnError(t *testing.T) {
 	var report jobHealthDTO
 	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health on an idle fleet → %d, want 200", status)
-	}
-	if report.WorkspaceID == "" {
-		t.Error("an idle report still names the workspace it is scoped to")
 	}
 	if report.GeneratedAt == "" {
 		t.Error("an idle report still says when it was generated")

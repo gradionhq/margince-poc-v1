@@ -28,7 +28,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -74,13 +73,14 @@ var feedbackSubjects = map[string]bool{
 
 // FeedbackStore owns the ledger.
 type FeedbackStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
 // NewFeedbackStore binds the ledger to the pool. It holds no other
 // dependency: consulting a verdict is a read of one table, and recording one
 // is a decision a human has already made.
-func NewFeedbackStore(pool *pgxpool.Pool) *FeedbackStore { return &FeedbackStore{pool: pool} }
+func NewFeedbackStore(db *database.DB) *FeedbackStore { return &FeedbackStore{db: db} }
 
 // ClaimKey is the stable identity of a logical claim within a subject and
 // kind: a hash of the claim's normalized PATH, never its value.
@@ -137,7 +137,7 @@ func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 	}
 	key := ClaimKey(in.ClaimPath)
 
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Live, not merely visible: an unbounded caller skips the plain
 		// probe's query entirely, so an archived or erased subject would keep
 		// accruing verdicts — and a corrected_value is human-typed text about

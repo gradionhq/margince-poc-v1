@@ -190,7 +190,6 @@ func scanProject(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmco
 	}
 
 	p.Id = openapi_types.UUID(id)
-	p.WorkspaceId = openapi_types.UUID(wsID)
 	p.OrganizationId = openapi_types.UUID(orgID)
 	p.OwnerId = uuidPtr(ownerID)
 	projectPhase := crmcontracts.ProjectPhase(phase)

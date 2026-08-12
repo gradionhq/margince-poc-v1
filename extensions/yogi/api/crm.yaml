@@ -25,7 +25,11 @@ info:
 actions:
   - target: $.paths['/ext/yogi/quote']
     update:
-      post:
+      # GET: a read that takes no arguments, so it declares neither parameters nor
+      # a requestBody and the tool receives the empty object. It was a POST only
+      # because the seam admitted no safe method; see notes's fragment for the
+      # method rules worked through.
+      get:
         operationId: yogiQuote
         summary: Return one Yogi Berra quote.
         tags: [Extensions]
@@ -42,13 +46,6 @@ actions:
             what is wanted. It reads nothing from this workspace and changes
             nothing in it, so no record, person or deal is involved either way.
             There is nothing in the result to carry into a follow-up call.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
         responses:
           '200':
             description: One quote.

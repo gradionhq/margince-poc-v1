@@ -149,7 +149,6 @@ type CustomField = components["schemas"]["CustomField"];
 
 const field = (over: Partial<CustomField> = {}): CustomField => ({
   id: "01J",
-  workspace_id: "w",
   object: "deal",
   label: "Renewal date",
   slug: "renewal_date",

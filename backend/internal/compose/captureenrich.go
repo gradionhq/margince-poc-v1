@@ -66,7 +66,7 @@ type CaptureEnricher struct {
 
 // NewCaptureEnricher builds the pass over the pool and one model lane.
 func NewCaptureEnricher(pool *pgxpool.Pool, brain completer, log *slog.Logger) *CaptureEnricher {
-	return &CaptureEnricher{pool: pool, store: people.NewStore(pool), brain: brain, log: log}
+	return &CaptureEnricher{pool: pool, store: people.NewStore(InstallationDB(pool)), brain: brain, log: log}
 }
 
 // RunWorkspace enriches up to enrichPassLimit candidates in the workspace

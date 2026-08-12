@@ -24,7 +24,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -111,7 +110,7 @@ func (s *Store) EnsureCounterparty(ctx context.Context, in EnsureCounterpartyInp
 		return EnsureCounterpartyResult{}, errors.New("people: a counterparty needs an email")
 	}
 	var res EnsureCounterpartyResult
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		res, err = s.EnsureCounterpartyTx(ctx, tx, in)
 		return err

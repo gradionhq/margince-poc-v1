@@ -111,6 +111,19 @@ export const AccountTab: Story = {
   render: tab("account", { "GET /me": me }),
 };
 
+// Theme and language sit on this tab because they belong to the person, not to
+// the sidebar. The play() opens the language listbox so the capture carries the
+// options rather than only the control's closed face.
+export const AccountPreferences: Story = {
+  render: tab("account", { "GET /me": me }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("combobox", { name: "Language" }),
+    );
+  },
+};
+
 export const AiTab: Story = {
   render: tab("ai", { "GET /me": me, "GET /passports": passports }),
 };
@@ -174,14 +187,12 @@ const pipelinesFixture = {
   data: [
     {
       id: "pl",
-      workspace_id: "w",
       name: "Sales",
       is_default: true,
       position: 0,
       stages: [
         {
           id: "s1",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Qualify",
           position: 1,
@@ -190,7 +201,6 @@ const pipelinesFixture = {
         },
         {
           id: "s2",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Proposal",
           position: 2,
@@ -199,7 +209,6 @@ const pipelinesFixture = {
         },
         {
           id: "s3",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Won",
           position: 3,
@@ -251,7 +260,6 @@ const auditLogPage = {
   data: [
     {
       id: "al-1",
-      workspace_id: "w",
       actor_type: "agent",
       actor_id: "agent:sdr",
       passport_id: "pp-9",

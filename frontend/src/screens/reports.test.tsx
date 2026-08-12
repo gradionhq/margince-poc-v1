@@ -63,14 +63,12 @@ function reportsStub(opts: ReportsStubOpts = {}) {
         data: [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
             stages: [
               {
                 id: "pl-s1",
-                workspace_id: "w",
                 pipeline_id: "pl",
                 name: "Qualify",
                 position: 1,

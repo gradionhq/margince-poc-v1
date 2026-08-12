@@ -34,8 +34,8 @@ import (
 func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 
 	const token = "pat-teardown-secret"
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: token}); err != nil {
@@ -304,8 +304,8 @@ func assertAuditTrailRetained(ctx context.Context, t *testing.T, pool *pgxpool.P
 func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -460,10 +460,10 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 // misconfigured store re-sweep hot forever instead of pacing off on a real,
 // loud failure.
 func TestIdentityFenceFailsClosedOnZeroConnectedAt(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-misconfig-secret"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -503,13 +503,13 @@ func (v deleteFailingVault) Delete(context.Context, ids.WorkspaceID, keyvault.Re
 func TestDisconnectCommitsEvenWhenVaultDeleteFails(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := deleteFailingVault{Vault: keyvault.NewMemory(), err: errors.New("vault unreachable")}
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	// Capture ERROR logs: the cleanup ERROR is the ONLY recovery signal for
 	// the orphaned blob while a durable retry is deferred, so the test must
 	// verify it fires with the attributes ops needs (level ERROR filters out
 	// Connect's best-effort WARN seeding, leaving just the cleanup record).
 	var logbuf bytes.Buffer
-	svc := NewService(pool, vault, store).
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store).
 		WithLogger(slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-a5b"}); err != nil {
@@ -553,9 +553,9 @@ func TestDisconnectCommitsEvenWhenVaultDeleteFails(t *testing.T) {
 }
 
 func TestDisconnectWithNoActiveConnectionAnswersNotFound(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if err := svc.Disconnect(ctx); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("Disconnect with no connection = %v, want apperrors.ErrNotFound", err)
@@ -616,8 +616,8 @@ func (c *countingIncumbent) Backfill(ctx context.Context, objectClass, cursor st
 func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-reset-secret"}); err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -703,8 +703,8 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 func TestDisconnectPurgesTheAutomapBlocks(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-automap-block-secret"}); err != nil {
 		t.Fatalf("Connect: %v", err)

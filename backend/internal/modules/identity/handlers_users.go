@@ -90,6 +90,9 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		err = conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; give another "+
 				"member the admin role first, then change this one's")
+		err = conflictIf(err, errAgentSeatHoldsNoRole, "agent_seat_holds_no_role",
+			"this is the workspace's agent identity; what an agent may do comes from the "+
+				"passport granting it and the person that passport names, never from a role of its own")
 		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}
@@ -199,6 +202,14 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusConflict, Code: "member_not_active",
 				Detail: "this member is not active; reactivate them before issuing a set-password link",
+			})
+			return
+		}
+		if errors.Is(err, errAgentSeatHasNoPassword) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusConflict, Code: "agent_seat_has_no_password",
+				Detail: "this is the workspace's agent identity, which signs in nowhere; " +
+					"an agent is granted a passport rather than a password",
 			})
 			return
 		}

@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
@@ -42,7 +41,8 @@ type WorkflowEngine struct {
 	// automations, so the catalog and the paused/enabled surface do not
 	// apply to them.
 	system []workflow.Handler
-	pool   *pgxpool.Pool
+	// db binds the workspace this pass runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// resolver backs the match-time owner-permission gate (gate.go,
 	// AUTO-T06): the ratified authz.Resolver seam, never modules/identity
 	// directly (a module never imports a sibling) — the composition root
@@ -54,8 +54,8 @@ type WorkflowEngine struct {
 // the match-time owner gate re-checks each human-authored firing against
 // (gate.go). compose injects the real resolver; a nil one fails firings
 // closed rather than waving them through.
-func NewWorkflowEngine(pool *pgxpool.Pool, resolver authz.Resolver) *WorkflowEngine {
-	return &WorkflowEngine{pool: pool, resolver: resolver}
+func NewWorkflowEngine(db *database.DB, resolver authz.Resolver) *WorkflowEngine {
+	return &WorkflowEngine{db: db, resolver: resolver}
 }
 
 // RegisterWorkflow adds one handler at composition time.
@@ -127,17 +127,24 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 	system := append([]workflow.Handler(nil), e.system...)
 	e.mu.RUnlock()
 
+	// The workspace is this engine's, not the envelope's: the bus carries no
+	// tenant (ADR-0091 §6) and the engine is wired for one installation. The
+	// gate still needs the value to ask the authz seam about an owner.
+	ws, err := e.db.Workspace(ctx)
+	if err != nil {
+		return err
+	}
 	ev := workflow.Event{
 		ID:          env.EventID,
 		Type:        env.Type,
-		WorkspaceID: env.WorkspaceID,
+		WorkspaceID: ws.UUID,
 		OccurredAt:  env.OccurredAt,
 		Entity:      datasource.EntityRef{Type: datasource.EntityType(env.Entity.Type), ID: env.Entity.ID},
 		Payload:     env.Payload,
 	}
 	// Workflows are deterministic system automations; their writes are
 	// attributed to the system actor and grouped per trigger event.
-	runCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
+	runCtx := principal.WithWorkspaceID(ctx, ws.UUID)
 	runCtx = principal.WithActor(runCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 	runCtx = principal.WithCorrelationID(runCtx, ids.NewV7())
 	runCtx = principal.WithCausationEvent(runCtx, env.EventID)
@@ -204,7 +211,7 @@ type automationInstance struct {
 // binds on the very next dispatch, no cache to invalidate.
 func (e *WorkflowEngine) liveInstances(ctx context.Context) (map[string][]automationInstance, error) {
 	out := map[string][]automationInstance{}
-	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	err := e.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id, key, params, owner_id FROM automation WHERE enabled AND archived_at IS NULL ORDER BY created_at, id`)
 		if err != nil {

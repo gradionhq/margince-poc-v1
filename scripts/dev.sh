@@ -49,13 +49,13 @@ repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
 # APP_DSN is the non-superuser role the api connects as (RLS binds it).
-OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:55432/margince}"
-APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:55432/margince}"
-REDIS_PORT="${REDIS_PORT:-56379}"
+OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:15432/margince}"
+APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:15432/margince}"
+REDIS_PORT="${REDIS_PORT:-16379}"
 # The compose MinIO backs the blobstore seam (attachments); minioadmin is the
 # well-known throwaway dev credential the compose stack already ships, never a
 # production secret.
-MINIO_PORT="${MINIO_PORT:-59000}"
+MINIO_PORT="${MINIO_PORT:-29000}"
 
 # Bare `make dev` runs the shared `margince` database on the base ports, so it
 # stays coherent with `make migrate` / `seed-dev` / `verify-boot`. A DEV_SLUG
@@ -89,6 +89,13 @@ owner_prefix="${OWNER_DSN%/*}"          # scheme://user:pass@host:port
 app_prefix="${APP_DSN%/*}"
 dev_owner_url="${owner_prefix}/${db}"
 dev_app_url="${app_prefix}/${db}"
+
+# The owner DSN reaches cmd/migrate through the environment rather than argv (it
+# carries a password, and argv is world-readable), but it is assigned PER COMMAND
+# below — never exported here. An export would hand the superuser credential to
+# every child this script starts, and the api and worker have no use for it: the
+# api connects as margince_app precisely so FORCE row-level security binds it,
+# which it does not for the superuser margince_owner is in the compose stack.
 
 # psql is NOT a host requirement (hosts need Go + Docker only): every ad-hoc
 # SQL statement runs inside the compose postgres container, the same way
@@ -302,7 +309,7 @@ up)
       # below connects through OWNER_DSN. Point that elsewhere and --fresh
       # would erase one database and migrate another; refuse rather than
       # rebuild something the caller never named.
-      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:55432/margince" ]]; then
+      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:15432/margince" ]]; then
         # The DSN itself is never echoed: it carries a password, and this
         # branch exists precisely because the caller supplied a real one.
         echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points somewhere else — drop that database yourself, then run make dev" >&2
@@ -329,7 +336,8 @@ up)
     # migrations, leaving a composed api booting over a database with none
     # of its extensions' tables.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
-    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up --dsn "$dev_owner_url" )
+    ( cd backend && MARGINCE_OWNER_DSN="$dev_owner_url" \
+      GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up )
     echo "=== build api (once, before the readiness poll) ==="
     # ONE revision for both halves of the stack, so the api and the documents it
     # fetches can be compared exactly as they are in a deployed installation.
@@ -487,7 +495,7 @@ up)
   # the api served an enabled unit's routes while the SPA resolved the
   # empty-tree registry, so #/ext/<unit> answered "no extension named …" on the
   # one command the docs tell a developer to run — the whole frontend surface of
-  # the tier was unreachable locally, and only Dockerfile.web set the variable.
+  # the tier was unreachable locally, and only the web image build set the variable.
   # Found by Task 14's UAT (F3).
   #
   # The directory is always present here: gen-composition runs in the boot

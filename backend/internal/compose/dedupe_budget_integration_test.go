@@ -13,10 +13,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
-
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -39,7 +38,7 @@ func connectorCtx(e *integration.Env) context.Context {
 
 func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 	e := integration.Setup(t)
-	sink := capture.NewSink(e.Pool).WithStager(mergeStager{svc: approvals.NewService(e.Pool)})
+	sink := capture.NewSink(e.DB()).WithStager(mergeStager{svc: approvals.NewService(e.DB())})
 	ctx := connectorCtx(e)
 
 	first, err := sink.Upsert(ctx, connector.NormalizedRecord{

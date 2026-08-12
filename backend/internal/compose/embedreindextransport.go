@@ -27,12 +27,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/costestimate"
@@ -338,18 +336,13 @@ func (e *embedReindexEngine) statusBody(ctx context.Context) (crmcontracts.Embed
 		return crmcontracts.EmbedReindexStatus{}, err
 	}
 
+	// The counts arrive keyed by workspace and are summed straight to the fleet
+	// total: an installation serves one organization (ADR-0061/A107), so a
+	// per-workspace breakdown of it is the total repeated, and the wire no
+	// longer carries one (ADR-0091 §6).
 	total := 0
-	perWorkspace := make([]struct {
-		EntitiesPending int                `json:"entities_pending"`
-		WorkspaceId     openapi_types.UUID `json:"workspace_id"` //nolint:staticcheck // matches the generated EmbedReindexStatus.PerWorkspace item shape
-	}, 0, len(counts))
-	for _, wsID := range sortedEmbedWorkspaceIDs(counts) {
-		c := counts[wsID]
+	for _, c := range counts {
 		total += c
-		perWorkspace = append(perWorkspace, struct {
-			EntitiesPending int                `json:"entities_pending"`
-			WorkspaceId     openapi_types.UUID `json:"workspace_id"` //nolint:staticcheck // matches the generated EmbedReindexStatus.PerWorkspace item shape
-		}{EntitiesPending: c, WorkspaceId: openapi_types.UUID(wsID.UUID)})
 	}
 
 	return crmcontracts.EmbedReindexStatus{
@@ -359,7 +352,6 @@ func (e *embedReindexEngine) statusBody(ctx context.Context) (crmcontracts.Embed
 		UpdatedAt:          updatedAt,
 		ReindexNeeded:      needed,
 		EntitiesPending:    total,
-		PerWorkspace:       perWorkspace,
 	}, nil
 }
 
@@ -382,48 +374,13 @@ func embedReindexPreviewWire(rows []costestimate.Row, total costestimate.Row, no
 		resp.EstimatedCostMinor = &minor
 	}
 
-	resp.PerWorkspace = make([]struct {
-		EntitiesPending int `json:"entities_pending"`
-
-		EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
-
-		UtilizationImpact crmcontracts.EmbedReindexPreviewPerWorkspaceUtilizationImpact `json:"utilization_impact"`
-		WorkspaceId       openapi_types.UUID                                            `json:"workspace_id"` //nolint:staticcheck // matches the generated EmbedReindexPreview.PerWorkspace item shape
-	}, 0, len(rows))
+	// One installation, one band: the priced rows collapse onto the estimate the
+	// preview already carries, and the impact disclosed is the installation's.
 	for _, row := range rows {
-		rowTokens := int(row.Tokens)
-		resp.PerWorkspace = append(resp.PerWorkspace, struct {
-			EntitiesPending int `json:"entities_pending"`
-
-			EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
-
-			UtilizationImpact crmcontracts.EmbedReindexPreviewPerWorkspaceUtilizationImpact `json:"utilization_impact"`
-			WorkspaceId       openapi_types.UUID                                            `json:"workspace_id"` //nolint:staticcheck // matches the generated EmbedReindexPreview.PerWorkspace item shape
-		}{
-			EntitiesPending:   row.Entities,
-			EstimatedAiTokens: &rowTokens,
-			UtilizationImpact: crmcontracts.EmbedReindexPreviewPerWorkspaceUtilizationImpact(row.UtilizationImpact),
-			WorkspaceId:       openapi_types.UUID(row.WorkspaceID.UUID),
-		})
+		impact := crmcontracts.EmbedReindexPreviewUtilizationImpact(row.UtilizationImpact)
+		resp.UtilizationImpact = &impact
 	}
 	return resp
-}
-
-// sortedEmbedWorkspaceIDs orders a pending-count map's keys
-// deterministically — counts arrive from a Go map (no fleet-enumeration
-// order survives it), and a stable per-workspace ordering is what makes
-// the status/preview wire output reproducible run to run (mirrors
-// costestimate's own sortedWorkspaceIDs, a different package's private
-// helper over the same shape).
-func sortedEmbedWorkspaceIDs(counts map[ids.WorkspaceID]int) []ids.WorkspaceID {
-	workspaceIDs := make([]ids.WorkspaceID, 0, len(counts))
-	for wsID := range counts {
-		workspaceIDs = append(workspaceIDs, wsID)
-	}
-	sort.Slice(workspaceIDs, func(i, j int) bool {
-		return workspaceIDs[i].String() < workspaceIDs[j].String()
-	})
-	return workspaceIDs
 }
 
 // embedReindexHandlers shadows the generated EmbedReindexStatus /
@@ -478,9 +435,9 @@ func WithEmbedReindex(router *ai.Router, inserter *jobs.Runner) Option {
 		if identity, _ := router.EmbedIdentity(); identity == "" {
 			return
 		}
-		store := search.NewStore(pool)
+		store := search.NewStore(InstallationDB(pool))
 		estimator := costestimate.NewEmbedReindexEstimator(
-			store, ai.NewRateStore(pool), router, NewSeatBudget(pool), ai.NewMeter(pool), systemClock{},
+			store, ai.NewRateStore(InstallationDB(pool)), router, NewSeatBudget(pool), ai.NewMeter(InstallationDB(pool)), systemClock{},
 		)
 		s.embedReindexHandlers = embedReindexHandlers{engine: &embedReindexEngine{
 			store:     store,

@@ -32,7 +32,6 @@ const SUBSCRIPTIONS = {
   data: [
     {
       id: "sub-1",
-      workspace_id: "ws-1",
       owner_id: "user-1",
       target_url: "https://example.test/hooks/margince",
       event_types: ["deal.stage_changed", "lead.promoted"],
@@ -119,7 +118,6 @@ function backendForCreate(allow: GrantSpec) {
           {
             subscription: {
               id: "sub-new",
-              workspace_id: "ws-1",
               owner_id: "user-1",
               target_url: body.target_url,
               event_types: body.event_types,

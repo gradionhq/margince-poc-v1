@@ -97,6 +97,6 @@ func addEmbedDriftSweepJob(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerCo
 		return nil
 	}
 	addDeclaredWorker[EmbedDriftSweepArgs](reg, &embedDriftSweepWorker{pool: pool})
-	addDeclaredWorker[EmbedDriftWorkspaceArgs](reg, &embedDriftWorkspaceWorker{store: search.NewStore(pool), embedder: embedder, log: log})
+	addDeclaredWorker[EmbedDriftWorkspaceArgs](reg, &embedDriftWorkspaceWorker{store: search.NewStore(InstallationDB(pool)), embedder: embedder, log: log})
 	return periodicFor(cfg, EmbedDriftSweepArgs{})
 }

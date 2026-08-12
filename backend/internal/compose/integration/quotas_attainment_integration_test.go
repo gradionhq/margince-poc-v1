@@ -34,7 +34,7 @@ import (
 var attainmentClock = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC)
 
 func attainmentStore(e *Env) *quotas.Store {
-	return quotas.NewStoreWithClock(e.Pool, func() time.Time { return attainmentClock },
+	return quotas.NewStoreWithClock(e.DB(), func() time.Time { return attainmentClock },
 		identity.BaseCurrencyOf)
 }
 

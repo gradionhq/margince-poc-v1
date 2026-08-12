@@ -7,10 +7,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,8 +39,9 @@ type Handlers struct {
 	store *Store
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+// NewHandlers wires the transport over the installation-bound pool.
+func NewHandlers(db *database.DB) Handlers {
+	return Handlers{store: NewStore(db)}
 }
 
 func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmcontracts.ListListsParams) {

@@ -1,13 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  Building2,
+  Database,
+  Layers,
+  Mic,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+  Webhook,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
   installFetchStub,
   jsonResponse,
   StoryProviders,
 } from "../screens/story-utils";
+import type { NavSection } from "./nav";
 import { CommandPalette, useBuiltinCommands } from "./palette";
-import { Shell, WorkspaceRail } from "./shell";
+import { PageHead, Shell, WorkspaceRail } from "./shell";
 
 // fullscreen: the shell sizes itself to the viewport, so Storybook's default
 // canvas padding would clip the sidebar foot and misrepresent the layout — and
@@ -15,7 +27,21 @@ import { Shell, WorkspaceRail } from "./shell";
 const meta: Meta<typeof Shell> = {
   title: "App/Shell",
   component: Shell,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    layout: "fullscreen",
+    // The phone story at the foot of this file needs a WIDTH: the bottom-bar
+    // rules are viewport media queries. Named after the RULE rather than after a
+    // device, and the viewport tool ships inside Storybook 9 itself, so this
+    // adds no addon to `.storybook/main.ts`.
+    viewport: {
+      options: {
+        phone: {
+          name: "Phone (max 700px)",
+          styles: { width: "390px", height: "844px" },
+        },
+      },
+    },
+  },
 };
 export default meta;
 type Story = StoryObj<typeof Shell>;
@@ -158,4 +184,191 @@ export const SidebarStates: Story = {
       </StoryProviders>
     );
   },
+};
+
+/**
+ * The sidebar's SECOND level.
+ *
+ * The section below is a fixture, and deliberately so: at runtime the settings
+ * screen publishes this shape from live grants (`useSettingsSection`), which
+ * would make these stories a picture of a permission matrix rather than of the
+ * level. The point here is what the SHELL does with a section — one level at a
+ * time, the reduced head with the way back under the mark, the two groups under
+ * the section's own name — so the data is held still and the rendering is what
+ * varies.
+ *
+ * `overlay` carries children no settings tab really has, which is the one part
+ * of the fixture that is not a copy of production: it is how the third level
+ * (and the back control that names the level it leads to) can be seen at all.
+ */
+const SETTINGS_SECTION: NavSection = {
+  screen: "settings",
+  titleKey: "nav.settings",
+  activeId: "audit",
+  groups: [
+    {
+      headingKey: "settings.group.you",
+      items: [
+        { id: "account", labelKey: "settings.tab.account", icon: Building2 },
+        { id: "voice", labelKey: "settings.tab.voice", icon: Mic },
+        { id: "ai", labelKey: "settings.tab.ai", icon: Sparkles },
+        {
+          id: "integrations",
+          labelKey: "settings.tab.integrations",
+          icon: Webhook,
+        },
+      ],
+    },
+    {
+      headingKey: "settings.group.org",
+      items: [
+        { id: "users", labelKey: "settings.tab.users", icon: UsersRound },
+        { id: "data", labelKey: "settings.tab.data", icon: Database },
+        { id: "privacy", labelKey: "settings.tab.privacy", icon: ShieldCheck },
+        { id: "audit", labelKey: "settings.tab.audit", icon: ScrollText },
+        {
+          id: "overlay",
+          labelKey: "settings.tab.overlay",
+          icon: Layers,
+          children: [
+            { id: "users", labelKey: "settings.tab.users", icon: UsersRound },
+            { id: "data", labelKey: "settings.tab.data", icon: Database },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+// The level shown is derived from the ADDRESS, and the way back up navigates —
+// so in a story holding a route still it moves the URL and leaves the panel
+// where the story put it. Each depth below is therefore a story of its own,
+// which is also how a reviewer sees them side by side.
+//
+// A level takes the brand's words for its rows and nothing else: the search row
+// is still there, so the palette is wired here exactly as it is above — a row
+// that opened nothing would misrepresent the one visible way to search.
+function LevelExample({
+  initiallyCollapsed,
+  tab = "audit",
+}: Readonly<{ initiallyCollapsed: boolean; tab?: string }>) {
+  const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+  const { openSearch, palette } = usePaletteSeam();
+  return (
+    <div className={collapsed ? "app" : "app railexpanded"}>
+      <WorkspaceRail
+        route={{ screen: "settings", id: tab }}
+        section={{ ...SETTINGS_SECTION, activeId: tab }}
+        counts={{ inbox: 12, tasks: 4 }}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((current) => !current)}
+        onOpenSearch={openSearch}
+      />
+      <main className="main">
+        <div className="scroll" />
+      </main>
+      {palette}
+    </div>
+  );
+}
+
+function LevelStory({ children }: Readonly<{ children: ReactNode }>) {
+  stubSession();
+  return (
+    <StoryProviders>
+      <SeedInstallation>{children}</SeedInstallation>
+    </StoryProviders>
+  );
+}
+
+// The labeled level: the logomark, the search row, the way back up, the section's
+// name, then its two groups. The ten destinations are GONE rather than pushed
+// below a second list — 252px carrying both levels reads as a list of twenty
+// places to go — while the head keeps the mark and the search row, and gives up
+// only the brand's words.
+export const SectionLevel: Story = {
+  name: "second level — expanded",
+  render: () => (
+    <LevelStory>
+      <LevelExample initiallyCollapsed={false} />
+    </LevelStory>
+  ),
+};
+
+// The same level at 64px: icons, the collapsed rail's tooltip on hover or
+// keyboard focus, group headings reduced to hairlines, and the section's own
+// name clipped for the eye while a screen reader still reads it.
+export const SectionLevelCollapsed: Story = {
+  name: "second level — collapsed",
+  render: () => (
+    <LevelStory>
+      <LevelExample initiallyCollapsed />
+    </LevelStory>
+  ),
+};
+
+// The third level, reached by standing on an entry that has children: the level
+// is named by the entry the reader drilled through, and the back control names
+// the list it leads back to.
+export const ThirdLevel: Story = {
+  name: "third level — expanded",
+  render: () => (
+    <LevelStory>
+      <LevelExample initiallyCollapsed={false} tab="overlay" />
+    </LevelStory>
+  ),
+};
+
+/**
+ * A section at phone width, where the sidebar does NOT hand its bar over.
+ *
+ * The bar keeps the four destinations plus More on a section route — handing them
+ * to a section's entries lost the whole product's navigation and left two
+ * controls floating in a card — so the section lives in the PAGE HEAD here: the
+ * heading names it, and the switcher under the heading names the entry the reader
+ * is on and opens the rest as a sheet.
+ *
+ * Rendered from the parts rather than through `Shell`, because the real settings
+ * section is published from live grants: the rail and the head are both handed the
+ * fixture, which is what keeps this a picture of the CHROME.
+ *
+ * One thing about the viewport tool is worth knowing before trusting a picture
+ * of this: it is applied by the MANAGER, which resizes the preview iframe. These
+ * are viewport media queries, so nothing inside the preview can stand in for
+ * that — a story opened as a bare `iframe.html`, which is how the fe-uat capture
+ * gate renders, gets the harness's own width and draws the SIDEBAR. Review this
+ * one in Storybook itself, or by narrowing the browser.
+ */
+function PhoneSectionExample() {
+  const route = { screen: "settings", id: "audit" };
+  const { openSearch, palette } = usePaletteSeam();
+  return (
+    <div className="app railexpanded">
+      <WorkspaceRail
+        route={route}
+        section={SETTINGS_SECTION}
+        counts={{ inbox: 12, tasks: 4 }}
+        onOpenSearch={openSearch}
+      />
+      <main className="main">
+        <PageHead route={route} section={SETTINGS_SECTION} />
+        <div className="scroll">
+          <div className="wrap">
+            <div className="card">Content</div>
+          </div>
+        </div>
+      </main>
+      {palette}
+    </div>
+  );
+}
+
+export const SectionPhone: Story = {
+  name: "a section — phone bar and the head's switcher",
+  globals: { viewport: { value: "phone" } },
+  render: () => (
+    <LevelStory>
+      <PhoneSectionExample />
+    </LevelStory>
+  ),
 };

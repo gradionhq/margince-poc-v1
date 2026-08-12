@@ -396,7 +396,10 @@ func TestVoiceProfileIsInvisibleAcrossTenants(t *testing.T) {
 		},
 	})
 
-	store := ai.NewVoiceStore(e.Pool)
+	// Tenant B asks through a store of its own: the workspace a read is scoped
+	// to is the handle's, so this tenant's store would answer this tenant's
+	// rows and the existence-hiding claim would be vacuous.
+	store := ai.NewVoiceStore(e.DBFor(wsB))
 	profileID, err := ids.Parse(created.ID)
 	if err != nil {
 		t.Fatalf("created profile id: %v", err)

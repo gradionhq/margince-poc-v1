@@ -145,7 +145,7 @@ func setupSend(t *testing.T) *sendEnv {
 // deployment: a preference-token linker and the boot-configured public base
 // URL both live on the STORE, so the MCP transport reaches them too.
 func (e *sendEnv) store(linker UnsubscribeLinker) *Store {
-	return NewStore(e.pool).WithUnsubscribe(linker).WithPublicBaseURL(testBaseURL)
+	return NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithUnsubscribe(linker).WithPublicBaseURL(testBaseURL)
 }
 
 // as binds an authenticated rep at the given row scope. Sending is a human

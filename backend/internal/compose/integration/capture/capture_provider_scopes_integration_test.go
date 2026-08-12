@@ -37,7 +37,7 @@ func (f *grantingFake) GrantedScopes(connector.Auth) ([]string, error) { return 
 func TestConnectPersistsTheProviderGrantedScopes(t *testing.T) {
 	e := integration.SetupSearch(t)
 	granted := []string{"offline_access", "User.Read", "Mail.Read"}
-	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
+	registry := capturemod.NewRegistry(e.DB(), capturemod.NewSink(e.DB()), fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(&grantingFake{granted: granted})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
@@ -76,7 +76,7 @@ func TestConnectPersistsTheProviderGrantedScopes(t *testing.T) {
 
 func TestAConnectorThatCannotReportItsGrantRecordsNoClaim(t *testing.T) {
 	e := integration.SetupSearch(t)
-	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
+	registry := capturemod.NewRegistry(e.DB(), capturemod.NewSink(e.DB()), fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(&mailFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})

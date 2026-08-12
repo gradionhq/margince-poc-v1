@@ -136,17 +136,15 @@ func TestARowThatRecordedNoCauseDoesNotClaimItFailed(t *testing.T) {
 	}
 }
 
-// TestTheResponseNeverCarriesAWorkspaceOtherThanTheCallersOwn — the scope
-// admits the caller's rows and untenanted ones and nothing else, so the
-// mapping must not invent a third answer from a jsonb value nothing
-// constrains.
-func TestTheResponseNeverCarriesAWorkspaceOtherThanTheCallersOwn(t *testing.T) {
-	caller := ids.NewV7()
-	// A stored value that is NOT the caller's — the shape a malformed row
-	// would have if one ever slipped past the scope.
+// A failure row maps whatever the health read returned, dispatcher rows
+// included. The response used to name a workspace per failure, taken from the
+// authenticated principal rather than from the stored jsonb; the wire carries
+// no tenant now (ADR-0091 §6), so what is left to hold is that neither kind of
+// row is dropped on the way out.
+func TestBothTenantAndDispatcherFailuresReachTheResponse(t *testing.T) {
 	someoneElse := ids.NewV7().String()
 
-	got := jobHealthResponse(caller, jobs.Health{Failures: []jobs.Failure{
+	got := jobHealthResponse(jobs.Health{Failures: []jobs.Failure{
 		{Kind: "tenant_pass", WorkspaceID: &someoneElse, State: "discarded"},
 		{Kind: "the_dispatcher", WorkspaceID: nil, State: "discarded"},
 	}})
@@ -154,15 +152,9 @@ func TestTheResponseNeverCarriesAWorkspaceOtherThanTheCallersOwn(t *testing.T) {
 	if len(got.RecentFailures) != 2 {
 		t.Fatalf("mapped %d failures, want 2", len(got.RecentFailures))
 	}
-	if got.RecentFailures[0].WorkspaceId == nil {
-		t.Fatal("a tenant failure lost its workspace")
-	}
-	if ids.UUID(*got.RecentFailures[0].WorkspaceId) != caller {
-		t.Errorf("the response named workspace %s, want the caller's %s",
-			*got.RecentFailures[0].WorkspaceId, caller)
-	}
-	if got.RecentFailures[1].WorkspaceId != nil {
-		t.Error("a dispatcher failure was given a workspace it does not have")
+	if got.RecentFailures[0].Kind != "tenant_pass" || got.RecentFailures[1].Kind != "the_dispatcher" {
+		t.Errorf("failure kinds = %q, %q — the mapping dropped or reordered a row",
+			got.RecentFailures[0].Kind, got.RecentFailures[1].Kind)
 	}
 }
 
@@ -172,7 +164,7 @@ func TestTheResponseNeverCarriesAWorkspaceOtherThanTheCallersOwn(t *testing.T) {
 // a healthy-looking number.
 func TestAnAbsentOldestAgeStaysAbsent(t *testing.T) {
 	measured := 41.7
-	got := jobHealthResponse(ids.NewV7(), jobs.Health{Kinds: []jobs.KindHealth{
+	got := jobHealthResponse(jobs.Health{Kinds: []jobs.KindHealth{
 		{Kind: "idle", OldestWaitingAgeSeconds: nil},
 		{Kind: "waiting", OldestWaitingAgeSeconds: &measured},
 	}})
@@ -192,7 +184,7 @@ func TestAnAbsentOldestAgeStaysAbsent(t *testing.T) {
 // arrays, and a JSON null where a list belongs breaks a client that
 // iterates it.
 func TestAnIdleFleetMapsToEmptyListsNotNulls(t *testing.T) {
-	got := jobHealthResponse(ids.NewV7(), jobs.Health{})
+	got := jobHealthResponse(jobs.Health{})
 
 	if got.Kinds == nil {
 		t.Error("kinds serialized as null rather than []")

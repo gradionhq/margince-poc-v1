@@ -81,7 +81,7 @@ func (s *Service) resolveOverlayMode(ctx context.Context) (incumbent string, err
 		return "", errors.New("overlay: sync-status/budget/reconcile called outside a workspace context")
 	}
 	var mode string
-	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT x_sor_mode, coalesce(x_incumbent, '') FROM workspace WHERE id = $1`, wsID,
 		).Scan(&mode, &incumbent)
@@ -127,7 +127,7 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 	}
 
 	var out []ObjectSyncStatus
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Drain the aggregate query FULLY before running any further query
 		// on this same tx — pgx ties the connection up while a Rows result
 		// is still open, so calling backfillCompleteFor's own tx.QueryRow

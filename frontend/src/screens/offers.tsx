@@ -7,6 +7,7 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   Field,
   Modal,
@@ -449,7 +450,7 @@ function UnitPriceCell({
 // human removes it and re-adds it with an explicit price.
 function UnpricedCaption({ label }: Readonly<{ label: string }>) {
   return (
-    <span className="t-caption" style={{ color: "var(--muted)" }}>
+    <span className="t-caption" style={{ color: "var(--textMeta)" }}>
       {label}
     </span>
   );
@@ -650,12 +651,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
   ];
 
   return (
-    <section
-      className="card"
-      data-testid="offer-line-editor"
-      style={{ marginBottom: 16 }}
-    >
-      <SectionHeader title={t("offer.lines")} />
+    <Card testId="offer-line-editor" title={t("offer.lines")}>
       <DataTable
         columns={columns}
         rows={offer.line_items}
@@ -831,7 +827,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
           </p>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1136,12 +1132,7 @@ function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
   const changed = diff?.changed ?? [];
 
   return (
-    <section
-      className="card"
-      data-testid="ai-disclosure-banner"
-      style={{ marginBottom: 16 }}
-    >
-      <SectionHeader title={t("offer.aiDisclosureTitle")} />
+    <Card testId="ai-disclosure-banner" title={t("offer.aiDisclosureTitle")}>
       {offer.ai_disclosure && <p className="t-body">{offer.ai_disclosure}</p>}
       {diff && (
         <div data-testid="offer-diff-summary" style={{ marginTop: 8 }}>
@@ -1200,7 +1191,7 @@ function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
           )}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1247,12 +1238,7 @@ function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
     : null;
 
   return (
-    <section
-      className="card"
-      data-testid="offer-pdf-card"
-      style={{ marginBottom: 16 }}
-    >
-      <SectionHeader title={t("offer.renderPdf")} />
+    <Card testId="offer-pdf-card" title={t("offer.renderPdf")}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <Button
           small
@@ -1290,7 +1276,7 @@ function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
           {errorMessage}
         </p>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1325,7 +1311,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
       <QueryGate query={offerQuery}>
         {(offer) => (
           <>
-            <section className="card" style={{ marginBottom: 16 }}>
+            <Card>
               <div className="list-head">
                 <SectionHeader
                   title={offer.offer_number}
@@ -1362,10 +1348,9 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                   </>
                 )}
               </div>
-            </section>
+            </Card>
             <AiDisclosureBanner offer={offer} />
-            <section className="card" style={{ marginBottom: 16 }}>
-              <SectionHeader title={t("offer.totals")} />
+            <Card title={t("offer.totals")}>
               <div style={{ display: "flex", gap: 24 }}>
                 <div>
                   <span className="t-label">{t("offer.net")}</span>
@@ -1386,7 +1371,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                   </div>
                 </div>
               </div>
-            </section>
+            </Card>
             <RenderOfferPdfAction offer={offer} />
             {offer.status === "draft" && <OfferLineEditor offer={offer} />}
             {offer.status === "draft" && (

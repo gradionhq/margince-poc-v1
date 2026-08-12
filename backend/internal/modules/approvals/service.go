@@ -22,15 +22,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type Service struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// now is the service's clock: both expiry windows (staging TTL,
 	// redemption TTL) are judged against it, so tests can prove the
 	// pending→expired and approved→dead transitions without sleeping.
@@ -63,8 +64,10 @@ const (
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, now: time.Now, effects: map[string]ApprovedEffect{}}
+// NewService builds the approvals engine over a workspace-bound handle,
+// with no effects registered until compose wires them.
+func NewService(db *database.DB) *Service {
+	return &Service{db: db, now: time.Now, effects: map[string]ApprovedEffect{}}
 }
 
 // WithEffect registers the follow-on executor for one staging kind.
@@ -130,18 +133,16 @@ func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, a
 // wrong payload for an event type without failing to compile, the same
 // guarantee storekit.EmitEvent gives every other module.
 func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID ids.UUID, entityID ids.UUID, payload events.Payload) error {
-	wsID, _ := principal.WorkspaceID(ctx)
 	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no correlation id bound to context")
 	}
 	eventType := payload.EventType()
 	env := events.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     events.VersionOf(eventType),
-		WorkspaceID: wsID,
-		OccurredAt:  s.now().UTC(),
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    events.VersionOf(eventType),
+		OccurredAt: s.now().UTC(),
 		Actor: events.Actor{
 			Type: string(p.Type), ID: p.ID,
 			PassportID: nullUUID(p.PassportID), OnBehalfOf: nullUUID(p.OnBehalfOf),

@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -47,7 +47,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc check-image-pins ci-doc-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
+check-backend: check-craft-doc check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -129,7 +129,7 @@ dev-stop:
 dev-logs:
 	@bash scripts/dev-logs.sh
 
-build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy clean tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy clean vuln tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
@@ -241,15 +241,21 @@ verify-boot:
 ## contract change that skips regeneration would silently strand the frontend
 ## types, so regenerate and commit them together.
 ##
-## FE_CHECK selects the suite's last leg. `check` runs vitest bare, which is
-## what a developer wants: nobody reads an lcov file locally, and instrumenting
-## for one costs a third of the run. CI overrides it with `check:ci`, whose
-## vitest emits the lcov the sonarcloud job consumes — ONE execution producing
-## both the verdict and the report, because running the suite a second time to
-## collect coverage doubles the lane for a file the first run could have
-## written.
-FE_CHECK ?= check
+## It is spelled as the four legs below rather than inline, because CI runs
+## those legs as separate jobs in PARALLEL and both callers have to mean the
+## same thing. A leg added here reaches CI through the `fe-quality` /
+## `fe-unit` / `fe-bundle` aggregates; a leg added only to a CI job would run
+## in no local gate at all.
 frontend-check:
+	$(MAKE) fe-ds-gates
+	$(MAKE) fe-drift
+	$(MAKE) fe-lint
+	$(MAKE) fe-unit
+	$(MAKE) fe-build
+
+## fe-ds-gates — the design-system script gates on their own, so the CI job that
+## wants only the cheap greps does not also pull a vitest run behind them.
+fe-ds-gates:
 	frontend/scripts/check-ds-purity.sh
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
@@ -257,10 +263,44 @@ frontend-check:
 	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
 	frontend/scripts/check-ext-imports.sh
+
+## fe-drift — the TS type-drift gate on its own: regenerate from the contract
+## and fail if the committed types moved.
+fe-drift:
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
-			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
-		pnpm $(FE_CHECK)
+			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; }
+
+## fe-unit — the vitest suite. FE_COVERAGE=1 instruments the run so it also
+## writes frontend/coverage/lcov.info for the `sonarcloud` job — ONE execution
+## producing both the verdict and the report, because running the suite a second
+## time to collect coverage doubles the lane for a file the first run could have
+## written. Off by default: nobody reads an lcov file locally and instrumenting
+## for one costs about a third of the run, so a developer does not pay it.
+FE_COVERAGE ?=
+fe-unit:
+	cd frontend && pnpm install --frozen-lockfile && pnpm exec vitest run \
+		$(if $(FE_COVERAGE),--coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov)
+
+## fe-quality — every leg of the frontend gate EXCEPT the unit suite and the
+## bundle, which CI runs beside this one. Needs Go: the composed lane composes.
+fe-quality: fe-typecheck-composed
+	$(MAKE) fe-ds-gates
+	$(MAKE) fe-drift
+	$(MAKE) fe-lint
+	$(MAKE) fe-test-ext
+
+## fe-bundle — the production bundle plus the Storybook catalog, the two legs
+## that only compile. Storybook is CI-only (it is not in `frontend-check`): a
+## story that fails to compile or register must not reach main, but it is not
+## something a developer needs to rebuild on every local gate run.
+fe-bundle:
+	$(MAKE) fe-build
+	$(MAKE) fe-storybook
+
+## fe-storybook — build the Storybook catalog (stories must compile + register).
+fe-storybook:
+	cd frontend && pnpm install --frozen-lockfile && pnpm build-storybook
 
 ## fe-install — install the frontend deps (pnpm, frozen lockfile). The FE half
 ## of `make install`; also what `fe-uat` / `dev` assume has run.
@@ -387,6 +427,15 @@ test-secret-scan:
 check-image-pins:
 	@./scripts/check-image-pins.sh
 
+## check-host-ports — every host port published by infra/docker-compose.dev.yml
+## sits BELOW the ephemeral floor (32768). A published port inside the kernel's
+## ephemeral range can be transiently held as some unrelated process's client
+## port, and `make db-up` then loses the bind and fails the job it was setting
+## up for — a race that reads as a flake in whatever step called it. Enforced
+## rather than commented because the constraint is invisible in the number.
+check-host-ports:
+	@./scripts/check-host-ports.sh
+
 ## ci-doc-parity — every path a workflow filters on is named in the document that
 ## documents it. The lists live in two places and nothing held them together;
 ## both directions of drift have already happened. Catches the direction with
@@ -394,6 +443,14 @@ check-image-pins:
 ## not catch the reverse — see the script for why that trade is deliberate.
 ci-doc-parity:
 	@./scripts/check-ci-doc-parity.sh
+
+## make-target-parity — every backend target `make help` advertises resolves
+## from the repo root, which is what the help text tells a reader (and a CI
+## step) it does. The root delegation list is hand-maintained, so a new backend
+## target is one edit away from being advertised and unreachable at once — how
+## the scheduled govulncheck lane came to report red daily without ever running.
+make-target-parity:
+	@./scripts/check-make-target-parity.sh
 
 ## contract-breaking-check — oasdiff severity gate on backend/api/crm.yaml vs
 ## origin/main: a breaking change (removed op, narrowed type…) fails; additive
@@ -542,9 +599,11 @@ sbom:
 ## sbom-supplement — fill in licenses syft cannot resolve. syft leaves GitHub
 ## Actions unlicensed (anchore/syft#4209) and passes PyPI's ambiguous "BSD"
 ## through for a couple of build-tooling deps, so the license gate would deny
-## them though their real licenses are permissive. This curated purl->SPDX map
-## (key = purl without version, so every pinned action version matches) sets the
-## license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
+## them though their real licenses are permissive. The curated purl->SPDX map
+## lives in sbom-schemas/license-supplement.json (key = purl without version,
+## so every pinned action version matches — and that directory is in the
+## license gate's classifier scope, so editing the map re-runs the gate); it
+## sets the license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
 ## license-bearing SBOMs agree; syft v1.50 emits no per-package license in SPDX
 ## 3.0, so there is nothing to supplement there. SonarSource's action is left
 ## unset on purpose — it is LGPL-3.0-only and ignored in .grant.yaml, not shipped.
@@ -552,9 +611,8 @@ sbom:
 sbom-supplement:
 	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
 	@set -e; cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; \
-	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
-	  jq --argjson m "$$map" '.components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then .licenses = [{"license": {"id": $$m[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
-	  jq --argjson m "$$map" '.packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then (.licenseConcluded = $$m[$$k] | .licenseDeclared = $$m[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
+	  jq --slurpfile m sbom-schemas/license-supplement.json '$$m[0] as $$map | .components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$map[$$k] != null then .licenses = [{"license": {"id": $$map[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
+	  jq --slurpfile m sbom-schemas/license-supplement.json '$$m[0] as $$map | .packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$map[$$k] != null then (.licenseConcluded = $$map[$$k] | .licenseDeclared = $$map[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
 
 ## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
 ## tree, the invariant the constellation dist gate enforces. syft scans the export

@@ -372,7 +372,6 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		return crmcontracts.Attachment{}, err
 	}
 	att.Id = openapi_types.UUID(aid)
-	att.WorkspaceId = openapi_types.UUID(wsID)
 	att.EntityId = openapi_types.UUID(entityID)
 	att.EntityType = crmcontracts.AttachmentEntityType(entityType)
 	att.ContentType = contentType

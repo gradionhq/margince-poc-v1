@@ -85,8 +85,8 @@ func NewExtractionAccept(pool *pgxpool.Pool, extractor extraction.Extractor) *Ex
 	}
 	return &ExtractionAccept{
 		pool:        pool,
-		attachments: activities.NewStore(pool),
-		deals:       deals.NewStore(pool, DealsInstallation()),
+		attachments: activities.NewStore(InstallationDB(pool)),
+		deals:       deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		extractor:   extractor,
 	}
 }
@@ -154,8 +154,19 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 	// inside its transaction; a refusal there rolls the whole write back
 	// (deal AND notes — same tx) before any note exists.
 	dealID := ids.From[ids.DealKind](ids.UUID(att.EntityId))
+	// Where the custom-field catalog read belongs: above the transaction, never
+	// inside it — the read opens one of its own, and the write below holds a
+	// connection for as long as the deal update and every per-field note take.
+	// This store has no catalog wired, so the answer is empty today and the
+	// deal's cf values ride neither the patch nor its audit before-image
+	// (issue #1050); wiring one is then a one-line change here rather than a
+	// second-connection bug inside the write.
+	active, err := a.deals.ActiveDealColumns(ctx)
+	if err != nil {
+		return zero, err
+	}
 	err = database.WithWorkspaceTx(ctx, a.pool, func(tx pgx.Tx) error {
-		if _, err := a.deals.UpdateDealTx(ctx, tx, dealID, patch); err != nil {
+		if _, err := a.deals.UpdateDealTx(ctx, tx, dealID, patch, active); err != nil {
 			return err
 		}
 		return a.auditAcceptedFieldsTx(ctx, tx, ids.UUID(att.EntityId), accepted)

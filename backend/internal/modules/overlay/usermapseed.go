@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -158,7 +157,7 @@ func ambiguousOwnerIDs(ownersByEmail ownerIDsByEmail) []string {
 // one.
 func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumbent string, ownerIDs []string) error {
 	seen := make(map[string]bool, len(ownerIDs))
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Fence BEFORE the visibility lock — the same order every other
 		// fenced visibility mutator takes (UpsertUserMap, ingestTx), so a
 		// doomed transaction (the connection is already gone) never holds
@@ -231,7 +230,7 @@ func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumben
 // read better apart, so a change to either belongs in both.
 func (s *MirrorStore) usersMatchingEmail(ctx context.Context, email, incumbent string) ([]ids.UserID, error) {
 	var users []ids.UserID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT u.id FROM app_user u
 			WHERE lower(trim(u.email)) = lower(trim($1))

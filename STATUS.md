@@ -18,6 +18,13 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Shipped 2026-08-12 (batman): "Make eMail meaningful" — the drafting quality push, and the model-tier question answered with data. **Two defects Lars reported by opening real pages**, both fixed: a forwarded mail was cut down to its address lines so 5,400 runes of German never reached the detector (#1009, then #1012 raising the word floor to 12 — a stored activity carries its SUBJECT above the headers, which cleared a 3-word floor), and du/Sie was re-decided per call because the rule lived in the prompt. The register is resolved from the correspondence now and travels in the envelope (#1012), with a deterministic check for a draft that mixes them anyway. **On the model tier**: flash-lite was compared against 3.5-flash, 3.5-pro and a thinking variant on both fixtures and Lars's real 4,200-character thread. Lite certifies 5 of 6 fixtures where flash does 4 (flash deflects a simple question instead of answering it), at 1/18 the cost and a third of the latency — and the prose gap that looked like model capability closed once the register and message-body grounding landed. Raising the tier DID surface a real bug: both composers set no output cap, so a reasoning model spent its budget on thinking and returned nothing (#1022). Also shipped: a subject-line floor refusing an unearned `Re:`, a follow-up subject on a first touch, and anything past 70 runes (#1033); next-meeting grounding with two privacy refusals — a meeting they are not on, and an absent attendee list, both answer no (#1035); the stale-thread draft no longer declares their side's budget round concluded, and the retry correction says what to WRITE rather than only what to delete (#1030); and a rich 5,200-character fixture built from real correspondence (#1029), because every existing fixture was short enough to pass by being politely vague. Certification: 5 of 6 certified, median 100, the sixth improved from not_supported to supported_degraded. Verified live: 6 of 6 drafts for Frank and Marek came back German, consistent du, no invented introduction, no filler. **Still open**: Wave 2b (`personcontext`, which the plan flags as the first thing to cut), enriched-claims grounding, and the upstream measurement decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 3's two grounding fields, and the defect they uncovered. A person draft now reads the newest inbound message's BODY rather than its subject line alone (#956) — bounded, headers stripped, inside the untrusted fence, and carrying no claim about WHO wrote it, because an activity reaches a person through `activity_link` (what a message concerns) and the 360 carries no participants, so authorship is not knowable there. Then, verifying against the real Marek thread on a live stack: the body came back correct and the **reasoning chip** beside it read "Follow-up to previous introduction by Romina Medici" — the original defect, in a channel nothing checked, because `draftcore` read the body alone (#958, closing #957). Both channels are checked now. **The phrase list took four passes against a live model, and the failures are the lesson**: "introduction by" missed "introduction to", the noun list missed "introductory", a German-only list missed "shared contact introduction" (a chip is written for the REP, so the model reaches for English under German prose), and a stem with a trailing space missed "Intro-Thema". Final shape is stems at a word boundary across every language, with every observed form a test case. Verified six consecutive live drafts clean where three of five carried an invention before. **Still open**: Wave 2b (`personcontext`, which the plan flags as the first thing to cut), the remaining grounding fields (enriched claims, next meeting, strength/committee — the last two reasoning-only per the privacy table), and the upstream measurement decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Waves 2a, 2c and the first Wave-3 grounding field. `compose/draftcore` is the one correct-and-retry loop all three drafting surfaces share (#951) — 102 lines removed for 33, the logic GONE from each surface rather than merely called from it, and `draft_reply/reply` reached **certified** on that run (all five fixtures, score_min 75). `accountdraft.Input.Dossier` is fed at last (#952): it was declared, advertised in the prompt as a citable kind, and populated by nothing, so both halves were dead — `orgdossier.CachedSections` is the cache-READ-only half, because assembling costs a model call nobody asked for. And an overdue promise of ours now leads a person draft (#954), the archetype the grounding work exists for: the email a rep knows they should send and does not. Three review findings are worth carrying forward as lessons rather than as history: a nil `*Service` wired before its provider passes a nil-interface check and panics later (fixed by construction order AND a nil-receiver guard); a grounding check keyed on the PRESENCE of a dossier let the model tag any claim with the dossier's provenance, so it now checks the dossier's own words; and the commitment rule shipped keyed on `"commitment"`, a claim kind the contract never emits, with tests that fabricated the same missing kind — it could not fire on one real record, and the tests are rewritten to run through the real fold. **Still open**: Wave 2b (`personcontext`, which the plan itself flags as the first thing to cut), the remaining Wave-3 grounding fields (activity bodies, enriched claims, next meeting), and the upstream measurement decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 3, first two items. The reply drafter now knows who it is writing TO (#949, closing #941): `activities.ReplyRecipientFor` reads the counterparty from `activity_participant` BY ROLE — sender of an inbound message, then addressee — falling back to `activity_link` only for rows with no participants, because a link says what a message is *about* and a CC'd colleague is linked too. Gated by the person read grant, the activity's link-walk scope, and capture privacy composed into one predicate (two statements left a TOCTOU). Beside it, `compose/draftcheck`: a deterministic post-generation phrase gate, because three separate prompt rules lost to model reflexes — greeting the sender, "I hope you are doing well" after eight months, inventing a pitch for a first touch. Three band-gated phrase lists with no judgement in them, one retry naming the exact phrase back, and whichever attempt carries less rejected phrasing is served. Certification moved 3-of-5 fixtures certified to **4 of 5**, median 100. The fifth (`replying_to_a_thread_eight_months_old`) still varies between `supported_degraded` and `not_supported` on identical code — model variance against a hard floor, better than it was and not solved. **Waves 2a-2c are still not started** (the shared `draftcore` engine, the one Person360 fold, voice on the composers) and neither is the widened grounding half of Wave 3; Wave 3's measurement half still needs the upstream decision on recording served drafts.
+- Shipped 2026-08-11 (batman): "Make eMail meaningful" Wave 1 — a draft is now written in the language of the correspondence, knows what time it is, knows who is sending it, and stops inventing a history. **Verified on the real Marek Janetzke thread against a live model**: the draft comes back in German and says "vielen Dank an Marek für die Vermittlung", where the reported defect had it in English with the introduction reversed. Two spec PRs land first (margince-foundation #1272 the correspondence envelope + DRAFT-AC-E-1..7, #1273 the shared-core layering + E-8/E-9 + AIEVAL-32/33), then the code: `shared/kernel/textlang` + `convstate` (#916), `draftfloor` with all four no-model producers on one band×language table (#918), `identity.ActorIdentity` + its ratified RBAC waiver (#919), `compose/draftrules` — the shared prompt block that is the actual fix, since `referred_by` is org→org with no rows anywhere and forbidding the inference is the cure (#922), the person/account certification sites ADR-0074 requires (#926), `WithOperatorMail` + a corrected STATUS line (#937), the sender-is-not-the-recipient rule (#942), and the defect that made it all invisible: a captured mail's own `From:` headers read as a quoted thread, so the language detector saw an empty string and every German draft fell back to English (#945). The paid re-record then landed (#947): 20 of 27 sites current, up from 17; `draft_reply/person` and `draft_reply/account` **certified**; `draft_reply/reply` not_supported on one fixture alone, scoring 30 against a floor of 40 for #941. Open as fast-track-debt: #915 (an English legal footer can outvote a short German reply), #934 (the person page's "Ask for context" button renders enabled and is inert), #936 (the warm-intro drafter has no UI), #941 (the reply payload carries the sender but no recipient, so a nameless body makes the draft greet its own author — fixing it flips the reply site to certified), #943 (a German draft mixes du and Sie). Waves 2 and 3 — the shared `draftcore` engine, the one Person360 fold, voice on the composers, widened grounding — are not started, and Wave 3's measurement half needs an upstream decision (record served drafts everywhere, or measure the reply path only).
+- Shipped 2026-08-11: the account-started send gains its agent tool — `send_account_email`, the 38th on the catalog, 🟡 and governed identically to the reply (ADR-0087 §6, PR #930). The gap #688 named was one `decisionGrants` entry. Left open: **#928** (the REST staging gate stages before it can read the body, so the approver is not bounded by the records the effect concerns — the same shape `book_meeting` already had) and **#929** (the external-SoR refusal runs at staging, not at redemption). Both reviews proposed binding a link as the staged target; the server-side pin makes that unavailable — see the section below before repeating it.
+- Shipped 2026-08-11: bootstrap writes the installation's Agent Runner seat (`is_agent`, no password, no role assignment) and core `0216` backfills the installations that predate it, so a scheduled extension job has an initiator and actually runs on a fresh install (#656). The seat is an identity and not an authority: the one path that could have handed it a credential — the admin-issued set-password link — now refuses it. Left out deliberately: the admin members screen lists the seat with a role selector and a set-password button the API now refuses; its presentation is filed as a follow-up.
 - Shipped 2026-08-11 (batman, follow-up): a same-kind consumer-mail re-add stays on the create grant, so a rep retrying a lost response gets the existing entry instead of a 403 (PR #888, found by the Codex review of #872). Open upstream: spec capture.md CAP-PARAM-5 predates the workspace consumer-mail surface entirely (still says baseline + margince.yaml, no UI) — reconcile in the spec repo.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
 - Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
@@ -80,10 +87,12 @@ arm exists, computed at send time from the timeline. `inquiry`, `in_person` and
 flag. The behaviour under-allows rather than over-allows, so it is safe and
 incomplete.
 
-**No model lane is wired to any of it.** The person brief, the person draft and
-the meeting brief all render their deterministic floor and say so in
-`generated_by`. `WithPersonDraft` exists for the api role; the other two need
-the same treatment.
+**The person brief and the meeting brief have no model lane wired.** Both render
+their deterministic floor and say so in `generated_by`. The person DRAFT does
+have one — `cmd/api/modelwiring.go` binds `WithPersonDraft(modelPath.DraftReply)`
+— so a person-page draft is model-written wherever a model is configured. The
+distinction matters: a stale reading of this line has already led a reviewer to
+assess the drafting work as lower-risk than it was.
 
 **No research provider is registered**, which is the supported configuration
 (ADR-0096 D4): the drawer answers "no data provider yet connected" and writes
@@ -345,11 +354,27 @@ There is still exactly one send. `POST /v1/emails` carries the account-started
 surface; an address belonging to no person the sender can read refuses 422
 `recipient_not_on_file` and names the address.
 
-Left open: the operation is **human-only**. ADR-0087 §6's agent tool needs a
-decision-grant mapping before the verb can honestly be advertised — issue #688
-carries the four fitness tests that are its acceptance criteria. The
-account-started DRAFT (§3: grounded, fenced, auto-starting, writing nothing) is
-not built.
+**The agent tool shipped 2026-08-11 (PR #930, `88c7f07b`)**, so the operation is
+no longer human-only: `send_account_email` is the 38th tool, 🟡, governed
+identically to the reply. What #688 called four failing fitness tests was one
+map entry — the missing `decisionGrants` mapping; the other three failed only
+because the contract declared a verb no registered tool answered.
+
+Left open, and worth reading before touching any staged 🟡 verb:
+
+- **#928 — the REST staging gate stages before it can read the body.** It takes
+  its target from the route, so an operation whose subject lives in the body
+  (this one, `book_meeting`) stages an id-less create: the approver is bounded
+  by read+create on the record TYPE, not by the row scope of the records the
+  effect concerns. A manager whose scope excludes them can release the send and
+  read its proposed text. It cannot be closed from the verb — the version pin is
+  taken server-side from the target pair, and the waiver that declines a pin is
+  reserved for kinds approvals applies itself. Two independent code reviews
+  proposed that unavailable fix; check the constraint before proposing it again.
+- **#929 — the external-system-of-record refusal runs at staging, not at
+  redemption**, for all four staging verbs.
+- The account-started DRAFT (§3: grounded, fenced, auto-starting, writing
+  nothing) is still not built.
 
 **Finance mirror (ADR-0083) — PR #689.** The five tables only:
 `finance_connection`, `finance_external_customer`, `finance_customer_link`,
@@ -365,7 +390,7 @@ ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
 the catalog in typed Go. #521 then moved every reader off the `workspace`
 columns across four slices — quotas and finance (#794), the deals module's
 money reads (#802), name/timezone plus the roll-up and org-360 (#817), and the
-brief ranker, forecast and reset confirmation (#857) — and migration `0209`
+brief ranker, forecast and reset confirmation (#857) — and migration `0211`
 dropped `name`, `base_currency` and `timezone` along with the dual write in
 `UpdateInstallation`.
 
@@ -378,7 +403,7 @@ principal exists to gate anything and the other on the first write, when no row
 exists yet and "nothing is priced against a base that was never set" is the
 honest answer.
 
-`0209` refuses rather than loses: an installation whose settings rows are
+`0211` refuses rather than loses: an installation whose settings rows are
 missing while a live workspace still holds the values fails the migration with
 what to do about it, because dropping the columns would destroy the only copy.
 The one state its repair cannot resolve is several live workspaces, where no
@@ -430,6 +455,82 @@ The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
 collapses while RLS is still armed, because the tenant-isolation suite staying
 green is the only mechanical proof that an edit of that size stayed faithful,
 and the schema phase deletes that suite. Do not reorder it.
+
+### Step 3 is DONE — what the handle turned out to mean
+
+`platform/database.DB` is the seam that landed: a pool that knows its
+workspace, with `Tx` spelling the same `WithWorkspaceTx` GUC contract, so RLS
+stayed armed and the isolation suite stayed the proof. Every module now opens on
+one, `identity` included (#1010) — **step 4 (principal/envelope/audit_log/
+contract/frontend) is the next slice, and the schema phase after it.**
+
+The sweep's real finding is that there are exactly **three** ways a caller knows
+which tenant it is, and the handle makes the choice visible at the call site
+instead of burying it in a store:
+
+- **resolve** — request paths and bus consumers: `compose.InstallationDB(pool)`;
+- **pin from job args** — fleet passes: `workspaceJobDB`, and inside a store
+  that walks the fleet itself, `DB.ForWorkspace` per tenant;
+- **pin per tenant** — raw-SQL harnesses: `Env.DB()` / `Env.DBFor(ws)`.
+
+Two rules fell out of it and are worth knowing before the next slice:
+
+- **A long-lived service shared by every tenant's pass must re-bind per pass.**
+  The webhook deliverer, the agent scheduler, search's pending rollup and its
+  re-embed all read the tenant off the ctx while their store carried it on its
+  handle — so each swept ONE workspace repeatedly while reporting the fan-out as
+  working. Every one of them was caught by a cross-tenant suite, loudly.
+- **A composed surface says which workspace it was built for.** `NewRegistryFor`,
+  `NewProviderFor` and `NewOverlayProviderFor` are the pinned siblings of the
+  resolving constructors; a suite that seeds a second workspace has no singleton
+  to resolve and names the one it means.
+
+**identity went last**, and the reason is worth keeping: the module that REFUSES
+when a second workspace exists is the one whose own suites bootstrap an
+installation per test, so its fixtures cannot resolve a singleton. They name the
+workspace they just created, through `NewServiceFor`. The self-reference is fine
+— `InstallationWorkspace` reads no tenant table, so
+`svc.db = database.Bind(pool, svc.InstallationWorkspace)` is not circular at
+runtime. `identity.NewService(pool)` therefore still takes a pool: it is the one
+constructor that builds its own handle.
+
+One defect that slice surfaced, and the shape to watch for in step 4: the tool
+registry's admission gate was building an identity service of its own, so a
+registry pinned to a named workspace admitted through a service resolving a
+different one — an ungoverned-agent refusal answered `ErrMultipleWorkspaces`
+instead of the refusal it exists to assert. **A component that carries a handle
+must pass THAT handle to everything it constructs.**
+
+### Step 4: the surfaces are done, the last of `principal` waits on step 5
+
+Landed: the **envelope** drops `workspace_id` (#1036, taking `events.ForWorkspace`
+with it — a bus filter whose premise was that the workspace is a field on the
+bus), and the **contract, generated types and SPA** drop it from thirty response
+schemas (#1049, after the spec's own `crm.yaml` landed it first —
+margince-foundation#1284, which is what P3 requires).
+
+Two things from that pair are worth carrying forward:
+
+- **The ledger now takes its tenant from the TRANSACTION.** `audit_log`,
+  `system_log` and `LockWriteIdentity`'s advisory key read
+  `current_setting('app.workspace_id')` in SQL instead of ctx. Read from ctx,
+  a ledger row could name a different workspace than the domain row it records,
+  and two writers of one record could take different lock keys and serialize
+  neither — both invisible. This is why the ledger moved early while the domain
+  INSERTs did not: their `workspace_id` binds vanish with the column in §8 phase
+  D, so converting them now is churn that phase deletes.
+- **A per-tenant breakdown of a single tenant is the total repeated.** Two wire
+  shapes collapsed rather than losing a field (embed-reindex status and
+  preview), and the same reasoning retires any other per-workspace fan-out on
+  the wire.
+
+**What is left of step 4 is `principal.WorkspaceID`, and it is entangled with
+step 5.** Sixty-six non-test readers remain, and they are not one shape: bound
+checks, meter keys, blob path segments, cache keys. The big consumer is
+`storekit.MustWorkspace` (53 sites stamping a `workspace_id` column) and
+`WithWorkspaceTx` itself (~580 uses), and §5 retires the latter as part of the
+SCHEMA phase. So the honest order is: do §8's phases, and let `principal` fall
+out where its referents go, rather than churning 600 call sites twice.
 
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
@@ -527,7 +628,9 @@ of pre-fan-out is plausibly reducible.
 The cost of a slice is fixture entanglement, not the move itself. #859 took the
 channel suites out (14.8s) and had to leave four neighbours behind, each sharing
 one preflight fixture with suites that were not moving; #866 took the webhook
-suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match).
+suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match);
+#913 took the OAuth + MCP surface (13.25s); #964 took the custom-field catalog and
+its wire (7.22s).
 Two or three shared helpers per slice have to be promoted to importable homes
 first, and each suite package's `doc.go` records where its boundary fell and why.
 Reaching the ~80s floor means repeating that several times — a programme, not a
@@ -536,11 +639,38 @@ follow-up. Each slice also subjects every MOVED line to the full strict linter
 surfaced an unchecked type assertion and a naming violation the un-gated original
 had carried.
 
+**Splitting is now spent — do not start a fifth slice.** Four landed (#859, #866,
+#913, #964), taking 14.8s, 13.3s, 13.25s and 7.22s of the parent's measured test
+seconds. `./migrations` (96s, 23 tests — replay, which does not split the same way)
+and `./internal/compose` (92s) are now level with what is left of the parent, so the
+next slice moves the LANE by nothing: its wall clock stops being set by the package
+you are cutting. Those two are the work, and neither is a split.
+
+The falling return is visible in the sizes above, and the reason is that the groups
+ran out before the seconds did: #964 was already down to 7.22s and had to leave 3s
+behind because the remaining suites share fixtures across the boundary. Re-measure
+before believing any of these numbers — the parent's own seconds moved in both
+directions across the four PRs, because `main` kept adding tests to it while the
+slices took them out.
+
+A slice also perturbs what has run by the time each surviving test executes, which
+finds tests that depend on state a neighbour left. #913 turned one red that way
+(#876, fixed on main by #874 while the slice waited): it asserted a field would be
+absent from a change timeline, and passed only because the column that field fills
+was usually already populated. Expect these, and read such a failure as a
+test-isolation defect before reading it as the slice's fault.
+
 **Where the shared fixtures live, since a slice stalls on this.** A fixture keyed
 on `*apptest.AppEnv` goes in `integration/apptest` — `integration`'s ordinary
 files may not import `apptest` (it imports `compose`, whose white-box tests import
 `integration`, so the cycle closes). Anything else two suite packages need goes in
-`integration/suitefixtures.go`. Nothing in a `_test.go` file is reachable from a
+`integration/suitefixtures.go` — **unless `apptest` is itself one of the callers**,
+in which case it goes in `apptest` too, whatever it is keyed on. `apptest` cannot
+import `integration`, so a helper it needs and `suitefixtures.go` holds is a helper
+about to be copied — which is what had happened to the app-DSN read before #913
+collapsed those call sites onto `apptest.AppDSN`. (The sites that read the owner and
+app DSN together are a different shape and still read their own; only the app-only
+readers were the same invariant.) Nothing in a `_test.go` file is reachable from a
 subpackage at all, which is what strands most helpers. And a helper whose other
 caller is an UNTAGGED file cannot be shared in either place: that file belongs to
 the unit lane, so the two callers are on opposite sides of a build tag.

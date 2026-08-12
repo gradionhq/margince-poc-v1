@@ -131,7 +131,7 @@ func offerDraftOptions(pool *pgxpool.Pool, modelPath *compose.ModelPath) []compo
 	if modelPath == nil {
 		return nil
 	}
-	retriever := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
+	retriever := search.NewRetriever(search.NewStore(compose.InstallationDB(pool)), modelPath.Embedder)
 	return []compose.Option{compose.WithOfferDraft(modelPath.OfferDraft, retriever)}
 }
 

@@ -31,7 +31,7 @@ import (
 
 func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 	e := integration.Setup(t)
-	consentStore := consent.NewStore(e.Pool)
+	consentStore := consent.NewStore(InstallationDB(e.Pool))
 	stager := &recordingStager{}
 	// Built through the composition root, not by hand: a marketing send is
 	// exactly the case whose derivation depends on the unsubscribe linker and

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -33,7 +34,7 @@ func TestConcurrentRemapsLeaveExactlyOneOwnerVisible(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	// Both owners resolve to Bob's email, so either remap passes the
 	// UpsertUserMap email check — the honest concurrency scenario.
-	store := NewMirrorStore(pool, stubOwnerEmails{
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{
 		"owner-a": "bob@example.com",
 		"owner-b": "bob@example.com",
 	})

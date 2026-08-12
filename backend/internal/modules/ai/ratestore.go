@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -24,15 +23,16 @@ import (
 // like every tenant read: RLS alone decides which workspace's rates a
 // caller can see, the same as fx_rate.
 type RateStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// clock is the "today" source for effective-dated writes; injected so
 	// append-forward date validation is deterministic in tests.
 	clock func() time.Time
 }
 
 // NewRateStore constructs the RateStore over pool.
-func NewRateStore(pool *pgxpool.Pool) *RateStore {
-	return &RateStore{pool: pool, clock: time.Now}
+func NewRateStore(db *database.DB) *RateStore {
+	return &RateStore{db: db, clock: time.Now}
 }
 
 // WithClock overrides the "today" source (tests only). Returns the store
@@ -50,7 +50,7 @@ func (s *RateStore) WithClock(clock func() time.Time) *RateStore {
 // caller gets (nil, nil) and decides what "unpriced" means to it.
 func (s *RateStore) RateFor(ctx context.Context, provider, modelID string, day time.Time) (*ModelRate, error) {
 	var rate *ModelRate
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var e error
 		rate, e = rateForInTx(ctx, tx, provider, modelID, day)
 		return e
@@ -132,7 +132,7 @@ func rateForInTx(ctx context.Context, tx pgx.Tx, provider, modelID string, day t
 // transparency, never a gate).
 func (s *RateStore) CostReport(ctx context.Context, from, to time.Time) ([]DayCost, error) {
 	var report []DayCost
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT
 			  ac.occurred_at::date AS day,

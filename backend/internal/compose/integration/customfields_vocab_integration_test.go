@@ -14,8 +14,6 @@ package integration
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -27,18 +25,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-// craftCursor forges the opaque page token a hostile client could send:
-// the Cursor JSON shape, base64url-encoded — bypassing the store's own
-// minting so the sort key can carry arbitrary text.
-func craftCursor(t *testing.T, c storekit.Cursor) string {
-	t.Helper()
-	raw, err := json.Marshal(c)
-	if err != nil {
-		t.Fatalf("marshaling crafted cursor: %v", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
 
 // seedScoredDeal creates one deal carrying the given custom-field values.
 func (f dealCFVFixture) seedScoredDeal(t *testing.T, name string, cf map[string]any) ids.UUID {
@@ -292,7 +278,7 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 	f := setupCFV(t)
 	// The deal list shares f's Env (Setup rebuilds the schema, so one
 	// per test) — its store rides the same pool and field catalog.
-	dealStore := deals.NewStore(f.e.Pool, installseam.Deals()).WithFieldCatalog(f.svc)
+	dealStore := deals.NewStore(f.e.DB(), installseam.Deals()).WithFieldCatalog(f.svc)
 	dealCtx := f.e.As(f.e.Rep1, nil, dealCFVPerms)
 
 	resources := coreVocabResources(dealCtx, f, dealStore)
@@ -361,7 +347,7 @@ func TestCustomFieldVocab_CraftedCursorKeyIsClientFault(t *testing.T) {
 	f.seedScoredDeal(t, "A", map[string]any{score: float64(1)})
 
 	badKey := "abc"
-	crafted := craftCursor(t, storekit.Cursor{
+	crafted := CraftCursor(t, storekit.Cursor{
 		CreatedAt: time.Now().UTC(), ID: ids.NewV7(), SortField: score, SortKey: &badKey,
 	})
 	_, _, err := f.store.ListDeals(f.ctx, deals.ListDealsInput{Sort: &score, Cursor: &crafted})

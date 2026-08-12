@@ -306,7 +306,7 @@ func TestCustomFieldVocab_SortByCreatedAtWithCursor(t *testing.T) {
 func TestCustomFieldVocab_MalformedTimestampCursorKeyIsClientFault(t *testing.T) {
 	f := setupCFV(t)
 	badKey := "not-a-timestamp"
-	crafted := craftCursor(t, storekit.Cursor{
+	crafted := CraftCursor(t, storekit.Cursor{
 		CreatedAt: time.Now().UTC(), ID: ids.NewV7(), SortField: "created_at", SortKey: &badKey,
 	})
 	sortField := "created_at"

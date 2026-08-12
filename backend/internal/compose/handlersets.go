@@ -75,7 +75,7 @@ type (
 // same overlay refusal. Its own function so the composition root reads as a
 // list of what is wired rather than how each piece is built.
 func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
-	srv.person360Svc = person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now)
+	srv.person360Svc = person360.NewService(pool, srv.peopleStore, consent.NewStore(InstallationDB(pool)), ai.NewFeedbackStore(InstallationDB(pool)), time.Now)
 	srv.person360Handlers = person360.NewHandlers(srv.person360Svc, srv.sorDispatch.isOverlay)
 	// The relationship brief is assembled from the SAME composite read the page
 	// serves, so the two cannot disagree about what this caller may see. No
@@ -106,5 +106,6 @@ func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
 	// brief's: WithPersonDraft binds the api role's, and without it the endpoint
 	// answers from its deterministic floor rather than 501-ing.
 	srv.personDraftHandlers = persondraft.NewHandlers(
-		persondraft.NewService(srv.person360Svc, nil), srv.sorDispatch.isOverlay)
+		persondraft.NewService(srv.person360Svc, nil).
+			WithEnvelope(draftEnvelope(pool, srv.log)), srv.sorDispatch.isOverlay)
 }

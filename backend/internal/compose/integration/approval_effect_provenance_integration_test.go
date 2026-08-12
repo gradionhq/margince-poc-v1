@@ -37,7 +37,7 @@ func TestAgentMintedStagingDoesNotInvokeAServerSideEffect(t *testing.T) {
 
 	const kind = "enrich"
 	var ran int
-	svc := approvals.NewService(e.Pool).WithEffect(kind,
+	svc := approvals.NewService(e.DB()).WithEffect(kind,
 		func(context.Context, ids.ApprovalID, json.RawMessage, string) error {
 			ran++
 			return errors.New("this executor cannot parse an agent REST envelope")
@@ -84,7 +84,7 @@ func TestServerMintedProposalStillInvokesItsEffect(t *testing.T) {
 
 	const kind = "enrich"
 	var ran int
-	svc := approvals.NewService(e.Pool).WithEffect(kind,
+	svc := approvals.NewService(e.DB()).WithEffect(kind,
 		func(context.Context, ids.ApprovalID, json.RawMessage, string) error {
 			ran++
 			return nil

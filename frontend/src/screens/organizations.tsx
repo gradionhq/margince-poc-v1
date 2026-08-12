@@ -9,10 +9,10 @@ import {
   Avatar,
   Badge,
   Button,
+  Card,
   Disclosure,
   EmptyState,
   Modal,
-  SectionHeader,
   SegmentedControl,
   Skeleton,
 } from "../design-system/atoms";
@@ -636,9 +636,10 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   });
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <div className="list-head">
-        <SectionHeader title={t("enrich.title")} sub={t("enrich.sub")} />
+    <Card
+      title={t("enrich.title")}
+      sub={t("enrich.sub")}
+      actions={
         <Button
           small
           disabled={enrich.isPending}
@@ -646,7 +647,9 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
         >
           {enrich.isPending ? t("enrich.reading") : t("enrich.cta")}
         </Button>
-      </div>
+      }
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {enrich.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
           {problemMessageOf(enrich.error, t)}
@@ -703,7 +706,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
           })}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -970,20 +973,23 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
   });
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <div className="list-head">
-        <SectionHeader title={t("deepread.title")} sub={t("deepread.sub")} />
+    <Card
+      title={t("deepread.title")}
+      sub={t("deepread.sub")}
+      actions={
         <Button small disabled={start.isPending} onClick={() => start.mutate()}>
           {start.isPending ? t("deepread.starting") : t("deepread.cta")}
         </Button>
-      </div>
+      }
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       {start.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
           {problemMessageOf(start.error, t)}
         </p>
       )}
       {readId && <SiteReadPanel orgId={orgId} readId={readId} />}
-    </section>
+    </Card>
   );
 }
 
@@ -1050,8 +1056,7 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
       : "—";
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("tab.rollup")} />
+    <Card title={t("tab.rollup")} style={{ marginBottom: "var(--space-4)" }}>
       <dl className="firmo">
         <div>
           <dt>{t("rollup.weightedPipeline")}</dt>
@@ -1080,7 +1085,7 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
           when: formatDateTime(rollup.computed_at, locale, "Europe/Berlin"),
         })}
       </p>
-    </section>
+    </Card>
   );
 }
 
@@ -1213,8 +1218,10 @@ function ProfileFieldsCard({
   });
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("co.profile.title")} />
+    <Card
+      title={t("co.profile.title")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       <QueryStates query={fieldsQuery}>
         {fieldsQuery.data && fieldsQuery.data.length === 0 ? (
           <p className="t-caption">{t("org.firmographicsEmpty")}</p>
@@ -1229,7 +1236,7 @@ function ProfileFieldsCard({
           ))
         )}
       </QueryStates>
-    </section>
+    </Card>
   );
 }
 
@@ -1376,10 +1383,9 @@ function FactsCard({
   // read and a 404/network error must stay distinguishable and retryable.
   if (factsQuery.isError) {
     return (
-      <section className="card" style={{ marginBottom: 16 }}>
-        <SectionHeader title={t("org.facts")} />
+      <Card title={t("org.facts")} style={{ marginBottom: "var(--space-4)" }}>
         <QueryStates query={factsQuery}>{null}</QueryStates>
-      </section>
+      </Card>
     );
   }
 
@@ -1392,8 +1398,7 @@ function FactsCard({
   }
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("org.facts")} />
+    <Card title={t("org.facts")} style={{ marginBottom: "var(--space-4)" }}>
       {groupFacts(facts).map((group) => (
         <FactCategory
           key={group.category}
@@ -1402,7 +1407,7 @@ function FactsCard({
           onOpenHistory={onOpenHistory}
         />
       ))}
-    </section>
+    </Card>
   );
 }
 
@@ -2572,9 +2577,9 @@ function CompanyDealsTab({
 }>) {
   if (!view && !failed) {
     return (
-      <section className="card co-card">
+      <Card className="co-card">
         <Skeleton width="100%" height={96} />
-      </section>
+      </Card>
     );
   }
   return (

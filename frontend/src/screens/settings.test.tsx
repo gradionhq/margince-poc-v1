@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
+import { SettingsRail } from "../app/shell";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
@@ -106,6 +107,30 @@ const render = (ui: ReactNode) => {
   };
 };
 
+// A settings route renders in two halves, and the sidebar owns one of them: the
+// tabs are the shell's SECOND NAVIGATION LEVEL, fed by the section this screen
+// publishes (useSettingsSection). So a claim about which tabs a principal is
+// offered renders the real rail — the production wiring, not a copy of it — and
+// a claim about a tab's content renders the screen.
+const railFor = (tab?: string) => (
+  <SettingsRail
+    route={{ screen: "settings", id: tab }}
+    onOpenSearch={() => undefined}
+  />
+);
+
+const renderNav = (tab?: string) => render(railFor(tab));
+
+// Both halves, for a claim that spans them: the tab is in the nav AND its cards
+// are on the page.
+const renderSettings = (tab?: string) =>
+  render(
+    <>
+      {railFor(tab)}
+      <SettingsScreen tab={tab} />
+    </>,
+  );
+
 describe("SettingsScreen RBAC surfaces", () => {
   it("renders the session roles as localized badges on the default Account tab; a custom key stays its raw self", async () => {
     render(<SettingsScreen />);
@@ -114,6 +139,46 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.getByText("field_marketing")).toBeTruthy();
     // the seeded key never leaks raw once a label exists
     expect(screen.queryByText("admin")).toBeNull();
+  });
+
+  // Theme and language are this person's own preferences, so the Account tab is
+  // where they are offered — the sidebar's account menu carries destinations.
+  // The theme choice has to reach the document AND storage: on the document
+  // because that is what repaints, in storage because that is what survives a
+  // reload.
+  it("offers the theme on the Account tab, and a choice reaches the document and storage", async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    const dark = screen.getByRole("button", { name: "Dark" });
+    await user.click(dark);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(globalThis.localStorage.getItem("margince.theme")).toBe("dark");
+    expect(dark.getAttribute("aria-pressed")).toBe("true");
+
+    // Put it back. The theme is document-wide state held in theme.ts's own
+    // store, which neither cleanup() nor the localStorage clear reaches, so
+    // leaving it flipped would hand every later test a theme that depends on
+    // the order the file happened to run in.
+    await user.click(screen.getByRole("button", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("switches the language from the Account tab, through the design-system select", async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Language" }),
+      "Deutsch",
+    );
+    // The choice reaches the chrome around the control, not just the control's
+    // own face — which is the whole point of changing a language here.
+    expect(screen.getByRole("combobox", { name: "Sprache" })).toBeTruthy();
+    expect(screen.getByText("Voreinstellungen")).toBeTruthy();
   });
 
   it("the passport row's token reads as withheld — masked, never re-disclosed — on the AI tab", async () => {
@@ -579,13 +644,24 @@ describe("SettingsScreen tab layout", () => {
   });
 
   it("groups the nav into personal and organization tabs, Account current by default", async () => {
-    render(<SettingsScreen />);
-    const nav = screen.getByRole("navigation", { name: /settings sections/i });
-    expect(nav).toBeTruthy();
+    renderNav();
+    // ONE navigation landmark in the chrome: the level names itself with a
+    // heading rather than opening a second `nav` beside the sidebar's own.
+    const nav = screen.getByRole("navigation", { name: /primary navigation/i });
+    expect(
+      within(nav).getByRole("heading", { level: 2, name: "Settings" }),
+    ).toBeTruthy();
     // The organization tabs appear once the /me role probe resolves to admin.
     await waitFor(() =>
       expect(screen.getByRole("link", { name: /Data model/i })).toBeTruthy(),
     );
+    // The two groups the level carries, under its own title rather than beside
+    // it — the outline reads Settings → You / Organization.
+    expect(
+      within(nav)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["You", "Organization"]);
     for (const label of [
       "Account",
       "Voice DNA",
@@ -718,7 +794,7 @@ describe("SettingsScreen Organization group", () => {
     // while every gated member is gone — this is the group hiding, as far as
     // the group can hide.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"] }));
-    render(<SettingsScreen />);
+    renderNav();
     // /me has to have SETTLED before an emptiness claim means anything: a nav
     // read mid-flight is empty for every principal.
     await screen.findByText("test@example.test");
@@ -730,7 +806,7 @@ describe("SettingsScreen Organization group", () => {
       "fetch",
       orgNavBackend({ roles: ["rep"], allow: { custom_field: ["update"] } }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Data model", "Overlay"]),
     );
@@ -748,7 +824,7 @@ describe("SettingsScreen Organization group", () => {
         allow: { embedding_reindex: ["update"] },
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Data model", "Overlay"]),
     );
@@ -762,7 +838,7 @@ describe("SettingsScreen Organization group", () => {
       "fetch",
       orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["create"] } }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
     );
@@ -776,7 +852,7 @@ describe("SettingsScreen Organization group", () => {
       "fetch",
       orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["update"] } }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
     );
@@ -792,7 +868,7 @@ describe("SettingsScreen Organization group", () => {
         allow: { offer_template: ["create", "update"] },
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Catalog", "Overlay"]),
     );
@@ -809,7 +885,7 @@ describe("SettingsScreen Organization group", () => {
         allow: { pipeline: ["read"], product: ["create", "update", "delete"] },
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([...PERSONAL_TABS, "Catalog", "Overlay"]),
     );
@@ -833,7 +909,7 @@ describe("SettingsScreen Organization group", () => {
         companyReadEnabled: true,
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
@@ -862,7 +938,7 @@ describe("SettingsScreen Organization group", () => {
         companyReadEnabled: true,
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
@@ -883,7 +959,7 @@ describe("SettingsScreen Organization group", () => {
     // the grant like catalog and rates do, and an ops principal holding no
     // object grant does not get it.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
-    render(<SettingsScreen />);
+    renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
@@ -905,7 +981,7 @@ describe("SettingsScreen Organization group", () => {
         companyReadEnabled: true,
       }),
     );
-    render(<SettingsScreen />);
+    renderNav();
     expect(
       await screen.findByRole("link", { name: "Company context" }),
     ).toBeTruthy();
@@ -922,7 +998,7 @@ describe("SettingsScreen Organization group", () => {
       allow: { organization: ["create", "update"] },
     });
     vi.stubGlobal("fetch", fetchMock);
-    const { client } = render(<SettingsScreen />);
+    const { client } = renderNav();
     const ADMIN_ORG_TABS = [
       ...PERSONAL_TABS,
       "Users & roles",
@@ -1007,7 +1083,7 @@ describe("SettingsScreen overlay tab", () => {
       "fetch",
       overlaySettingsBackend({ roles: ["admin"], sorMode: "native" }),
     );
-    render(<SettingsScreen tab="overlay" />);
+    renderSettings("overlay");
     await waitFor(() =>
       expect(
         screen
@@ -1027,7 +1103,7 @@ describe("SettingsScreen overlay tab", () => {
       "fetch",
       overlaySettingsBackend({ roles: ["admin"], sorMode: "overlay" }),
     );
-    render(<SettingsScreen tab="integrations" />);
+    renderSettings("integrations");
     await waitFor(() =>
       expect(screen.getByRole("link", { name: /integrations/i })).toBeTruthy(),
     );
@@ -1048,7 +1124,7 @@ describe("SettingsScreen overlay tab", () => {
       sorMode: "native",
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SettingsScreen tab="overlay" />);
+    renderSettings("overlay");
     await waitFor(() =>
       expect(
         screen
@@ -1102,14 +1178,12 @@ function settingsStub(opts: {
         data: [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
             stages: [
               {
                 id: "s1",
-                workspace_id: "w",
                 pipeline_id: "pl",
                 name: "Qualify",
                 position: 1,
@@ -1193,7 +1267,6 @@ describe("PipelinesCard", () => {
 // the expand panel has every field to render honestly.
 const auditEntry = {
   id: "al-1",
-  workspace_id: "w",
   actor_type: "agent",
   actor_id: "agent:sdr",
   passport_id: "pp-9",
@@ -1534,7 +1607,99 @@ describe("ResetDataCard (danger zone)", () => {
   });
 });
 
+// Which /audit-log URLs a backend was actually asked for, newest last — the
+// wire is the only honest witness that a typed filter narrowed the question.
+function auditLogUrls(backend: ReturnType<typeof auditLogBackend>) {
+  return backend.mock.calls
+    .map(([input]) => String(input instanceof Request ? input.url : input))
+    .filter((url) => url.includes("/audit-log"));
+}
+
 describe("AuditLogCard", () => {
+  it("puts the filters and the entries in two separate cards", async () => {
+    vi.stubGlobal("fetch", auditLogBackend());
+    render(<AuditLogCard />);
+    await screen.findByText("update");
+
+    const actorFilter = screen.getByLabelText("Actor");
+    const entryAction = screen.getByText("update");
+    const filterCard = actorFilter.closest("section");
+    const entryCard = entryAction.closest("section");
+    expect(filterCard).not.toBeNull();
+    expect(entryCard).not.toBeNull();
+    expect(entryCard).not.toBe(filterCard);
+    // Each card carries its own heading, and neither reaches into the other:
+    // the six controls stay put while the entries below them scroll.
+    expect(filterCard).toContainElement(
+      screen.getByRole("heading", { name: "Filters" }),
+    );
+    expect(entryCard).toContainElement(
+      screen.getByRole("heading", { name: "Entries" }),
+    );
+    expect(filterCard).not.toContainElement(entryAction);
+    expect(entryCard).not.toContainElement(actorFilter);
+  });
+
+  it("narrows the request to the filters, keeping the page size and dropping the cursor", async () => {
+    const backend = auditLogBackend();
+    vi.stubGlobal("fetch", backend);
+    render(<AuditLogCard />);
+    await screen.findByText("update");
+    expect(auditLogUrls(backend)[0]).toContain("limit=20");
+
+    await userEvent.type(screen.getByLabelText("Actor"), "agent:sdr");
+    await userEvent.type(screen.getByLabelText("Entity type"), "person");
+
+    await waitFor(() => {
+      const latest = auditLogUrls(backend).at(-1) ?? "";
+      expect(latest).toContain("actor=agent%3Asdr");
+      expect(latest).toContain("entity_type=person");
+    });
+    const latest = auditLogUrls(backend).at(-1) ?? "";
+    expect(latest).toContain("limit=20");
+    // A filter change is a new question, so the narrowed request starts the
+    // keyset chain over instead of resuming the unfiltered one's cursor.
+    expect(latest).not.toContain("cursor=");
+  });
+
+  it("says the log is empty rather than showing an empty entries card", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    render(<AuditLogCard />);
+    expect(await screen.findByText("Nothing here yet.")).toBeInTheDocument();
+  });
+
+  it("offers a retry when the log fails to load", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/audit-log")) {
+          return jsonResponse({ title: "Upstream is down" }, 500);
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<AuditLogCard />);
+    expect(
+      await screen.findByRole("button", { name: "Retry" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load this view.")).toBeInTheDocument();
+    // The filter row survives the failure — a failed page must not take the
+    // controls that could ask a different question with it.
+    expect(screen.getByLabelText("Actor")).toBeInTheDocument();
+  });
+
   it("keeps the before/after diff hidden until the row is expanded", async () => {
     vi.stubGlobal("fetch", auditLogBackend());
     render(<AuditLogCard />);

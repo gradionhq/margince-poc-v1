@@ -7,11 +7,17 @@ package integration
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
 
@@ -29,6 +35,95 @@ import (
 // imports compose, and compose's white-box tests import this package, so an
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
+
+// CraftCursor forges the opaque page token a hostile client could send: the Cursor
+// JSON shape, base64url-encoded — bypassing the store's own minting so the sort key
+// can carry arbitrary text.
+//
+// Every caller uses it to prove a malformed cursor answers 422 rather than 500, so
+// replaying a cursor the API actually issued would remove the untrusted input the
+// assertion is about.
+func CraftCursor(t *testing.T, c storekit.Cursor) string {
+	t.Helper()
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshaling crafted cursor: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// CustomFieldAdminPerms is full custom_field config authority plus the person
+// grants the value-preservation assertions need.
+//
+// It is not AdminPerms narrowed — AdminPerms carries no custom_field grant at all,
+// so neither contains the other. It exists because AdminPerms cannot drive the
+// catalog, and the custom_field grant here is load-bearing in the direction that
+// reads backwards: the cross-tenant suites assert that tenant B's identical query
+// returns ZERO rows, and that is evidence of RLS only because B is permitted to
+// ask. Take the grant away and the empty answer becomes an RBAC refusal wearing
+// the same shape.
+var CustomFieldAdminPerms = principal.Permissions{
+	RoleKeys: []string{"admin"},
+	Objects: map[string]principal.ObjectGrant{
+		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
+		"person":       {Create: true, Read: true, Update: true, Delete: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
+// SeedSecondWorkspace inserts a second tenant with its own user and returns a
+// context bound to it, carrying perms, for the cross-tenant suites.
+//
+// perms is a parameter rather than a fixed posture because the grants decide what
+// a cross-tenant assertion can mean: a suite proving RLS hides tenant A's rows
+// needs tenant B permitted to ask for them, while a suite proving an RBAC refusal
+// needs the opposite. Each caller states which it is proving.
+func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn, perms principal.Permissions) (ids.UUID, context.Context) {
+	t.Helper()
+	ws, user := ids.NewV7(), ids.NewV7()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
+		ws, "tenant-b-"+ws.String()[:8]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
+		user, ws, "b@tenant-b.test"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := principal.WithWorkspaceID(context.Background(), ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
+		UserID: user, Permissions: perms,
+	})
+	return ws, ctx
+}
+
+// ExtractStagedApprovalID pulls the staged approval's id out of the 403
+// approval_required detail — the same reference the human inbox lists.
+//
+// Reading it out of the message is deliberate: it is the only reference a 🟡
+// caller is given, so a suite that resolved the id any other way would stop
+// proving that the refusal hands back something actionable.
+func ExtractStagedApprovalID(t *testing.T, detail string) string {
+	t.Helper()
+	const marker = "staged as approval "
+	i := strings.Index(detail, marker)
+	if i < 0 {
+		t.Fatalf("no staged approval reference in %q", detail)
+	}
+	// Fields rather than a scan to the next space, so a marker with nothing after
+	// it fails HERE. Returning the empty remainder would send the caller to
+	// /v1/approvals/ with no id, and the 404 that came back would be reported as
+	// the approval not existing — which is the one thing the suite is trying to
+	// find out.
+	rest := strings.Fields(detail[i+len(marker):])
+	if len(rest) == 0 {
+		t.Fatalf("the staged-approval reference in %q names no id", detail)
+	}
+	return rest[0]
+}
 
 // GoBDFloorPack is the six-calendar-year correspondence floor the retention
 // suites test against — a stand-in jurisdiction under a reserved code, not the

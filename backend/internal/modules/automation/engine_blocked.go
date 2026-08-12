@@ -19,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -48,7 +47,12 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 		return nil
 	}
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
-	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
+	// This consumer's workspace is its handle's; the envelope carries none.
+	ws, err := e.db.Workspace(ctx)
+	if err != nil {
+		return err
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
 	return e.MarkRunBlocked(wsCtx, approvalID,
 		"approval "+approvalID.String()+" was rejected by the deciding human")
 }
@@ -67,7 +71,7 @@ func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.Appr
 	if err != nil {
 		return fmt.Errorf("automation: encoding the blocked reason: %w", err)
 	}
-	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	return e.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE workflow_run SET status = 'blocked', detail = $2
 			WHERE status = 'requires_approval' AND detail->>'approval_id' = $1`,

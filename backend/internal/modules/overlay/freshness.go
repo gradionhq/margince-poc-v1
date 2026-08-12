@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -270,7 +269,7 @@ func (f *FreshnessReader) degradeForShed(ctx context.Context, ref datasource.Ent
 // row it traces to is a system_log row rather than an audit_log row,
 // because no domain row was mutated to audit.
 func (f *FreshnessReader) emitBudgetDegraded(ctx context.Context, ref datasource.EntityRef) error {
-	return database.WithWorkspaceTx(ctx, f.ms.pool, func(tx pgx.Tx) error {
+	return f.ms.db.Tx(ctx, func(tx pgx.Tx) error {
 		logID, err := storekit.LogSystem(ctx, tx, "mirror.budget_degraded", map[string]any{
 			"entity_type": string(ref.Type),
 			"entity_id":   ref.ID.String(),

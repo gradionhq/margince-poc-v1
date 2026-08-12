@@ -122,8 +122,8 @@ func TestResolveOverlayIncumbentBuildsALiveAdapterFromTheVault(t *testing.T) {
 	}
 
 	// Connect a HubSpot overlay; now resolve builds a live adapter.
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -155,15 +155,14 @@ func (authFailingIncumbent) Owners(context.Context) ([]overlay.OwnerRef, error) 
 func TestWorkerBacksOffAConnectionLevelFailure(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
 	w := &overlayReconcileWorkspaceWorker{
-		pool: e.Pool, vault: vault, ms: ms,
-		meter:        workerBudgetMeter(t),
+		pool: e.Pool, vault: vault, meter: workerBudgetMeter(t),
 		log:          slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent { return authFailingIncumbent{Adapter: fake.New()} },
 	}
@@ -202,12 +201,12 @@ func TestWorkerBacksOffAConnectionLevelFailure(t *testing.T) {
 func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
 	// Connect an overlay for the workspace. No connect-time incumbent
 	// factory is wired on this Service, so NOTHING is seeded or backfilled
 	// until the sweep runs — exactly the behavior under test.
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -288,9 +287,9 @@ func countMirrorRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, obje
 func TestCappedBackfillIsNotUndoneByTheFirstModifiedSweep(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -344,7 +343,7 @@ func TestCappedBackfillIsNotUndoneByTheFirstModifiedSweep(t *testing.T) {
 	// — re-listing under the same cap would relearn nothing). Reporting
 	// complete here would be the same silent-truncation-as-success lie this
 	// whole fix exists to close, just for the cap instead of the watermark.
-	svc := overlay.NewService(e.Pool, vault, ms).WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor)
+	svc := overlay.NewService(e.DB(), vault, ms).WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor)
 	status, err := svc.SyncStatus(overlayAdminCtx(e.WS, e.Rep1))
 	if err != nil {
 		t.Fatalf("SyncStatus: %v", err)
@@ -375,9 +374,9 @@ func TestCappedBackfillIsNotUndoneByTheFirstModifiedSweep(t *testing.T) {
 func TestSweepStillIngestsRecordsEditedAfterTheConnect(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -433,9 +432,9 @@ func TestSweepStillIngestsRecordsEditedAfterTheConnect(t *testing.T) {
 func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -496,11 +495,11 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 func TestReconcileConnectionBackfillsTheWebhookPortalBinding(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
 	// Connect with NO incumbent factory: fetchPortalID is skipped, so the
 	// binding starts NULL — the exact state the backfill exists to heal.
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -553,10 +552,10 @@ func TestReconcileConnectionBackfillsTheWebhookPortalBinding(t *testing.T) {
 func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
 	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -644,10 +643,10 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
 	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

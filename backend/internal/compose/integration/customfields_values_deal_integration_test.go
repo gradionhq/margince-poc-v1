@@ -59,7 +59,7 @@ func setupDealCFV(t *testing.T) dealCFVFixture {
 	return dealCFVFixture{
 		e:        e,
 		svc:      svc,
-		store:    deals.NewStore(e.Pool, installseam.Deals()).WithFieldCatalog(svc),
+		store:    deals.NewStore(e.DB(), installseam.Deals()).WithFieldCatalog(svc),
 		ctx:      e.As(e.Rep1, nil, dealCFVPerms),
 		pipeline: pipeline,
 		stage:    open,
@@ -133,10 +133,16 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "enterprise")
 
-	wsB, ctxB := seedSecondWorkspace(t, OwnerConn(t))
-	ctxB = withPerms(ctxB, t, wsB, dealCFVPerms)
-	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
-	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
+	// The deal grants, not the catalog ones: this arm creates a DEAL in tenant B,
+	// so the perms it needs are the ones the write goes through.
+	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), dealCFVPerms)
+	// Tenant B's own store: a write lands in the workspace its handle names, so
+	// the tenant-A store would stamp B's ids into A's transaction and RLS would
+	// refuse them. The catalog service is shared on purpose — the physical
+	// column is one column, which is what this arm is about.
+	storeB := deals.NewStore(f.e.DBFor(wsB), installseam.Deals()).WithFieldCatalog(f.svc)
+	pipelineB, stageB := seedDealFixtureIn(ctxB, t, storeB)
+	inB, err := storeB.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
 		CustomFields: map[string]any{col: "enterprise"},
 	})
@@ -165,21 +171,6 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 		t.Fatalf("GetDeal (tenant A): %v", err)
 	}
 	assertCF(t, gotA.AdditionalProperties, col, "enterprise")
-}
-
-// withPerms rebinds a second-tenant context under the given permission
-// set (seedSecondWorkspace fixes catalog-admin perms; the deal suites
-// need the deal + pipeline grants too).
-func withPerms(ctx context.Context, t *testing.T, ws ids.UUID, perms principal.Permissions) context.Context {
-	t.Helper()
-	rebound := principal.WithWorkspaceID(context.Background(), ws)
-	rebound = principal.WithCorrelationID(rebound, ids.NewV7())
-	actor, ok := principal.Actor(ctx)
-	if !ok {
-		t.Fatal("withPerms: no actor on the source context")
-	}
-	actor.Permissions = perms
-	return principal.WithActor(rebound, actor)
 }
 
 // seedDealFixtureIn provisions the default pipeline in the context's

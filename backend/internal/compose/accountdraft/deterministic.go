@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 )
 
 // Draft is the written message plus what it was written from, before the wire
@@ -50,48 +51,55 @@ func Deterministic(in Input) Draft {
 	}
 }
 
+// The subject, from the best topic the account has, in the correspondence's own
+// language. Nothing here is a thread subject - this drafter opens a NEW
+// conversation - so none of it earns a reply prefix.
 func deterministicSubject(in Input) string {
+	lang, band := in.Envelope.Lang(), in.Envelope.Band()
 	if in.Deal != nil {
-		return in.Deal.Name
+		return draftfloor.Subject(lang, band, in.Deal.Name, false)
 	}
 	if in.Commitment != nil {
-		return in.Commitment.Name
+		return draftfloor.Subject(lang, band, in.Commitment.Name, false)
 	}
-	return "Following up · " + in.Company
+	return draftfloor.Subject(lang, band, in.Company, false)
 }
 
-// The body: a greeting, the one thing there is to say, a question, a sign-off.
-// Each part is skipped rather than padded when the summary has nothing for it.
+// The body: a greeting, where the conversation stands, the one thing there is
+// to say, a question. Each part is skipped rather than padded when the summary
+// has nothing for it.
 func deterministicBody(in Input) string {
+	phrases := draftfloor.For(in.Envelope.Lang(), in.Envelope.Band())
+
 	lines := []string{greeting(in), ""}
+	if phrases.Opener != "" {
+		lines = append(lines, phrases.Opener, "")
+	}
 	if subject := deterministicOpener(in); subject != "" {
 		lines = append(lines, subject, "")
 	}
 	// No sign-off: the composer knows who is signed in and adds their name,
 	// and a server that guessed would sometimes sign with the wrong one.
-	lines = append(lines, "Would a short call this week suit you?")
-	return strings.Join(lines, "\n")
+	return strings.Join(append(lines, phrases.Ask), "\n")
 }
 
 func greeting(in Input) string {
-	if in.Recipient.FirstName == "" {
-		return "Hello,"
-	}
-	return "Hi " + in.Recipient.FirstName + ","
+	return draftfloor.Greeting(in.Envelope.Lang(), in.Envelope.Band(), in.Recipient.FirstName)
 }
 
 // The one sentence of substance, from the highest-ranked input that has
 // something to say. The order is A132's: a commitment we made outranks the
 // deal it belongs to, which outranks the account in general.
 func deterministicOpener(in Input) string {
+	lines := draftfloor.SubstanceFor(in.Envelope.Lang())
 	if in.Commitment != nil {
-		return "I wanted to come back to you on " + in.Commitment.Name + "."
+		return draftfloor.Fill(lines.Commitment, in.Commitment.Name)
 	}
 	if in.Deal != nil {
-		return "I wanted to pick up where we left off on " + in.Deal.Name + "."
+		return draftfloor.Fill(lines.Deal, in.Deal.Name)
 	}
 	if len(in.Recent) > 0 && in.Recent[0].Subject != "" {
-		return "I wanted to follow up on " + in.Recent[0].Subject + "."
+		return draftfloor.Fill(lines.Thread, in.Recent[0].Subject)
 	}
 	return ""
 }

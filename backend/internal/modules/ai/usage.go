@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -131,7 +130,7 @@ func (m *Meter) UsageReport(ctx context.Context, budget BudgetPolicy, rates *Rat
 // aggregates, grouped day → task lines in query order.
 func (m *Meter) usageDays(ctx context.Context, from, to time.Time) ([]DayUsage, error) {
 	var days []DayUsage
-	err := database.WithWorkspaceTx(ctx, m.pool, func(tx pgx.Tx) error {
+	err := m.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT day, task, tier, calls, cached_hits, tokens_in, tokens_out
 			FROM ai_usage

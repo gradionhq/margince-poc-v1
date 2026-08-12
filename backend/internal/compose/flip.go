@@ -68,7 +68,7 @@ type flipRunner struct {
 var _ overlay.FlipRunner = (*flipRunner)(nil)
 
 func newFlipRunner(pool *pgxpool.Pool, svc *overlay.Service, ms *overlay.MirrorStore, log *slog.Logger) *flipRunner {
-	return &flipRunner{pool: pool, svc: svc, ms: ms, runs: migration.NewRunStore(pool), log: log}
+	return &flipRunner{pool: pool, svc: svc, ms: ms, runs: migration.NewRunStore(InstallationDB(pool)), log: log}
 }
 
 // Preflight is OVA-WIRE-7: {ready, blocking[], unresolved_conflicts[]}
@@ -169,7 +169,11 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 func (f *flipRunner) parityPreview(ctx context.Context, incumbent string) ([]crmcontracts.OverlayFlipParityEntry, error) {
 	// The dry-run writes nothing, so it needs neither a run id to
 	// attribute identities to nor an operator to inherit records.
-	writers := newFlipWriters(f.pool, f.ms, incumbent)
+	db, err := actingWorkspaceDB(ctx, f.pool)
+	if err != nil {
+		return nil, err
+	}
+	writers := newFlipWriters(db, f.ms, incumbent)
 	rep, err := migration.NewEngine(f.runs, writers).DryRun(ctx, mirrorFlipSource{ms: f.ms})
 	if err != nil {
 		return nil, fmt.Errorf("flip preflight: parity dry-run: %w", err)
@@ -274,8 +278,12 @@ func (f *flipRunner) importMirrorEstate(ctx context.Context, run migration.Run, 
 	if err != nil {
 		return migration.Report{}, err
 	}
+	db, err := actingWorkspaceDB(ctx, f.pool)
+	if err != nil {
+		return migration.Report{}, err
+	}
 	source := mirrorFlipSource{ms: f.ms}
-	writers := newFlipWriters(f.pool, f.ms, incumbent).forRun(run.ID, operator)
+	writers := newFlipWriters(db, f.ms, incumbent).forRun(run.ID, operator)
 	assocs, err := source.Associations(ctx)
 	if err != nil {
 		return migration.Report{}, err

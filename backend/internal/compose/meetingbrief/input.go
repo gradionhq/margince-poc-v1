@@ -13,6 +13,7 @@ package meetingbrief
 import (
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -213,16 +214,7 @@ func dealFromView(view crmcontracts.Person360) *DealIn {
 
 // currentEmployer names where the counterpart works now. The 360 sorts the
 // current-primary employment to index zero, so the first row is the answer.
-func currentEmployer(view crmcontracts.Person360) string {
-	if view.Employments == nil || len(view.Employments.Data) == 0 {
-		return ""
-	}
-	first := view.Employments.Data[0]
-	if !first.IsCurrentPrimary || first.OrganizationName == nil {
-		return ""
-	}
-	return *first.OrganizationName
-}
+func currentEmployer(view crmcontracts.Person360) string { return personcontext.CurrentEmployer(view) }
 
 // latest keeps the newer of two optional instants, treating nil as "nothing
 // captured" rather than as the zero time — the zero time would win every

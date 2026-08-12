@@ -52,7 +52,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
@@ -85,7 +84,7 @@ func (s *Store) BackfillParticipantsBatch(ctx context.Context, limit int) (int, 
 		return 0, err
 	}
 	var written int
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		written, err = backfillParticipants(ctx, tx, limit)
 		return err

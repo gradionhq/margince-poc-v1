@@ -88,10 +88,10 @@ func WithBackfillEstimator(router *ai.Router) Option {
 			return
 		}
 		s.estimator = costestimate.NewEstimator(
-			ai.NewCallReadStore(pool),
-			ai.NewRateStore(pool),
+			ai.NewCallReadStore(InstallationDB(pool)),
+			ai.NewRateStore(InstallationDB(pool)),
 			router,
-			activities.NewStore(pool),
+			activities.NewStore(InstallationDB(pool)),
 			s.backfillHandlers.registry,
 			systemClock{},
 		)

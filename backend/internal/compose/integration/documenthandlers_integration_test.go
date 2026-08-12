@@ -54,7 +54,7 @@ func decodeAttachment(t *testing.T, rec *httptest.ResponseRecorder) crmcontracts
 
 func TestAttachmentMetadataTellsAnAbsentFieldFromAnExplicitNull(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool)
+	h := activities.NewHandlers(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	doc := seedDocument(t, e, org, "organization", org, "msa.pdf", "contract", false)
 
@@ -82,7 +82,7 @@ func TestAttachmentMetadataTellsAnAbsentFieldFromAnExplicitNull(t *testing.T) {
 
 func TestAttachmentMetadataClearsSupersedesOnlyWhenAsked(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool)
+	h := activities.NewHandlers(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	first := seedDocument(t, e, org, "organization", org, "v1.pdf", "contract", false)
 	second := seedDocument(t, e, org, "organization", org, "v2.pdf", "contract", false)
@@ -108,7 +108,7 @@ func TestAttachmentMetadataClearsSupersedesOnlyWhenAsked(t *testing.T) {
 
 func TestOrganizationDocumentsHandlerMapsItsFilters(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool)
+	h := activities.NewHandlers(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	seedDocument(t, e, org, "organization", org, "nda.pdf", "legal", false)
 	seedDocument(t, e, org, "organization", org, "msa.pdf", "contract", true)

@@ -51,8 +51,10 @@ func testDSNs(t *testing.T) (maint string, base string, withDB func(string) stri
 
 func migrateCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	var out bytes.Buffer
-	err := run(context.Background(), args, &out)
+	var out, usage bytes.Buffer
+	// Usage output is captured rather than left on os.Stderr: it carries the flag
+	// defaults, and a failing case here should not spray them into the lane's log.
+	err := run(context.Background(), args, &out, &usage)
 	return out.String(), err
 }
 

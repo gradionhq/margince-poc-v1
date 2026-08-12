@@ -7,8 +7,8 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
-  SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -107,12 +107,16 @@ export function RelinkModal({
   const [target, setTarget] = useState<RecordPickerCandidate | null>(null);
   const [replace, setReplace] = useState(false);
 
+  // The picked target arrives as the mutation's variable: read through this
+  // closure it would be the one from the render before the confirm was
+  // enabled, because react-query re-arms a mutation's options in a passive
+  // effect. The remaining guard is a real path and stays — `kindOf` answers
+  // from the search results, and a target whose remembered kind was lost must
+  // be surfaced rather than relinked to nothing.
   const mutation = useMutation({
-    mutationFn: async () => {
-      const kind = target ? kindOf(target.id) : null;
-      if (!target || !kind) {
-        // The confirm is disabled without a target, so this only fires if the
-        // remembered kind was lost — surface it, never send an empty relink.
+    mutationFn: async (target: RecordPickerCandidate) => {
+      const kind = kindOf(target.id);
+      if (!kind) {
         throwProblem({ title: t("compose.relinkTarget") });
       }
       const { data, error } = await api.POST("/activities/{id}/relink", {
@@ -144,7 +148,7 @@ export function RelinkModal({
       title={t("compose.relinkTitle")}
       confirmLabel={t("compose.relinkConfirm")}
       confirmDisabled={!target}
-      onConfirm={() => mutation.mutate()}
+      onConfirm={() => target && mutation.mutate(target)}
       pending={mutation.isPending}
       error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
     >
@@ -573,11 +577,11 @@ function DraftDisclosure({
     return null;
   }
   return (
-    <section
-      className="card compose-disclosure"
-      data-testid="ai-disclosure-banner"
+    <Card
+      className="compose-disclosure"
+      testId="ai-disclosure-banner"
+      title={t("compose.aiDisclosureTitle")}
     >
-      <SectionHeader title={t("compose.aiDisclosureTitle")} />
       <p className="t-body">
         {provenance.ai_disclosure || t("compose.aiDisclosureFallback")}
       </p>
@@ -594,7 +598,7 @@ function DraftDisclosure({
           )}
         </>
       )}
-    </section>
+    </Card>
   );
 }
 

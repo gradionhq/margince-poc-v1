@@ -37,7 +37,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -243,7 +242,7 @@ func sortedPersonIDs(set map[ids.PersonID]bool) []ids.PersonID {
 // decision, no model call and no network.
 func (s *Store) OrgNameCandidates(ctx context.Context, after ids.OrganizationID, limit int) ([]OrgNameCandidate, error) {
 	var out []OrgNameCandidate
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var cursor *ids.OrganizationID
 		if !after.IsZero() {
 			cursor = &after
@@ -365,7 +364,7 @@ func loadDossierOrgNames(ctx context.Context, tx pgx.Tx, orgIDs []ids.Organizati
 // organization in its own transaction — the sweep's entry point.
 func (s *Store) PromoteOrgName(ctx context.Context, orgID ids.OrganizationID, name, corroboration string) (bool, error) {
 	var promoted bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		promoted, err = s.PromoteOrgNameTx(ctx, tx, orgID, name, corroboration)
 		return err

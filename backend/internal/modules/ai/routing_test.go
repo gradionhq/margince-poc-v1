@@ -26,6 +26,7 @@ profile: eu_hosted
 		{"missing profile", strings.Replace(valid, "profile: eu_hosted", "", 1), "profile is required"},
 		{"unknown profile", strings.Replace(valid, "eu_hosted", "hybrid", 1), "unknown profile"},
 		{"unknown tier", strings.Replace(valid, "local_small", "medium_cloud", 1), "unknown tier"},
+		{"frontier binds", strings.Replace(valid, "cheap_cloud", "frontier", 1), ""},
 		{"tier without provider", strings.Replace(valid, "{provider: fake}\n  cheap_cloud", "{model: gemma}\n  cheap_cloud", 1), "no provider"},
 		{"no embeddings lane", strings.Replace(valid, "embeddings: {provider: fake}", "", 1), "embeddings lane has no provider"},
 		{"typo'd key rejected", strings.Replace(valid, "tiers:", "tierz:", 1), "field tierz not found"},

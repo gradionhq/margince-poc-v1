@@ -29,7 +29,7 @@ import (
 )
 
 func projectProvider(e *Env) *deals.Provider {
-	return deals.NewProvider(e.Pool, installseam.Deals())
+	return deals.NewProvider(e.DB(), installseam.Deals())
 }
 
 // The seam's create-read-update-archive round trip, with the provenance the

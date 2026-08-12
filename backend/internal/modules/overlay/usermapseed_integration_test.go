@@ -95,8 +95,8 @@ func (seedIncumbent) Archive(context.Context, string, string, time.Time) error {
 func TestConnectSeedsUserMapFromTheOwnersDirectory(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store).
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store).
 		WithIncumbentFactory(func(_, _ string) Incumbent {
 			return seedIncumbent{owners: map[string]string{"owner-alice": "alice@example.com"}}
 		})
@@ -141,7 +141,7 @@ func TestSeedUserMapMatchesOwnersToUsersByEmail(t *testing.T) {
 	// The store's resolver mirrors the directory it will be seeded from:
 	// UpsertUserMap re-verifies each proposed pairing against the
 	// incumbent's current owner email, so the two must agree.
-	store := NewMirrorStore(pool, stubOwnerEmails{
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{
 		"owner-alice": "alice@example.com",
 		"owner-carol": "carol@example.com",
 	})
@@ -200,7 +200,7 @@ func TestSeedUserMapMatchesOwnersToUsersByEmail(t *testing.T) {
 // (which would revoke owner-X's records the escape hatch exists to grant).
 func TestSeedUserMapNeverOverwritesAManualMapping(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{
 		"owner-x": "someone-else@example.com",
 		"owner-y": "alice@example.com",
 	})
@@ -247,7 +247,7 @@ func TestSeedUserMapNeverOverwritesAManualMapping(t *testing.T) {
 // re-seed is not enough; the pre-existing row must be revoked.
 func TestSeedUserMapRevokesAMappingThatBecameAmbiguous(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-p": "bob@example.com"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-p": "bob@example.com"})
 	ctxBob, _ := testWorkspaceCtxAsUser(t, ws, "bob@example.com")
 
 	const objectClass, external = "contact", "ext-owned-by-p"
@@ -286,7 +286,7 @@ func TestSeedUserMapRevokesAMappingThatBecameAmbiguous(t *testing.T) {
 // misread as two owners sharing the email and revoked/withheld.
 func TestSeedUserMapTreatsADuplicateOwnerListingAsOneOwner(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-p": "bob@example.com"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-p": "bob@example.com"})
 	ctxBob, _ := testWorkspaceCtxAsUser(t, ws, "bob@example.com")
 
 	const objectClass, external = "contact", "ext-owned-by-p"
@@ -315,7 +315,7 @@ func TestSeedUserMapTreatsADuplicateOwnerListingAsOneOwner(t *testing.T) {
 // rather than a nondeterministic remap to whichever owner listed last.
 func TestSeedUserMapSkipsAmbiguousEmail(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{
 		"owner-p": "bob@example.com",
 		"owner-q": "bob@example.com",
 	})
@@ -352,7 +352,7 @@ func TestSeedUserMapSkipsAmbiguousEmail(t *testing.T) {
 // address, so the fixture gives each its own matching owner.
 func TestSeedUserMapSkipsAgentAndArchivedUsers(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{
 		"owner-human":    "human@acme.test",
 		"owner-agent":    "agent@acme.test",
 		"owner-archived": "gone@acme.test",

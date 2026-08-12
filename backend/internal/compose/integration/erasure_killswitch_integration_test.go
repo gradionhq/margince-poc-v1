@@ -69,7 +69,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	queued := seedDelivery(t, e, "9 years", "Queued for the subject",
 		"the words still waiting to go out", "pending", mailRecipientEmail, person)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	// name the same delivery id — so what stops the send is the ROW, and only
 	// the row.
 	dispatcher := comms.NewDispatcher(
-		comms.NewStore(e.Pool, time.Now, activities.NewStore(e.Pool)),
+		comms.NewStore(e.DB(), time.Now, activities.NewStore(e.DB())),
 		refusingMailbox{t: t},
 		nil,
 		// The erasure kill-switch refuses before any gate reads a file, so the
@@ -85,7 +85,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 		// nothing here and would hide a regression that let the send get far
 		// enough to ask about attachments at all.
 		nil,
-		consent.NewGate(consent.NewStore(e.Pool)),
+		consent.NewGate(consent.NewStore(e.DB())),
 		nil, time.Now, 24*time.Hour, 10,
 	)
 	// The dispatch runs under the scope compose assembles, which is the half of

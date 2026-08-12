@@ -62,7 +62,7 @@ func (s closeDateStager) StageCorrection(ctx context.Context, dealID ids.UUID, t
 // NewCloseDateCorrector assembles the nightly close-date corrector for
 // the worker process role.
 func NewCloseDateCorrector(pool *pgxpool.Pool, log *slog.Logger) *deals.CloseDateCorrector {
-	return deals.NewCloseDateCorrector(pool, closeDateStager{svc: approvals.NewService(pool)}, log, installseam.Deals())
+	return deals.NewCloseDateCorrector(InstallationDB(pool), closeDateStager{svc: approvals.NewService(InstallationDB(pool))}, log, installseam.Deals())
 }
 
 // closeDateConfirmEffect executes an approved close-date confirmation:

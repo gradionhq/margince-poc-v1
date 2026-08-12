@@ -83,7 +83,7 @@ func TestRecordHistoryGatesOnPrincipalPermissionAndVisibility(t *testing.T) {
 	// Rep3 sits only in Team2: 404, not an empty page — existence-hiding
 	// on the row-scope gate like every record read.
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, RepPerms)
-	if _, err := privacy.ListRecordHistory(outsider, e.Pool, privacy.RecordHistoryFilter{
+	if _, err := privacy.ListRecordHistory(outsider, e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("out-of-scope read: err = %v, want not found", err)
@@ -91,7 +91,7 @@ func TestRecordHistoryGatesOnPrincipalPermissionAndVisibility(t *testing.T) {
 
 	// A principal without person:read at all: 403 before any row is touched.
 	noRead := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{RowScope: principal.RowScopeTeam})
-	if _, err := privacy.ListRecordHistory(noRead, e.Pool, privacy.RecordHistoryFilter{
+	if _, err := privacy.ListRecordHistory(noRead, e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("no-permission read: err = %v, want permission denied", err)
@@ -99,7 +99,7 @@ func TestRecordHistoryGatesOnPrincipalPermissionAndVisibility(t *testing.T) {
 
 	// The history surface is human-only: an agent principal is refused
 	// outright, before the entity gate.
-	if _, err := privacy.ListRecordHistory(e.AgentCtx(), e.Pool, privacy.RecordHistoryFilter{
+	if _, err := privacy.ListRecordHistory(e.AgentCtx(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("agent-principal read: err = %v, want permission denied", err)
@@ -124,7 +124,7 @@ func TestRecordHistoryRendersEveryActorChronologically(t *testing.T) {
 	seedRecordAuditRow(t, e, "update", personID, "connector", "connector:hubspot", nil,
 		nil, map[string]any{"phone": "1"}, base.Add(3*time.Hour))
 
-	page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	page, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -194,11 +194,11 @@ func TestRecordHistoryErasureBoundaryServesOnlyTheTombstone(t *testing.T) {
 		map[string]any{"email": "selma@example.com"},
 		map[string]any{"email": "selma.subject@example.com"}, past)
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
 		t.Fatalf("erase: %v", err)
 	}
 
-	page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	page, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -228,7 +228,7 @@ func TestRecordHistoryErasureBoundaryServesOnlyTheTombstone(t *testing.T) {
 	future := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
 	seedRecordAuditRow(t, e, "update", personID, "human", "user-1", nil,
 		nil, map[string]any{"owner_id": "rep-2"}, future)
-	page, err = privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	page, err = privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -254,7 +254,7 @@ func TestRecordHistoryKeysetWalksAscendingWithoutOverlap(t *testing.T) {
 	var walked []ids.UUID
 	var cursor *string
 	for pageNo := 1; pageNo <= 3; pageNo++ {
-		page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+		page, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 			EntityType: "person", EntityID: personID, Limit: &one, Cursor: cursor,
 		})
 		if err != nil {
@@ -294,7 +294,7 @@ func TestRecordHistoryHonestEmptyPageBeyondTheFinalRow(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Quiet Subject", nil)
 
-	full, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	full, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID,
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func TestRecordHistoryHonestEmptyPageBeyondTheFinalRow(t *testing.T) {
 	last := full.Entries[len(full.Entries)-1]
 	pastTheEnd := storekit.EncodeCursor(last.OccurredAt, last.ID)
 
-	page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	page, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID, Cursor: &pastTheEnd,
 	})
 	if err != nil {
@@ -346,7 +346,7 @@ func TestRecordHistoryErasureBoundsCollateralScrubs(t *testing.T) {
 		t.Fatalf("log activity: %v", err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
 		t.Fatalf("erase: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func TestRecordHistoryErasureBoundsCollateralScrubs(t *testing.T) {
 		{"activity", ids.UUID(activity.Id)},
 	}
 	for _, target := range targets {
-		page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+		page, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 			EntityType: target.entityType, EntityID: target.id,
 		})
 		if err != nil {
@@ -403,7 +403,7 @@ func TestRecordHistoryMalformedCursorIsAClientFault(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Cursor Subject", nil)
 	bad := "%%%not-a-cursor"
-	_, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+	_, err := privacy.ListRecordHistory(e.Admin(), e.DB(), privacy.RecordHistoryFilter{
 		EntityType: "person", EntityID: personID, Cursor: &bad,
 	})
 	var malformed *storekit.MalformedCursorError

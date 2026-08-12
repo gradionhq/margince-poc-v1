@@ -47,7 +47,7 @@ func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
 		problem.Code != "approval_required" {
 		t.Fatalf("agent project create → %d %q, want 403 approval_required", status, problem.Code)
 	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
 	// The shape this test is about: the type the approved call will write, and
 	// no row for a scope probe to resolve.

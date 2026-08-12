@@ -10,9 +10,8 @@ package finance
 import (
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -23,8 +22,9 @@ type Handlers struct {
 }
 
 // NewHandlers binds the transport to the pool the mirror is read through.
-func NewHandlers(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) Handlers {
-	return Handlers{store: NewStore(pool, baseCurrency)}
+// NewHandlers builds the module's HTTP surface over a workspace-bound handle.
+func NewHandlers(db *database.DB, baseCurrency BaseCurrencyFunc) Handlers {
+	return Handlers{store: NewStore(db, baseCurrency)}
 }
 
 // GetOrganizationFinanceSummary implements

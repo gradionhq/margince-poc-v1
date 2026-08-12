@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -54,11 +55,10 @@ var _ authz.Resolver = fixtureResolver{}
 // this suite's resolvers are built to grant or withhold.
 func gateTestEnvelope(ws ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: ws,
-		OccurredAt:  time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 }
 
@@ -81,7 +81,7 @@ func TestMatchTimeGateBlocksAFiringWhoseOwnerLostThePermission(t *testing.T) {
 	resolver := fixtureResolver{rbac: authz.RBAC{Permissions: principal.Permissions{
 		Objects: map[string]principal.ObjectGrant{}, // the owner's RBAC no longer grants anything
 	}}}
-	engine := NewWorkflowEngine(fx.pool, resolver)
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), resolver)
 	engine.RegisterWorkflow(handler)
 
 	if err := engine.HandleEvent(context.Background(), gateTestEnvelope(fx.ws)); err != nil {
@@ -127,7 +127,7 @@ func TestMatchTimeGateAllowsAFiringWhoseOwnerStillHasThePermission(t *testing.T)
 	resolver := fixtureResolver{rbac: authz.RBAC{Permissions: principal.Permissions{
 		Objects: map[string]principal.ObjectGrant{"activity": {Create: true}},
 	}}}
-	engine := NewWorkflowEngine(fx.pool, resolver)
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), resolver)
 	engine.RegisterWorkflow(handler)
 
 	if err := engine.HandleEvent(context.Background(), gateTestEnvelope(fx.ws)); err != nil {
@@ -164,7 +164,7 @@ func TestMatchTimeGateSkipsASeededAutomationWithNoOwner(t *testing.T) {
 	fx.seedAutomation(t, handler.name) // no owner_id: the system-seed shape
 
 	resolver := fixtureResolver{err: errors.New("must never be called for a NULL-owner automation")}
-	engine := NewWorkflowEngine(fx.pool, resolver)
+	engine := NewWorkflowEngine(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)), resolver)
 	engine.RegisterWorkflow(handler)
 
 	if err := engine.HandleEvent(context.Background(), gateTestEnvelope(fx.ws)); err != nil {

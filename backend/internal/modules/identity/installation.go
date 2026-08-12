@@ -66,7 +66,7 @@ type InstallationBootstrap struct {
 // bootstrap values never reconcile into an existing organization
 // (restart never resets a password, role, or seed).
 func (s *Service) BootstrapInstallation(ctx context.Context, create *InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, err error) {
-	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
 		}
@@ -104,7 +104,7 @@ func (s *Service) InstallationWorkspace(ctx context.Context) (ids.WorkspaceID, e
 		return *cached, nil
 	}
 	var wsID ids.WorkspaceID
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		existing, err := activeWorkspaces(ctx, tx)
 		if err != nil {
 			return err
@@ -195,6 +195,9 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
+	if err := seedAgentSeat(ctx, tx, wsID, boot); err != nil {
+		return ids.WorkspaceID{}, err
+	}
 	// Bootstrap is a SYSTEM event: no human signed in — the admin's
 	// first session is minted later by a normal login with its own row.
 	if _, err := tx.Exec(ctx,
@@ -218,6 +221,34 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	}
 	return wsID, nil
 }
+
+// seedAgentSeat writes the installation's first-party Agent Runner identity:
+// the app_user that work nobody requested answers as — a scheduled extension
+// tick today, the resident runner when it lands (seed-and-fixtures §1.5).
+//
+// It is an IDENTITY and not an authority, which is why it receives no
+// role_assignment and no password_hash. What an agent may do is the passport
+// granting it intersected with the human that passport names (agent ≤ human,
+// P12); a role here would be a standing grant nobody asked for, and a password
+// would make a seat with no person behind it a login.
+//
+// 'full' is spelled out rather than left to the column default because the
+// schema admits no other value for an agent (app_user_agent_is_full): the row
+// states the constraint it is subject to instead of satisfying it by accident.
+func seedAgentSeat(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, boot BootstrapInput) error {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO app_user (workspace_id, email, display_name, timezone, is_agent, seat_type, status)
+		 VALUES ($1, $2, 'Gradion Agent', $3, true, 'full', 'active')`,
+		wsID, agentSeatEmail(boot.Slug), boot.Timezone); err != nil {
+		return fmt.Errorf("identity: seeding the agent seat: %w", err)
+	}
+	return nil
+}
+
+// agentSeatEmail is the seat's address in the uniqueness index and nothing
+// more: the row carries no password, so the address is not a login, and the
+// domain is the reserved one the spec pins, so nothing can be delivered to it.
+func agentSeatEmail(slug string) string { return "agent@" + slug + ".gradion.local" }
 
 // slugify derives the workspace's stable slug from the organization name
 // — an internal identifier now (no subdomain resolves it), kept

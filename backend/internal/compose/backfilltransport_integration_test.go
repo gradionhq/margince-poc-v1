@@ -167,7 +167,7 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 	e := integration.Setup(t)
 	integration.ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), backfillAuthority{}, keyvault.NewMemory())
+	registry := capture.NewRegistry(e.DB(), capture.NewSink(e.DB()), backfillAuthority{}, keyvault.NewMemory())
 	gm := &backfillFakeConnector{name: "gmail", messages: 25, pageSize: 10}
 	registry.Register(gm)
 	registry.Register(plainSyncConnector{})
@@ -210,8 +210,8 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 		t.Fatalf("NewLocalRouter: %v", err)
 	}
 	estimator := costestimate.NewEstimator(
-		ai.NewCallReadStore(e.Pool), ai.NewRateStore(e.Pool), router,
-		activities.NewStore(e.Pool), registry, backfillFixedClock{},
+		ai.NewCallReadStore(e.DB()), ai.NewRateStore(e.DB()), router,
+		activities.NewStore(e.DB()), registry, backfillFixedClock{},
 	)
 	return &backfillWireEnv{
 		env: e, registry: registry, gmail: gm, human: human,

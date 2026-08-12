@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -88,7 +87,7 @@ func (r *Registry) EstimateBackfill(ctx context.Context, provider string, userID
 	var name string
 	var credentialRef *string
 	var authBytes []byte
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err = r.db.Tx(ctx, func(tx pgx.Tx) error {
 		id, err := r.connectionForUser(ctx, tx, provider, userID)
 		if err != nil {
 			return err
@@ -146,7 +145,7 @@ func (r *Registry) StartBackfill(ctx context.Context, provider string, userID id
 		return BackfillRun{}, errors.New("capture: starting a backfill needs a scheduler — an unpaged run blocks its connection permanently")
 	}
 	var run BackfillRun
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		connID, err := r.connectionForUser(ctx, tx, provider, userID)
 		if err != nil {
 			return err
@@ -203,7 +202,7 @@ func (r *Registry) StartBackfill(ctx context.Context, provider string, userID id
 // contract's state "none".
 func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID ids.UserID) (*BackfillRun, error) {
 	var run *BackfillRun
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		connID, err := r.connectionForUser(ctx, tx, provider, userID)
 		if err != nil {
 			return err
@@ -250,7 +249,7 @@ func latestBackfill(ctx context.Context, tx pgx.Tx, connID ids.UUID) (*BackfillR
 // CancelBackfill stops a live run; captured rows are retained (real
 // history). No live run → apperrors.ErrConflict (409 not_running).
 func (r *Registry) CancelBackfill(ctx context.Context, provider string, userID ids.UserID) (*BackfillRun, error) {
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		connID, err := r.connectionForUser(ctx, tx, provider, userID)
 		if err != nil {
 			return err

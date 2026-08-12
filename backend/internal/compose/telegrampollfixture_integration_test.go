@@ -160,7 +160,7 @@ func telegramAdminContext(ws, user ids.UUID) context.Context {
 // writes the real row) so every suite exercises exactly what the poller reads.
 func connectTestTelegramBot(t *testing.T, e *integration.Env, vault keyvault.Vault, api telegram.API, botID int64, username string) capture.ChannelConnection {
 	t.Helper()
-	store := capture.NewChannelStore(e.Pool, vault, api, quietTestLogger())
+	store := capture.NewChannelStore(e.DB(), vault, api, quietTestLogger())
 	conn, err := store.Connect(telegramAdminContext(e.WS, e.Rep1), capture.ConnectRequest{
 		Provider: capture.ProviderTelegram,
 		BotToken: fmt.Sprintf("%d:AAH-fixture-secret-for-%s", botID, username),

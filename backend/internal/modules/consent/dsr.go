@@ -21,7 +21,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -149,7 +148,7 @@ func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string, status 
 	bounded := storekit.ClampLimit(limit)
 	var out []dsrRow
 	var page storekit.Page
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		sql, args, err := dsrListQuery(cursor, status, bounded)
 		if err != nil {
 			return err
@@ -187,7 +186,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 		return dsrRow{}, &ValidationError{Field: fieldSubjectRef, Reason: "required"}
 	}
 	var out dsrRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO data_subject_request (workspace_id, kind, subject_ref, assignee_id, due_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
@@ -212,7 +211,7 @@ func (s *Store) GetDSR(ctx context.Context, id ids.UUID) (dsrRow, error) {
 		return dsrRow{}, err
 	}
 	var out dsrRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanDSR(tx.QueryRow(ctx,
 			dsrSelectByID, id))
@@ -263,7 +262,7 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 		return dsrRow{}, err
 	}
 	var out dsrRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		current, err := scanDSR(tx.QueryRow(ctx,
 			dsrSelectByID, id))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -343,7 +342,7 @@ func (s *Store) FulfilErasure(ctx context.Context, id ids.UUID, in UpdateDSRInpu
 		Reason: "an erasure request must name a person id before it can be fulfilled",
 	}
 	var out dsrRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		current, err := scanDSR(tx.QueryRow(ctx, dsrSelectForUpdate, id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound

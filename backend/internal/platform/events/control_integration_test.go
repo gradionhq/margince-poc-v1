@@ -82,16 +82,39 @@ func TestSubscribeResetSkipsAMalformedPayloadAndKeepsDelivering(t *testing.T) {
 	got := make(chan ids.UUID, 1)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	ready := make(chan struct{})
+	// The result comes back on a channel and cleanup waits for it, exactly as in
+	// the test above. `defer cancel()` alone returns the subscriber but does not
+	// WAIT for it, so its error surfaced from a goroutine racing this test's own
+	// return — and a report that lands after the test completes is not a failure,
+	// it is a panic that takes down whichever package the shard was running.
+	done := make(chan error, 1)
 	go func() {
 		log := slog.New(slog.NewTextHandler(io.Discard, nil))
-		if err := subscribeResetWithReady(runCtx, rdb, log, func(w ids.UUID) { got <- w }, ready); err != nil &&
-			!errors.Is(err, context.Canceled) {
-			t.Errorf("SubscribeReset: %v", err)
-		}
+		done <- subscribeResetWithReady(runCtx, rdb, log, func(w ids.UUID) { got <- w }, ready)
 	}()
-	<-ready
+	// Cleanup is the ONLY reader of done, and it runs on the t.Fatal paths below
+	// too — which is what a `defer` after an early Fatal could not do.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Errorf("SubscribeReset: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("the subscriber goroutine did not return after cancellation")
+		}
+	})
+
+	// Bounded for the same reason as the test above: a subscription that never
+	// confirms would hang here until the suite timeout, reading as a stuck run
+	// rather than a failure.
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscription never became ready")
+	}
 
 	if err := rdb.Publish(ctx, ResetChannel, "not-a-workspace-id").Err(); err != nil {
 		t.Fatalf("publishing the malformed payload: %v", err)

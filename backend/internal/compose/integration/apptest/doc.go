@@ -24,11 +24,18 @@
 // illegal Go, so a helper a suite keeps for itself is a function taking *AppEnv,
 // not a method on it.
 //
-// It also holds the AppEnv-keyed fixtures more than one suite package needs —
-// InWorkspace, EarlyPool, and the seeded-pipeline scenario in pipeline.go. They
-// are here for the same structural reason and not because the package is a
-// dumping ground: a fixture taking *AppEnv cannot live in integration's ordinary
-// files (they may not import this package), and a subpackage cannot reach
-// integration's _test.go files at all, so this is the only place two suite
-// packages can both see it. A fixture only ONE suite uses stays with that suite.
+// It also holds the fixtures more than one suite package needs: InWorkspace,
+// EarlyPool, PassportBearer, AppDSN, and the seeded-pipeline scenario in
+// pipeline.go. They are here for a structural reason and not because the package
+// is a dumping ground — two of them, in fact:
+//
+//   - A fixture taking *AppEnv cannot live in integration's ordinary files, since
+//     those may not import this package, and a subpackage cannot reach
+//     integration's _test.go files at all. So this is the only place two suite
+//     packages can both see it.
+//   - A fixture THIS package also calls belongs here even when it touches no
+//     AppEnv — AppDSN is the case, because EarlyPool needs it and nothing here
+//     can import integration. Kept over there it would simply be copied back.
+//
+// A fixture only ONE suite uses stays with that suite.
 package apptest

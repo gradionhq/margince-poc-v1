@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package draftfloor
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
+)
+
+// Envelope is what every drafting surface is told about the correspondence it
+// is writing into, as opposed to what it is writing about.
+//
+// The fields are pinned by ai-operational-spec.md §2.4 and they are all flat
+// strings, which is a constraint rather than a style: the certification harness
+// decodes a prompt payload as a string map to bound every field it carries, so
+// a nested value here would refuse every draft case at preparation time. It is
+// also the reason SilenceDays is a string — the field is rendered into a
+// prompt, never arithmetic.
+//
+// Every field is server-derived. None of it comes from the counterparty's own
+// text, which is what keeps an instruction in an inbound message from changing
+// who a draft says it is from.
+type Envelope struct {
+	// Language the draft must be written in (DRAFT-AC-E-1).
+	Language string `json:"output_language"`
+	// ConversationState is the convstate band (DRAFT-AC-E-3, E-4).
+	ConversationState string `json:"conversation_state"`
+	// Register is du or Sie for a German draft, empty elsewhere and empty when
+	// the correspondence does not say. Resolved server-side for the same reason
+	// the language is: asked to work it out per call, a model answers
+	// differently each time, and two consecutive drafts to one person in two
+	// registers read as a machine that does not know who it is writing to.
+	Register string `json:"register,omitempty"`
+	// SilenceDays is whole days since the last message either way, empty at
+	// band none where there is no last message to count from.
+	SilenceDays string `json:"silence_days,omitempty"`
+	// Now is the current time, RFC 3339. Without it a model cannot tell two
+	// days from eight months apart, which is every time-truthful sentence in a
+	// draft (DRAFT-AC-E-5).
+	Now string `json:"now"`
+	// SenderName and SenderEmail are the acting human's, so the draft is not
+	// written as whoever appears in a quoted header. Both empty for a system
+	// principal with no human authority behind it, where drafting degrades to
+	// an unsigned draft rather than failing (DRAFT-AC-E-6).
+	SenderName  string `json:"sender_name,omitempty"`
+	SenderEmail string `json:"sender_email,omitempty"`
+}
+
+// IdentityMaxRunes bounds the sender's name and address in the prompt.
+//
+// A name is a name; this is generous for one. It exists because
+// app_user.display_name is unconstrained text, so without a bound an absurd
+// value reaches the prompt at whatever length the database accepted — and the
+// certification harness bounds every field it finds, which would make a payload
+// the product can actually produce look impossible to a cert case.
+const IdentityMaxRunes = 200
+
+// NewEnvelope assembles the envelope from the resolved facts.
+//
+// Everything it stamps is server-derived and fixed-shape except the two
+// identity fields, which come from a text column and are bounded here.
+func NewEnvelope(lang textlang.Lang, state convstate.State, now time.Time, senderName, senderEmail string) Envelope {
+	return NewEnvelopeWithRegister(lang, textlang.RegisterUnknown, state, now, senderName, senderEmail)
+}
+
+// NewEnvelopeWithRegister is NewEnvelope plus the resolved German register.
+// Separate rather than a sixth positional argument on the common path: only a
+// caller that has the correspondence to read can resolve one, and the rest
+// should not be made to pass Unknown.
+func NewEnvelopeWithRegister(lang textlang.Lang, register textlang.Register,
+	state convstate.State, now time.Time, senderName, senderEmail string,
+) Envelope {
+	envelope := Envelope{
+		Language:          string(langOrDefault(lang)),
+		ConversationState: string(state.Band),
+		Now:               now.UTC().Format(time.RFC3339),
+		SenderName:        boundedRunes(senderName, IdentityMaxRunes),
+		SenderEmail:       boundedRunes(senderEmail, IdentityMaxRunes),
+	}
+	if state.Band != convstate.BandNone {
+		envelope.SilenceDays = strconv.Itoa(state.SilenceDays)
+	}
+	// Only German has the distinction, so carrying it elsewhere would be a
+	// field the prompt has to explain away.
+	if envelope.Lang() == textlang.German {
+		envelope.Register = string(registerOrFormal(register))
+	}
+	return envelope
+}
+
+// boundedRunes truncates on a rune boundary, so a multi-byte name is cut short
+// rather than cut in half.
+func boundedRunes(value string, maxRunes int) string {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
+}
+
+// registerOrFormal resolves an undecided register to Sie.
+//
+// Being too formal with somebody who would have accepted du is a smaller error
+// than being familiar with somebody who never invited it, and German business
+// correspondence defaults formal.
+func registerOrFormal(register textlang.Register) textlang.Register {
+	if register == textlang.RegisterDu {
+		return textlang.RegisterDu
+	}
+	return textlang.RegisterSie
+}
+
+// Lang reads the envelope's language back as a typed value, so a caller
+// rendering the floor does not have to re-parse the string it just wrote.
+func (e Envelope) Lang() textlang.Lang { return langOrDefault(textlang.Lang(e.Language)) }
+
+// At reads the envelope's "now" back as a time, so a caller that needs to
+// compare a date against it does not re-read a clock and get a different
+// instant than the draft was stamped with. An unparseable or absent value
+// answers the zero time, which every comparison treats as "not yet".
+func (e Envelope) At() time.Time {
+	at, err := time.Parse(time.RFC3339, e.Now)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// Band reads the envelope's conversation state back as a typed value.
+func (e Envelope) Band() convstate.Band { return convstate.Band(e.ConversationState) }
+
+// langOrDefault resolves an unknown or unrecognized language to the default.
+// One spelling, so the envelope, the floor table and the prompt cannot disagree
+// about what an unresolved language means.
+func langOrDefault(lang textlang.Lang) textlang.Lang {
+	if _, ok := table[lang]; ok {
+		return lang
+	}
+	return DefaultLang
+}

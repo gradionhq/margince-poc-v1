@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -103,7 +104,7 @@ func SetupSearch(t *testing.T) *SearchEnv {
 	// last and sees a package that has genuinely stopped.
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
-	e.Store = search.NewStore(pool)
+	e.Store = search.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS)))
 	return e
 }
 
@@ -183,4 +184,14 @@ func (e *SearchEnv) AsFullUser() context.Context {
 		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
 		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
 	})
+}
+
+// DB is this env's pool, pinned to the workspace it created.
+//
+// Pinned rather than resolved for the reason every raw-SQL harness is: this
+// env builds its workspace directly, so there is no installation for the
+// resolver to find, and the suites that seed a second one need the tenant to
+// be a property of the handle (ADR-0091 §9 step 3).
+func (e *SearchEnv) DB() *database.DB {
+	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](e.WS))
 }

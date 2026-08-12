@@ -33,14 +33,6 @@ func activityCapturedPayload(kind string) crmcontracts.PublicEventActivityCaptur
 	return crmcontracts.PublicEventActivityCaptured{Kind: kind}
 }
 
-// ActivityLinkInput ties one activity to a person, organization or deal.
-type ActivityLinkInput struct {
-	EntityType string // person | organization | deal
-	// note: the link target is polymorphic (activity_link is the canonical
-	// (entity_type, entity_id) seam), so the id stays untyped (rule 6).
-	EntityID ids.UUID
-}
-
 type LogActivityInput struct {
 	Kind         string
 	Subject      *string
@@ -198,48 +190,6 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 		return nil, err
 	}
 	return &out, nil
-}
-
-// insertActivityLinks writes the polymorphic link rows and maintains
-// deal.last_activity_at on deal links. The FK alone is not enough: it is
-// checked as the table owner, bypassing RLS, so it would accept a
-// guessed cross-tenant or out-of-scope UUID as a link target — every
-// target passes the row-scope link check first.
-func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
-	for _, link := range links {
-		column := linkColumn(link.EntityType)
-		if column == "" {
-			return &InvalidLinkTypeError{EntityType: link.EntityType}
-		}
-		if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			sprintf(`INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s) VALUES ($1, $2, $3, $4)`, column),
-			wsID, activityID, link.EntityType, link.EntityID); err != nil {
-			return err
-		}
-		if link.EntityType == "deal" {
-			if _, err := tx.Exec(ctx,
-				`UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
-				link.EntityID, occurredAt); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// InvalidLinkTypeError maps to 422.
-type InvalidLinkTypeError struct{ EntityType string }
-
-func (e *InvalidLinkTypeError) Error() string {
-	return "activity link entity_type " + e.EntityType + " is not " + linkVocabulary()
-}
-
-// FieldFault refuses a link to an entity type the timeline does not carry.
-func (e *InvalidLinkTypeError) FieldFault() (field, code, message string) {
-	return "links", "invalid_entity_type", e.Error()
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
@@ -451,7 +401,6 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	}
 
 	a.Id = openapi_types.UUID(id)
-	a.WorkspaceId = openapi_types.UUID(wsID)
 	a.AssigneeId = uuidPtr(assigneeID)
 	a.Kind = crmcontracts.ActivityKind(kind)
 	if direction != nil {

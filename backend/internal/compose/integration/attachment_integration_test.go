@@ -56,7 +56,7 @@ func multipartAttachment(t *testing.T, entityType, entityID, filename string, da
 // end to end against real Postgres + an in-memory store.
 func TestAttachmentHandlersHTTPRoundTrip(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "HTTP Attach", &e.Rep1)
 
@@ -138,7 +138,7 @@ func TestAttachmentHandlersHTTPRoundTrip(t *testing.T) {
 // TestAttachmentHandlersErrorPaths covers the handlers' 404/422 branches.
 func TestAttachmentHandlersErrorPaths(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	missing := openapi_types.UUID(ids.NewV7())
 
@@ -193,7 +193,7 @@ func TestAttachmentHandlersErrorPaths(t *testing.T) {
 // object store declares attachments unavailable rather than nil-derefing.
 func TestAttachmentHandlersAnswer501WithoutAStore(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool) // no WithBlobstore
+	h := activities.NewHandlers(e.DB()) // no WithBlobstore
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "No Store", &e.Rep1)
 
@@ -321,7 +321,7 @@ func TestErasurePurgesAttachmentObjects(t *testing.T) {
 		t.Fatalf("precondition: uploaded object should exist: %v", gerr)
 	}
 
-	eraser := privacy.NewEraser(e.Pool).WithBlobstore(blob)
+	eraser := privacy.NewEraser(e.DB()).WithBlobstore(blob)
 	if err := eraser.ErasePerson(ctx, person, "test-erasure"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
 	// api stored objects but the worker running erasure has no store. Erasing
 	// a subject whose attachments have objects must FAIL and roll back, never
 	// commit a half-erasure that strands the bytes with their keys deleted.
-	eraser := privacy.NewEraser(e.Pool)
+	eraser := privacy.NewEraser(e.DB())
 	if err := eraser.ErasePerson(ctx, person, "misconfig"); err == nil {
 		t.Fatal("ErasePerson succeeded with objects present but no store configured — half-erasure risk")
 	}

@@ -14,10 +14,10 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import {
   Button,
+  Card,
   EmptyState,
   Field,
   SearchField,
-  SectionHeader,
   SegmentedControl,
   Textarea,
 } from "../design-system/atoms";
@@ -365,13 +365,12 @@ function ShareScreenBody({
     setReason("");
   }
 
+  // The picked subject arrives as the mutation's variable, not through this
+  // closure: react-query re-arms a mutation's options in a passive effect, so a
+  // submit landing between the commit that enables the button and that effect
+  // runs the previous render's function — where nothing had been picked yet.
   const grant = useMutation({
-    mutationFn: async () => {
-      if (!subject) {
-        // The submit button is disabled until a subject is picked — this
-        // guard only protects a stale closure, never a real path.
-        throw new Error("no subject selected");
-      }
+    mutationFn: async (subject: RosterSubject) => {
       const body: CreateRecordGrantRequest = {
         record_type: recordType,
         record_id: recordId,
@@ -440,8 +439,7 @@ function ShareScreenBody({
 
   return (
     <div className="wrap share-screen">
-      <div className="card share-head">
-        <SectionHeader title={t("share.title")} />
+      <Card as="div" className="share-head" title={t("share.title")}>
         <div className="share-backlink">
           <Link2 aria-hidden />
           <EntityRef kind={recordType} id={recordId} />
@@ -456,7 +454,7 @@ function ShareScreenBody({
             {t("share.ceiling.post")}
           </span>
         </p>
-      </div>
+      </Card>
 
       {/* The mockup's at-a-glance scope chip and the client-side "can't grant
           wider than you" (write-disabled-when-you-only-have-read) block both
@@ -467,8 +465,7 @@ function ShareScreenBody({
           client-side ceiling UI is deferred until a "my access for this
           record" read exists — same call the agent-proposed-grant card
           (held-for-approval) made. */}
-      <div className="card">
-        <SectionHeader title={t("share.grantAccess")} />
+      <Card as="div" title={t("share.grantAccess")}>
         <div className="form-stack">
           <div className="field">
             <label className="t-label" htmlFor={`${headingId}-subject`}>
@@ -568,16 +565,15 @@ function ShareScreenBody({
           <Button
             variant="primary"
             disabled={!subject || grant.isPending}
-            onClick={() => grant.mutate()}
+            onClick={() => subject && grant.mutate(subject)}
             data-testid="share-grant-submit"
           >
             {t("share.grant")}
           </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
-        <SectionHeader title={t("share.whoHasAccess")} />
+      <Card as="div" title={t("share.whoHasAccess")}>
         <QueryGate query={grantsQuery} empty={(rows) => rows.length === 0}>
           {(rows) => (
             <ul className="share-acl-list" data-testid="share-acl-list">
@@ -625,7 +621,7 @@ function ShareScreenBody({
             </ul>
           )}
         </QueryGate>
-      </div>
+      </Card>
 
       <ConfirmModal
         open={revokingId !== null}

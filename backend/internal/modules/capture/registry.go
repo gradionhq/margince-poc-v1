@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -35,9 +34,10 @@ import (
 type Registry struct {
 	mu         sync.RWMutex
 	connectors map[string]connector.Connector
-	pool       *pgxpool.Pool
-	sink       *Sink
-	authority  authz.Resolver
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db        *database.DB
+	sink      *Sink
+	authority authz.Resolver
 	// vault seals and resolves a connection's credential bundle. The row
 	// carries an opaque credential_ref, never the credential bytes; the vault
 	// is the custodian. May be nil for a role composed before WithKeyvault
@@ -64,10 +64,10 @@ const defaultSyncInterval = 2 * time.Minute
 // the live-authority resolver, and the keyvault that seals/resolves each
 // connection's credential. vault may be nil for a role composed before its
 // custodian is wired (WithKeyvault rebuilds the registry once it is).
-func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
+func NewRegistry(db *database.DB, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
 		connectors:     map[string]connector.Connector{},
-		pool:           pool,
+		db:             db,
 		sink:           sink,
 		authority:      authority,
 		vault:          vault,
@@ -142,7 +142,7 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		cursor        []byte
 		generation    int
 	)
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		// 'error' is syncable by design (ADR-0063): the daily probe of a
 		// degraded connection runs through this same path, and its success
 		// is what flips the row back to connected. Only 'disconnected' and
@@ -231,7 +231,7 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 // matched nothing for that reason — the caller records neither the watermark nor
 // a health verdict, because the cycle belongs to a connection that is gone.
 func (r *Registry) commitSyncCursor(ctx context.Context, connectionID ids.UUID, generation int, next connector.Cursor) (superseded bool, err error) {
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err = r.db.Tx(ctx, func(tx pgx.Tx) error {
 		// sync_cursor is jsonb; the connector's watermark is already JSON. A
 		// connector that yields no cursor writes NULL, never an empty jsonb.
 		var cur []byte
@@ -288,7 +288,7 @@ func (r *Registry) seedOwnDomainFromAccount(ctx context.Context, c connector.Con
 	if strings.TrimSpace(label) == "" {
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return seedDomainOfAddressTx(ctx, tx, label)
 	})
 }

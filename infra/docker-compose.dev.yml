@@ -4,6 +4,27 @@
 # the backend Makefile's MARGINCE_TEST_* defaults, scripts/dev.sh, and CI's
 # service containers — change them everywhere or nowhere.
 #
+# Every host port here MUST stay below 32768. That is the floor of Linux's
+# default ephemeral range (32768–60999, `sysctl net.ipv4.ip_local_port_range`),
+# which the kernel draws from for the SOURCE port of any outbound connection.
+# A port in that range is not ours to bind: any unrelated process on the host —
+# a docker pull, `go mod download`, the CI runner's own agent — can transiently
+# hold it as a client port, and compose then dies with
+# `failed to bind host port for 0.0.0.0:<port>: address already in use`.
+# It is a race, so it presents as a flake that names whichever step happened to
+# call `make db-up`. The numbers below keep the "port with a prefix digit" shape
+# of the originals (55432/56379/59000/59001) while putting the class of failure
+# out of reach; do not renumber back upward. `make check-host-ports` enforces
+# the floor, because the constraint is invisible in the number itself.
+#
+# The second constraint the floor does not cover: scripts/dev.sh gives each
+# `make dev DEV_SLUG=<slug>` stack a hash-derived port, `8080 + (hash % 1000)`
+# for the app and `18080 + …` for the api — so 8080–9079 and 18080–19079 are
+# BOTH spoken for, by one slug out of a thousand rather than reliably. That is
+# why MinIO is 29000/29001 and not the 19000/19001 the prefix pattern would
+# suggest: 19000 is inside the api's span, and the collision would surface only
+# for whichever engineer's slug happened to hash to 920.
+#
 # Images are digest-pinned to the multi-arch INDEX digest (works on both
 # arm64 dev machines and amd64 CI — CI's integration lane runs this same
 # compose file via `make db-up`, so these are the only pins). Bump tag and
@@ -58,7 +79,7 @@ services:
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: margince
     ports:
-      - "55432:5432"
+      - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -83,7 +104,7 @@ services:
     # refuses to run rather than wrap the mapping.
     command: ["redis-server", "--databases", "64"]
     ports:
-      - "56379:6379"
+      - "16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -91,7 +112,7 @@ services:
       retries: 15
 
   # MinIO backs the blobstore seam (attachment/transcript object bytes).
-  # Ports 59000 (S3 API) / 59001 (console)
+  # Host ports 29000 (S3 API) / 29001 (console)
   # are part of the MARGINCE_TEST_BLOBSTORE_* contract shared with the backend
   # Makefile and CI — change them everywhere or nowhere. No compose healthcheck:
   # the minio image ships no curl, and platform/blobstore's New tolerates a
@@ -102,10 +123,17 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":59001"
+    # :9001 is the CONTAINER-side port, which is what --console-address sets —
+    # the host number lives in `ports:` below and nowhere else. This read
+    # ":59001" until 2026-08-11, matching the host side of the old mapping, so
+    # the console listened on a container port nothing forwarded to and
+    # localhost:59001 was refused for as long as the console has existed. The S3
+    # API was unaffected (it defaults to :9000), which is why the lane never
+    # noticed.
+    command: server /data --console-address ":9001"
     ports:
-      - "59000:9000"
-      - "59001:9001"
+      - "29000:9000"
+      - "29001:9001"
     volumes:
       - minio-data:/data
 

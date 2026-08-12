@@ -84,6 +84,21 @@ tiers:
     #   NOT the :free variant of that model — it serves tools but not
     #   structured_outputs, so site_extract and enrich fail on the wire.
 
+  # frontier is the rung above premium, and no task ladder selects it — see
+  # config/ai-routing.example.yaml for what that means. It is bound to the SAME
+  # model as premium here rather than to a stronger one: the rungs above are the
+  # measured picks from the structured_outputs+tools set, and putting an
+  # unmeasured model on a rung nothing routes to would look like a
+  # recommendation without a single certification run behind it. Bind your own
+  # candidate and certify it (docs/how-to/certify-an-ai-model.md) before
+  # pointing a ladder at this rung.
+  frontier:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k
+    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5
+    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6
+
 # embeddings — bound separately from the chat tiers so retrieval keeps working
 # when the chat budget is exhausted. Required.
 #

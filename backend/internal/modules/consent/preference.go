@@ -86,7 +86,7 @@ const preferenceTokenMaxAgeDays = 180
 // an oracle for which of the three it was.
 func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (PreferenceRef, error) {
 	var ref PreferenceRef
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			SELECT workspace_id, person_id FROM preference_token
 			 WHERE token = $1 AND revoked_at IS NULL AND expires_at > now()`,
@@ -113,7 +113,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 		return "", false, err
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var personID ids.PersonID
 		lookup := tx.QueryRow(ctx, `
 			SELECT pe.person_id
@@ -244,7 +244,7 @@ func (s *Store) PublicPurposeStates(ctx context.Context, personID ids.PersonID) 
 		return nil, err
 	}
 	var out []PurposeChoice
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
@@ -301,7 +301,7 @@ func (s *Store) PublicSetConsent(ctx context.Context, personID ids.PersonID, pur
 // workspace; an unknown key is a client fault, not a 500.
 func (s *Store) purposeByKey(ctx context.Context, key string) (ids.PurposeID, error) {
 	var id ids.PurposeID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
 			`SELECT id FROM consent_purpose WHERE key = $1 AND archived_at IS NULL`, key).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {

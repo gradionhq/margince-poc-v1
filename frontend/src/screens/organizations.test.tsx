@@ -75,7 +75,6 @@ async function openRecordMenu(testId: string): Promise<HTMLElement> {
 
 const org = {
   id: "o-1",
-  workspace_id: "w",
   display_name: "Brandt Automotive GmbH",
   industry: "Automotive",
   captured_by: "human:u1",
@@ -1184,7 +1183,6 @@ describe("CompanyScreen — merge into target (P-2)", () => {
 
 const employmentRel = {
   id: "rel-1",
-  workspace_id: "w",
   kind: "employment",
   person_id: "p-1",
   organization_id: "o-1",

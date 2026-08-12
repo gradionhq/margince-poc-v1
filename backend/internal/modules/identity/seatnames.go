@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -37,7 +36,7 @@ func (s *Service) SeatNames(ctx context.Context, seats []ids.UserID) (map[ids.UU
 	if len(seats) == 0 {
 		return names, nil
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id, display_name FROM app_user WHERE id = ANY($1) AND archived_at IS NULL`, seats)
 		if err != nil {

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -27,7 +26,9 @@ import (
 // Store owns the quota table (data-seam ownership, ADR-0014 Am.1); every
 // mutation rides the storekit audit shape in one transaction.
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the installation's workspace itself, so a caller no longer has
+	// to have put it in ctx first (ADR-0091 §9 step 3).
+	db *database.DB
 	// baseCurrency resolves the installation's reporting currency
 	// (ADR-0090/A135). Injected because quotas may not import the module that
 	// owns the setting, and REQUIRED by the constructor because a store that
@@ -46,18 +47,18 @@ type Store struct {
 type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
 
 // NewStore wires the store over the RLS-bound app pool.
-func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
-	return NewStoreWithClock(pool, time.Now, baseCurrency)
+func NewStore(db *database.DB, baseCurrency BaseCurrencyFunc) *Store {
+	return NewStoreWithClock(db, time.Now, baseCurrency)
 }
 
 // NewStoreWithClock is NewStore with an explicit clock (the
 // ratelimit.NewWithClock precedent) — the attainment suites pin it.
-func NewStoreWithClock(pool *pgxpool.Pool, now func() time.Time, baseCurrency BaseCurrencyFunc) *Store {
-	return &Store{pool: pool, now: now, baseCurrency: baseCurrency}
+func NewStoreWithClock(db *database.DB, now func() time.Time, baseCurrency BaseCurrencyFunc) *Store {
+	return &Store{db: db, now: now, baseCurrency: baseCurrency}
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // OwnerXorTeamError is RD-DDL-2's refusal: a quota state with both
@@ -443,7 +444,6 @@ func scanQuota(row pgx.Row, extra ...any) (crmcontracts.Quota, error) {
 		return q, err
 	}
 	q.Id = openapi_types.UUID(id)
-	q.WorkspaceId = openapi_types.UUID(wsID)
 	q.OwnerId = uuidPtr(ownerID)
 	q.TeamId = uuidPtr(teamID)
 	q.PeriodStart = openapi_types.Date{Time: periodStart}

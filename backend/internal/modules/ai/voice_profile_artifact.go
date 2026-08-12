@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,7 +31,7 @@ func (s *VoiceStore) SetDerivedProfile(ctx context.Context, id ids.UUID, voicePr
 		return VoiceProfile{}, &CorpusIngestError{Field: "voice_profile_md", Reason: "a rebuild must produce a non-empty derived artifact"}
 	}
 	var p VoiceProfile
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		p, err = s.rebuildDerivedProfileTx(ctx, tx, id, voiceProfileMD, modelRef)
 		return err

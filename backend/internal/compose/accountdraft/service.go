@@ -18,6 +18,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -33,24 +34,82 @@ type Request struct {
 	PersonID string
 	DealID   string
 	Intent   string
-	// Sender is deliberately NOT here and not resolved server-side. The draft
-	// carries no sign-off: the composer knows who is signed in and puts their
-	// name on it, and a server that guessed would sometimes sign a message
-	// with the wrong person's name — the one error a rep notices last and
-	// cares about most.
+	// Envelope is the correspondence this draft opens: the language it must be
+	// written in, the current time, and who is writing it. Resolved by the
+	// service, never by the model.
+	//
+	// The sender identity is what tells the model who "I" is. It is NOT a
+	// sign-off: the draft still carries none, because the composer knows who is
+	// signed in and a server that guessed would sometimes sign a message with
+	// the wrong person's name.
+	Envelope draftfloor.Envelope
+}
+
+// Dossier answers what an account is KNOWN TO BE, from facts already
+// assembled — as distinct from how it stands with us, which the 360 carries.
+//
+// It is a READ and must never generate: a rep pressing "Write email" has not
+// asked for a dossier, and a drafting screen that stalls behind one has spent
+// the workspace's model budget on something nobody requested. A cold cache
+// answers nothing and the draft is written without these facts.
+type Dossier interface {
+	CachedSections(ctx context.Context, orgID ids.OrganizationID) []string
 }
 
 // Service writes one draft per call.
 type Service struct {
-	view Assembler
-	lane Completer
+	view     Assembler
+	lane     Completer
+	envelope *draftfloor.Resolver
+	dossier  Dossier
+}
+
+// WithDossier feeds the draft what the company IS, from a dossier already
+// assembled for this reader. Without it the field stays empty, which is what it
+// was before: declared on the input, advertised in the prompt, and never
+// populated by anything.
+func (s *Service) WithDossier(dossier Dossier) *Service {
+	s.dossier = dossier
+	return s
+}
+
+// facts is what this account is known to be, or nothing.
+func (s *Service) facts(ctx context.Context, orgID ids.OrganizationID) []string {
+	if s.dossier == nil {
+		return nil
+	}
+	return s.dossier.CachedSections(ctx, orgID)
+}
+
+// WithEnvelope replaces the resolver that answers what language to write in,
+// what time it is and who is signing. Compose binds one carrying the real
+// identity lookup; the default resolves a language and a time but no sender,
+// so drafts are unsigned rather than failing (DRAFT-AC-E-6).
+func (s *Service) WithEnvelope(resolver *draftfloor.Resolver) *Service {
+	if resolver != nil {
+		s.envelope = resolver
+	}
+	return s
+}
+
+// envelopeFor resolves the correspondence this draft opens.
+//
+// The band comes from the account's own history rather than being forced to
+// BandNone. "Account-started" describes where the draft was requested from —
+// a company page with no anchoring activity — not a claim that nobody at the
+// company has ever been written to. Forcing the first-touch band would tell an
+// account we have corresponded with for a year that we are writing for the
+// first time, which is as false as the "just following up" this program set out
+// to remove, only in the other direction.
+func (s *Service) envelopeFor(ctx context.Context, view crmcontracts.Organization360) draftfloor.Envelope {
+	return s.envelope.Resolve(ctx, CorrespondenceText(view), ConversationState(view, s.envelope.Now()))
 }
 
 // NewService binds the draft to the composite read it is grounded in and the
 // model lane that writes it. lane may be nil: that is a deployment running no
 // model, and the deterministic floor is the answer.
 func NewService(view Assembler, lane Completer) *Service {
-	return &Service{view: view, lane: lane}
+	return &Service{view: view, lane: lane, envelope: draftfloor.NewResolver()}
 }
 
 // Draft writes one email. It performs no write of any kind.
@@ -69,10 +128,12 @@ func (s *Service) Draft(
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
+	req.Envelope = s.envelopeFor(ctx, view)
 	in, err := FromView(view, req)
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
+	in.Dossier = s.facts(ctx, orgID)
 	draft, by, err := Write(ctx, s.lane, in)
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err

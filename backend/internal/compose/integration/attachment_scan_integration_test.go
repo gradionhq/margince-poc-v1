@@ -69,7 +69,7 @@ func markAttachmentClean(ctx context.Context, t *testing.T, e *Env, id ids.UUID)
 
 func TestAttachmentScanGateOverHTTP(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Scan Gate", &e.Rep1)
 
@@ -139,7 +139,7 @@ func TestAttachmentScanGateOverHTTP(t *testing.T) {
 
 func TestAttachmentBlockedVerdictOverHTTP(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Quarantine Target", &e.Rep1)
 

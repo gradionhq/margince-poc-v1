@@ -27,6 +27,7 @@ func TestRefusalsRenderTheirOwnCauseOnly(t *testing.T) {
 		{"duplicate email", errEmailTaken, "email_taken", http.StatusConflict},
 		{"last active admin", errLastActiveAdmin, "last_active_admin", http.StatusConflict},
 		{"suspended, not deactivated", errNotDeactivated, "not_deactivated", http.StatusConflict},
+		{"agent seat holds no role", errAgentSeatHoldsNoRole, "agent_seat_holds_no_role", http.StatusConflict},
 	} {
 		got := conflictIf(c.err, c.err, c.want, "actionable prose")
 		var refusal *httperr.DetailedError

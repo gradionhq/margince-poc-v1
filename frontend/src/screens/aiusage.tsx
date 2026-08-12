@@ -2,12 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  SectionHeader,
-} from "../design-system/atoms";
+import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { Meter } from "../design-system/readings";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -96,8 +91,11 @@ export function AiUsageCard() {
   });
 
   return (
-    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
-      <SectionHeader title={t("aiusage.title")} sub={t("aiusage.sub")} />
+    <Card
+      title={t("aiusage.title")}
+      sub={t("aiusage.sub")}
+      style={{ marginBottom: "var(--space-4)" }}
+    >
       <QueryGate query={query}>
         {(data) => {
           const pct =
@@ -231,6 +229,6 @@ export function AiUsageCard() {
           );
         }}
       </QueryGate>
-    </section>
+    </Card>
   );
 }

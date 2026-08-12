@@ -9,8 +9,8 @@ import {
   Avatar,
   Badge,
   Button,
+  Card,
   Modal,
-  SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -607,8 +607,7 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
   const unreadable = !query.isPending && !query.isError && !readable;
 
   return (
-    <section className="card co-card cx-card">
-      <SectionHeader title={t("co.connections.title")} />
+    <Card className="co-card cx-card" title={t("co.connections.title")}>
       {query.isPending && <Skeleton width="100%" height={120} />}
       {(query.isError || unreadable) && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>
@@ -650,6 +649,6 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
           </Modal>
         </>
       )}
-    </section>
+    </Card>
   );
 }

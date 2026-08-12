@@ -170,7 +170,7 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	person := e.SeedPerson(t, "Draft Reader", &e.Rep1)
 	addPersonEmail(t, e, person, recipient)
 	admin := e.Admin()
-	store := consent.NewStore(e.Pool)
+	store := consent.NewStore(InstallationDB(e.Pool))
 	purpose, err := store.CreatePurpose(admin, "transactional", "Transactional", false)
 	if err != nil {
 		t.Fatalf("create purpose: %v", err)
@@ -203,7 +203,7 @@ func (e *voiceSendEnv) draftedSend(ref string) activities.SendEmailInput {
 func composedSendServer(t *testing.T, e *voiceSendEnv, stager DeliveryMachinery) Server {
 	t.Helper()
 	srv := newServer(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		identity.NewHandlers(identity.NewService(e.Pool)), deals.NewHandlers(e.Pool, DealsInstallation()))
+		identity.NewHandlers(identity.NewService(e.Pool)), deals.NewHandlers(e.DB(), DealsInstallation()))
 	for _, opt := range []Option{WithPublicBaseURL(voiceSendBaseURL), WithDelivery(stager)} {
 		opt(&srv, e.Pool)
 	}
@@ -220,7 +220,7 @@ func TestBothSendTransportsCarryTheDraftOutcomeRecorder(t *testing.T) {
 		store := sendStore(e.Pool, SendPath{PublicBaseURL: voiceSendBaseURL, Delivery: stager})
 
 		if _, err := store.SendEmail(e.ctx, activities.FromActivity(ids.From[ids.ActivityKind](e.anchor)),
-			e.draftedSend(draft.ref), consent.NewGate(consent.NewStore(e.Pool)), stager); err != nil {
+			e.draftedSend(draft.ref), consent.NewGate(consent.NewStore(InstallationDB(e.Pool))), stager); err != nil {
 			t.Fatalf("send through the tool surface's store: %v", err)
 		}
 		assertStaged(t, stager, 1, "the send through the tool surface's store")
@@ -346,9 +346,9 @@ func TestConcurrentSendsSharingADraftReferenceLeaveOneOutcomeAndBothTransmit(t *
 	draft := e.openDraft(t)
 
 	winner := gatedDraftOutcome{
-		inner: ai.NewVoiceStore(e.Pool), locked: make(chan int32), release: make(chan struct{}),
+		inner: ai.NewVoiceStore(e.DB()), locked: make(chan int32), release: make(chan struct{}),
 	}
-	loser := &witnessDraftOutcome{inner: ai.NewVoiceStore(e.Pool)}
+	loser := &witnessDraftOutcome{inner: ai.NewVoiceStore(e.DB())}
 	winnerStager, loserStager := &recordingStager{}, &recordingStager{}
 	winnerStore := sendStore(e.Pool, SendPath{
 		PublicBaseURL: voiceSendBaseURL, Delivery: winnerStager, DraftOutcome: winner,
@@ -357,7 +357,7 @@ func TestConcurrentSendsSharingADraftReferenceLeaveOneOutcomeAndBothTransmit(t *
 		PublicBaseURL: voiceSendBaseURL, Delivery: loserStager, DraftOutcome: loser,
 	})
 
-	gate := consent.NewGate(consent.NewStore(e.Pool))
+	gate := consent.NewGate(consent.NewStore(InstallationDB(e.Pool)))
 	anchor := ids.From[ids.ActivityKind](e.anchor)
 	var wg sync.WaitGroup
 	var winnerErr, loserErr error

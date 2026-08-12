@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ASK_QUERY_KEY } from "../app/palette";
-import { Kbd, SectionHeader } from "../design-system/atoms";
+import { Card, Kbd, SectionHeader } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 
@@ -21,15 +21,14 @@ export function AskAiScreen() {
     <div className="wrap">
       <SectionHeader title={t("nav.ai")} sub={t("ai.sub")} />
       {query && (
-        <div className="card" style={{ marginBottom: 14 }}>
+        <Card as="div">
           <p className="t-label">{t("ai.fromPalette")}</p>
           <p className="t-mono" style={{ marginTop: 4 }}>
             {query}
           </p>
-        </div>
+        </Card>
       )}
-      <div className="card" style={{ marginBottom: 14 }}>
-        <SectionHeader title={t("ai.tiers")} />
+      <Card as="div" title={t("ai.tiers")}>
         <ul
           style={{
             listStyle: "none",
@@ -51,14 +50,13 @@ export function AskAiScreen() {
             </span>
           </li>
         </ul>
-      </div>
-      <div className="card card-inset">
-        <SectionHeader title={t("ai.connect")} />
+      </Card>
+      <Card as="div" inset title={t("ai.connect")}>
         <p className="t-caption">{t("ai.connectDetail")}</p>
         <p className="t-caption" style={{ marginTop: 8 }}>
           {t("ai.paletteHint")} <Kbd>⌘K</Kbd>
         </p>
-      </div>
+      </Card>
     </div>
   );
 }

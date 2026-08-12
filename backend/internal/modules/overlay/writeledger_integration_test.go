@@ -17,14 +17,17 @@ package overlay
 
 import (
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // TestWriteLedgerClassifiesEchoGenuineAndWindow drives the echo, non-echo, and
 // window-boundary arms with the production SHA-256 hash.
 func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedActiveConnection(ctx, t, pool) // OpenEntries is disconnect-fenced
-	l := NewWriteLedger(pool)
+	l := NewWriteLedger(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	// The producer opened an entry for contacts/42.firstname = "Ada".
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
@@ -43,7 +46,7 @@ func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
 	// Window boundary (OVA-PARAM-3): a zero window means the entry — opened an
 	// instant ago against the DB clock — is already outside the strict
 	// opened_at > now()-window comparison, so the SAME value is now genuine.
-	expired := &WriteLedger{pool: pool, window: 0, hash: sha256Hex}
+	expired := &WriteLedger{db: database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), window: 0, hash: sha256Hex}
 	if err := expired.OpenEntries(ctx, "contacts", "77", map[string]string{"firstname": "Grace"}); err != nil {
 		t.Fatalf("OpenEntries (expired case): %v", err)
 	}
@@ -57,9 +60,9 @@ func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
 // value must not be mis-suppressed — observing the genuine change invalidates
 // our now-superseded entry.
 func TestWriteLedgerGenuineChangeInvalidatesStaleEntry(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedActiveConnection(ctx, t, pool)
-	l := NewWriteLedger(pool)
+	l := NewWriteLedger(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	// We wrote firstname="Ada".
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
@@ -80,9 +83,9 @@ func TestWriteLedgerGenuineChangeInvalidatesStaleEntry(t *testing.T) {
 // write-back keeps BOTH entries open, so A's (delayed) echo is still recognized
 // rather than clobbered by B's entry.
 func TestWriteLedgerKeepsDistinctValuesPerProperty(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedActiveConnection(ctx, t, pool)
-	l := NewWriteLedger(pool)
+	l := NewWriteLedger(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
 		t.Fatalf("OpenEntries A: %v", err)
@@ -103,10 +106,10 @@ func TestWriteLedgerKeepsDistinctValuesPerProperty(t *testing.T) {
 // prune at its own window, while a zero-window prune (everything expired)
 // removes it — after which the same value is a genuine change, not an echo.
 func TestWriteLedgerPruneExpired(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedActiveConnection(ctx, t, pool)
 
-	l := NewWriteLedger(pool)
+	l := NewWriteLedger(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
 		t.Fatalf("OpenEntries: %v", err)
 	}
@@ -119,7 +122,7 @@ func TestWriteLedgerPruneExpired(t *testing.T) {
 	}
 
 	// A zero-window prune treats every entry as expired and reclaims it.
-	expiring := &WriteLedger{pool: pool, window: 0, hash: sha256Hex}
+	expiring := &WriteLedger{db: database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), window: 0, hash: sha256Hex}
 	if n, err := expiring.PruneExpired(ctx); err != nil || n != 1 {
 		t.Errorf("zero-window prune removed %d (err %v), want 1", n, err)
 	}
@@ -133,9 +136,9 @@ func TestWriteLedgerPruneExpired(t *testing.T) {
 // flagged and halted. A forced colliding hasher stands in for the
 // astronomically improbable real SHA-256 collision (production keeps sha256Hex).
 func TestWriteLedgerCollisionHaltsTheMirror(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedActiveConnection(ctx, t, pool)
-	l := &WriteLedger{pool: pool, window: DefaultLedgerWindow, hash: func(string) string { return "COLLIDE" }}
+	l := &WriteLedger{db: database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), window: DefaultLedgerWindow, hash: func(string) string { return "COLLIDE" }}
 
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
 		t.Fatalf("OpenEntries: %v", err)

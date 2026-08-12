@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -29,7 +28,7 @@ func (s *ChannelStore) List(ctx context.Context) ([]ChannelConnection, error) {
 		return nil, err
 	}
 	var out []ChannelConnection
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT `+channelConnectionColumns+
 			` FROM channel_connection WHERE archived_at IS NULL ORDER BY created_at DESC, id DESC`)
 		if err != nil {

@@ -137,6 +137,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "trust.agentTag",
   "consent.actorAgent",
   "consent.actorConnector",
+  "users.agentSeat",
 
   // Other cases verified individually against the source.
   "shell.logoAria",

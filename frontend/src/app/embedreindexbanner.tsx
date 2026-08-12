@@ -3,6 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { throwProblem } from "../screens/common";
 import { embedReindexStatusQueryKey } from "../screens/embedreindex";
@@ -56,9 +57,10 @@ export function EmbedReindexBanner() {
     return null;
   }
   return (
-    <div
+    <Card
+      as="div"
+      inset
       role="status"
-      className="card card-inset"
       style={{
         borderRadius: 0,
         display: "flex",
@@ -68,6 +70,6 @@ export function EmbedReindexBanner() {
     >
       <span>{t("reindexbanner.needed")}</span>
       <a href="#/settings/data">{t("reindexbanner.link")}</a>
-    </div>
+    </Card>
   );
 }

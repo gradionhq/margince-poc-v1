@@ -62,15 +62,32 @@ const workflowDispatchBudget = 200 * time.Millisecond
 // every sampled lead produces exactly one dispatch to measure.
 const leadCreatedEventType = "lead.created"
 
+// The sample size is what makes the p95 above a measurement rather than a
+// coin toss, and it is arithmetic rather than taste.
+//
+// search.MeasureQuery ranks a percentile by index, so p95 IS one sample: at 25
+// it is the second-largest, which means a single stall decides the verdict. On a
+// runner hosting twelve shards against one Postgres, a stall is not a rare
+// event — one CI run measured p50=12ms against p95=379ms and p99=812ms, a
+// median 16x inside the 200ms budget failed by two outliers.
+//
+// At 200 the same rank is the eleventh-largest, so ten samples have to be slow
+// before the gate trips. That is the difference between "this dispatch got
+// unlucky once" and "this dispatch has a tail", and only the second is the
+// regression AC-W2 exists to catch.
+//
+// The budget and the statistic are untouched: AC-W2 still reads p95 < 200ms.
+// This changes only how many samples that p95 is drawn from, which costs about
+// two seconds of dispatch and is the cheapest honest fix available.
 const (
 	dispatchWarmupSamples = 5
-	dispatchSampleSize    = 25
+	dispatchSampleSize    = 200
 )
 
 func TestWorkflowTriggerToDispatchP95HoldsOnTheSeededDataset(t *testing.T) {
 	e := Setup(t)
 	seedAllStarterAutomations(t, e)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.DB())
 
 	// Warmup: discarded, per the file doc comment's fixed-cost note.
 	for _, leadID := range seedTriggerLeads(t, e, dispatchWarmupSamples) {
@@ -108,11 +125,10 @@ func TestWorkflowTriggerToDispatchP95HoldsOnTheSeededDataset(t *testing.T) {
 // reused here rather than re-derived.
 func leadCreatedEnvelope(e *Env, leadID ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        leadCreatedEventType,
-		WorkspaceID: e.WS,
-		OccurredAt:  time.Now().UTC(),
-		Entity:      kevents.EntityRef{Type: "lead", ID: leadID},
+		EventID:    ids.NewV7(),
+		Type:       leadCreatedEventType,
+		OccurredAt: time.Now().UTC(),
+		Entity:     kevents.EntityRef{Type: "lead", ID: leadID},
 	}
 }
 
