@@ -268,9 +268,13 @@ func replyText(runes []rune) (text []rune, lead int) {
 // the language resolves to Unknown so the draft comes out in English. That is a
 // real defect a user reported twice.
 //
-// Three words, because a header pair carries two names and a real reply above a
-// quote is a sentence.
-const minReplyWords = 3
+// Twelve words, because the text above a quote is not only the reply. A stored
+// activity carries its SUBJECT line above the envelope headers, so a forwarded
+// German mail arrived with "Update zu Margince 17.7.2026" plus two addresses —
+// enough to clear a three-word floor, and the 5,400 runes of German below it
+// were cut away. A subject plus a header pair is roughly eight words; a real
+// reply, even a curt one, is a sentence and clears twelve.
+const minReplyWords = 12
 
 // quoteStart finds where the quoted thread begins, as a rune offset, or -1
 // when no line announces itself as quoted.

@@ -73,8 +73,11 @@ var wellbeing = map[textlang.Lang][]string{
 		"hope all is well", "hope you are well", "trust you are well",
 	},
 	textlang.German: {
-		"ich hoffe, es geht ihnen gut", "ich hoffe, es geht dir gut",
-		"ich hoffe, sie hatten", "ich hoffe, du hattest",
+		// "ich hoffe" plus almost anything is the same filler, and enumerating
+		// the completions failed on the live stack: the list held "es geht dir
+		// gut" and the model wrote "bei dir ist alles gut". The opener is the
+		// tell, so the opener is the phrase.
+		"ich hoffe", "hoffe, sie hatten", "hoffe, du hattest",
 	},
 	textlang.Vietnamese: {
 		"hy vọng anh/chị vẫn khỏe", "hy vọng mọi việc vẫn tốt",
@@ -184,6 +187,21 @@ func allDirectedRelationshipPhrases() []string {
 	return out
 }
 
+// mixedRegister reports a German draft that uses BOTH du and Sie.
+//
+// To a German reader this is worse than picking the wrong one consistently: it
+// reads as machine-written, which is the thing VOICE-STRIP exists to prevent.
+// It is checked rather than merely instructed because the prompt already said
+// to be consistent and the model was not — three consecutive drafts to one
+// person came back du, du, Sie.
+//
+// The check is on the draft's OWN text, so it needs no envelope: a body holding
+// both forms is inconsistent whichever one the envelope asked for.
+func mixedRegister(body string) bool {
+	return textlang.DetectRegister(body) == textlang.RegisterUnknown &&
+		textlang.HasBothRegisters(body)
+}
+
 // Body reads a draft body against the state it was written in.
 //
 // Nothing is checked at band fresh except the pleasantries: a live exchange may
@@ -205,6 +223,15 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 				Why:    "an opening pleasantry is filler, and it reads as a template",
 			})
 		}
+	}
+
+	if lang == textlang.German && mixedRegister(body) {
+		findings = append(findings, Finding{
+			Rule:   "mixed-register",
+			Phrase: "du/Sie",
+			Why: "the draft addresses the recipient formally in one sentence and " +
+				"familiarly in another — pick the one the correspondence uses and hold it",
+		})
 	}
 
 	if band == convstate.BandNone {
