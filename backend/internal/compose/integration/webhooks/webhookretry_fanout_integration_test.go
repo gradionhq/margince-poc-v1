@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -225,7 +226,11 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: time.Hour, Deliverer: deliverer,
+			Interval: time.Hour,
+			// The fan-out builds one deliverer per workspace it sweeps; this
+			// fixture drives a single tenant, so the factory answers with the
+			// deliverer it already built for that one.
+			Deliverer: func(*database.DB) *webhooks.Deliverer { return deliverer },
 		},
 	})
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -276,7 +281,7 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: jobtest.DispatchInterval, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
+			Interval: jobtest.DispatchInterval, Deliverer: func(*database.DB) *webhooks.Deliverer { return newTestDeliverer(we, &now, rcv.server.Client()) },
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -308,7 +313,7 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
-		WebhookRetry:      compose.WebhookRetryConfig{Interval: 0, Deliverer: deliverer},
+		WebhookRetry:      compose.WebhookRetryConfig{Interval: 0, Deliverer: func(*database.DB) *webhooks.Deliverer { return deliverer }},
 	})
 	if err := runner.Enqueue(context.Background(),
 		compose.WebhookRetryWorkspaceArgs{Workspace: we.wsID}, nil); err != nil {

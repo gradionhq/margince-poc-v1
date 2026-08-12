@@ -45,6 +45,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -163,7 +164,7 @@ func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webh
 }
 
 func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
-	store := webhooks.NewStore(we.pool, we.cipher)
+	store := webhooks.NewStore(database.BindTo(we.pool, ids.From[ids.WorkspaceKind](we.wsID)), we.cipher)
 	clock := func() time.Time { return *now }
 	return webhooks.NewDeliverer(store, client, clock, resolver,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -227,7 +228,7 @@ func TestNewWebhookDelivererBuildsFromKey(t *testing.T) {
 	valid := base64.StdEncoding.EncodeToString(make([]byte, webhooks.WebhookKeyBytes))
 	d, err := compose.NewWebhookDeliverer(we.pool, valid, log)
 	if err != nil || d == nil {
-		t.Fatalf("NewWebhookDeliverer(valid) d=%v err=%v", d, err)
+		t.Fatalf("NewWebhookDeliverer(valid) returned a nil factory: err=%v", err)
 	}
 	if _, err := compose.NewWebhookDeliverer(we.pool, "not base64!!!", log); err == nil {
 		t.Fatal("NewWebhookDeliverer must reject a non-base64 key")

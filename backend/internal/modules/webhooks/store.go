@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -48,14 +47,15 @@ const fieldEventTypes = "event_types"
 // open a secret returns ErrNotConfigured rather than shipping an
 // unsigned or guessable delivery.
 type Store struct {
-	pool   *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db     *database.DB
 	cipher *Cipher
 }
 
 // NewStore wires the webhook tables over a pool; cipher may be nil when no
 // deployment signing key is configured (read paths work, secret paths 503).
-func NewStore(pool *pgxpool.Pool, cipher *Cipher) *Store {
-	return &Store{pool: pool, cipher: cipher}
+func NewStore(db *database.DB, cipher *Cipher) *Store {
+	return &Store{db: db, cipher: cipher}
 }
 
 // DeliveryEnabled reports whether this deployment has a signing key — i.e.
@@ -178,7 +178,7 @@ func (s *Store) CreateSubscription(ctx context.Context, in CreateSubscriptionInp
 	}
 
 	var out Subscription
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO webhook_subscription
 			  (workspace_id, owner_id, target_url, event_types, signing_secret_ref, state)
@@ -207,7 +207,7 @@ func (s *Store) ListSubscriptions(ctx context.Context, archived storekit.Archive
 		return nil, err
 	}
 	var out []Subscription
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		where := ""
 		if archived != storekit.IncludeArchived {
 			where = " WHERE archived_at IS NULL"
@@ -237,7 +237,7 @@ func (s *Store) GetSubscription(ctx context.Context, id ids.UUID) (Subscription,
 		return Subscription{}, err
 	}
 	var out Subscription
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanSubscription(tx.QueryRow(ctx,
 			"SELECT "+subscriptionColumns+" FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL", id))
@@ -285,7 +285,7 @@ func (s *Store) UpdateSubscription(ctx context.Context, id ids.UUID, in UpdateSu
 		return Subscription{}, err
 	}
 	var out Subscription
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		current, err := scanSubscription(tx.QueryRow(ctx,
 			"SELECT "+subscriptionColumns+" FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL", id))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -337,7 +337,7 @@ func (s *Store) RotateSecret(ctx context.Context, id ids.UUID) (Subscription, st
 		return Subscription{}, "", err
 	}
 	var out Subscription
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx,
 			"UPDATE webhook_subscription SET signing_secret_ref = $2 WHERE id = $1 AND archived_at IS NULL",
 			id, sealed)
@@ -369,7 +369,7 @@ func (s *Store) ArchiveSubscription(ctx context.Context, id ids.UUID) (Subscript
 		return Subscription{}, err
 	}
 	var out Subscription
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx,
 			"UPDATE webhook_subscription SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING "+subscriptionColumns,
 			id)
