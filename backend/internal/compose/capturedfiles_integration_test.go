@@ -37,7 +37,7 @@ import (
 
 // captureWorkspace seeds a workspace and returns a context bound to it under
 // the per-user mail connector principal the sync loop mints.
-func captureWorkspace(t *testing.T) (context.Context, *pgxpool.Pool, string) {
+func captureWorkspace(t *testing.T) (context.Context, *database.DB, string) {
 	t.Helper()
 	pool := integration.SchemaPool(t)
 	ws := ids.NewV7()
@@ -63,7 +63,7 @@ func captureWorkspace(t *testing.T) (context.Context, *pgxpool.Pool, string) {
 	// The tag makes every source id unique to this run. The test database is
 	// shared and long-lived, so a fixed id would meet rows an earlier run of
 	// this same suite left behind and count them as this run's.
-	return principal.WithCorrelationID(ctx, ids.NewV7()), pool, ws.String()
+	return principal.WithCorrelationID(ctx, ids.NewV7()), database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), ws.String()
 }
 
 // mailRecord is one captured mail record, shaped the way mailmap produces one.
@@ -117,10 +117,10 @@ func onePDF() connector.Part {
 	}
 }
 
-func filesFor(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sourceID string) []capturedFile {
+func filesFor(ctx context.Context, t *testing.T, db *database.DB, sourceID string) []capturedFile {
 	t.Helper()
 	var out []capturedFile
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT filename, content_type, declared_type, category, storage_key,
 			       byte_size, external_part_id, external_source_id, organization_id::text
@@ -147,16 +147,16 @@ func filesFor(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sourceID st
 }
 
 func TestACapturedMessagesFileBecomesAnAttachment(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
+	ctx, db, tag := captureWorkspace(t)
 	blob := blobstore.NewMemory()
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blob))
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blob))
 
 	rec := withFiles(mailRecord("msg-with-file-"+tag), onePDF())
 	if _, err := sink.Upsert(ctx, rec); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 
-	files := filesFor(ctx, t, pool, "msg-with-file-"+tag)
+	files := filesFor(ctx, t, db, "msg-with-file-"+tag)
 	if len(files) != 1 {
 		t.Fatalf("stored %d files, want 1", len(files))
 	}
@@ -193,8 +193,8 @@ func TestACapturedMessagesFileBecomesAnAttachment(t *testing.T) {
 
 // DOC-AC-8: the same provider message pulled twice produces one row per part.
 func TestTheSameMessagePulledTwiceStoresItsFileOnce(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
 
 	rec := withFiles(mailRecord("msg-pulled-twice-"+tag), onePDF())
 	for pull := 1; pull <= 2; pull++ {
@@ -203,7 +203,7 @@ func TestTheSameMessagePulledTwiceStoresItsFileOnce(t *testing.T) {
 		}
 	}
 
-	if files := filesFor(ctx, t, pool, "msg-pulled-twice-"+tag); len(files) != 1 {
+	if files := filesFor(ctx, t, db, "msg-pulled-twice-"+tag); len(files) != 1 {
 		t.Errorf("stored %d files after two pulls of one message, want 1", len(files))
 	}
 }
@@ -217,27 +217,27 @@ func TestTheSameMessagePulledTwiceStoresItsFileOnce(t *testing.T) {
 // This is what holds when two pulls of one mailbox overlap in time and both
 // reach the insert.
 func TestTheDatabaseRefusesASecondRowForTheSameProviderPart(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
 
 	rec := withFiles(mailRecord("msg-racing-pulls-"+tag), onePDF())
 	if _, err := sink.Upsert(ctx, rec); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
-	stored := filesFor(ctx, t, pool, "msg-racing-pulls-"+tag)
+	stored := filesFor(ctx, t, db, "msg-racing-pulls-"+tag)
 	if len(stored) != 1 {
 		t.Fatalf("stored %d files, want 1 before the duplicate is attempted", len(stored))
 	}
 
 	// The same (message, part) identity, written as a concurrent pull would.
-	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO attachment (
 				workspace_id, entity_type, entity_id, filename, storage_key,
 				source, captured_by, external_source_id, external_part_id)
 			VALUES (current_setting('app.workspace_id')::uuid, 'activity', $1, 'contract.pdf',
 			        'some/other/key', 'imap', 'connector:imap', $2, $3)`,
-			activityOf(ctx, t, pool, "imap:msg-racing-pulls-"+tag),
+			activityOf(ctx, t, db, "imap:msg-racing-pulls-"+tag),
 			"imap:msg-racing-pulls-"+tag, *stored[0].partID)
 		return err
 	})
@@ -245,7 +245,7 @@ func TestTheDatabaseRefusesASecondRowForTheSameProviderPart(t *testing.T) {
 		t.Fatal("a second row for the same provider part was accepted — the part identity is not unique")
 	}
 
-	if files := filesFor(ctx, t, pool, "msg-racing-pulls-"+tag); len(files) != 1 {
+	if files := filesFor(ctx, t, db, "msg-racing-pulls-"+tag); len(files) != 1 {
 		t.Errorf("stored %d files, want the one the refused duplicate did not add", len(files))
 	}
 }
@@ -253,8 +253,8 @@ func TestTheDatabaseRefusesASecondRowForTheSameProviderPart(t *testing.T) {
 // A deployment with no object store keeps the correspondence and no files.
 // Refusing the message would lose a real exchange over an operator's omission.
 func TestWithNoObjectStoreTheMessageLandsAndItsFilesDoNot(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool)
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db)
 
 	rec := withFiles(mailRecord("msg-no-store-"+tag), onePDF())
 	ref, err := sink.Upsert(ctx, rec)
@@ -264,7 +264,7 @@ func TestWithNoObjectStoreTheMessageLandsAndItsFilesDoNot(t *testing.T) {
 	if ref.ID == (ids.UUID{}) {
 		t.Fatal("the message itself was not captured")
 	}
-	if files := filesFor(ctx, t, pool, "msg-no-store-"+tag); len(files) != 0 {
+	if files := filesFor(ctx, t, db, "msg-no-store-"+tag); len(files) != 0 {
 		t.Errorf("stored %d files with no object store configured, want 0", len(files))
 	}
 }
@@ -272,8 +272,8 @@ func TestWithNoObjectStoreTheMessageLandsAndItsFilesDoNot(t *testing.T) {
 // DOC-AC-12: what the bounds refused is observable, so a message whose files
 // were dropped is not silently identical to one that carried none.
 func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
 
 	rec := mailRecord("msg-dropped-file-" + tag)
 	rec.PartDrops = []connector.PartDrop{{Reason: "part_too_large", Count: 3}}
@@ -282,7 +282,7 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 	}
 
 	var logged int
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM system_log
 			 WHERE action = 'capture_parts_dropped'
@@ -312,11 +312,11 @@ func fileKeeper(pool *pgxpool.Pool, blob blobstore.Store) capture.FileKeeper {
 // stays the activity — so a message filed against nobody rolls up to nothing
 // and its file is reachable from the timeline alone.
 func TestACapturedFileRollsUpToTheCompanyItsMessageIsFiledUnder(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
 
 	orgID := ids.NewV7()
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
 			VALUES ($1, current_setting('app.workspace_id')::uuid, 'Voltaq', 'manual', 'human:test')`,
@@ -332,7 +332,7 @@ func TestACapturedFileRollsUpToTheCompanyItsMessageIsFiledUnder(t *testing.T) {
 		t.Fatalf("capture: %v", err)
 	}
 
-	files := filesFor(ctx, t, pool, "msg-filed-"+tag)
+	files := filesFor(ctx, t, db, "msg-filed-"+tag)
 	if len(files) != 1 {
 		t.Fatalf("stored %d files, want 1", len(files))
 	}
@@ -346,14 +346,14 @@ func TestACapturedFileRollsUpToTheCompanyItsMessageIsFiledUnder(t *testing.T) {
 // company. An empty roll-up keeps the file out of every account library; a
 // guessed one puts it in somebody else's.
 func TestACapturedFileFiledAgainstNobodyRollsUpToNothing(t *testing.T) {
-	ctx, pool, tag := captureWorkspace(t)
-	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
 
 	if _, err := sink.Upsert(ctx, withFiles(mailRecord("msg-unfiled-"+tag), onePDF())); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 
-	files := filesFor(ctx, t, pool, "msg-unfiled-"+tag)
+	files := filesFor(ctx, t, db, "msg-unfiled-"+tag)
 	if len(files) != 1 {
 		t.Fatalf("stored %d files, want 1", len(files))
 	}
@@ -365,10 +365,10 @@ func TestACapturedFileFiledAgainstNobodyRollsUpToNothing(t *testing.T) {
 
 // activityOf reads the activity a captured file hangs off, so a duplicate can
 // be written against the same parent the real one has.
-func activityOf(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sourceKey string) ids.UUID {
+func activityOf(ctx context.Context, t *testing.T, db *database.DB, sourceKey string) ids.UUID {
 	t.Helper()
 	var id ids.UUID
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT entity_id FROM attachment WHERE external_source_id = $1 LIMIT 1`,
 			sourceKey).Scan(&id)

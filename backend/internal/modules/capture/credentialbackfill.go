@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -35,7 +34,7 @@ func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
 		return 0, errors.New("capture: cannot backfill connector credentials without a keyvault")
 	}
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
-	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	rows, err := r.db.Pool().Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return 0, fmt.Errorf("capture: listing workspaces for credential backfill: %w", err)
 	}
@@ -71,7 +70,7 @@ func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (i
 		auth []byte
 	}
 	var pending []legacyRow
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, auth FROM capture_connection
 			WHERE credential_ref IS NULL AND auth IS NOT NULL`)
@@ -99,7 +98,7 @@ func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (i
 			return migrated, err
 		}
 		var claimed bool
-		err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		err = r.db.Tx(ctx, func(tx pgx.Tx) error {
 			ct, err := tx.Exec(ctx, `
 				UPDATE capture_connection SET credential_ref = $2, auth = NULL
 				WHERE id = $1 AND credential_ref IS NULL`, l.id, string(ref))

@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -138,7 +137,8 @@ var ErrChannelWiringIncomplete = errors.New("capture: no credential custodian is
 // every entry point that needs it refuses by name rather than proceeding
 // half-wired.
 type ChannelStore struct {
-	pool  *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db    *database.DB
 	vault keyvault.Vault
 	api   telegram.API
 	log   *slog.Logger
@@ -148,11 +148,11 @@ type ChannelStore struct {
 // deployment configured none — the mutating paths then refuse with a named,
 // actionable error instead of writing a connection whose token nothing could
 // unseal.
-func NewChannelStore(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) *ChannelStore {
+func NewChannelStore(db *database.DB, vault keyvault.Vault, api telegram.API, log *slog.Logger) *ChannelStore {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &ChannelStore{pool: pool, vault: vault, api: api, log: log}
+	return &ChannelStore{db: db, vault: vault, api: api, log: log}
 }
 
 // withVault returns a copy of the store carrying the credential custodian. The
@@ -306,7 +306,7 @@ func (s *ChannelStore) insertConnected(ctx context.Context, bot telegram.Bot, cr
 		return ChannelConnection{}, err
 	}
 	var out ChannelConnection
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		out, err = scanChannelConnection(tx.QueryRow(ctx, `
 			INSERT INTO channel_connection
 			  (workspace_id, provider, channel_id, channel_label, credential_ref, status, poll_offset, connected_by)

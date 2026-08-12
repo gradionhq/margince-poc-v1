@@ -31,7 +31,7 @@ func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
 	e := integration.SetupSearch(t)
 	// The production resolver, not the always-live harness fake: liveness is
 	// exactly what is under test.
-	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), identity.NewService(e.Pool), newTestKeyvault(t, e))
+	registry := capturemod.NewRegistry(e.DB(), capturemod.NewSink(e.DB()), identity.NewService(e.Pool), newTestKeyvault(t, e))
 	registry.Register(&scopeFake{})
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 

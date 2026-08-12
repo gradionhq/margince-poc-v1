@@ -92,13 +92,13 @@ func setupEstimator(t *testing.T) *estEnv {
 
 // newEstimatorOverPool wires the estimator over the real stores — the same
 // construction B6 wires in compose.
-func (e *estEnv) newEstimator() *Estimator {
+func (e *estEnv) newEstimator(ws ids.UUID) *Estimator {
 	return NewEstimator(
 		ai.NewCallReadStore(e.pool),
 		ai.NewRateStore(e.pool),
 		e.router,
 		activities.NewStore(e.pool),
-		capture.NewRegistry(e.pool, nil, nil, nil),
+		capture.NewRegistry(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws)), nil, nil, nil),
 		clockAt,
 	)
 }
@@ -228,7 +228,7 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 		e.insertLabeledActivity(t, ws)
 	}
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 		e.insertLabeledActivity(t, ws)
 	}
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestEstimatorExcludesRatelessModelAndFlagsHeuristic(t *testing.T) {
 		e.insertLabeledActivity(t, ws)
 	}
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestEstimatorCountsMeteringFailedRows(t *testing.T) {
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 0, errorSentinel: "metering_failed"})
 	e.insertLabeledActivity(t, ws)
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestEstimatorEnrichMeteringFailedRetryDoesNotInflateDenominator(t *testing.
 	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0})
 	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0, errorSentinel: "metering_failed"})
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestEstimatorRepricesSinceUnboundSlice(t *testing.T) {
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "old-cloud-model", tokensIn: 2_000_000, tokensOut: 0})
 	e.insertLabeledActivity(t, ws)
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestEstimatorNoHistoryUsesFloor(t *testing.T) {
 	// Rate the floor's classify head (local-model) so the floor prices honestly.
 	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
-	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestEstimatorConnectionScopedYields(t *testing.T) {
 
 	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
-	est := e.newEstimator()
+	est := e.newEstimator(ws)
 	imap, err := est.EstimateBackfill(wsCtx, "imap", user, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill(imap): %v", err)
@@ -522,7 +522,7 @@ func TestEstimatorRLSCrossWorkspaceInvisibility(t *testing.T) {
 
 	// Workspace A (its own context, its own user) sees none of B's history — it
 	// falls to the floor, and its cost never reflects B's expensive slice.
-	got, err := e.newEstimator().EstimateBackfill(ctxA, "gmail", userA, 100)
+	got, err := e.newEstimator(wsA).EstimateBackfill(ctxA, "gmail", userA, 100)
 	if err != nil {
 		t.Fatalf("EstimateBackfill(A): %v", err)
 	}

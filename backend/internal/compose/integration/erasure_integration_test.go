@@ -186,7 +186,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	assertSubjectErased(t, e, personID)
 
 	// Re-capture of the erased address is skipped, not resurrected.
-	sink := capture.NewSink(e.Pool)
+	sink := capture.NewSink(e.DB())
 	connCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 	connCtx = principal.WithCorrelationID(connCtx, ids.NewV7())
 	connCtx = principal.WithActor(connCtx, principal.Principal{

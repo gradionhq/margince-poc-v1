@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -91,12 +90,13 @@ type FreemailDomain struct {
 
 // FreemailDomainStore owns the workspace's consumer-mail list.
 type FreemailDomainStore struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
 // NewFreemailDomains builds the store over the pool.
-func NewFreemailDomains(pool *pgxpool.Pool) *FreemailDomainStore {
-	return &FreemailDomainStore{pool: pool}
+func NewFreemailDomains(db *database.DB) *FreemailDomainStore {
+	return &FreemailDomainStore{db: db}
 }
 
 // List returns the workspace's entries, additions before carve-outs and
@@ -107,7 +107,7 @@ func (s *FreemailDomainStore) List(ctx context.Context) ([]FreemailDomain, error
 		return nil, err
 	}
 	var out []FreemailDomain
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, domain, kind, created_at FROM capture_freemail_domain
 			ORDER BY kind, domain`)
@@ -156,7 +156,7 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 	}
 
 	var out FreemailDomain
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Serialize this domain's decision before reading the prior state. The
 		// read and the upsert are two statements, so two concurrent adds would
 		// otherwise both see "no prior entry" and both record a creation — one
@@ -227,7 +227,7 @@ func (s *FreemailDomainStore) Remove(ctx context.Context, id ids.UUID) error {
 	if err := auth.Require(ctx, freemailDomainObject, principal.ActionUpdate); err != nil {
 		return err
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var domain, kind string
 		err := tx.QueryRow(ctx,
 			`DELETE FROM capture_freemail_domain WHERE id = $1 RETURNING domain, kind`, id).Scan(&domain, &kind)

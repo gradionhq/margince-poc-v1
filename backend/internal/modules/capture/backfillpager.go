@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -57,7 +56,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		status        string
 		generation    int
 	)
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err = r.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT b.connection_id, b.after_date, b.cursor, b.status, c.provider, c.user_id, c.credential_ref, c.auth, c.generation
 			FROM capture_backfill b JOIN capture_connection c ON c.id = b.connection_id
@@ -176,7 +175,7 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID, class errorClass) (failures int, live bool, err error) {
 	countCtx, cancel := detachedWrite(ctx)
 	defer cancel()
-	err = database.WithWorkspaceTx(countCtx, r.pool, func(tx pgx.Tx) error {
+	err = r.db.Tx(countCtx, func(tx pgx.Tx) error {
 		// A run whose FIRST page fails transiently is still a run that started:
 		// leaving it 'queued' would misreport a live import as one never begun.
 		scanErr := tx.QueryRow(countCtx, `
@@ -231,7 +230,7 @@ func backfillRetryDelay(failures int, cause error) time.Duration {
 func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
 	var rowsAffected int64
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err = r.db.Tx(ctx, func(tx pgx.Tx) error {
 		var cur []byte
 		statusExpr := "CASE WHEN status = 'queued' THEN 'running' ELSE status END"
 		terminal := ""
@@ -301,7 +300,7 @@ func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause 
 	class := classifySyncError(cause)
 	failCtx, cancel := detachedWrite(ctx)
 	defer cancel()
-	return database.WithWorkspaceTx(failCtx, r.pool, func(tx pgx.Tx) error {
+	return r.db.Tx(failCtx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(failCtx, `
 			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()`+resetInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class))

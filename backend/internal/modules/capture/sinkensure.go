@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -457,7 +456,7 @@ func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecor
 	if rec.Counterparty.ChannelIdentity.Provider == "" {
 		detail[fieldSourceID] = rec.NaturalKey.SourceID
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, logErr := storekit.LogSystem(ctx, tx, "capture_ensure_fault", detail)
 		return logErr
 	})
