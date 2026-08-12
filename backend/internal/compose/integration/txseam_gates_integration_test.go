@@ -70,26 +70,32 @@ func setupGates(t *testing.T) gateFixture {
 	}
 }
 
+// refused is what one caller-opened create answered, beside what its table held
+// at that moment. Not an (error, int) pair: the error here is the ANSWER under
+// test, not a failure to propagate.
+type refused struct {
+	err  error
+	rows int
+}
+
 // refusedInTx runs one caller-opened create inside a transaction the TEST
-// opens, and answers both what the seam refused with and how many rows the
-// table held at that moment — read on the same transaction, so a row the seam
+// opens, and reads the row count on that same transaction — so a row the seam
 // wrote before refusing is still visible. The transaction always rolls back.
-func (f gateFixture) refusedInTx(t *testing.T, ctx context.Context, table string, create func(tx pgx.Tx) error) (error, int) {
+func (f gateFixture) refusedInTx(ctx context.Context, t *testing.T, table string, create func(tx pgx.Tx) error) refused {
 	t.Helper()
-	var refusal error
-	rows := -1
-	sentinel := errors.New("rolling the probe back")
+	out := refused{rows: -1}
+	rollback := errors.New("rolling the probe back")
 	err := database.WithWorkspaceTx(ctx, f.e.Pool, func(tx pgx.Tx) error {
-		refusal = create(tx)
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&rows); err != nil {
+		out.err = create(tx)
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&out.rows); err != nil {
 			return err
 		}
-		return sentinel
+		return rollback
 	})
-	if !errors.Is(err, sentinel) {
+	if !errors.Is(err, rollback) {
 		t.Fatalf("the probe transaction ended with %v, want its own rollback", err)
 	}
-	return refusal, rows
+	return out
 }
 
 // assertSameRefusal pins the parity both entry points owe: neither accepts the
@@ -111,15 +117,15 @@ func TestBothPersonCreatesRefuseTheSameThings(t *testing.T) {
 	if _, err := f.people.CreatePerson(f.ungated, valid); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("the store-opened create answered %v for a seat without the grant, want the refusal", err)
 	}
-	refusal, rows := f.refusedInTx(t, f.ungated, "person", func(tx pgx.Tx) error {
+	probe := f.refusedInTx(f.ungated, t, "person", func(tx pgx.Tx) error {
 		_, err := f.people.CreatePersonTx(f.ungated, tx, valid)
 		return err
 	})
-	if !errors.Is(refusal, apperrors.ErrPermissionDenied) {
-		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", refusal)
+	if !errors.Is(probe.err, apperrors.ErrPermissionDenied) {
+		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", probe.err)
 	}
-	if rows != 0 {
-		t.Errorf("person rows inside the refusing transaction = %d, want 0 — the gate ran after the write", rows)
+	if probe.rows != 0 {
+		t.Errorf("person rows inside the refusing transaction = %d, want 0 — the gate ran after the write", probe.rows)
 	}
 
 	// A contact that does not parse: the validation both settle before any
@@ -129,13 +135,13 @@ func TestBothPersonCreatesRefuseTheSameThings(t *testing.T) {
 		Emails: []people.PersonEmailInput{{Email: "not-an-address", EmailType: "work", IsPrimary: true}},
 	}
 	_, storeOpened := f.people.CreatePerson(f.granted, malformed)
-	refusal, rows = f.refusedInTx(t, f.granted, "person", func(tx pgx.Tx) error {
+	probe = f.refusedInTx(f.granted, t, "person", func(tx pgx.Tx) error {
 		_, err := f.people.CreatePersonTx(f.granted, tx, malformed)
 		return err
 	})
-	assertSameRefusal(t, storeOpened, refusal)
-	if rows != 0 {
-		t.Errorf("person rows inside the refusing transaction = %d, want 0 — the validation ran after the write", rows)
+	assertSameRefusal(t, storeOpened, probe.err)
+	if probe.rows != 0 {
+		t.Errorf("person rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
 	}
 }
 
@@ -146,15 +152,15 @@ func TestBothOrganizationCreatesRefuseTheSameThings(t *testing.T) {
 	if _, err := f.people.CreateOrganization(f.ungated, valid); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("the store-opened create answered %v for a seat without the grant, want the refusal", err)
 	}
-	refusal, rows := f.refusedInTx(t, f.ungated, "organization", func(tx pgx.Tx) error {
+	probe := f.refusedInTx(f.ungated, t, "organization", func(tx pgx.Tx) error {
 		_, err := f.people.CreateOrganizationTx(f.ungated, tx, valid)
 		return err
 	})
-	if !errors.Is(refusal, apperrors.ErrPermissionDenied) {
-		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", refusal)
+	if !errors.Is(probe.err, apperrors.ErrPermissionDenied) {
+		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", probe.err)
 	}
-	if rows != 0 {
-		t.Errorf("organization rows inside the refusing transaction = %d, want 0 — the gate ran after the write", rows)
+	if probe.rows != 0 {
+		t.Errorf("organization rows inside the refusing transaction = %d, want 0 — the gate ran after the write", probe.rows)
 	}
 
 	// A size band outside the vocabulary: refused on create, not only on the
@@ -162,13 +168,13 @@ func TestBothOrganizationCreatesRefuseTheSameThings(t *testing.T) {
 	band := "enormous"
 	bad := people.CreateOrganizationInput{DisplayName: "Analytical Engines", Source: "ui", SizeBand: &band}
 	_, storeOpened := f.people.CreateOrganization(f.granted, bad)
-	refusal, rows = f.refusedInTx(t, f.granted, "organization", func(tx pgx.Tx) error {
+	probe = f.refusedInTx(f.granted, t, "organization", func(tx pgx.Tx) error {
 		_, err := f.people.CreateOrganizationTx(f.granted, tx, bad)
 		return err
 	})
-	assertSameRefusal(t, storeOpened, refusal)
-	if rows != 0 {
-		t.Errorf("organization rows inside the refusing transaction = %d, want 0 — the validation ran after the write", rows)
+	assertSameRefusal(t, storeOpened, probe.err)
+	if probe.rows != 0 {
+		t.Errorf("organization rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
 	}
 }
 
@@ -180,28 +186,28 @@ func TestBothLeadCreatesRefuseTheSameThings(t *testing.T) {
 	if _, _, err := f.people.CreateLead(f.ungated, valid); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("the store-opened create answered %v for a seat without the grant, want the refusal", err)
 	}
-	refusal, rows := f.refusedInTx(t, f.ungated, "lead", func(tx pgx.Tx) error {
+	probe := f.refusedInTx(f.ungated, t, "lead", func(tx pgx.Tx) error {
 		_, _, err := f.people.CreateLeadTx(f.ungated, tx, valid)
 		return err
 	})
-	if !errors.Is(refusal, apperrors.ErrPermissionDenied) {
-		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", refusal)
+	if !errors.Is(probe.err, apperrors.ErrPermissionDenied) {
+		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", probe.err)
 	}
-	if rows != 0 {
-		t.Errorf("lead rows inside the refusing transaction = %d, want 0 — the gate ran after the write", rows)
+	if probe.rows != 0 {
+		t.Errorf("lead rows inside the refusing transaction = %d, want 0 — the gate ran after the write", probe.rows)
 	}
 
 	// A status outside the writable vocabulary — the normalization both
 	// entry points settle before any transaction opens.
 	bad := people.CreateLeadInput{Email: &email, Status: "promoted", Source: "ui"}
 	_, _, storeOpened := f.people.CreateLead(f.granted, bad)
-	refusal, rows = f.refusedInTx(t, f.granted, "lead", func(tx pgx.Tx) error {
+	probe = f.refusedInTx(f.granted, t, "lead", func(tx pgx.Tx) error {
 		_, _, err := f.people.CreateLeadTx(f.granted, tx, bad)
 		return err
 	})
-	assertSameRefusal(t, storeOpened, refusal)
-	if rows != 0 {
-		t.Errorf("lead rows inside the refusing transaction = %d, want 0 — the validation ran after the write", rows)
+	assertSameRefusal(t, storeOpened, probe.err)
+	if probe.rows != 0 {
+		t.Errorf("lead rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
 	}
 }
 
@@ -212,15 +218,15 @@ func TestBothDealCreatesRefuseTheSameThings(t *testing.T) {
 	if _, err := f.deals.CreateDeal(f.ungated, valid); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("the store-opened create answered %v for a seat without the grant, want the refusal", err)
 	}
-	refusal, rows := f.refusedInTx(t, f.ungated, "deal", func(tx pgx.Tx) error {
+	probe := f.refusedInTx(f.ungated, t, "deal", func(tx pgx.Tx) error {
 		_, err := f.deals.CreateDealTx(f.ungated, tx, valid)
 		return err
 	})
-	if !errors.Is(refusal, apperrors.ErrPermissionDenied) {
-		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", refusal)
+	if !errors.Is(probe.err, apperrors.ErrPermissionDenied) {
+		t.Errorf("the caller-opened create answered %v for a seat without the grant, want the refusal", probe.err)
 	}
-	if rows != 0 {
-		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the gate ran after the write", rows)
+	if probe.rows != 0 {
+		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the gate ran after the write", probe.rows)
 	}
 
 	// Half a money value. The pair is atomic from birth, or the FX freeze at
@@ -231,18 +237,18 @@ func TestBothDealCreatesRefuseTheSameThings(t *testing.T) {
 		AmountMinor: &amount,
 	}
 	_, storeOpened := f.deals.CreateDeal(f.granted, half)
-	refusal, rows = f.refusedInTx(t, f.granted, "deal", func(tx pgx.Tx) error {
+	probe = f.refusedInTx(f.granted, t, "deal", func(tx pgx.Tx) error {
 		_, err := f.deals.CreateDealTx(f.granted, tx, half)
 		return err
 	})
-	assertSameRefusal(t, storeOpened, refusal)
+	assertSameRefusal(t, storeOpened, probe.err)
 	// Both name the same fault, and it is the money pair rather than whatever
 	// else could have refused this input.
 	var pair *deals.AmountCurrencyPairError
-	if !errors.As(refusal, &pair) {
-		t.Errorf("the caller-opened create refused with %v, want the money-pair fault", refusal)
+	if !errors.As(probe.err, &pair) {
+		t.Errorf("the caller-opened create refused with %v, want the money-pair fault", probe.err)
 	}
-	if rows != 0 {
-		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the validation ran after the write", rows)
+	if probe.rows != 0 {
+		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
 	}
 }
