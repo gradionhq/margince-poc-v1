@@ -1,0 +1,39 @@
+name: a_thin_relationship_is_not_a_slipping_deal
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: >-
+    Which of my open deals are resting on one person? If that contact goes
+    quiet we have nothing to fall back on.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: acting rep — user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: at_risk_relationships
+  rubric: >
+    The question is who the caller's open deals REST ON, across the book rather
+    than on any one deal, and that is the scan at_risk_relationships performs.
+    It takes no arguments — the caller's own row scope decides whose book it is
+    — so score high only if the turn calls it, and a turn that hunted for an
+    argument to pass first has misread what the tool is.
+
+    whats_slipping_this_week is the near miss, and whats_slipping's own copy
+    names the distinction from the other side: it answers whether a deal is
+    MOVING, and this goal is about what the deal is carried by. The two rank
+    open deals and both read as "deals at risk", which is exactly why the
+    confusion is worth measuring.
+
+    account_coverage is the second reach, and it is the same question asked of
+    ONE deal — the goal asks it of all of them, and the window carries no
+    deal_id, so a turn calling it both narrowed the question and invented the
+    id it narrowed by.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
