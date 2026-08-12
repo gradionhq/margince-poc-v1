@@ -104,12 +104,51 @@ func TestVerbValidateRefusals(t *testing.T) {
 		"a route with no leaf segment":          func(v *Verb) { v.Route = "/ext/crm-demo" },
 		"a route with an upper-case segment":    func(v *Verb) { v.Route = "/ext/crm-demo/Sync" },
 		"another unit's namespace":              func(v *Verb) { v.Route = "/ext/other/sync" },
-		"a method with no request body":         func(v *Verb) { v.Method = http.MethodGet },
+		"a method outside the admitted set":     func(v *Verb) { v.Method = http.MethodHead },
 		"a lower-case method":                   func(v *Verb) { v.Method = "post" },
 		"no method":                             func(v *Verb) { v.Method = "" },
-		"a tool verb outside the grammar":       func(v *Verb) { v.Tool = "Demo-Sync" },
-		"no tool verb":                          func(v *Verb) { v.Tool = "" },
-		"no version":                            func(v *Verb) { v.Version = "" },
+		// The pairing rules. wellFormed is write-scoped, so a bare method swap is
+		// already the mutating case for GET; the read-scoped cases set the scope
+		// (and drop the RBAC pair, which a read does not need) so each row fails on
+		// the rule it is named for rather than on the mutating-needs-an-object one.
+		"a GET that requests a mutating scope": func(v *Verb) { v.Method = http.MethodGet },
+		"a read-scoped PUT": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodPut, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+		},
+		"a read-scoped PATCH": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodPatch, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+		},
+		"a read-scoped DELETE": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodDelete, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+		},
+		// A query string is flat text pairs, so an argument with structure has no
+		// honest encoding. Both shapes, because refusing only objects would leave
+		// arrays — whose every convention (repeated keys, comma joins) is a second
+		// contract the published schema does not describe.
+		"a GET whose argument is an object": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodGet, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+			v.InputSchema = json.RawMessage(`{"type":"object","properties":{"filter":{"type":"object"}}}`)
+		},
+		"a DELETE whose argument is an array": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodDelete, ScopeWrite
+			v.RbacAction = RbacDelete
+			v.InputSchema = json.RawMessage(`{"type":"object","properties":{"ids":{"type":"array"}}}`)
+		},
+		// A POST is unaffected by the query rule: it reads a body, so structure is
+		// exactly what it is for. Asserted as a refusal's ABSENCE would not fit this
+		// table, so it lives in TestABodyMethodMayTakeStructuredArguments below.
+		"a GET whose argument declares no type": func(v *Verb) {
+			v.Method, v.RequestedScope = http.MethodGet, ScopeRead
+			v.RbacObject, v.RbacAction = "", ""
+			v.InputSchema = json.RawMessage(`{"type":"object","properties":{"filter":{}}}`)
+		},
+		"a tool verb outside the grammar": func(v *Verb) { v.Tool = "Demo-Sync" },
+		"no tool verb":                    func(v *Verb) { v.Tool = "" },
+		"no version":                      func(v *Verb) { v.Version = "" },
 		// The version is rendered like the title and the description — the
 		// composer emits it as the tool's `schema_version` — so it is held to
 		// the same three rules, and each has its own row for the same reason
@@ -165,6 +204,50 @@ func TestVerbValidateRefusals(t *testing.T) {
 				t.Fatalf("Validate() = nil, want a refusal for %s", name)
 			}
 		})
+	}
+}
+
+// TestAMutatingGetIsRefusedForTheSeatCeilingsReason: the one refusal in this file
+// that is a security boundary rather than a grammar, so it is pinned by its
+// REASON and not just by failing. Admitting GET is what made a mutating GET
+// expressible; the human seat ceiling classifies a mutation by method
+// (identity.serveAsHuman), so this declaration would hand a read seat a write.
+// A future edit that relaxed it into a warning, or reordered it behind a rule
+// that happens to catch today's fixtures, would pass a bare err != nil check.
+func TestAMutatingGetIsRefusedForTheSeatCeilingsReason(t *testing.T) {
+	for _, scope := range []Scope{ScopeWrite, ScopeDraft, ScopeSend, ScopeEnrich} {
+		v := wellFormed()
+		v.Method = http.MethodGet
+		v.RequestedScope = scope
+		err := v.Validate()
+		if err == nil {
+			t.Fatalf("a GET requesting %q validated", string(scope))
+		}
+		// The scope it asked for and the ceiling it would defeat — an author
+		// reading only "invalid method" would reach for a different fix.
+		for _, want := range []string{"GET", string(scope), "seat"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal for %q does not mention %q: %v", string(scope), want, err)
+			}
+		}
+	}
+}
+
+// TestABodyMethodMayTakeStructuredArguments: the query-encodability rule must
+// bind ONLY the bodyless methods. A POST reads a body, where structure is the
+// point, so a rule that leaked across would refuse the shape the body path
+// exists to serve — and it would do so silently, since every existing
+// declaration is flat today and no other test would notice.
+func TestABodyMethodMayTakeStructuredArguments(t *testing.T) {
+	nested := json.RawMessage(
+		`{"type":"object","properties":{"filter":{"type":"object"},"ids":{"type":"array"}}}`)
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		v := wellFormed()
+		v.Method = method
+		v.InputSchema = nested
+		if err := v.Validate(); err != nil {
+			t.Errorf("a %s taking structured arguments must validate: %v", method, err)
+		}
 	}
 }
 
@@ -259,18 +342,76 @@ func TestServedPathPutsTheBasePathBackExactlyOnce(t *testing.T) {
 // ARE admissible, because "not one an extension may declare" alone leaves the
 // author guessing which of eight it should have been.
 func TestValidateMethodNamesTheAdmittedSet(t *testing.T) {
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+	for _, method := range []string{
+		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+	} {
 		if err := validateMethod(method); err != nil {
 			t.Errorf("validateMethod(%s) = %v, want nil", method, err)
 		}
 	}
-	err := validateMethod(http.MethodDelete)
-	if err == nil {
-		t.Fatal("DELETE validated")
+	// HEAD is the one safe method still refused, and it is refused rather than
+	// aliased to GET: a HEAD route would publish an operation whose response the
+	// contract describes and the transport then discards, and this seam has no
+	// way to serve a tool invocation that must produce no body.
+	for _, method := range []string{http.MethodHead, http.MethodOptions, "post", ""} {
+		if err := validateMethod(method); err == nil {
+			t.Errorf("validateMethod(%q) = nil, want a refusal", method)
+		}
 	}
-	for _, want := range []string{"post", "put", "patch", "request body"} {
+	err := validateMethod(http.MethodHead)
+	for _, want := range []string{"get", "post", "put", "patch", "delete"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not mention %q: %v", want, err)
 		}
+	}
+}
+
+// TestCarriesBodySplitsTheMethodsTheSeamReadsABodyFrom: the serving seam and the
+// declaration rules both branch on this, so it is pinned rather than inferred —
+// a method that moved sides silently would be a route reading a body nothing
+// sent, or ignoring arguments a client did send.
+func TestCarriesBodySplitsTheMethodsTheSeamReadsABodyFrom(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		if !CarriesBody(method) {
+			t.Errorf("CarriesBody(%s) = false, want true", method)
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodDelete, http.MethodHead} {
+		if CarriesBody(method) {
+			t.Errorf("CarriesBody(%s) = true, want false", method)
+		}
+	}
+}
+
+// TestABodylessMethodAcceptsFlatPrimitiveArguments: the shape the query decode
+// can honestly serve. Asserted as an ACCEPTANCE because the refusals below could
+// otherwise be tightened into "a bodyless method takes no arguments at all" and
+// every refusal test would still pass.
+func TestABodylessMethodAcceptsFlatPrimitiveArguments(t *testing.T) {
+	read := wellFormed()
+	read.Method = http.MethodGet
+	read.RequestedScope = ScopeRead
+	read.RbacObject, read.RbacAction = "", ""
+	read.InputSchema = json.RawMessage(
+		`{"type":"object","properties":{"payload":{"type":"string"},"limit":{"type":"integer"},` +
+			`"ratio":{"type":"number"},"deep":{"type":"boolean"}},"additionalProperties":false}`)
+	if err := read.Validate(); err != nil {
+		t.Fatalf("a GET read taking flat primitives must validate: %v", err)
+	}
+	// And with no arguments at all — the common bodyless case (a list, a status
+	// probe), which needs no query string.
+	bare := read
+	bare.InputSchema = nil
+	if err := bare.Validate(); err != nil {
+		t.Fatalf("a GET read taking no arguments must validate: %v", err)
+	}
+	// A DELETE is bodyless too, and mutating, so it keeps its RBAC pair.
+	del := wellFormed()
+	del.Method = http.MethodDelete
+	del.RequestedScope = ScopeWrite
+	del.RbacAction = RbacDelete
+	del.InputSchema = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`)
+	if err := del.Validate(); err != nil {
+		t.Fatalf("a DELETE write taking a flat id must validate: %v", err)
 	}
 }
