@@ -21,17 +21,49 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// A record type create_record's own write path cannot make at all is refused
-// before anything stages: the approved retry would otherwise die at the
-// provider with the approval spent.
-func TestCreateGuardsRefuseARecordTypeThisVerbDoesNotServe(t *testing.T) {
-	call := NewCreateCall(CreateCommand{RecordType: "custom_field", Fields: json.RawMessage(`{}`)})
+// A record type create_record's own write path cannot make at all still
+// stages through createResolver — unlike patch, create has no target to
+// read, so there is no seam to stand down on, but the same door-agnostic
+// principle holds: whether this VERB can make a custom_field is a fact about
+// create_record's own Handle, not about the operation, and the resolver has
+// no way to tell whether a REST create (whose own module's handler performs
+// it fine) or a raw tool call (which cannot) supplied this command. That
+// question is asked at the door that owns the answer —
+// TestCreateRecordStageInfoRefusesARecordTypeItCannotWrite below, on
+// createRecord.StageInfo itself, before the command is ever built.
+func TestCreateStagesARecordTypeTheResolverHasNoOpinionOn(t *testing.T) {
+	call := NewCreateCall(CreateCommand{RecordType: "custom_field", Fields: json.RawMessage(`{"name":"x"}`)})
 
-	err := call.Guards(context.Background())
+	info, err := StageSubject(context.Background(), call)
+	if err != nil {
+		t.Fatalf("staging a custom_field create through the resolver answered %v, want it staged — "+
+			"createResolver.Guards has no opinion on whether create_record itself can write this type", err)
+	}
+	if info.TargetType != "custom_field" {
+		t.Errorf("staged target_type = %q, want \"custom_field\"", info.TargetType)
+	}
+	if !info.TargetID.IsZero() {
+		t.Errorf("staged target_id = %s, want zero", info.TargetID)
+	}
+}
+
+// createRecord.StageInfo (tools.go) is the ONE door where "does this verb
+// serve this record type" is a real question: create_record's own Handle
+// writes exclusively through datasource.SystemOfRecordProvider.Create, which
+// cannot express a type outside createShapes, so staging one here would mint
+// an approval whose approved retry dies at the provider with the authority
+// already spent. Checked at the door, before the command is even built —
+// createResolver.Guards itself has no such refusal (proved above), because
+// the identical command reaching it from REST names an operation whose own
+// module's handler performs the create fine.
+func TestCreateRecordStageInfoRefusesARecordTypeItCannotWrite(t *testing.T) {
+	tool := createRecord{}
+
+	_, err := tool.StageInfo(context.Background(), json.RawMessage(`{"record_type":"custom_field","fields":{}}`))
 	var badArgs *BadArgsError
 	if !errors.As(err, &badArgs) {
-		t.Fatalf("guarding a record type create_record does not serve answered %v, want a BadArgsError — "+
-			"an approval for it could never be carried out", err)
+		t.Fatalf("staging a create_record call naming a type this verb cannot create answered %v, want a "+
+			"BadArgsError — an approval for it could never be carried out", err)
 	}
 }
 

@@ -15,14 +15,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // createRequest is a POST against one of the create routes, carrying body as
@@ -41,36 +39,35 @@ func patchRequest(path string, id ids.UUID, body []byte) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
-// Every create operation the record seam actually serves must decode into a
+// Every create operation the contract lets an agent reach must decode into a
 // command. Derived from the generated policy table rather than a remembered
-// list of six: create_record's own tool tag covers thirteen routes, not all
-// of which belong here. createOffer (POST /v1/deals/{id}/offers) nests under
-// a parent resource, excluded by route shape (a bare collection path carries
-// no `{`). The other six — custom_field, list, offer_template, product,
-// saved_view, tag — create through their OWN module's handler rather than
-// create_record's datasource-provider write path, so createResolver.Guards'
-// "verb does not serve this type" refusal does not describe them; wiring them
-// here would hard-refuse a create that works fine (agentcommand.go's own
-// comment states the bound). datasource.EntityTypes() is that same served
-// vocabulary (createShapes, command.go), read off the seam's own port rather
-// than re-hardcoded.
+// list of thirteen: create_record's own tool tag also covers createOffer
+// (POST /v1/deals/{id}/offers), which nests under a parent resource and is
+// out of this family's scope — so the filter is the route shape a top-level
+// collection create actually has, a bare collection path with no `{`, which
+// is what tells the two apart without hand-naming either.
+//
+// Every one of the thirteen belongs here, including the six whose record
+// type (custom_field, list, offer_template, product, saved_view, tag)
+// create_record's own Handle cannot write: createResolver.Guards
+// (command.go) asks nothing about whether the verb "serves" a type, so
+// registering them costs nothing, and the door-dependent question that
+// mattered is answered once, at createRecord.StageInfo, on the door where it
+// is true.
 func TestEveryAgentReachableCreateOperationDecodesIntoACommand(t *testing.T) {
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tool != "create_record" || strings.Contains(route, "{") {
 			continue
 		}
-		if !slices.Contains(datasource.EntityTypes(), datasource.EntityType(pol.RecordType)) {
-			continue
-		}
 		checked++
 		if _, described := restCommands[pol.Op]; !described {
-			t.Errorf("%s (%s) creates a record the seam serves but decodes into no command, so its staged "+
-				"target is still guessed from the route while the tool door reads it from the call", route, pol.Op)
+			t.Errorf("%s (%s) creates a record but decodes into no command, so its staged target is still "+
+				"guessed from the route while the tool door reads it from the call", route, pol.Op)
 		}
 	}
-	if checked != 6 {
-		t.Errorf("the policy table carries %d agent-reachable seam-served create operations, want 6 — if the "+
+	if checked != 13 {
+		t.Errorf("the policy table carries %d agent-reachable top-level create operations, want 13 — if the "+
 			"contract gained or lost one, this seam's coverage moved with it", checked)
 	}
 }
@@ -83,9 +80,9 @@ func TestEveryAgentReachableCreateOperationDecodesIntoACommand(t *testing.T) {
 // already draws that line for the auto-execute side. The filter here draws
 // the same line independently, by route shape: a field-patch twin routes as
 // PATCH .../{id} and nothing after it — one path parameter, named id, at the
-// very end. Unlike create, EVERY one of these twelve belongs here: patch has
-// no equivalent "verb does not serve" refusal to trip over (see
-// patchResolver.Guards' own comment in command.go).
+// very end. Unlike create, patch never had a "verb does not serve" refusal
+// to worry about (see patchResolver.Guards' own comment in command.go), so
+// every one of these twelve belongs here.
 func TestEveryAgentReachablePatchOperationDecodesIntoACommand(t *testing.T) {
 	checked := 0
 	for route, pol := range agentPolicies {
@@ -125,13 +122,13 @@ func TestACreateStagesItsRecordTypeWithNoTargetID(t *testing.T) {
 	}
 }
 
-// A create OUTSIDE create_record's own served vocabulary still stages, by the
-// route walk (stagedTargetByRoute) rather than through createResolver — the
-// same shape TestAnArchiveOutsideTheToolSchemaStagesTheRowItNames proves for
-// archive. custom_field is one of the six create routes restCommands
-// deliberately leaves unregistered (see its own doc comment); proving it
-// stages successfully is what makes that omission a choice rather than an
-// untested gap.
+// A create OUTSIDE create_record's own served vocabulary still stages,
+// through createResolver like every other registered create — the same shape
+// TestAnArchiveOutsideTheToolSchemaStagesTheRowItNames proves for archive.
+// custom_field is one of the six create routes whose record type
+// create_record's own Handle cannot write, and createResolver.Guards has no
+// opinion on that (command.go); proving it stages successfully through the
+// resolver is what makes that indifference correct rather than assumed.
 func TestACreateOutsideTheToolSchemaStagesItsRecordTypeWithNoTargetID(t *testing.T) {
 	staging := &capturingApprovals{}
 	pol := agentPolicy{Op: "createCustomField", Access: accessTool, Tool: "create_record", RecordType: recordTypeCustomField}

@@ -203,9 +203,7 @@ type CreateCommand struct {
 // Unlike archive's, this resolver holds no dependency and no memo: a create
 // names no ROW — the record does not exist yet — so there is nothing for
 // Guards to read and nothing for Subject to describe beyond the command's own
-// fields. What Guards refuses is settled entirely from createShapes, the same
-// vocabulary createRecord.ServesRecordType already answers from, so this calls
-// that method rather than restating its membership test.
+// fields.
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewCreateCall(cmd CreateCommand) GovernedCall {
@@ -225,31 +223,26 @@ func (createResolver) Subject(_ context.Context, cmd CreateCommand) (StageInfo, 
 	}, nil
 }
 
-// Guards refuses, before anything is staged, the two creates that were never
-// going to run: a record type this verb's own write path cannot make at all,
-// and a `fields` payload naming a key that type does not accept.
+// Guards refuses, before anything is staged, a `fields` payload naming a key
+// the record type does not accept. rejectUnknownFields answers nil for a
+// record type it does not know (createShapes), which is deliberately a
+// stand-down and not this resolver's business to override: a type outside
+// createShapes is still a real, working create over REST — its OWN module's
+// handler performs it, entirely independent of create_record's write path —
+// so there is nothing here for a door-agnostic Guards to refuse it FOR.
 //
-// The record type is checked FIRST and by createRecord's own served set, not
-// by rejectUnknownFields — which answers nil for a type it does not know, on
-// the deliberate ground that naming the served vocabulary is the provider's
-// refusal to make. That is right for a call about to reach the provider and
-// wrong for one about to reach a human: create_record{record_type:"custom_field"}
-// would otherwise stage cleanly, because the surface does not enforce schema
-// enums, and the approved retry would then die at the provider with the
-// approval spent.
-//
-// This is right for BOTH doors only because compose's restCommands
-// (agentcommand.go) registers this resolver for a create operation only when
-// its record type is one createRecord actually serves — a type outside that
-// set is created through its own module's handler, never through this verb's
-// write path, so the refusal below would describe a door it was never asked
-// about. That boundary is the REST wiring's to keep, not this resolver's: it
-// has no way to tell which door a given cmd.RecordType arrived from.
+// createRecord.StageInfo (tools.go) refuses such a type BEFORE it ever
+// reaches here, and that is deliberate placement, not an oversight: #982's
+// guarantee — no approval staged for a create that could only ever die at
+// the provider — is true of create_record's OWN Handle, which writes
+// exclusively through datasource.SystemOfRecordProvider.Create and cannot
+// express a type outside createShapes at all. That is a fact about the TOOL
+// door's executor, not about the record type, so it has to be asked at the
+// tool door and cannot be asked here: the same command reaching this
+// resolver from REST names an operation whose OWN handler creates the type
+// fine, and a resolver that cannot tell which door asked has no way to
+// answer "does the executor support this" correctly for both.
 func (createResolver) Guards(_ context.Context, cmd CreateCommand) error {
-	if !(createRecord{}).ServesRecordType(cmd.RecordType) {
-		return &BadArgsError{Cause: fmt.Errorf(
-			"this verb does not create %q records, so no approval of it could ever be carried out", cmd.RecordType)}
-	}
 	return rejectUnknownFields(createShapes, cmd.RecordType, cmd.Fields)
 }
 

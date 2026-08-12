@@ -48,16 +48,20 @@ type restCommandDeps struct {
 // (stagedTargetByRoute) instead, which is the guess this seam replaces family
 // by family (gradionhq/margince-poc-v1#928).
 //
-// Six of the thirteen create routes are deliberately ABSENT even though
-// create_record is their governing tool: custom_field, list, offer_template,
-// product, saved_view and tag create through their own module's handler, never
-// through create_record's own datasource-provider write path, so
-// createResolver.Guards' "does this verb serve this record type" refusal
-// (command.go) does not describe them — it would hard-refuse a create that
-// works fine, where stagedTargetByRoute already stages the correct shape
-// (their type, and no id, since none of these routes carries one). Patch has
-// no equivalent gap: patchResolver.Guards has no such refusal, so every
-// update_record patch is registered.
+// Every create and every whole-record patch route is registered, all
+// twenty-five. Six of the thirteen create record types (custom_field, list,
+// offer_template, product, saved_view, tag) create through their own
+// module's handler, never through create_record's own datasource-provider
+// write path — but that asymmetry is not this table's to answer for.
+// createResolver.Guards (command.go) deliberately asks nothing about whether
+// create_record itself "serves" a record type: that question has a
+// door-dependent answer (create_record's own Handle cannot express these six
+// types; the REST operation that creates one performs it fine through its
+// own handler), so it is asked once, at createRecord.StageInfo (tools.go),
+// on the one door where it is a fact about the executor rather than about
+// the operation. Every whole-record patch route is registered for the same
+// reason patch never had that question at all — see patchResolver.Guards'
+// own comment.
 var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error){
 	"archiveActivity":      archiveCommand,
 	"archiveDeal":          archiveCommand,
@@ -72,12 +76,19 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"archiveSavedView":     archiveCommand,
 	"archiveTag":           archiveCommand,
 
-	"createDeal":         createCommand,
-	"createLead":         createCommand,
-	"createOrganization": createCommand,
-	"createPerson":       createCommand,
-	"createProject":      createCommand,
-	"createRelationship": createCommand,
+	"createCustomField":         createCommand,
+	"createDeal":                createCommand,
+	"createLead":                createCommand,
+	"createList":                createCommand,
+	"createOfferTemplate":       createCommand,
+	"createOrganization":        createCommand,
+	"createPerson":              createCommand,
+	"createProduct":             createCommand,
+	"createProject":             createCommand,
+	"createRelationship":        createCommand,
+	"createSavedView":           createCommand,
+	"createTag":                 createCommand,
+	"createWebhookSubscription": createCommand,
 
 	opRenameCustomField:         patchCommand,
 	"updateActivity":            patchCommand,

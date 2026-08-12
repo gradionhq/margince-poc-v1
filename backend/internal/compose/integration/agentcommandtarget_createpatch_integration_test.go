@@ -124,3 +124,81 @@ func TestARestPatchOutsideTheToolSchemaStagesTheRowWithID(t *testing.T) {
 		t.Errorf("staged target_entity_id = %s, want %s", *targetID, created.Subscription.ID)
 	}
 }
+
+// The regression this rules out: createCustomField creates a record type
+// (custom_field) createResolver.Guards has no opinion on — create_record's
+// own Handle cannot write it, but this operation's own module (customfields)
+// does, entirely independent of that verb. An earlier version of this seam
+// had createResolver.Guards refuse it outright over REST (the "does
+// create_record itself serve this type" question, correct for the TOOL door,
+// wrongly asked of every door); this proves it now STAGES like any other
+// confirm-first create, not that it merely fails to 500.
+func TestARestCreateCustomFieldStagesRatherThanRefuses(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(SchemaPool(t)))
+	e.BootstrapWorkspace(t)
+	bearer := agentBearer(t, e, "custom-field-create agent")
+
+	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}
+	if status := e.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
+		"object": "deal", "label": "Champion Score", "type": "text", "source": "ui",
+	}, bearer, &problem); status != http.StatusForbidden || problem.Code != "approval_required" {
+		t.Fatalf("agent custom field create → %d %q, want 403 approval_required — a hard refusal here is "+
+			"the exact regression this test rules out", status, problem.Code)
+	}
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
+
+	var targetType string
+	var targetID *string
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT coalesce(target_entity_type, ''), target_entity_id FROM approval WHERE id = $1`,
+		approvalID).Scan(&targetType, &targetID); err != nil {
+		t.Fatalf("reading the staged approval: %v", err)
+	}
+	if targetType != "custom_field" {
+		t.Errorf("staged target_entity_type = %q, want \"custom_field\"", targetType)
+	}
+	if targetID != nil {
+		t.Errorf("staged target_entity_id = %v, want NULL — a create names no existing row", *targetID)
+	}
+}
+
+// The same regression, on createWebhookSubscription — the other create
+// route outside createResolver's served vocabulary.
+func TestARestCreateWebhookSubscriptionStagesRatherThanRefuses(t *testing.T) {
+	cipher, err := webhooks.NewCipher(bytes.Repeat([]byte{0x5a}, webhooks.WebhookKeyBytes))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	e := apptest.SetupAppWithOptions(t, compose.WithWebhookSigningKey(cipher))
+	e.BootstrapWorkspace(t)
+	bearer := agentBearer(t, e, "webhook-subscription-create agent")
+
+	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}
+	if status := e.Call(t, "POST", "/v1/webhook-subscriptions", apptest.AnyMap{
+		"target_url": "https://ok.example/hook", "event_types": []string{"deal.created"},
+	}, bearer, &problem); status != http.StatusForbidden || problem.Code != "approval_required" {
+		t.Fatalf("agent webhook subscription create → %d %q, want 403 approval_required — a hard refusal "+
+			"here is the exact regression this test rules out", status, problem.Code)
+	}
+	approvalID := ExtractStagedApprovalID(t, problem.Detail)
+
+	var targetType string
+	var targetID *string
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT coalesce(target_entity_type, ''), target_entity_id FROM approval WHERE id = $1`,
+		approvalID).Scan(&targetType, &targetID); err != nil {
+		t.Fatalf("reading the staged approval: %v", err)
+	}
+	if targetType != "webhook_subscription" {
+		t.Errorf("staged target_entity_type = %q, want \"webhook_subscription\"", targetType)
+	}
+	if targetID != nil {
+		t.Errorf("staged target_entity_id = %v, want NULL — a create names no existing row", *targetID)
+	}
+}

@@ -266,9 +266,24 @@ func (createRecord) ServesRecordType(recordType string) bool {
 // operation, whose route carries no `{id}` — one operation, one staged shape,
 // whichever door the agent came through.
 //
-// The checks run HERE as well as in Handle, and that is the point: the approved
-// retry re-enters through Handle, so a rule enforced only there is one a human's
-// yes is spent discovering.
+// ONE check runs HERE, before the command is even built, rather than inside
+// the shared resolver: a record type this verb's OWN write path cannot make
+// at all. create_record's Handle writes exclusively through
+// datasource.SystemOfRecordProvider.Create, which has no way to express a
+// type outside createShapes, so staging one here would mint an approval whose
+// approved retry dies at the provider with the authority already spent. That
+// is a fact about THIS door's executor — the surface does not enforce the
+// InputSchema enum at this layer, so a raw tool call can still name a type
+// outside it — and it has no REST equivalent: a REST create for the same
+// out-of-schema type reaches its own module's handler, which performs it
+// fine, so the identical command asked of the resolver by that door must NOT
+// be refused here. createResolver.Guards (command.go) says why it stays
+// silent on this question rather than repeating it.
+//
+// Every other check (unknown fields, the staged shape) runs HERE as well as
+// in Handle, and that is the point: the approved retry re-enters through
+// Handle, so a rule enforced only there is one a human's yes is spent
+// discovering.
 func (t createRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args struct {
 		RecordType string          `json:"record_type"`
@@ -276,6 +291,11 @@ func (t createRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
+	}
+	if !t.ServesRecordType(args.RecordType) {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
+			"this verb does not create %q records, so no approval of it could ever be carried out",
+			args.RecordType)}
 	}
 	// This door's wire shape IS the command's field set (same reasoning as
 	// archiveRecord.StageInfo, command.go), so it converts rather than
