@@ -23,6 +23,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
+// restCommandDeps is what a decoder needs to build its command's resolver.
+//
+// A struct rather than a positional argument because the dependency is per
+// FAMILY: the archive reads the record seam, an update_record command will want
+// the field-ownership probe, a send the comms seam. Passed positionally, each
+// family added would re-sign this map type and every entry already in it — the
+// churn a table of twelve identical signatures is least able to absorb.
+//
+// It is not tierDeps, which answers a different question (what tier is this
+// call) and is consulted before admission rather than at staging; the two
+// happen to share a provider today and have no reason to share a shape.
+type restCommandDeps struct {
+	records datasource.SystemOfRecordProvider
+}
+
 // restCommands maps a crm.yaml operationId to the decoder that turns an HTTP
 // request into the operation's typed command, bound to the resolver that
 // speaks it.
@@ -31,7 +46,7 @@ import (
 // entry resolves its staged target by walking the route
 // (stagedTargetByRoute) instead, which is the guess this seam replaces family
 // by family (gradionhq/margince-poc-v1#928).
-var restCommands = map[string]func(pol agentPolicy, records datasource.SystemOfRecordProvider, r *http.Request) (agents.GovernedCall, error){
+var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *http.Request) (agents.GovernedCall, error){
 	"archiveActivity":      archiveCommand,
 	"archiveDeal":          archiveCommand,
 	"archiveList":          archiveCommand,
@@ -55,7 +70,7 @@ var restCommands = map[string]func(pol agentPolicy, records datasource.SystemOfR
 // the gate admitted against.
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
-func archiveCommand(pol agentPolicy, records datasource.SystemOfRecordProvider, r *http.Request) (agents.GovernedCall, error) {
+func archiveCommand(pol agentPolicy, deps restCommandDeps, r *http.Request) (agents.GovernedCall, error) {
 	id, err := ids.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		// Existence-hiding, and the answer this door already gave: "that is not
@@ -63,7 +78,7 @@ func archiveCommand(pol agentPolicy, records datasource.SystemOfRecordProvider, 
 		// caller's id tells them which rows exist.
 		return nil, apperrors.ErrNotFound
 	}
-	return agents.Bind(agents.NewArchiveResolver(records), agents.ArchiveCommand{
+	return agents.NewArchiveCall(deps.records, agents.ArchiveCommand{
 		RecordType: string(pol.RecordType),
 		ID:         id,
 	}), nil

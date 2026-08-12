@@ -28,7 +28,7 @@ import (
 // same row for its label and would refuse this too, so a whole-seam assertion
 // passes whether or not the guard is there at all.
 func TestArchiveGuardsRefuseATargetTheCallerCannotSee(t *testing.T) {
-	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+	call := NewArchiveCall(unreadableProvider{}, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
 	if err := call.Guards(context.Background()); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("guarding an unreadable person answered %v, want the row-scope miss — a staged approval "+
@@ -40,7 +40,7 @@ func TestArchiveGuardsRefuseATargetTheCallerCannotSee(t *testing.T) {
 // reason refuseStagingElsewhere states: the decidability probe and the version
 // pin both read OUR tables, so the approval could never be released.
 func TestArchiveGuardsRefuseATargetHeldElsewhere(t *testing.T) {
-	call := Bind(NewArchiveResolver(elsewhereProvider{}), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+	call := NewArchiveCall(elsewhereProvider{}, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
 	if err := call.Guards(context.Background()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 		t.Fatalf("guarding a mirrored person answered %v, want the unsupported-by-SoR refusal", err)
@@ -53,7 +53,7 @@ func TestArchiveGuardsRefuseATargetHeldElsewhere(t *testing.T) {
 func TestArchiveSubjectNamesTheRecordAndSuppliesNoPin(t *testing.T) {
 	id := ids.NewV7()
 	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityPerson, id, true)}
-	call := Bind(NewArchiveResolver(provider), ArchiveCommand{RecordType: "person", ID: id})
+	call := NewArchiveCall(provider, ArchiveCommand{RecordType: "person", ID: id})
 
 	info, err := StageSubject(context.Background(), call)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestArchiveStagesATypeTheRecordSeamDoesNotServe(t *testing.T) {
 	id := ids.NewV7()
 	// A provider that fails every read, so a resolver that consulted the seam
 	// for a tag would be caught here rather than passing on a lenient stub.
-	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "tag", ID: id})
+	call := NewArchiveCall(unreadableProvider{}, ArchiveCommand{RecordType: "tag", ID: id})
 
 	info, err := StageSubject(context.Background(), call)
 	if err != nil {
@@ -123,7 +123,7 @@ func (c *countingProvider) Read(_ context.Context, ref datasource.EntityRef) (da
 // with the authority that admitted it.
 func TestBothGovernanceQuestionsAreAnsweredFromOneRead(t *testing.T) {
 	provider := &countingProvider{}
-	call := Bind(NewArchiveResolver(provider), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+	call := NewArchiveCall(provider, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
 	if _, err := StageSubject(context.Background(), call); err != nil {
 		t.Fatalf("staging a readable person answered %v, want it staged", err)
@@ -134,12 +134,15 @@ func TestBothGovernanceQuestionsAreAnsweredFromOneRead(t *testing.T) {
 	}
 }
 
-// A resolver asked about a second target reads THAT target. The memo above is
-// per-call by construction, and this is what makes the claim checkable rather
-// than a promise in a comment.
+// A resolver asked about a second target reads THAT target.
+//
+// Nothing outside this package can reach a resolver — NewArchiveCall binds one
+// to its command and hands back the call — so this reaches past the constructor
+// deliberately: the memo's key is what makes the binding a belt rather than the
+// only thing between two callers and a shared read.
 func TestAResolverAskedAboutASecondTargetReadsIt(t *testing.T) {
 	provider := &countingProvider{}
-	resolver := NewArchiveResolver(provider)
+	resolver := &archiveResolver{records: provider}
 	ctx := context.Background()
 
 	first, err := resolver.Subject(ctx, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})

@@ -23,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // actionShapedUpdateOps are the update_record twins whose body is a
@@ -58,7 +57,7 @@ var actionShapedUpdateOps = map[string]bool{
 // so transport never changes what a human decision protects. An
 // X-Approval-Token redeems a prior staging: the approved retry carries
 // exactly the staged sub-patch, whose hash the staging was bound to.
-func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, records datasource.SystemOfRecordProvider, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	if handled, _ := redeemIfPresented(w, r, next, staging, pol, body); handled {
 		return
@@ -96,7 +95,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
-		stageRefusal(w, r, staging, records, pol, body)
+		stageRefusal(w, r, staging, commands, pol, body)
 		return
 	}
 	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)

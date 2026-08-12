@@ -108,7 +108,7 @@ func TestAnArchiveOutsideTheToolSchemaStagesItsOwnTypeAndID(t *testing.T) {
 	staging := &capturingApprovals{}
 	pol := agentPolicy{Op: "archiveTag", Access: accessTool, Tool: "archive_record", RecordType: recordTypeTag}
 
-	stageRefusal(httptest.NewRecorder(), archiveRequest("/v1/tags", tagID), staging, hiddenRecord{}, pol, nil)
+	stageRefusal(httptest.NewRecorder(), archiveRequest("/v1/tags", tagID), staging, restCommandDeps{records: hiddenRecord{}}, pol, nil)
 
 	if staging.last.TargetType != "tag" || staging.last.TargetID != tagID {
 		t.Fatalf("staged target = (%s,%s), want (tag,%s) — a tag is archived over REST whether or not the "+
@@ -124,7 +124,7 @@ func TestAnArchiveOfAnUnseeableRecordStagesNothing(t *testing.T) {
 	pol := agentPolicy{Op: "archivePerson", Access: accessTool, Tool: "archive_record", RecordType: recordTypePerson}
 	rec := httptest.NewRecorder()
 
-	stageRefusal(rec, archiveRequest("/v1/people", ids.NewV7()), staging, hiddenRecord{}, pol, nil)
+	stageRefusal(rec, archiveRequest("/v1/people", ids.NewV7()), staging, restCommandDeps{records: hiddenRecord{}}, pol, nil)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("archiving a record the caller cannot see answered %d, want 404 — the refusal must not "+
@@ -147,7 +147,7 @@ func TestAnArchiveOfAnExternallyHeldRecordStagesNothing(t *testing.T) {
 	pol := agentPolicy{Op: "archivePerson", Access: accessTool, Tool: "archive_record", RecordType: recordTypePerson}
 	rec := httptest.NewRecorder()
 
-	stageRefusal(rec, archiveRequest("/v1/people", ids.NewV7()), staging, mirroredRecord{}, pol, nil)
+	stageRefusal(rec, archiveRequest("/v1/people", ids.NewV7()), staging, restCommandDeps{records: mirroredRecord{}}, pol, nil)
 
 	if staging.last.Tool != "" {
 		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — nobody "+
@@ -175,7 +175,7 @@ func TestAMalformedArchiveIDAnswersNotFound(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rec := httptest.NewRecorder()
-	stageRefusal(rec, req, staging, seamRecord{}, pol, nil)
+	stageRefusal(rec, req, staging, restCommandDeps{records: seamRecord{}}, pol, nil)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("a malformed archive id answered %d, want 404", rec.Code)
@@ -194,7 +194,7 @@ func TestArchiveCommandRefusesAMalformedIDAsAMiss(t *testing.T) {
 	rctx.URLParams.Add("id", "not-a-uuid")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-	_, err := archiveCommand(agentPolicy{Op: "archiveTag", RecordType: recordTypeTag}, seamRecord{}, req)
+	_, err := archiveCommand(agentPolicy{Op: "archiveTag", RecordType: recordTypeTag}, restCommandDeps{records: seamRecord{}}, req)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("decoding a malformed id answered %v, want the not-found sentinel", err)
 	}
@@ -215,7 +215,7 @@ func TestAResolvedTargetWithNoRecordTypeIsRefused(t *testing.T) {
 	pol := agentPolicy{Op: "archiveTag", Access: accessTool, Tool: "archive_record", RecordType: ""}
 	rec := httptest.NewRecorder()
 
-	stageRefusal(rec, archiveRequest("/v1/tags", ids.NewV7()), staging, seamRecord{}, pol, nil)
+	stageRefusal(rec, archiveRequest("/v1/tags", ids.NewV7()), staging, restCommandDeps{records: seamRecord{}}, pol, nil)
 
 	if staging.last.Tool != "" {
 		t.Errorf("an approval was staged for %q with a concrete target and no type — no inbox can scope it, "+

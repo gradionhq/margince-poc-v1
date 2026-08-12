@@ -55,10 +55,14 @@ type GovernedCall interface {
 	Guards(ctx context.Context) error
 }
 
-// Bind pairs one command with the resolver that speaks its language.
+// bind pairs one command with the resolver that speaks its language.
+//
+// Unexported, and reached only through a family's own New…Call constructor
+// below: what leaves this package is a call, never a resolver, so a resolver
+// cannot be built once and reused for a second command.
 //
 //nolint:ireturn // the erasure IS the return type: the bound pair cannot be named without the type parameter the caller has just spent, which is the whole reason a door can carry it
-func Bind[T any](resolver GovernanceResolver[T], cmd T) GovernedCall {
+func bind[T any](resolver GovernanceResolver[T], cmd T) GovernedCall {
 	return boundCommand[T]{resolver: resolver, cmd: cmd}
 }
 
@@ -93,14 +97,20 @@ type ArchiveCommand struct {
 	ID         ids.UUID
 }
 
-// NewArchiveResolver answers both governance questions for an archive, reading
+// NewArchiveCall binds one archive to the resolver that answers for it, reading
 // through the record seam the archive itself writes through.
 //
-// One resolver per call. It remembers the row it read so both questions are
-// answered about the SAME record, which is only true while the resolver is as
-// short-lived as the call it was built for.
-func NewArchiveResolver(records datasource.SystemOfRecordProvider) GovernanceResolver[ArchiveCommand] {
-	return &archiveResolver{records: records}
+// A CALL is what leaves this package, not a resolver, and that is what keeps
+// the memo below safe. The remembered row was read under the calling
+// principal's row scope, and the memo is keyed on the command rather than on
+// who asked — so a resolver hoisted out of one call and reused in another would
+// hand the second caller the first caller's read and skip the visibility check
+// the second was owed. Binding at construction makes that unreachable rather
+// than discouraged.
+//
+//nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
+func NewArchiveCall(records datasource.SystemOfRecordProvider, cmd ArchiveCommand) GovernedCall {
+	return bind[ArchiveCommand](&archiveResolver{records: records}, cmd)
 }
 
 type archiveResolver struct {
@@ -184,13 +194,20 @@ func (a *archiveResolver) Guards(ctx context.Context, cmd ArchiveCommand) error 
 // servedByTheRecordSeam reports whether the record seam speaks this type at all.
 //
 // Half of the twelve types the REST door can archive — lists, offers, offer
-// templates, products, tags and saved views — have no row on the seam, and are
-// archived by their own module's handler instead. The seam therefore has
-// nothing to say about who may see them or where their authority lives, and
-// asking it would answer "not served here" and turn an ordinary archive into a
-// refusal. It is the archive_record TOOL's schema that is narrow, not the
-// operation, so the vocabulary is read from the seam that defines it rather
-// than restated here.
+// templates, products, tags and saved views — have no row on the seam; they are
+// archived by their own module's handler. Asking the seam about one answers
+// "not served here", which would refuse an ordinary archive, so the guards above
+// stand down for them. It is the archive_record TOOL's schema that is narrow,
+// not the operation, so the vocabulary is read from the seam that defines it
+// rather than restated here.
+//
+// Standing down is a BOUND, not a discharge, and the bound is uneven: three of
+// those six — list, offer and saved_view — carry real row scope in
+// approvals.targetProbes. An agent can still stage an archive of one it cannot
+// see, and the human's yes is then spent on a call the handler answers 404.
+// Closing it needs a visibility question this seam cannot ask through the
+// record provider, which is why it is filed rather than patched here:
+// gradionhq/margince-poc-v1#1021.
 func servedByTheRecordSeam(recordType string) bool {
 	return slices.Contains(datasource.EntityTypes(), datasource.EntityType(recordType))
 }

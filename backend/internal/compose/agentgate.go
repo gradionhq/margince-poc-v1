@@ -87,7 +87,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				}
 			}
 			admitAgentCall(w, r, next, admissionOutcome{
-				staging: staging, ownership: ownership, records: records, pol: pol, body: body,
+				staging: staging, ownership: ownership, commands: restCommandDeps{records: records}, pol: pol, body: body,
 				err: err, spec: spec, registry: reg,
 			})
 		})
@@ -209,13 +209,13 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 type admissionOutcome struct {
 	staging   agents.Approvals
 	ownership agents.FieldOwnership
-	// records is the seam a staged call's resolver reads its own target
-	// through, so the target the REST door stages is the one the tool door
-	// would have staged for the same operation.
-	records datasource.SystemOfRecordProvider
-	pol     agentPolicy
-	body    []byte
-	err     error
+	// commands carries what a staged call's own resolver needs to answer for
+	// itself, so the target the REST door stages is the one the tool door would
+	// have staged for the same operation.
+	commands restCommandDeps
+	pol      agentPolicy
+	body     []byte
+	err      error
 	// spec and registry are what the effect below is charged against — the
 	// tool twin this call admitted as, and the surface that owns the counters.
 	spec     mcp.ToolSpec
@@ -246,7 +246,7 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 		performed := &effectRecorder{ResponseWriter: w}
 		metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
 		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
-			splitOrRedeemUpdate(metered, r, next, outcome.staging, outcome.records, outcome.ownership, outcome.pol, outcome.body)
+			splitOrRedeemUpdate(metered, r, next, outcome.staging, outcome.commands, outcome.ownership, outcome.pol, outcome.body)
 		} else {
 			next.ServeHTTP(metered, r)
 		}
@@ -261,7 +261,7 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 		// where redeemIfPresented actually forwarded.
 		performed := &effectRecorder{ResponseWriter: w}
 		metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
-		ran := stageOrRedeem(metered, r, next, outcome.staging, outcome.records, outcome.pol, outcome.body)
+		ran := stageOrRedeem(metered, r, next, outcome.staging, outcome.commands, outcome.pol, outcome.body)
 		if !ran {
 			return
 		}

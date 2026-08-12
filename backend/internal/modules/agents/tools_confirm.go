@@ -62,7 +62,7 @@ func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	return StageSubject(ctx, Bind(NewArchiveResolver(t.p), ArchiveCommand(args)))
+	return StageSubject(ctx, NewArchiveCall(t.p, ArchiveCommand(args)))
 }
 
 func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

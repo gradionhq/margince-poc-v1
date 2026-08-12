@@ -28,7 +28,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // stageOrRedeem handles the 🟡 outcome. The identical call is the
@@ -41,12 +40,12 @@ import (
 // whether an effect was performed and so whether one is charged. A redemption
 // that forwarded reports true; a refused token and a fresh staging both report
 // false, because neither ran anything.
-func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, records datasource.SystemOfRecordProvider, pol agentPolicy, body []byte) bool {
+func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, pol agentPolicy, body []byte) bool {
 	handled, ran := redeemIfPresented(w, r, next, staging, pol, body)
 	if handled {
 		return ran
 	}
-	stageRefusal(w, r, staging, records, pol, body)
+	stageRefusal(w, r, staging, commands, pol, body)
 	return false
 }
 
@@ -111,7 +110,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 // stageRefusal stages the refused call as a pending approval and answers
 // with the redemption instructions — the whole request, unapplied, is the
 // staged change, so the approved retry is this exact request again.
-func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, records datasource.SystemOfRecordProvider, pol agentPolicy, body []byte) {
+func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, commands restCommandDeps, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, body)
 	if cErr != nil {
@@ -126,7 +125,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
 		return
 	}
-	target, ok := stagedTarget(w, r, records, pol)
+	target, ok := stagedTarget(w, r, commands, pol)
 	if !ok {
 		return
 	}
@@ -168,11 +167,16 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // Only the target is taken from the resolver. The line the human reads stays
 // this door's own (restSummary), because a REST summary names the concrete
 // method, path and body fields that this door's diff_hash actually binds.
+// Adopting the resolver's line on this door as well is blocked on the six types
+// the record seam does not serve: it can label those by id alone, so the change
+// would put "Archive tag 0195c3…" in front of an approver where the operation
+// and path stand today (gradionhq/margince-poc-v1#1021 is where those types get
+// a name).
 //
 // It writes the refusal itself and reports ok=false, so a caller that cannot
 // name a target stages nothing.
-func stagedTarget(w http.ResponseWriter, r *http.Request, records datasource.SystemOfRecordProvider, pol agentPolicy) (agents.StageInfo, bool) {
-	info, ok := resolveOrWalk(w, r, records, pol)
+func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy) (agents.StageInfo, bool) {
+	info, ok := resolveOrWalk(w, r, commands, pol)
 	if !ok {
 		return agents.StageInfo{}, false
 	}
@@ -198,12 +202,12 @@ func stagedTarget(w http.ResponseWriter, r *http.Request, records datasource.Sys
 
 // resolveOrWalk answers the staged target from the operation's own resolver
 // where it has one, and from the route where it does not.
-func resolveOrWalk(w http.ResponseWriter, r *http.Request, records datasource.SystemOfRecordProvider, pol agentPolicy) (agents.StageInfo, bool) {
+func resolveOrWalk(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy) (agents.StageInfo, bool) {
 	decode, described := restCommands[pol.Op]
 	if !described {
 		return stagedTargetByRoute(w, r, pol)
 	}
-	call, err := decode(pol, records, r)
+	call, err := decode(pol, commands, r)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return agents.StageInfo{}, false
