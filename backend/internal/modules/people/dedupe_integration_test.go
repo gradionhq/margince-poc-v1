@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -47,6 +48,13 @@ func setupDedupe(t *testing.T) *dedupeEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// Every test in this package seeds its own workspace into ONE database,
+	// and what used to keep their rows apart was deny-on-unset RLS. With
+	// tenant isolation retired (ADR-0091 §8 phase A) the separation has to be
+	// real: reset before seeding, as compose/integration's harness does.
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &dedupeEnv{ws: ids.NewV7(), rep: ids.NewV7()}
 	if _, err := owner.Exec(ctx,

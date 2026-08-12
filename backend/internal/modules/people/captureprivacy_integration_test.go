@@ -29,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -63,6 +64,13 @@ func setupCapturePrivacy(t *testing.T) *privacyEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// Every test in this package seeds its own workspace into ONE database,
+	// and what used to keep their rows apart was deny-on-unset RLS. With
+	// tenant isolation retired (ADR-0091 §8 phase A) the separation has to be
+	// real: reset before seeding, as compose/integration's harness does.
+	if err := testdb.Reset(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &privacyEnv{
 		ws: ids.NewV7(), team: ids.NewV7(),

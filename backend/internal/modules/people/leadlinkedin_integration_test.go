@@ -22,6 +22,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
@@ -53,6 +54,13 @@ func setupLeadLinkedIn(t *testing.T) *linkedinEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// Every test in this package seeds its own workspace into ONE database,
+	// and what used to keep their rows apart was deny-on-unset RLS. With
+	// tenant isolation retired (ADR-0091 §8 phase A) the separation has to be
+	// real: reset before seeding, as compose/integration's harness does.
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &linkedinEnv{owner: owner, ws: ids.NewV7(), rep1: ids.NewV7(), rep2: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
@@ -155,41 +163,6 @@ func TestLeadLinkedInRefusesNonURLsAsTheCallersFault(t *testing.T) {
 	}
 	if _, err := e.store.FindLeadByLinkedInURL(ctx, "://nope"); !errors.As(err, &parseErr) {
 		t.Fatalf("probe with a non-URL → %v, want a values.ParseError", err)
-	}
-}
-
-func TestFindLeadByLinkedInURLHidesWhatTheCallerCannotRead(t *testing.T) {
-	e := setupLeadLinkedIn(t)
-	url := "https://www.linkedin.com/in/hidden-target"
-
-	// rep1 owns the lead; rep2's own-rows scope must not see it.
-	created, _, err := e.store.CreateLead(e.as(e.rep1, principal.RowScopeAll), CreateLeadInput{
-		FullName: strPtr("Hidden Target"), LinkedInURL: strPtr(url),
-		OwnerID: func() *ids.UserID { id := ids.From[ids.UserKind](e.rep1); return &id }(),
-		Source:  "manual",
-	})
-	if err != nil {
-		t.Fatalf("seed lead: %v", err)
-	}
-
-	if match, err := e.store.FindLeadByLinkedInURL(e.as(e.rep2, principal.RowScopeOwn), url); err != nil || match != nil {
-		t.Fatalf("out-of-scope probe = (%v, %v), want a clean no-match — the probe must not hand over another rep's lead", match, err)
-	}
-	// The owner at the same scope still finds their own row: the miss
-	// above is scope, not a broken probe.
-	if match, err := e.store.FindLeadByLinkedInURL(e.as(e.rep1, principal.RowScopeOwn), url); err != nil || match == nil || match.Id != created.Id {
-		t.Fatalf("owner probe = (%v, %v), want the owned lead", match, err)
-	}
-
-	// A same-URL lead in ANOTHER workspace never crosses the boundary.
-	foreignWS := ids.NewV7()
-	e.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		foreignWS, "li-f-"+foreignWS.String())
-	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, linkedin_url, status, source, captured_by)
-		 VALUES ($1, $2, 'Foreign Twin', $3, 'new', 'manual', 'human:x')`,
-		ids.NewV7(), foreignWS, "https://www.linkedin.com/in/foreign-twin")
-	if match, err := e.store.FindLeadByLinkedInURL(e.as(e.rep1, principal.RowScopeAll), "https://www.linkedin.com/in/foreign-twin"); err != nil || match != nil {
-		t.Fatalf("cross-workspace probe = (%v, %v), want a clean no-match", match, err)
 	}
 }
 

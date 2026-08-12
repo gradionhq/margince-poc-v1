@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -44,6 +45,14 @@ func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (co
 	})
 
 	ws := ids.NewV7()
+	// Every test in this package seeds its own workspace into ONE database, and
+	// what used to keep their rows apart was deny-on-unset RLS. With tenant
+	// isolation retired (ADR-0091 §8 phase A) the separation has to be real:
+	// reset before seeding, the way compose/integration's harness already does.
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := owner.Exec(ctx,
 		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
 		ws, "migration-"+ws.String()); err != nil {
