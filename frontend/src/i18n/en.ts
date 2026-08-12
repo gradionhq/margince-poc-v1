@@ -3941,7 +3941,7 @@ export const en = {
   "embedreindex.estimateCost": "Estimated cost:",
   "embedreindex.estimateQualityHeuristic":
     "Heuristic estimate — a cold work-shape floor, not observed spend.",
-  "embedreindex.utilizationTitle": "Per-workspace budget impact",
+  "embedreindex.utilizationTitle": "Budget impact",
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "would enter economy mode",
   "embedreindex.impact.queued": "would be queued",

@@ -19,7 +19,6 @@ type Story = StoryObj;
 
 const lead = {
   id: "l-1",
-  workspace_id: "w-1",
   full_name: "Jonas Petersen",
   email: "jonas@nordwind.example",
   company_name: "Nordwind Logistik",

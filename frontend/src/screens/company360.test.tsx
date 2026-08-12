@@ -34,7 +34,6 @@ import { TaskQuickActions, useTaskUpdate } from "./taskactions";
 
 const org = {
   id: "o-1",
-  workspace_id: "w",
   display_name: "Brandt Automotive GmbH",
   industry: "Automotive",
   captured_by: "human:u1",
@@ -175,7 +174,6 @@ function stub(
           data: [
             {
               id: "pl-1",
-              workspace_id: "w-1",
               name: "Sales",
               is_default: true,
               stages: [
@@ -795,7 +793,6 @@ describe("company view — the citations under a finding", () => {
 describe("company view — what is waiting on a decision", () => {
   const staged = {
     id: "ap-1",
-    workspace_id: "w",
     kind: "site_lead",
     status: "pending",
     summary: "Add Markus Bueckle as a contact",

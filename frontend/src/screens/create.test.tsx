@@ -86,14 +86,12 @@ function stubApi(
 
 const pipeline = {
   id: "pl",
-  workspace_id: "w",
   name: "Sales",
   is_default: true,
   position: 0,
   stages: [
     {
       id: "s1",
-      workspace_id: "w",
       pipeline_id: "pl",
       name: "Qualify",
       position: 1,
@@ -102,7 +100,6 @@ const pipeline = {
     },
     {
       id: "s4",
-      workspace_id: "w",
       pipeline_id: "pl",
       name: "Won",
       position: 4,
@@ -121,7 +118,6 @@ describe("contact create flow", () => {
           jsonResponse(
             {
               id: "p-new",
-              workspace_id: "w",
               full_name: (body as { full_name: string }).full_name,
               captured_by: "human:u1",
               source: "manual",
@@ -348,7 +344,6 @@ describe("deal create flow", () => {
           jsonResponse(
             {
               id: "d-new",
-              workspace_id: "w",
               name: (body as { name: string }).name,
               pipeline_id: "pl",
               stage_id: "s1",

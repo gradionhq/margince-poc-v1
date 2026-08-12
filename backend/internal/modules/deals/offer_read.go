@@ -199,7 +199,6 @@ func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 	}
 
 	o.Id = openapi_types.UUID(id)
-	o.WorkspaceId = openapi_types.UUID(wsID)
 	o.DealId = openapi_types.UUID(dealID)
 	o.BuyerOrgId = uuidPtr(buyerOrgID)
 	o.TemplateId = uuidPtr(templateID)

@@ -50,10 +50,6 @@ type embedReindexStatusWire struct {
 	ReindexNeeded      bool   `json:"reindex_needed"`
 	EntitiesPending    int    `json:"entities_pending"`
 	UpdatedAt          string `json:"updated_at"`
-	PerWorkspace       []struct {
-		EntitiesPending int    `json:"entities_pending"`
-		WorkspaceID     string `json:"workspace_id"`
-	} `json:"per_workspace"`
 }
 
 // embedReindexPreviewWire mirrors crmcontracts.EmbedReindexPreview.
@@ -64,12 +60,6 @@ type embedReindexPreviewWire struct {
 	EstimateQuality    string  `json:"estimate_quality"`
 	EstimatedAiTokens  *int    `json:"estimated_ai_tokens"`
 	EstimatedCostMinor *int    `json:"estimated_cost_minor"`
-	PerWorkspace       []struct {
-		EntitiesPending   int    `json:"entities_pending"`
-		EstimatedAiTokens *int   `json:"estimated_ai_tokens"`
-		UtilizationImpact string `json:"utilization_impact"`
-		WorkspaceID       string `json:"workspace_id"`
-	} `json:"per_workspace"`
 }
 
 // embedReindexProblem absorbs the RFC 7807 shapes this suite's error
@@ -313,9 +303,6 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339, st.UpdatedAt); err != nil {
 		t.Fatalf("status.updated_at = %q, want a parseable RFC3339 instant: %v", st.UpdatedAt, err)
 	}
-	if len(st.PerWorkspace) != 1 || st.PerWorkspace[0].WorkspaceID != wsID || st.PerWorkspace[0].EntitiesPending != st.EntitiesPending {
-		t.Fatalf("per_workspace = %+v, want exactly one row for %s matching the fleet total %d", st.PerWorkspace, wsID, st.EntitiesPending)
-	}
 
 	pstatus, pv, _ := embedPreview(t, e)
 	if pstatus != http.StatusOK {
@@ -327,11 +314,8 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	if pv.EntitiesPending != st.EntitiesPending {
 		t.Fatalf("preview entities_pending = %d, want it to match status's %d", pv.EntitiesPending, st.EntitiesPending)
 	}
-	if len(pv.PerWorkspace) != 1 || pv.PerWorkspace[0].WorkspaceID != wsID {
-		t.Fatalf("preview per_workspace = %+v, want exactly one row for %s", pv.PerWorkspace, wsID)
-	}
-	if pv.PerWorkspace[0].EstimatedAiTokens == nil {
-		t.Fatal("per-workspace estimated_ai_tokens must be present (a work-shape floor, never fabricated as absent)")
+	if pv.EstimatedAiTokens == nil {
+		t.Fatal("estimated_ai_tokens must be present (a work-shape floor, never fabricated as absent)")
 	}
 }
 

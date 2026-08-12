@@ -45,14 +45,10 @@ func TestEveryRequiredApprovalFieldIsAnswered(t *testing.T) {
 	source := fullyPopulatedRow(t, now)
 	wired := reflect.ValueOf(wire(source, now))
 
-	// Non-zero is not enough for the two uuid-valued required fields, because
-	// they are the pair a mapper can confuse: WorkspaceId taken from the
-	// approval's own id would satisfy every zero-check here and name the wrong
-	// thing everywhere. So these two are checked by VALUE, against the row they
+	// Non-zero is not enough for the uuid-valued required field: an id taken
+	// from a neighbouring column would satisfy every zero-check here and name
+	// the wrong thing everywhere. So it is checked by VALUE, against the row it
 	// came from.
-	if got, want := wired.Interface().(crmcontracts.Approval).WorkspaceId, openapi_types.UUID(source.WorkspaceID); got != want {
-		t.Errorf("Approval.WorkspaceId = %s, want the row's own workspace %s", got, want)
-	}
 	if got, want := wired.Interface().(crmcontracts.Approval).Id, openapi_types.UUID(source.ID.UUID); got != want {
 		t.Errorf("Approval.Id = %s, want the row's own id %s", got, want)
 	}

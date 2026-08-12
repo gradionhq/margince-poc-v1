@@ -168,7 +168,6 @@ paths:
                   value:
                     user:
                       id: 018f3a1b-0000-7000-8000-000000000001
-                      workspace_id: 018f3a1b-0000-7000-8000-0000000000ff
                       email: jane@acme.com
                       display_name: Jane Rep
                       timezone: Europe/Berlin
@@ -615,7 +614,6 @@ paths:
                   value:
                     data:
                       - id: 018f3a1b-0000-7000-8000-000000000010
-                        workspace_id: 018f3a1b-0000-7000-8000-0000000000ff
                         full_name: Dana Buyer
                         first_name: Dana
                         last_name: Buyer
@@ -11050,10 +11048,9 @@ components:
         target URL that receives signed HTTP POSTs for a chosen subset of the published
         event catalog. The signing secret is NEVER returned here — it is surfaced once,
         at create/rotate, in `WebhookSubscriptionCreated`.
-      required: [id, workspace_id, owner_id, target_url, event_types, state, version]
+      required: [id, owner_id, target_url, event_types, state, version]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         target_url: { type: string, format: uri, description: HTTPS-only delivery endpoint. }
         event_types:
@@ -11408,7 +11405,7 @@ components:
     EmbedReindexStatus:
       type: object
       description: 'The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.'
-      required: [configured_identity, populated_identity, status, updated_at, reindex_needed, entities_pending, per_workspace]
+      required: [configured_identity, populated_identity, status, updated_at, reindex_needed, entities_pending]
       properties:
         configured_identity: { type: string, description: 'The live embed binding''s provider/model@dims (Task 9).' }
         populated_identity: { type: string, description: 'The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference.' }
@@ -11416,19 +11413,10 @@ components:
         updated_at: { type: string, format: date-time, description: 'When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.' }
         reindex_needed: { type: boolean, description: 'Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.' }
         entities_pending: { type: integer, description: 'Fleet-wide count of live entities lacking a current-identity embedding row.' }
-        per_workspace:
-          type: array
-          description: 'Per-workspace breakdown of entities_pending, one row per live tenant workspace.'
-          items:
-            type: object
-            required: [workspace_id, entities_pending]
-            properties:
-              workspace_id: { type: string, format: uuid }
-              entities_pending: { type: integer }
     EmbedReindexPreview:
       type: object
       description: 'The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call.'
-      required: [entities_pending, estimate_quality, computed_at, per_workspace]
+      required: [entities_pending, estimate_quality, computed_at]
       properties:
         entities_pending: { type: integer, description: 'Fleet-wide pending count (the same figure the status read reports).' }
         estimated_ai_tokens: { type: integer, description: 'Fleet-wide SUM(length(source text))/4 work-shape estimate across every pending entity (search/binding.go''s TokenSumByWorkspace); absent on estimator fault (ADR-0068).' }
@@ -11436,20 +11424,10 @@ components:
         estimate_quality: { type: string, enum: [heuristic], description: 'Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).' }
         currency: { type: string, description: 'ISO-4217; "USD" in v1.' }
         computed_at: { type: string, format: date-time }
-        per_workspace:
-          type: array
-          description: 'Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates.'
-          items:
-            type: object
-            required: [workspace_id, entities_pending, utilization_impact]
-            properties:
-              workspace_id: { type: string, format: uuid }
-              entities_pending: { type: integer }
-              estimated_ai_tokens: { type: integer, description: 'This workspace''s share of the fleet-wide estimate; absent on estimator fault.' }
-              utilization_impact:
-                type: string
-                enum: [normal, degraded, queued]
-                description: 'The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace''s band.'
+        utilization_impact:
+          type: string
+          enum: [normal, degraded, queued]
+          description: 'The AIRT-PARAM-9..11 budget band the installation would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds regardless of the band.'
     EmbedReindexStartRequest:
       type: object
       description: Optional confirm body. With no body, no drift check runs and force is off.
@@ -12109,10 +12087,9 @@ components:
     Person:
       type: object
       description: A contact. Mirrors the `person` table.
-      required: [id, workspace_id, full_name, source, captured_by, created_at, updated_at]
+      required: [id, full_name, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         first_name: { type: [string, 'null'] }
         last_name: { type: [string, 'null'] }
         full_name: { type: string, description: Always present (display name). }
@@ -12281,7 +12258,7 @@ components:
     Organization:
       type: object
       description: A company. Mirrors the `organization` table.
-      required: [id, workspace_id, display_name, source, captured_by, created_at, updated_at]
+      required: [id, display_name, source, captured_by, created_at, updated_at]
       properties:
         linkedin_url:
           type: [string, 'null']
@@ -12292,7 +12269,6 @@ components:
           readOnly: true
           description: The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         display_name: { type: string }
         is_anchor:
           type: boolean
@@ -14932,10 +14908,9 @@ components:
         (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
         (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
         org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
-      required: [id, workspace_id, kind, source, captured_by, created_at, updated_at]
+      required: [id, kind, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         kind: { type: string, enum: [employment, deal_stakeholder, project_stakeholder, partner_of, referred_by, co_sell_with] }
         person_id: { type: [string, 'null'], format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
@@ -14990,10 +14965,9 @@ components:
     Deal:
       type: object
       description: A deal. Mirrors the `deal` table.
-      required: [id, workspace_id, name, pipeline_id, stage_id, status, source, captured_by, created_at, updated_at]
+      required: [id, name, pipeline_id, stage_id, status, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         amount_minor: { type: [integer, 'null'], format: int64 }
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
@@ -15089,10 +15063,9 @@ components:
     Project:
       type: object
       description: A project — the body of work a client relationship is made of. Mirrors the `project` table.
-      required: [id, workspace_id, name, organization_id, phase, source, captured_by, created_at, updated_at]
+      required: [id, name, organization_id, phase, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         key:
           type: [string, 'null']
@@ -15186,10 +15159,9 @@ components:
     Stage:
       type: object
       description: A pipeline stage. Mirrors the `stage` table.
-      required: [id, workspace_id, pipeline_id, name, position, semantic, win_probability]
+      required: [id, pipeline_id, name, position, semantic, win_probability]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         pipeline_id: { type: string, format: uuid }
         name: { type: string }
         position: { type: integer, description: Unique within the pipeline. }
@@ -15227,10 +15199,9 @@ components:
     Pipeline:
       type: object
       description: A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
-      required: [id, workspace_id, name, is_default, position]
+      required: [id, name, is_default, position]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         is_default: { type: boolean, default: false, description: Exactly one default per workspace. }
         position: { type: integer, default: 0 }
@@ -15297,10 +15268,9 @@ components:
         `duration_seconds` only for meeting/call; `direction` is null for note/task. Setting a
         disallowed field for the kind returns `422 code: field_not_valid_for_kind` (the API rejects
         what the DB CHECK would reject, rather than 500-ing at write time).
-      required: [id, workspace_id, kind, occurred_at, source, captured_by, created_at, updated_at]
+      required: [id, kind, occurred_at, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         kind: { type: string, enum: [email, call, meeting, note, task, whatsapp, telegram] }
         subject: { type: [string, 'null'] }
         body: { type: [string, 'null'] }
@@ -15413,10 +15383,9 @@ components:
         A file hung off an entity. Mirrors the `attachment` table: the row is the
         system of record and the tenant anchor; the bytes live in object storage,
         addressed by an internal object key that is never exposed on the wire.
-      required: [id, workspace_id, entity_type, entity_id, filename, source, captured_by, created_at, scan_status]
+      required: [id, entity_type, entity_id, filename, source, captured_by, created_at, scan_status]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         entity_type: { type: string, enum: [person, organization, deal, activity, lead, project] }
         entity_id: { type: string, format: uuid }
         filename: { type: string }
@@ -15723,10 +15692,9 @@ components:
     Lead:
       type: object
       description: A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
-      required: [id, workspace_id, status, score, source, captured_by, created_at, updated_at]
+      required: [id, status, score, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         full_name: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email, description: Lowercased; lead-internal dedupe key. }
         linkedin_url: { type: [string, 'null'], description: 'Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.' }
@@ -15845,10 +15813,9 @@ components:
         organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
         and set only under a recorded consent grant (P12). Unattributable signals are
         `dropped`, never retained as a person-level dossier.
-      required: [id, workspace_id, kind, source_channel, resolution_state, severity, summary, evidence, status, detected_at, source, captured_by, created_at, updated_at]
+      required: [id, kind, source_channel, resolution_state, severity, summary, evidence, status, detected_at, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         kind:
           type: string
           enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other,
@@ -16010,10 +15977,9 @@ components:
     List:
       type: object
       description: A static membership set or a dynamic segment. Mirrors the `list` table.
-      required: [id, workspace_id, name, entity_type, list_type]
+      required: [id, name, entity_type, list_type]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         entity_type: { type: string, enum: [person, organization, deal, lead] }
         list_type: { type: string, enum: [static, dynamic], default: static }
@@ -16070,10 +16036,9 @@ components:
     Tag:
       type: object
       description: A tag. Mirrors the `tag` table.
-      required: [id, workspace_id, name]
+      required: [id, name]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         color: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
@@ -16117,10 +16082,9 @@ components:
         A per-user saved view (columns, sort, filter state) over one resource.
         Mirrors the `saved_view` table. V1 is private (owner-only); shared/team
         views are a fast-follow.
-      required: [id, workspace_id, owner_id, resource, name, query, version]
+      required: [id, owner_id, resource, name, query, version]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         shared_scope: { type: string, enum: [private, team, workspace], default: private, description: V1 enforces private. }
         resource: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
@@ -16189,10 +16153,9 @@ components:
     User:
       type: object
       description: A seat — human or first-party agent. Mirrors `app_user`.
-      required: [id, workspace_id, email, display_name, status, is_agent]
+      required: [id, email, display_name, status, is_agent]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         email: { type: string, format: email }
         display_name: { type: string }
         timezone: { type: string, default: UTC, description: IANA name. }
@@ -16255,10 +16218,9 @@ components:
     Team:
       type: object
       description: Mirrors the `team` table.
-      required: [id, workspace_id, name]
+      required: [id, name]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         parent_team_id: { type: [string, 'null'], format: uuid }
         created_at: { type: string, format: date-time }
@@ -16647,12 +16609,8 @@ components:
     JobHealth:
       type: object
       additionalProperties: false
-      required: [workspace_id, generated_at, kinds, recent_failures]
+      required: [generated_at, kinds, recent_failures]
       properties:
-        workspace_id:
-          type: string
-          format: uuid
-          description: The workspace these counts are scoped to — the caller's own.
         generated_at: { type: string, format: date-time }
         kinds:
           type: array
@@ -16692,13 +16650,9 @@ components:
     JobFailure:
       type: object
       additionalProperties: false
-      required: [kind, workspace_id, state, attempt, max_attempts, failed_at, reason]
+      required: [kind, state, attempt, max_attempts, failed_at, reason]
       properties:
         kind: { type: string }
-        workspace_id:
-          type: [string, 'null']
-          format: uuid
-          description: Null for a dispatcher.
         state: { type: string, enum: [retryable, discarded, cancelled] }
         attempt: { type: integer }
         max_attempts: { type: integer }
@@ -16714,10 +16668,9 @@ components:
     AuditLogEntry:
       type: object
       description: An append-only audit row. Mirrors the `audit_log` table.
-      required: [id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, occurred_at]
+      required: [id, actor_type, actor_id, action, entity_type, entity_id, occurred_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         actor_type: { type: string, enum: [human, agent, system, connector] }
         actor_id: { type: string, description: "User uuid, agent id, connector name (e.g. connector:gmail), or 'system'." }
         passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized an agent action. }
@@ -16777,10 +16730,9 @@ components:
         a column drop — CUSTOM-FIELDS-AC-13). Deliberately carries no
         `source`/`captured_by` — the catalog row itself has no such columns; provenance
         on create lives in the audit row.
-      required: [id, workspace_id, object, label, slug, type, status, column_name, created_by, created_at, updated_at]
+      required: [id, object, label, slug, type, status, column_name, created_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         object:
           type: string
           enum: [person, organization, deal, lead, activity]
@@ -17963,10 +17915,9 @@ components:
     Approval:
       type: object
       description: A staged 🟡 confirm-first action awaiting human decision.
-      required: [id, workspace_id, kind, status, proposed_by, created_at]
+      required: [id, kind, status, proposed_by, created_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         kind: { type: string, description: 'coldstart | send_email | advance_deal | promote_lead | overnight | transcript_proposal.' }
         status: { type: string, enum: [pending, approved, rejected, expired] }
         proposal_id: { type: [string, 'null'], format: uuid, description: 'For kind=coldstart, the ColdStartProposal this approval accepts (links the staged proposal to its approval item).' }
@@ -18109,11 +18060,10 @@ components:
         string. The server verifies the signature, that `jti` has not been consumed, that `exp` is
         in the future, and that `workspace_id`/`passport_id`/`tool`/`diff_hash` match the operation
         being executed; any mismatch → `403 code: approval_token_invalid`.
-      required: [jti, approval_id, workspace_id, tool, diff_hash, exp, single_use]
+      required: [jti, approval_id, tool, diff_hash, exp, single_use]
       properties:
         jti: { type: string, description: Unique token id; recorded as consumed on first use (replay → 403). }
         approval_id: { type: string, format: uuid, description: The Approval this token authorizes. }
-        workspace_id: { type: string, format: uuid }
         passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport the token was minted for; null for a human-minted token. }
         on_behalf_of: { type: [string, 'null'], format: uuid }
         tool: { type: string, description: 'The exact 🟡 operation authorized (e.g. send_email, advance_deal). A token for one tool cannot authorize another.' }
@@ -18168,10 +18118,9 @@ components:
     # ---- Per-purpose consent (A22/ADR-0011) ----
     ConsentPurpose:
       type: object
-      required: [id, workspace_id, key, label, created_at]
+      required: [id, key, label, created_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         key: { type: string, description: 'Stable machine key (e.g. transactional, marketing_email, profiling). Referenced by send_email.consent_purpose.' }
         label: { type: string }
         requires_double_opt_in: { type: boolean, default: false, description: 'When true, a grant is only effective after a confirmed DOI event (German email norm).' }
@@ -18758,10 +18707,9 @@ components:
     Product:
       type: object
       description: A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator.
-      required: [id, workspace_id, name, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at]
+      required: [id, name, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string }
         sku: { type: [string, 'null'], description: Optional; unique per workspace while live. }
         description: { type: [string, 'null'] }
@@ -18824,10 +18772,9 @@ components:
         Mirrors the `offer_template` table. Deliberately carries no source/captured_by —
         like Quota/CustomField, this is workspace-authored config, not a captured record;
         provenance lives in the audit row, not this schema.
-      required: [id, workspace_id, name, locale, is_default, layout, version, created_at, updated_at]
+      required: [id, name, locale, is_default, layout, version, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         name: { type: string, description: Unique per workspace among live (non-archived) templates. }
         locale: { type: string, default: de-DE, description: 'DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.' }
         is_default: { type: boolean, default: false, description: At most one default template per locale (partial unique index; OFFER-DDL-4). }
@@ -18892,10 +18839,9 @@ components:
     Offer:
       type: object
       description: A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items.
-      required: [id, workspace_id, deal_id, offer_number, revision, status, currency, net_minor, tax_minor, gross_minor, line_items, source, captured_by, created_at, updated_at]
+      required: [id, deal_id, offer_number, revision, status, currency, net_minor, tax_minor, gross_minor, line_items, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         deal_id: { type: string, format: uuid }
         offer_number: { type: string, readOnly: true, description: 'Human-facing Angebot number, minted server-side, unique per workspace (with revision).' }
         revision: { type: integer, readOnly: true, description: Bumped when a sent offer is regenerated; the prior revision becomes superseded. }
@@ -19211,10 +19157,9 @@ components:
         created_by (CF-T01), RD-DDL-2's column list has none. Attainment is a separate
         read (getQuotaAttainment, RD-WIRE-3) — this schema never carries attainment
         fields itself.
-      required: [id, workspace_id, period_start, period_end, target_minor, currency, created_at, updated_at]
+      required: [id, period_start, period_end, target_minor, currency, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
         owner_id:
           type: [string, 'null']
           format: uuid

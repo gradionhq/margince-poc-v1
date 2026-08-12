@@ -82,7 +82,6 @@ func wireUser(u userRow) crmcontracts.User {
 	created := u.CreatedAt
 	return crmcontracts.User{
 		Id:          openapi_types.UUID(u.ID),
-		WorkspaceId: openapi_types.UUID(u.WorkspaceID),
 		Email:       openapi_types.Email(u.Email),
 		DisplayName: u.DisplayName,
 		Status:      crmcontracts.UserStatus(u.Status),
@@ -129,7 +128,6 @@ func wireTeam(tm teamRow) crmcontracts.Team {
 	count := tm.MemberCount
 	return crmcontracts.Team{
 		Id:          openapi_types.UUID(tm.ID),
-		WorkspaceId: openapi_types.UUID(tm.WorkspaceID),
 		Name:        tm.Name,
 		MemberCount: &count,
 		CreatedAt:   &created,

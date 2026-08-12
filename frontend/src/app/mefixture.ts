@@ -54,7 +54,6 @@ export function meFixture({
   const me: MeResponse = {
     user: {
       id: "00000000-0000-4000-8000-000000000001",
-      workspace_id: "00000000-0000-4000-8000-000000000002",
       email: "test@example.test",
       display_name: "Test User",
       timezone: "Europe/Berlin",

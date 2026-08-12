@@ -19,7 +19,6 @@ const BASE: Organization360 = {
   as_of: "2026-08-07T09:00:00Z",
   organization: {
     id: "o-1",
-    workspace_id: "w-1",
     display_name: "Acme",
     source: "manual",
     captured_by: "human:test",
@@ -177,7 +176,6 @@ describe("the tiles, and which record each one picks", () => {
         data: [
           {
             id: "act-1",
-            workspace_id: "w-1",
             kind: "email",
             is_done: false,
             subject: "Questions about implementation capacity",
@@ -189,7 +187,6 @@ describe("the tiles, and which record each one picks", () => {
           },
           {
             id: "act-2",
-            workspace_id: "w-1",
             kind: "email",
             is_done: false,
             subject: "An older thread",
@@ -221,7 +218,6 @@ describe("the tiles, and which record each one picks", () => {
         data: [
           {
             id: "act-task",
-            workspace_id: "w-1",
             kind: "task",
             is_done: false,
             subject: "Chase the signature",
@@ -233,7 +229,6 @@ describe("the tiles, and which record each one picks", () => {
           },
           {
             id: "act-mail",
-            workspace_id: "w-1",
             kind: "email",
             is_done: false,
             subject: "Questions about capacity",
@@ -261,7 +256,6 @@ describe("the tiles, and which record each one picks", () => {
         data: [
           {
             id: "act-future",
-            workspace_id: "w-1",
             kind: "meeting",
             is_done: false,
             subject: "Executive alignment",
@@ -273,7 +267,6 @@ describe("the tiles, and which record each one picks", () => {
           },
           {
             id: "act-past",
-            workspace_id: "w-1",
             kind: "email",
             is_done: false,
             subject: "Where we landed on scope",

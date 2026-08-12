@@ -18,7 +18,6 @@ type Story = StoryObj;
 
 const org = {
   id: "o-1",
-  workspace_id: "w-1",
   display_name: "Brandt Automotive GmbH",
   industry: "Automotive",
   size_band: "201-500",

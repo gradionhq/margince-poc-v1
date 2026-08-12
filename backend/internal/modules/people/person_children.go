@@ -210,7 +210,6 @@ func scanPerson(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcon
 	}
 
 	p.Id = openapi_types.UUID(id)
-	p.WorkspaceId = openapi_types.UUID(wsID)
 	p.OwnerId = uuidPtr(ownerID)
 	p.MergedIntoId = uuidPtr(mergedInto)
 	p.ConvertedFromLeadId = uuidPtr(fromLead)

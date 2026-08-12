@@ -68,7 +68,6 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	}
 
 	l.Id = openapi_types.UUID(id)
-	l.WorkspaceId = openapi_types.UUID(wsID)
 	l.OwnerId = uuidPtr(ownerID)
 	l.ProjectId = uuidPtr(projectID)
 	l.PromotedPersonId = uuidPtr(promotedPerson)

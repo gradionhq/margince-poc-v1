@@ -140,7 +140,6 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	}
 
 	o.Id = openapi_types.UUID(id)
-	o.WorkspaceId = openapi_types.UUID(wsID)
 	o.OwnerId = uuidPtr(ownerID)
 	o.ParentOrgId = uuidPtr(parentID)
 	o.MergedIntoId = uuidPtr(mergedInto)

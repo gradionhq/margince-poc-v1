@@ -46,7 +46,6 @@ function jsonResponse(body: unknown, status = 200) {
 
 const baseOffer = {
   id: "o-1",
-  workspace_id: "w",
   deal_id: "d-1",
   offer_number: "ANG-2026-0007",
   revision: 2,

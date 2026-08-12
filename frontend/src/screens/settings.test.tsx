@@ -1178,14 +1178,12 @@ function settingsStub(opts: {
         data: [
           {
             id: "pl",
-            workspace_id: "w",
             name: "Sales",
             is_default: true,
             position: 0,
             stages: [
               {
                 id: "s1",
-                workspace_id: "w",
                 pipeline_id: "pl",
                 name: "Qualify",
                 position: 1,
@@ -1269,7 +1267,6 @@ describe("PipelinesCard", () => {
 // the expand panel has every field to render honestly.
 const auditEntry = {
   id: "al-1",
-  workspace_id: "w",
   actor_type: "agent",
   actor_id: "agent:sdr",
   passport_id: "pp-9",

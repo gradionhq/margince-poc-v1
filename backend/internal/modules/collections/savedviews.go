@@ -55,7 +55,6 @@ func wireSavedView(v savedViewRow) crmcontracts.SavedView {
 	scope := crmcontracts.SavedViewSharedScope(v.SharedScope)
 	return crmcontracts.SavedView{
 		Id:          openapi_types.UUID(v.ID.UUID),
-		WorkspaceId: openapi_types.UUID(v.WorkspaceID.UUID),
 		OwnerId:     openapi_types.UUID(v.OwnerID.UUID),
 		SharedScope: &scope,
 		Resource:    crmcontracts.SavedViewResource(v.Resource),

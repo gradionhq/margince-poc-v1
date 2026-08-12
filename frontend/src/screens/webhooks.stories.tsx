@@ -16,7 +16,6 @@ const page = { next_cursor: null, has_more: false };
 
 const activeSubscription = {
   id: "sub-active",
-  workspace_id: "w1",
   owner_id: "u1",
   target_url: "https://hooks.acme.test/margince",
   event_types: ["deal.stage_changed", "lead.promoted", "offer.accepted"],
@@ -29,7 +28,6 @@ const activeSubscription = {
 
 const pausedSubscription = {
   id: "sub-paused",
-  workspace_id: "w1",
   owner_id: "u1",
   target_url: "https://hooks.partner.test/inbound",
   event_types: ["organization.updated"],
@@ -155,7 +153,6 @@ export const SecretRevealed: Story = {
         {
           subscription: {
             id: "sub-new",
-            workspace_id: "w1",
             owner_id: "u1",
             target_url: "https://hooks.acme.test/inbound",
             event_types: ["deal.stage_changed"],

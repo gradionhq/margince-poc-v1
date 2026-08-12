@@ -26,7 +26,6 @@ const PURPOSES = {
   data: [
     {
       id: "p1",
-      workspace_id: "w",
       key: "transactional",
       label: "Deal messages",
       requires_double_opt_in: false,

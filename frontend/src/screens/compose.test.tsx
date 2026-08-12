@@ -68,7 +68,6 @@ const PURPOSES = {
   data: [
     {
       id: "p1",
-      workspace_id: "w",
       key: "transactional",
       label: "Deal messages",
       requires_double_opt_in: false,
@@ -76,7 +75,6 @@ const PURPOSES = {
     },
     {
       id: "p2",
-      workspace_id: "w",
       key: "marketing_email",
       label: "Marketing email",
       requires_double_opt_in: true,
@@ -183,7 +181,6 @@ afterEach(() => {
 
 const activity202: Activity = {
   id: "act-1",
-  workspace_id: "w",
   kind: "email",
   subject: "Re: Q3",
   occurred_at: "2026-07-01T00:00:00Z",
@@ -1586,7 +1583,6 @@ describe("TimelineActions", () => {
       "GET /people/p-1": () =>
         jsonResponse({
           id: "p-1",
-          workspace_id: "w",
           full_name: "Jane Doe",
           reachability: [
             {
@@ -1716,7 +1712,6 @@ describe("ComposeModal started from an account", () => {
           as_of: "2026-08-09T09:00:00Z",
           organization: {
             id: "org-1",
-            workspace_id: "w",
             display_name: "Acme",
             source: "manual",
             captured_by: "human:u1",

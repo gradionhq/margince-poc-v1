@@ -401,7 +401,6 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	}
 
 	a.Id = openapi_types.UUID(id)
-	a.WorkspaceId = openapi_types.UUID(wsID)
 	a.AssigneeId = uuidPtr(assigneeID)
 	a.Kind = crmcontracts.ActivityKind(kind)
 	if direction != nil {

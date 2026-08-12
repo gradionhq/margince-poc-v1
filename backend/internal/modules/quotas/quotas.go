@@ -444,7 +444,6 @@ func scanQuota(row pgx.Row, extra ...any) (crmcontracts.Quota, error) {
 		return q, err
 	}
 	q.Id = openapi_types.UUID(id)
-	q.WorkspaceId = openapi_types.UUID(wsID)
 	q.OwnerId = uuidPtr(ownerID)
 	q.TeamId = uuidPtr(teamID)
 	q.PeriodStart = openapi_types.Date{Time: periodStart}

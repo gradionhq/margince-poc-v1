@@ -102,7 +102,6 @@ function stubApi(
 
 const person = {
   id: "p1",
-  workspace_id: "w",
   full_name: "Petra Muster",
   captured_by: "human:u1",
   source: "manual",
@@ -115,7 +114,6 @@ const createdActivity = (body: unknown) =>
   jsonResponse(
     {
       id: "a-new",
-      workspace_id: "w",
       kind: (body as { kind: string }).kind,
       subject: (body as { subject: string }).subject,
       occurred_at: "2026-07-06T09:00:00Z",

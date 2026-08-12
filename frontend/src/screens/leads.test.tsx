@@ -65,7 +65,6 @@ function render(ui: ReactNode) {
 
 const anna = {
   id: "p-1",
-  workspace_id: "w-1",
   full_name: "Anna Weber",
   captured_by: "human:u-1",
   source: "manual",
@@ -74,7 +73,6 @@ const anna = {
 
 const lead = {
   id: "l-1",
-  workspace_id: "w-1",
   full_name: "Jonas Petersen",
   email: "jonas@nordwind.example",
   company_name: "Nordwind Logistik",

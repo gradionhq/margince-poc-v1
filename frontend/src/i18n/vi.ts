@@ -3944,7 +3944,7 @@ export const vi = {
   "embedreindex.estimateCost": "Chi phí ước tính:",
   "embedreindex.estimateQualityHeuristic":
     "Ước tính theo kinh nghiệm — mức sàn cho khối lượng khi chưa có số liệu, không phải chi tiêu đã quan sát được.",
-  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức theo từng tổ chức",
+  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức",
   "embedreindex.impact.normal": "bình thường",
   "embedreindex.impact.degraded": "sẽ chuyển sang chế độ tiết kiệm",
   "embedreindex.impact.queued": "sẽ bị xếp hàng",

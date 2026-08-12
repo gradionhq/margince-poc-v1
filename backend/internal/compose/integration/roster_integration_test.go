@@ -23,7 +23,6 @@ import (
 
 type rosterUser struct {
 	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
@@ -35,7 +34,6 @@ type rosterUser struct {
 
 type rosterTeam struct {
 	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
 	Name        string `json:"name"`
 	MemberCount int    `json:"member_count"`
 }
@@ -164,12 +162,6 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	if len(users.Data) != 4 {
 		t.Fatalf("roster size = %d, want exactly the 4 workspace-A members: %+v", len(users.Data), users.Data)
 	}
-	// workspace_id is required on User and must be the caller's workspace.
-	for _, u := range users.Data {
-		if u.WorkspaceID != wsA.String() {
-			t.Errorf("user %q workspace_id = %q, want %q", u.Email, u.WorkspaceID, wsA)
-		}
-	}
 	// The role aggregate is tenant-scoped too, not just the member rows: B's
 	// uniquely-keyed role must appear nowhere in A's page. Counting the keys
 	// actually seen first, because a regression that stopped emitting them
@@ -219,9 +211,6 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	}
 	if desk.MemberCount != 2 {
 		t.Errorf("Deal Desk member_count = %d, want 2", desk.MemberCount)
-	}
-	if desk.WorkspaceID != wsA.String() {
-		t.Errorf("Deal Desk workspace_id = %q, want %q", desk.WorkspaceID, wsA)
 	}
 }
 

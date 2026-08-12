@@ -15,16 +15,15 @@ import (
 
 func wireSubscription(s Subscription) crmcontracts.WebhookSubscription {
 	return crmcontracts.WebhookSubscription{
-		Id:          openapi_types.UUID(s.ID),
-		WorkspaceId: openapi_types.UUID(s.WorkspaceID),
-		OwnerId:     openapi_types.UUID(s.OwnerID),
-		TargetUrl:   s.TargetURL,
-		EventTypes:  s.EventTypes,
-		State:       crmcontracts.WebhookSubscriptionState(s.State),
-		Version:     s.Version,
-		CreatedAt:   &s.CreatedAt,
-		UpdatedAt:   &s.UpdatedAt,
-		ArchivedAt:  s.ArchivedAt,
+		Id:         openapi_types.UUID(s.ID),
+		OwnerId:    openapi_types.UUID(s.OwnerID),
+		TargetUrl:  s.TargetURL,
+		EventTypes: s.EventTypes,
+		State:      crmcontracts.WebhookSubscriptionState(s.State),
+		Version:    s.Version,
+		CreatedAt:  &s.CreatedAt,
+		UpdatedAt:  &s.UpdatedAt,
+		ArchivedAt: s.ArchivedAt,
 	}
 }
 

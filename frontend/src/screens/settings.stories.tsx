@@ -187,14 +187,12 @@ const pipelinesFixture = {
   data: [
     {
       id: "pl",
-      workspace_id: "w",
       name: "Sales",
       is_default: true,
       position: 0,
       stages: [
         {
           id: "s1",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Qualify",
           position: 1,
@@ -203,7 +201,6 @@ const pipelinesFixture = {
         },
         {
           id: "s2",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Proposal",
           position: 2,
@@ -212,7 +209,6 @@ const pipelinesFixture = {
         },
         {
           id: "s3",
-          workspace_id: "w",
           pipeline_id: "pl",
           name: "Won",
           position: 3,
@@ -264,7 +260,6 @@ const auditLogPage = {
   data: [
     {
       id: "al-1",
-      workspace_id: "w",
       actor_type: "agent",
       actor_id: "agent:sdr",
       passport_id: "pp-9",

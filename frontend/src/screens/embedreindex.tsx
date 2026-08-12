@@ -27,8 +27,7 @@ import { problemMessageOf, throwProblem } from "./common";
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
-type UtilizationImpact =
-  ReindexPreview["per_workspace"][number]["utilization_impact"];
+type UtilizationImpact = NonNullable<ReindexPreview["utilization_impact"]>;
 
 // Shared by the settings card and the app-shell banner so a successful
 // confirm's setQueryData (below) updates both surfaces from the one write.
@@ -204,26 +203,21 @@ function EstimateBody({
         </p>
       )}
       <p className="t-small">{t("embedreindex.estimateQualityHeuristic")}</p>
-      {preview.per_workspace.length > 0 && (
+      {preview.utilization_impact && (
         <>
           <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
             {t("embedreindex.utilizationTitle")}
           </p>
-          <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-            {preview.per_workspace.map((row) => (
-              <li key={row.workspace_id}>
-                <Badge tone={bandTone(row.utilization_impact)}>
-                  {impactLabel(row.utilization_impact, t)}
-                </Badge>{" "}
-                <span className="t-small">
-                  {row.workspace_id} ·{" "}
-                  {t("embedreindex.workspacePending", {
-                    count: formatNumber(row.entities_pending, locale),
-                  })}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <p>
+            <Badge tone={bandTone(preview.utilization_impact)}>
+              {impactLabel(preview.utilization_impact, t)}
+            </Badge>{" "}
+            <span className="t-small">
+              {t("embedreindex.workspacePending", {
+                count: formatNumber(preview.entities_pending, locale),
+              })}
+            </span>
+          </p>
         </>
       )}
     </div>

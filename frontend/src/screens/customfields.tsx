@@ -511,7 +511,6 @@ function stagedField(draft: NewFieldDraft, createdBy: string): CustomField {
   const now = new Date().toISOString();
   return {
     id: STAGED_ID,
-    workspace_id: "",
     object: draft.object,
     label: draft.label,
     slug: slug(draft.label),

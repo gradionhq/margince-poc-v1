@@ -40,7 +40,6 @@ function render(ui: ReactNode) {
 
 const ceilingCf: CustomField = {
   id: "cf-1",
-  workspace_id: "ws-1",
   object: "deal",
   label: "Budget ceiling",
   slug: "budget_ceiling",
