@@ -215,10 +215,9 @@ func canonicalFromMapping(t *testing.T, objectClass, fixture string, incumbent m
 // nil, a placeholder name, the mirror's own sync instant), so a mapped slot
 // that still reads the same is a slot the mirror's value never reached, however
 // non-empty the fallback looks. The comparison is only sound because the two
-// runs share an identity and a request context: a child row's synthetic id is
-// derived from the parent id and the workspace stamp is read from the context,
-// so two independently generated ones would differ in slots the mirror never
-// touched.
+// runs share a record identity: a child row's synthetic id is derived from the
+// parent id, so two independently minted ones would differ in slots the mirror
+// never touched.
 func wireBodyPair[T any](t *testing.T, et datasource.EntityType, fields map[string]any,
 	assemble func(context.Context, datasource.Record) (T, error),
 ) (mirrored, unmirrored map[string]any) {

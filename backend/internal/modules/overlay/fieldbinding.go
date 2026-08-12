@@ -90,10 +90,6 @@ func mirrorStructuralBindings() []FieldBinding {
 			Reason: "Bridged from the incumbent's own object id by externalIDToUUID, not carried as a mirrored field.",
 		},
 		{
-			WireSlot: "workspace_id", Disposition: DispositionNativeOnly,
-			Reason: "Stamped from the request's own workspace; the mirror row's workspace is that workspace by construction.",
-		},
-		{
 			WireSlot: "source", Disposition: DispositionNativeOnly,
 			Reason: "Always the overlay provenance stamp; a mirrored record has exactly one source.",
 		},
