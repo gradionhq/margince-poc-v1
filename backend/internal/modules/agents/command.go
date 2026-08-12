@@ -56,6 +56,8 @@ type GovernedCall interface {
 }
 
 // Bind pairs one command with the resolver that speaks its language.
+//
+//nolint:ireturn // the erasure IS the return type: the bound pair cannot be named without the type parameter the caller has just spent, which is the whole reason a door can carry it
 func Bind[T any](resolver GovernanceResolver[T], cmd T) GovernedCall {
 	return boundCommand[T]{resolver: resolver, cmd: cmd}
 }
@@ -97,7 +99,9 @@ func NewArchiveResolver(records datasource.SystemOfRecordProvider) GovernanceRes
 	return archiveResolver{records: records}
 }
 
-type archiveResolver struct{ records datasource.SystemOfRecordProvider }
+type archiveResolver struct {
+	records datasource.SystemOfRecordProvider
+}
 
 // Subject names the row the approval binds to.
 //

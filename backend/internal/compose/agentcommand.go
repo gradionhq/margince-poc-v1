@@ -53,6 +53,8 @@ var restCommands = map[string]func(pol agentPolicy, records datasource.SystemOfR
 // here a second time: the entry is generated from the contract's x-mcp-tool
 // annotation, so a type spelled again in this file could disagree with the one
 // the gate admitted against.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
 func archiveCommand(pol agentPolicy, records datasource.SystemOfRecordProvider, r *http.Request) (agents.GovernedCall, error) {
 	id, err := ids.Parse(chi.URLParam(r, "id"))
 	if err != nil {

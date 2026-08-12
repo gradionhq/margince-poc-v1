@@ -52,12 +52,17 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 // delegates: the refusals and the staged subject live in the resolver
 // (command.go), where the REST door reaches the same ones for the same
 // operation.
+//
+// This door's wire shape IS the command's field set — the arguments differ
+// only in carrying JSON tags — so it converts rather than restating the fields,
+// and a command that grows one fails to compile here instead of quietly
+// leaving it unset.
 func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args archiveArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	return StageSubject(ctx, Bind(NewArchiveResolver(t.p), ArchiveCommand{RecordType: args.RecordType, ID: args.ID}))
+	return StageSubject(ctx, Bind(NewArchiveResolver(t.p), ArchiveCommand(args)))
 }
 
 func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
