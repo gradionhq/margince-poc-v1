@@ -552,7 +552,8 @@ The cost of a slice is fixture entanglement, not the move itself. #859 took the
 channel suites out (14.8s) and had to leave four neighbours behind, each sharing
 one preflight fixture with suites that were not moving; #866 took the webhook
 suites (13.3s, and the long pole's test seconds fell 183.6s → 170.6s to match);
-#913 took the OAuth + MCP surface (13.25s).
+#913 took the OAuth + MCP surface (13.25s); #964 took the custom-field catalog and
+its wire (7.22s).
 Two or three shared helpers per slice have to be promoted to importable homes
 first, and each suite package's `doc.go` records where its boundary fell and why.
 Reaching the ~80s floor means repeating that several times — a programme, not a
@@ -561,13 +562,19 @@ follow-up. Each slice also subjects every MOVED line to the full strict linter
 surfaced an unchecked type assertion and a naming violation the un-gated original
 had carried.
 
-**Expect one more slice to be worth it, not five.** #913 was the third (after #859
-and #866), and each took 13–15s of the parent's measured test seconds. `./migrations`
-(96s, 23 tests — replay, which does not split the same way) and `./internal/compose`
-(92s) are the next poles, so a FOURTH slice roughly reaches them and a fifth buys
-nothing until those two are addressed. Re-measure before starting one: the parent's
-own seconds moved in both directions across these three PRs, because `main` kept
-adding tests to it while the slices took them out.
+**Splitting is now spent — do not start a fifth slice.** Four landed (#859, #866,
+#913, #964), taking 14.8s, 13.3s, 13.25s and 7.22s of the parent's measured test
+seconds. `./migrations` (96s, 23 tests — replay, which does not split the same way)
+and `./internal/compose` (92s) are now level with what is left of the parent, so the
+next slice moves the LANE by nothing: its wall clock stops being set by the package
+you are cutting. Those two are the work, and neither is a split.
+
+The falling return is visible in the sizes above, and the reason is that the groups
+ran out before the seconds did: #964 was already down to 7.22s and had to leave 3s
+behind because the remaining suites share fixtures across the boundary. Re-measure
+before believing any of these numbers — the parent's own seconds moved in both
+directions across the four PRs, because `main` kept adding tests to it while the
+slices took them out.
 
 A slice also perturbs what has run by the time each surviving test executes, which
 finds tests that depend on state a neighbour left. #913 turned one red that way
