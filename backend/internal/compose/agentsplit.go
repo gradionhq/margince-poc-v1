@@ -32,9 +32,13 @@ import (
 // operationId spelled the same way.
 const opRenameCustomField = "renameCustomField"
 
-// The remaining six action-shaped ops named below are ALSO both this file's
-// and agentcommand.go's restCommands table's (agentcommandnested.go): named
-// once here so the two do not spell an operationId twice each.
+// The remaining five action-shaped ops named below are ALSO both this
+// file's and agentcommand.go's restCommands table's
+// (agentcommandnested.go): named once here so the two do not spell an
+// operationId twice each. opUpsertPartner is named alongside them for the
+// same reason — agentcommand.go's restCommands entry needs the identical
+// spelling — even though (its own comment below says why) upsertPartner is
+// NOT a member of the map these five populate.
 const (
 	opAddListMember       = "addListMember"
 	opApplyTag            = "applyTag"
@@ -46,12 +50,23 @@ const (
 
 // actionShapedUpdateOps are the update_record twins whose body is a
 // membership/apply request naming ANOTHER record, or a mutation of a
-// CHILD record (an offer's line items), not a field patch on the routed
+// CHILD record (an offer's line items), NOT a field patch on the routed
 // record itself — there is no human-typed field of the routed record the
-// call could overwrite, so the ownership probe has nothing to ask and the
-// call runs 🟢 by design (an op absent here gets the full split; the
-// deliberate inclusion is upsertPartner, which the resolver maps
-// partner→organization so its patch IS a field patch on that org).
+// call could overwrite, so the ownership probe has nothing to ask, and the
+// call runs 🟢 by design. Membership is earned by that one test; an op
+// absent here gets the full split instead.
+//
+// upsertPartner LOOKS like it belongs — PUT .../partner, a body naming
+// partner fields — but is deliberately ABSENT: the resolver
+// (commandnested.go) maps partner→organization, so this patch really IS a
+// field patch on the routed record (the organization), which is exactly
+// the case this map exists to exclude. An agent overwriting a human-typed
+// partner field (cert_status, margin_tier, …) has to stage, the same §2.1
+// precedence protection every ordinary organization field patch gets —
+// adding upsertPartner here would silently disable that protection for
+// this one operation. TestUpsertPartnerStagesAHumanOwnedPartnerField pins
+// the split running for it.
+//
 // renameCustomField is here for a different reason: its target is a
 // catalog CONFIG row, not record data — §2.1 human-edit precedence
 // protects human-typed record values from agent overwrite, while a
@@ -65,7 +80,6 @@ var actionShapedUpdateOps = map[string]bool{
 	opUpdateOfferLineItem: true,
 	opRemoveOfferLineItem: true,
 	opRenameCustomField:   true,
-	opUpsertPartner:       true,
 }
 
 // splitOrRedeemUpdate is the per-field human-edit-precedence split

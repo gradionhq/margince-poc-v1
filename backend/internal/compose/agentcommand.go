@@ -114,15 +114,23 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"setProjectStakeholder":           setStakeholderCommand,
 	"removeProjectStakeholder":        removeStakeholderCommand,
 
-	// The seven bespoke auto-execute commands (agentcommandnested.go): nested
-	// creates and child/membership actions that are 🟢 today, so none of
-	// these has ever staged — registered anyway, because the route walk's
-	// guess (stagedTargetByRoute) is the one this table replaces family by
-	// family, and for createOffer that guess is provably wrong today
-	// (gradionhq/margince-poc-v1#1046). Six of the seven share their
-	// operationId constant with agentsplit.go's actionShapedUpdateOps
-	// (opAddListMember's own comment says why); createOffer has no such
-	// twin, since create_record never reaches the split.
+	// The seven bespoke auto-execute commands (agentcommandnested.go). Six of
+	// the seven — every one but upsertPartner — are nested creates or
+	// child/membership actions that are 🟢 today and have NEVER staged:
+	// registered anyway, because the route walk's guess (stagedTargetByRoute)
+	// is the one this table replaces family by family, and for createOffer
+	// that guess is provably wrong today (gradionhq/margince-poc-v1#1046).
+	// upsertPartner is the one exception: it stages TODAY, whenever
+	// splitOrRedeemUpdate's per-field probe finds a human-owned conflict
+	// (agentsplit.go's actionShapedUpdateOps — upsertPartner is deliberately
+	// NOT a member — explains why), so this entry is already load-bearing,
+	// not merely future-proofing. Five of the seven share their operationId
+	// constant with agentsplit.go's own (opAddListMember's own comment says
+	// why); upsertPartner shares the CONSTANT with agentsplit.go too (its
+	// restCommands entry and its exclusion from actionShapedUpdateOps must
+	// name the identical operationId), though it is not a MEMBER of that
+	// map; createOffer has no such twin at all, since create_record never
+	// reaches the split.
 	opAddListMember:       addListMemberCommand,
 	opApplyTag:            applyTagCommand,
 	opAddOfferLineItem:    addOfferLineItemCommand,

@@ -303,6 +303,11 @@ func (r createOfferResolver) Guards(ctx context.Context, cmd CreateOfferCommand)
 // ORGANIZATION, and the upsert IS a field patch on that organization's
 // partner extension, so the approval binds to the organization exactly as
 // commandsidecar.go's four resolvers do (organizationSidecarRecordType).
+// This is also why upsertPartner is deliberately EXCLUDED from
+// agentsplit.go's actionShapedUpdateOps: that set is for operations whose
+// body is NOT a field patch on the routed record, and this one's body is
+// exactly that, so it must take the full §2.1 human-edit-precedence split
+// rather than run unconditionally 🟢.
 type UpsertPartnerCommand struct {
 	ID ids.UUID
 }

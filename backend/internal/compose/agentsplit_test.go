@@ -157,3 +157,46 @@ func TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord(t *testing.T) {
 			"caller gets must name why the patch cannot be governed here", rec.Code, http.StatusUnprocessableEntity)
 	}
 }
+
+// TestUpsertPartnerStagesAHumanOwnedPartnerField pins actionShapedUpdateOps'
+// own claim about upsertPartner (its comment, above the map): the resolver
+// maps partner→organization, so this patch IS a field patch on the routed
+// organization, and an agent overwriting a human-typed partner field
+// (cert_status here) has to STAGE, the same §2.1 precedence protection
+// every ordinary organization field patch gets — not silently apply, which
+// is what would happen if upsertPartner were ever added to the map.
+//
+// Run through admitAgentCall — the layer that actually reads
+// actionShapedUpdateOps to decide between splitOrRedeemUpdate and a bare
+// next.ServeHTTP (agentgate.go) — rather than splitOrRedeemUpdate directly,
+// so this test is sensitive to the membership question itself, not only to
+// splitOrRedeemUpdate's own internals. Verified by hand: adding
+// `opUpsertPartner: true` back into actionShapedUpdateOps and rerunning
+// this test fails it — the call takes the bare next.ServeHTTP branch
+// instead, the handler runs, and nothing stages.
+func TestUpsertPartnerStagesAHumanOwnedPartnerField(t *testing.T) {
+	orgID := ids.NewV7()
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "upsertPartner", Access: accessTool, Tool: "update_record", RecordType: recordTypePartner}
+	body := []byte(`{"cert_status":"certified"}`)
+	req := operandRequest(http.MethodPut, "/v1/organizations", orgID.String(), "", "", body)
+	rec := httptest.NewRecorder()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the handler ran — cert_status is human-owned, so the write must stage, not apply")
+	})
+
+	admitAgentCall(rec, req, next, admissionOutcome{
+		staging: staging, ownership: allHumanOwned{},
+		commands: restCommandDeps{records: seamRecord{}}, pol: pol, body: body,
+	})
+
+	if staging.last.TargetType != "organization" || staging.last.TargetID != orgID {
+		t.Fatalf("staged target = (%s,%s), want (organization,%s) — the resolver maps partner→organization, "+
+			"so the approval binds to the org whose field this patch actually sets",
+			staging.last.TargetType, staging.last.TargetID, orgID)
+	}
+	if rec.Code == http.StatusOK {
+		t.Errorf("status = %d, want a refusal naming the staged approval — a human-owned field applied "+
+			"silently is the §2.1 precedence protection this test exists to hold", rec.Code)
+	}
+}
