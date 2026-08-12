@@ -135,9 +135,14 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 
 	// The deal grants, not the catalog ones: this arm creates a DEAL in tenant B,
 	// so the perms it needs are the ones the write goes through.
-	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t), dealCFVPerms)
-	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
-	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
+	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), dealCFVPerms)
+	// Tenant B's own store: a write lands in the workspace its handle names, so
+	// the tenant-A store would stamp B's ids into A's transaction and RLS would
+	// refuse them. The catalog service is shared on purpose — the physical
+	// column is one column, which is what this arm is about.
+	storeB := deals.NewStore(f.e.DBFor(wsB), installseam.Deals()).WithFieldCatalog(f.svc)
+	pipelineB, stageB := seedDealFixtureIn(ctxB, t, storeB)
+	inB, err := storeB.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
 		CustomFields: map[string]any{col: "enterprise"},
 	})

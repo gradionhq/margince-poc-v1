@@ -8,6 +8,9 @@ package integration
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -38,4 +41,22 @@ func (e *Env) DBFor(ws ids.UUID) *database.DB {
 // carry it.
 func harnessDB(pool *pgxpool.Pool, ws ids.UUID) *database.DB {
 	return database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+}
+
+// DealsFor and PeopleFor are the harness stores of ANOTHER workspace, for the
+// cross-tenant suites that seed a second tenant and then drive it through the
+// real writer.
+//
+// The workspace a store writes is a property of its handle, so seeding tenant B
+// through the harness's own store would stamp B's ids into A's bound
+// transaction and be refused by RLS — the loud version of the silent
+// cross-tenant write these suites exist to deny.
+func (e *Env) DealsFor(ws ids.UUID) *deals.Store {
+	return deals.NewStore(e.DBFor(ws), installseam.Deals())
+}
+
+// PeopleFor is DealsFor for the people module; see its doc for why the second
+// tenant needs a store of its own.
+func (e *Env) PeopleFor(ws ids.UUID) *people.Store {
+	return people.NewStore(e.DBFor(ws))
 }

@@ -438,17 +438,22 @@ func TestOfferTemplateRLS_TenantIsolation(t *testing.T) {
 		UserID: ids.NewV7(), Permissions: offerTemplateAdminPerms,
 	})
 
+	// Tenant B asks through a store of its own: the workspace a read is scoped
+	// to is the handle's, so driving tenant A's store with tenant B's ctx would
+	// answer tenant A's rows and the isolation claim would be vacuous.
+	dealsB := e.DealsFor(wsB)
+
 	id := ids.From[ids.OfferTemplateKind](ids.UUID(created.Id))
-	if _, err := e.Deals.GetOfferTemplate(ctxB, id, storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := dealsB.GetOfferTemplate(ctxB, id, storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("tenant B must not resolve tenant A's template, got %v", err)
 	}
-	listed, _, err := e.Deals.ListOfferTemplates(ctxB, deals.ListOfferTemplatesInput{IncludeArchived: true})
+	listed, _, err := dealsB.ListOfferTemplates(ctxB, deals.ListOfferTemplatesInput{IncludeArchived: true})
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("tenant B's list = %d rows (%v), want empty", len(listed), err)
 	}
 	// Tenant B may still mint its OWN template with the identical name —
 	// offer_template_name_unique is scoped to (workspace_id, name).
-	if _, err := e.Deals.CreateOfferTemplate(ctxB, basicTemplateInput("Tenant A Template")); err != nil {
+	if _, err := dealsB.CreateOfferTemplate(ctxB, basicTemplateInput("Tenant A Template")); err != nil {
 		t.Fatalf("tenant B minting the same name in its own workspace must succeed, got %v", err)
 	}
 	if _, err := e.Deals.GetOfferTemplate(ctxA, id, storekit.LiveOnly); err != nil {

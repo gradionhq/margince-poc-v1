@@ -68,6 +68,14 @@ func setupCFV(t *testing.T) cfvFixture {
 	}
 }
 
+// storeFor is the fixture's people store bound to ANOTHER workspace, for the
+// isolation arms: a write lands in the workspace its handle names, so tenant B
+// needs a store of its own. The field catalog is the same service — the physical
+// column is shared, which is the whole point of the arms below.
+func (f cfvFixture) storeFor(ws ids.UUID) *people.Store {
+	return people.NewStore(f.e.DBFor(ws)).WithFieldCatalog(f.svc)
+}
+
 // defineField creates one active custom field and returns its physical
 // column name.
 func (f cfvFixture) defineField(t *testing.T, spec customfields.FieldSpec) string {
@@ -430,8 +438,8 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "gold")
 
-	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
-	inB, err := f.store.CreatePerson(ctxB, people.CreatePersonInput{
+	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
+	inB, err := f.storeFor(wsB).CreatePerson(ctxB, people.CreatePersonInput{
 		FullName: "Tenant B Person", Source: "ui",
 		CustomFields: map[string]any{col: "gold"},
 	})

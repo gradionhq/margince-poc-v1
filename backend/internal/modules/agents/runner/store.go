@@ -28,6 +28,13 @@ type Store struct {
 	now func() time.Time
 }
 
+// ForWorkspace is this store re-bound to one tenant of the fleet fan-out. The
+// scheduler is one long-lived service ticking every workspace in turn, and the
+// workspace a row lands in is the handle's, not the ctx's.
+func (s *Store) ForWorkspace(ws ids.WorkspaceID) *Store {
+	return &Store{db: s.db.ForWorkspace(ws), now: s.now}
+}
+
 // NewStore opens the runner's store on a handle already bound to the
 // workspace it serves.
 func NewStore(db *database.DB) *Store {

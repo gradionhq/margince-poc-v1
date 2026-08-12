@@ -410,7 +410,10 @@ func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[i
 		// scope would silently under-report entities the caller cannot see.
 		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 
-		count, length, err := s.workspacePending(wsCtx, currentIdentity)
+		// A store bound to THIS tenant: the workspace a read is scoped to is
+		// the handle's, so counting every workspace through the enumerating
+		// store would report the same tenant's total under every id.
+		count, length, err := s.forWorkspace(wsID).workspacePending(wsCtx, currentIdentity)
 		if err != nil {
 			return nil, nil, err
 		}

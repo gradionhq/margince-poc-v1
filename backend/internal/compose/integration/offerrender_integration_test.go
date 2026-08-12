@@ -86,6 +86,14 @@ func (s *spyBlobStore) Put(ctx context.Context, key string, r io.Reader, size in
 // seeded FX rate).
 func renderOneLineOffer(ctx context.Context, t *testing.T, e *Env, dealID ids.UUID, in deals.CreateOfferInput) crmcontracts.Offer {
 	t.Helper()
+	return renderOneLineOfferOn(ctx, t, e.Deals, dealID, in)
+}
+
+// renderOneLineOfferOn is renderOneLineOffer through a store the caller bound.
+// A second tenant's offer has to be written by that tenant's own store, since
+// the workspace a write lands in comes from the handle rather than the ctx.
+func renderOneLineOfferOn(ctx context.Context, t *testing.T, store *deals.Store, dealID ids.UUID, in deals.CreateOfferInput) crmcontracts.Offer {
+	t.Helper()
 	if in.Currency == "" {
 		in.Currency = "EUR"
 	}
@@ -96,7 +104,7 @@ func renderOneLineOffer(ctx context.Context, t *testing.T, e *Env, dealID ids.UU
 		desc, price := "Retainer", int64(50000)
 		in.LineItems = []deals.OfferLineInputRow{{Description: &desc, Quantity: "1", UnitPriceMinor: &price}}
 	}
-	created, err := e.Deals.CreateOffer(ctx, ids.From[ids.DealKind](dealID), in)
+	created, err := store.CreateOffer(ctx, ids.From[ids.DealKind](dealID), in)
 	if err != nil {
 		t.Fatalf("create offer: %v", err)
 	}
@@ -398,10 +406,14 @@ func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferI
 		},
 	})
 
-	if err := e.Deals.SeedDefaults(ctxB); err != nil {
+	// Tenant B is written through a store bound to tenant B: the workspace is
+	// the handle's, not the ctx's, so the harness's own store would stamp B's
+	// rows inside A's transaction and RLS would refuse them.
+	dealsB := e.DealsFor(ws)
+	if err := dealsB.SeedDefaults(ctxB); err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.Deals.DefaultPipeline(ctxB)
+	p, err := dealsB.DefaultPipeline(ctxB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,13 +424,13 @@ func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferI
 			break
 		}
 	}
-	deal, err := e.Deals.CreateDeal(ctxB, deals.CreateDealInput{
+	deal, err := dealsB.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B deal", PipelineID: ids.From[ids.PipelineKind](ids.UUID(p.Id)), StageID: openStage,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	created := renderOneLineOffer(ctxB, t, e, ids.UUID(deal.Id), deals.CreateOfferInput{})
+	created := renderOneLineOfferOn(ctxB, t, dealsB, ids.UUID(deal.Id), deals.CreateOfferInput{})
 	return ids.From[ids.OfferKind](ids.UUID(created.Id))
 }
 

@@ -31,6 +31,13 @@ func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
 }
 
+// forWorkspace is this store re-bound to one tenant of the fleet enumeration.
+// Only the index-maintenance passes that walk every workspace use it; a
+// request-path caller already holds the handle for the tenant it serves.
+func (s *Store) forWorkspace(ws ids.WorkspaceID) *Store {
+	return &Store{db: s.db.ForWorkspace(ws)}
+}
+
 // Hit is one ranked result. Score is ts_rank_cd over the entity's
 // search_tsv — comparable across types because every column uses the
 // same 'simple' configuration.
