@@ -106,9 +106,8 @@ function useSigningKeyStatus(enabled: boolean) {
     enabled,
     queryKey: ["ext", "notes", "signing-key"],
     queryFn: async () => {
-      const { data, error, response } = await api.POST(
+      const { data, error, response } = await api.GET(
         "/ext/notes/signing-key/status",
-        { body: {} },
       );
       if (error || !response.ok) {
         throwProblem(error);
@@ -151,7 +150,7 @@ function SigningCard() {
 
   const store = useMutation({
     mutationFn: async (value: string) => {
-      const { error, response } = await api.POST("/ext/notes/signing-key", {
+      const { error, response } = await api.PUT("/ext/notes/signing-key", {
         body: { key: value },
       });
       if (error || !response.ok) {
@@ -272,10 +271,7 @@ function useNotes(enabled: boolean) {
     enabled,
     queryKey: ["ext", "notes", "notes"],
     queryFn: async () => {
-      const { data, error, response } = await api.POST(
-        "/ext/notes/list",
-        { body: {} },
-      );
+      const { data, error, response } = await api.GET("/ext/notes/list");
       if (error || !response.ok) {
         throwProblem(error);
       }
@@ -358,8 +354,10 @@ function NotesCard() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error, response } = await api.POST("/ext/notes/remove", {
-        body: { id },
+      // The id rides the query string: the operation is a DELETE, which carries
+      // no body, so the generated client takes it under `params.query`.
+      const { error, response } = await api.DELETE("/ext/notes/remove", {
+        params: { query: { id } },
       });
       if (error || !response.ok) {
         throwProblem(error);
