@@ -29,6 +29,12 @@ type Envelope struct {
 	Language string `json:"output_language"`
 	// ConversationState is the convstate band (DRAFT-AC-E-3, E-4).
 	ConversationState string `json:"conversation_state"`
+	// Register is du or Sie for a German draft, empty elsewhere and empty when
+	// the correspondence does not say. Resolved server-side for the same reason
+	// the language is: asked to work it out per call, a model answers
+	// differently each time, and two consecutive drafts to one person in two
+	// registers read as a machine that does not know who it is writing to.
+	Register string `json:"register,omitempty"`
 	// SilenceDays is whole days since the last message either way, empty at
 	// band none where there is no last message to count from.
 	SilenceDays string `json:"silence_days,omitempty"`
@@ -58,6 +64,16 @@ const IdentityMaxRunes = 200
 // Everything it stamps is server-derived and fixed-shape except the two
 // identity fields, which come from a text column and are bounded here.
 func NewEnvelope(lang textlang.Lang, state convstate.State, now time.Time, senderName, senderEmail string) Envelope {
+	return NewEnvelopeWithRegister(lang, textlang.RegisterUnknown, state, now, senderName, senderEmail)
+}
+
+// NewEnvelopeWithRegister is NewEnvelope plus the resolved German register.
+// Separate rather than a sixth positional argument on the common path: only a
+// caller that has the correspondence to read can resolve one, and the rest
+// should not be made to pass Unknown.
+func NewEnvelopeWithRegister(lang textlang.Lang, register textlang.Register,
+	state convstate.State, now time.Time, senderName, senderEmail string,
+) Envelope {
 	envelope := Envelope{
 		Language:          string(langOrDefault(lang)),
 		ConversationState: string(state.Band),
@@ -67,6 +83,11 @@ func NewEnvelope(lang textlang.Lang, state convstate.State, now time.Time, sende
 	}
 	if state.Band != convstate.BandNone {
 		envelope.SilenceDays = strconv.Itoa(state.SilenceDays)
+	}
+	// Only German has the distinction, so carrying it elsewhere would be a
+	// field the prompt has to explain away.
+	if envelope.Lang() == textlang.German {
+		envelope.Register = string(registerOrFormal(register))
 	}
 	return envelope
 }
@@ -79,6 +100,18 @@ func boundedRunes(value string, maxRunes int) string {
 		return value
 	}
 	return string(runes[:maxRunes])
+}
+
+// registerOrFormal resolves an undecided register to Sie.
+//
+// Being too formal with somebody who would have accepted du is a smaller error
+// than being familiar with somebody who never invited it, and German business
+// correspondence defaults formal.
+func registerOrFormal(register textlang.Register) textlang.Register {
+	if register == textlang.RegisterDu {
+		return textlang.RegisterDu
+	}
+	return textlang.RegisterSie
 }
 
 // Lang reads the envelope's language back as a typed value, so a caller

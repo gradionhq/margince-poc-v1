@@ -266,3 +266,50 @@ func TestGermanCompoundsCarryingTheStemAreCaught(t *testing.T) {
 		}
 	}
 }
+
+// A German draft that opens formally and closes familiarly reads as
+// machine-written whichever register it should have picked. The prompt already
+// said to be consistent; three consecutive drafts to one person came back du,
+// du, Sie — which is why it is checked rather than merely instructed.
+func TestAMixedRegisterIsCaught(t *testing.T) {
+	mixed := "Hallo Frank,\n\nich würde mich gerne mit dir austauschen. " +
+		"Haben Sie in der kommenden Woche Zeit für ein kurzes Gespräch?"
+
+	findings := draftcheck.Body(mixed, textlang.German, convstate.BandFresh)
+	if len(findings) == 0 {
+		t.Fatal("a draft using both du and Sie should be caught")
+	}
+	if findings[0].Rule != "mixed-register" {
+		t.Errorf("expected a mixed-register finding, got %q", findings[0].Rule)
+	}
+}
+
+// Either register held consistently is fine — the check is about mixing, not
+// about which one was chosen.
+func TestAConsistentRegisterPasses(t *testing.T) {
+	for _, body := range []string{
+		"Hallo Frank,\n\nich melde mich bei dir, sobald ich deine Notizen " +
+			"durchgesehen habe. Sag mir gerne, ob dir das so passt.",
+		"Hallo Herr Miller,\n\nich melde mich bei Ihnen, sobald ich Ihre Notizen " +
+			"durchgesehen habe. Sagen Sie mir gerne, ob Ihnen das so passt.",
+	} {
+		if findings := draftcheck.Body(body, textlang.German, convstate.BandFresh); len(findings) != 0 {
+			t.Errorf("a consistent draft should pass, got %+v for %q", findings, body[:40])
+		}
+	}
+}
+
+// Enumerating the completions of "ich hoffe" failed on a live stack: the list
+// held "es geht dir gut" and the model wrote "bei dir ist alles gut". The
+// opener is the tell.
+func TestEveryIchHoffeOpenerIsCaught(t *testing.T) {
+	for _, opener := range []string{
+		"Hallo Frank, ich hoffe, bei dir ist alles gut. Vor einigen Wochen...",
+		"Hallo Frank, ich hoffe, es geht dir gut. Kurze Rückfrage...",
+		"Hallo Herr Miller, ich hoffe, Sie hatten einen guten Start.",
+	} {
+		if findings := draftcheck.Body(opener, textlang.German, convstate.BandFresh); len(findings) == 0 {
+			t.Errorf("%q was not caught", opener[:45])
+		}
+	}
+}

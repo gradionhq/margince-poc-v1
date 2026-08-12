@@ -81,7 +81,12 @@ func (r *Resolver) Now() time.Time {
 func (r *Resolver) Resolve(ctx context.Context, correspondence string, state convstate.State) Envelope {
 	now := r.Now()
 	name, email := r.actor(ctx)
-	return NewEnvelope(textlang.Detect(correspondence), state, now, name, email)
+	// The register is read from the WHOLE correspondence, quoted history
+	// included: which register two people are on is a property of the
+	// relationship, and a single reply may contain neither form while the
+	// exchange behind it is unmistakably du.
+	return NewEnvelopeWithRegister(textlang.Detect(correspondence),
+		textlang.DetectRegister(correspondence), state, now, name, email)
 }
 
 // actor names the acting human, or nobody.
