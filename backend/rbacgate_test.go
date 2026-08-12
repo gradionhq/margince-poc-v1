@@ -57,11 +57,12 @@ import (
 // This list is not bookkeeping. It is the enumeration of every place a read or
 // a write reaches the database without an authorization gate, and there is
 // NOTHING BENEATH IT: `platform/auth` is the only thing deciding who may see
-// what (ADR-0091 §3). Row-level security used to sit under every one of these
-// as a tenant backstop, and several rationales below leaned on it; each has
-// been re-read and now states what actually bounds the call — a CAS on an id
-// the admitted job carries, a predicate written in the SQL, an aggregate that
-// returns no row, or authentication itself.
+// what (ADR-0091 §3). Several of the rationales below used to lean on
+// row-level security as a tenant backstop — not all of them did, since some
+// name tables that never carried it — and every one that did has been re-read
+// and now states what actually bounds the call: a CAS on an id the admitted
+// job carries, a predicate written in the SQL, an aggregate that returns no
+// row, or authentication itself.
 //
 // So an entry added here is a security decision, and the reason has to survive
 // being read on its own: "a sweep runs it" is not one, "no row leaves this
