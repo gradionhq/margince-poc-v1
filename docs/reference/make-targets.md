@@ -95,8 +95,13 @@ root gates (each is a small script; all merge-blocking):
 
 | Target | What it does |
 |---|---|
-| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing/native-control script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm). `FE_CHECK=check:ci` swaps the last leg for the coverage-emitting one, so the single vitest run also writes `frontend/coverage/lcov.info` for the `sonarcloud` job — what CI passes, and about a third slower, which is why it is not the default a developer pays |
-| `fe-install` / `fe-lint` / `fe-test` / `fe-build` / `fe-format` / `fe-preview` | The individual frontend steps (`pnpm` wrappers) |
+| `frontend-check` | The frontend gate, node-only: `fe-ds-gates`, `fe-drift`, `fe-lint`, `fe-unit`, `fe-build` in that order. It is spelled as those five legs rather than inline because CI runs them as three parallel jobs and both callers have to mean the same thing — `TestEveryLocalFrontendGateLegRunsInCI` fails if a leg added here reaches no CI job |
+| `fe-ds-gates` | The design-system purity/font-lock/icon-glyph/spacing/space-token/native-control/ext-import script gates, as one target |
+| `fe-drift` | The TS type-drift gate: `pnpm gen:api`, then fail if the committed `src/api/schema.d.ts` / `public-events.ts` moved |
+| `fe-unit` | The vitest suite. `FE_COVERAGE=1` instruments it so the one run also writes `frontend/coverage/lcov.info` for the `sonarcloud` job — what CI passes, and about a third slower, which is why it is not the default a developer pays |
+| `fe-quality` | The CI aggregate: every leg of the gate except the unit suite and the bundle, plus the composed-SPA typecheck and the unit screens' suites. Needs a Go toolchain (it composes) |
+| `fe-bundle` | The CI aggregate: `fe-build` + `fe-storybook` |
+| `fe-install` / `fe-lint` / `fe-test` / `fe-build` / `fe-storybook` / `fe-format` / `fe-preview` | The individual frontend steps (`pnpm` wrappers) |
 | `ds-purity` / `font-lock` / `icon-lint` / `ds-spacing` / `native-controls` | The design-system script gates, runnable alone. `native-controls` is the no-browser-drawn-dropdown gate: `<select>`, `<option>` or `<optgroup>` anywhere under `frontend/src` outside `design-system/select.tsx` |
 | `gen-types` / `gen-types-check` | Aliases for backend `gen` / `drift` |
 | `seed-dev` | API-seed the demo workspace against a running stack (idempotent), then the API-less extras (`seed-dev-db`) |

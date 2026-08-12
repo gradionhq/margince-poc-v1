@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity check-ext-migrations contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -241,15 +241,21 @@ verify-boot:
 ## contract change that skips regeneration would silently strand the frontend
 ## types, so regenerate and commit them together.
 ##
-## FE_CHECK selects the suite's last leg. `check` runs vitest bare, which is
-## what a developer wants: nobody reads an lcov file locally, and instrumenting
-## for one costs a third of the run. CI overrides it with `check:ci`, whose
-## vitest emits the lcov the sonarcloud job consumes — ONE execution producing
-## both the verdict and the report, because running the suite a second time to
-## collect coverage doubles the lane for a file the first run could have
-## written.
-FE_CHECK ?= check
+## It is spelled as the four legs below rather than inline, because CI runs
+## those legs as separate jobs in PARALLEL and both callers have to mean the
+## same thing. A leg added here reaches CI through the `fe-quality` /
+## `fe-unit` / `fe-bundle` aggregates; a leg added only to a CI job would run
+## in no local gate at all.
 frontend-check:
+	$(MAKE) fe-ds-gates
+	$(MAKE) fe-drift
+	$(MAKE) fe-lint
+	$(MAKE) fe-unit
+	$(MAKE) fe-build
+
+## fe-ds-gates — the design-system script gates on their own, so the CI job that
+## wants only the cheap greps does not also pull a vitest run behind them.
+fe-ds-gates:
 	frontend/scripts/check-ds-purity.sh
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
@@ -257,10 +263,44 @@ frontend-check:
 	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
 	frontend/scripts/check-ext-imports.sh
+
+## fe-drift — the TS type-drift gate on its own: regenerate from the contract
+## and fail if the committed types moved.
+fe-drift:
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
-			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
-		pnpm $(FE_CHECK)
+			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; }
+
+## fe-unit — the vitest suite. FE_COVERAGE=1 instruments the run so it also
+## writes frontend/coverage/lcov.info for the `sonarcloud` job — ONE execution
+## producing both the verdict and the report, because running the suite a second
+## time to collect coverage doubles the lane for a file the first run could have
+## written. Off by default: nobody reads an lcov file locally and instrumenting
+## for one costs about a third of the run, so a developer does not pay it.
+FE_COVERAGE ?=
+fe-unit:
+	cd frontend && pnpm install --frozen-lockfile && pnpm exec vitest run \
+		$(if $(FE_COVERAGE),--coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov)
+
+## fe-quality — every leg of the frontend gate EXCEPT the unit suite and the
+## bundle, which CI runs beside this one. Needs Go: the composed lane composes.
+fe-quality: fe-typecheck-composed
+	$(MAKE) fe-ds-gates
+	$(MAKE) fe-drift
+	$(MAKE) fe-lint
+	$(MAKE) fe-test-ext
+
+## fe-bundle — the production bundle plus the Storybook catalog, the two legs
+## that only compile. Storybook is CI-only (it is not in `frontend-check`): a
+## story that fails to compile or register must not reach main, but it is not
+## something a developer needs to rebuild on every local gate run.
+fe-bundle:
+	$(MAKE) fe-build
+	$(MAKE) fe-storybook
+
+## fe-storybook — build the Storybook catalog (stories must compile + register).
+fe-storybook:
+	cd frontend && pnpm install --frozen-lockfile && pnpm build-storybook
 
 ## fe-install — install the frontend deps (pnpm, frozen lockfile). The FE half
 ## of `make install`; also what `fe-uat` / `dev` assume has run.
