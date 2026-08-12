@@ -21,8 +21,6 @@ package compose
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -458,25 +456,6 @@ func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, deps tie
 	return func() (mcp.TierResolverInput, error) {
 		return resolve(ctx, deps, pol, r, body)
 	}, true
-}
-
-// canonicalRESTCall canonicalizes the request into the bytes both staging
-// and redemption hash: decoding into maps and re-marshaling sorts keys at
-// every depth, so "identical call" is a property of content, not of the
-// client's serialization habits.
-func canonicalRESTCall(op, path string, body []byte) (json.RawMessage, string, error) {
-	var payload any
-	if len(bytes.TrimSpace(body)) > 0 {
-		if err := json.Unmarshal(body, &payload); err != nil {
-			return nil, "", httperr.Validation("body", "invalid_json", "request body must be valid JSON")
-		}
-	}
-	canonical, err := json.Marshal(map[string]any{"operation": op, "path": path, "body": payload})
-	if err != nil {
-		return nil, "", err
-	}
-	sum := sha256.Sum256(canonical)
-	return canonical, hex.EncodeToString(sum[:]), nil
 }
 
 func mutatingMethod(method string) bool {

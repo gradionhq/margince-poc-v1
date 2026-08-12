@@ -134,7 +134,7 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 			pol.Op, strings.Join(split.Conflicts, ", "), uErr))
 		return
 	}
-	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, split.Staged)
+	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, split.Staged)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
 		return

@@ -204,6 +204,17 @@ func TestAssertSameCallIdentityPinsEveryMemberOfTheStagedCallExceptBody(t *testi
 			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","if_match":"9","body":{}}`,
 			wantChanged: []string{"/if_match"},
 		},
+		{
+			// The cross-task seam: compose.canonicalRESTCall now writes a
+			// `headers` member carrying If-Match and Idempotency-Key -- the
+			// version pin and the retry key. Nothing else in this codebase
+			// asserts that member is pinned; this case proves the
+			// deny-by-default rule above already covers it, unchanged.
+			name:        "editing headers (If-Match / Idempotency-Key) is refused, not treated as content",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"If-Match":"7"},"body":{}}`,
+			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","headers":{"If-Match":"9"},"body":{}}`,
+			wantChanged: []string{"/headers"},
+		},
 	}
 
 	for _, tc := range tests {

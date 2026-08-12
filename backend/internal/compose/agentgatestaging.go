@@ -68,7 +68,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true, false
 	}
-	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
+	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, body)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
 		return true, false
@@ -109,7 +109,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 // staged change, so the approved retry is this exact request again.
 func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
+	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, body)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
 		return

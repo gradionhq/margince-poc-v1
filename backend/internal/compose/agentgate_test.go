@@ -4,6 +4,8 @@
 package compose
 
 import (
+	"bytes"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -145,25 +147,80 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 // The redemption key is content, not serialization: key order and
 // whitespace hash equal; a changed value, path, or operation does not.
 func TestCanonicalRESTCallHashesContent(t *testing.T) {
-	_, h1, err := canonicalRESTCall("updatePerson", "/v1/people/x", []byte(`{"b":2,"a":1}`))
+	_, h1, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"b":2,"a":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, h2, _ := canonicalRESTCall("updatePerson", "/v1/people/x", []byte(` {"a": 1, "b": 2} `))
+	_, h2, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(` {"a": 1, "b": 2} `))
 	if h1 != h2 {
 		t.Fatal("equivalent bodies must hash equal — redemption would refuse the identical call")
 	}
-	_, h3, _ := canonicalRESTCall("updatePerson", "/v1/people/x", []byte(`{"a":1,"b":3}`))
-	_, h4, _ := canonicalRESTCall("updatePerson", "/v1/people/y", []byte(`{"a":1,"b":2}`))
+	_, h3, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":3}`))
+	_, h4, _ := canonicalRESTCall("updatePerson", "/v1/people/y", http.Header{}, []byte(`{"a":1,"b":2}`))
 	if h1 == h3 || h1 == h4 {
 		t.Fatal("a different body or target must not ride the staged approval")
 	}
-	if _, _, err := canonicalRESTCall("op", "/p", []byte(`{broken`)); err == nil {
+	if _, _, err := canonicalRESTCall("op", "/p", http.Header{}, []byte(`{broken`)); err == nil {
 		t.Fatal("malformed JSON must be refused, not hashed")
 	}
-	_, hEmpty, err := canonicalRESTCall("archivePerson", "/v1/people/x", nil)
+	_, hEmpty, err := canonicalRESTCall("archivePerson", "/v1/people/x", http.Header{}, nil)
 	if err != nil || hEmpty == "" {
 		t.Fatalf("bodyless mutations (DELETE) must canonicalize: %v", err)
+	}
+}
+
+// Two calls differing only in a header that changes what executes must not hash alike.
+// If-Match decides whether the write happens at all; Idempotency-Key decides whether it
+// is a fresh effect, a replay or a conflict. Both reach the handler; neither was hashed.
+func TestTheCanonicalCallBindsTheHeadersThatChangeWhatExecutes(t *testing.T) {
+	body := []byte(`{"to_stage_id":"a"}`)
+	with := func(k, v string) http.Header { h := http.Header{}; h.Set(k, v); return h }
+	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []http.Header{with("If-Match", "7"), with("Idempotency-Key", "k")} {
+		other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", h, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(base, other) {
+			t.Errorf("a call carrying %v canonicalized identically to one without it", h)
+		}
+	}
+}
+
+// encoding/json replaces invalid bytes with U+FFFD, so two distinct wire calls arrive as
+// one string and would redeem each other's approval. The tool door rejects this before
+// decoding (reserved.go); this door did not.
+func TestTheCanonicalCallRefusesInvalidUTF8(t *testing.T) {
+	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte("{\"a\":\"\xff\"}")); err == nil {
+		t.Error("a body carrying invalid UTF-8 canonicalized cleanly")
+	}
+}
+
+// An escaped unpaired surrogate is valid UTF-8 on the wire and still decodes to U+FFFD,
+// so the byte check above cannot see it. reserved.go checks both halves; so must this.
+func TestTheCanonicalCallRefusesAnEscapedUnpairedSurrogate(t *testing.T) {
+	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"a":"\udcff"}`)); err == nil {
+		t.Error("an escaped unpaired surrogate canonicalized cleanly")
+	}
+}
+
+// Decoding through `any` turns every JSON number into a float64, so two distinct integers
+// beyond 2^53 canonicalize to one — and the handler decodes the original bytes into an
+// int64, which is a second reading of one value.
+func TestTheCanonicalCallKeepsLargeIntegersDistinct(t *testing.T) {
+	a, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"v":9007199254740993}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"v":9007199254740992}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(a, b) {
+		t.Error("two distinct integers canonicalized identically")
 	}
 }
 
