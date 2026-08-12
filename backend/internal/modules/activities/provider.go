@@ -11,11 +11,10 @@ package activities
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -26,8 +25,10 @@ type Provider struct {
 	store *Store
 }
 
-func NewProvider(pool *pgxpool.Pool) *Provider {
-	return &Provider{store: NewStore(pool)}
+// NewProvider builds this module's system-of-record provider over a
+// workspace-bound handle.
+func NewProvider(db *database.DB) *Provider {
+	return &Provider{store: NewStore(db)}
 }
 
 func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {

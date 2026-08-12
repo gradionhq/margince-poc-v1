@@ -54,7 +54,7 @@ func NewProviderFor(db *database.DB) *Provider {
 		// MCP surface's record verbs carry cf_* values too.
 		people:     people.NewProvider(db).WithFieldCatalog(customfields.NewService(pool, nil)),
 		deals:      deals.NewProvider(db, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil)),
-		activities: activities.NewProvider(pool),
+		activities: activities.NewProvider(InstallationDB(pool)),
 		reports:    newReportEngine(pool),
 	}
 }

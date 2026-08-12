@@ -67,7 +67,7 @@ type CaptureClassifier struct {
 
 // NewCaptureClassifier builds the engine over the pool and one model lane.
 func NewCaptureClassifier(pool *pgxpool.Pool, brain completer, log *slog.Logger) *CaptureClassifier {
-	return &CaptureClassifier{pool: pool, store: activities.NewStore(pool), brain: brain, log: log}
+	return &CaptureClassifier{pool: pool, store: activities.NewStore(InstallationDB(pool)), brain: brain, log: log}
 }
 
 // unlabeledMessage is one backlog row as the prompt sees it.

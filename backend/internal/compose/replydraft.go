@@ -77,7 +77,7 @@ func newReplyDrafter(pool *pgxpool.Pool, brain completer, log *slog.Logger) repl
 	return replyDrafter{
 		brain:    brain,
 		envelope: draftEnvelope(pool, log),
-		store:    activities.NewStore(pool),
+		store:    activities.NewStore(InstallationDB(pool)),
 		voice:    ai.NewVoiceStore(pool),
 		log:      log,
 	}

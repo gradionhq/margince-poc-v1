@@ -111,7 +111,7 @@ func Setup(t *testing.T) *Env {
 	e.Pool = pool
 	e.People = people.NewStore(harnessDB(pool, e.WS))
 	e.Deals = deals.NewStore(harnessDB(pool, e.WS), installseam.Deals())
-	e.Activities = activities.NewStore(pool)
+	e.Activities = activities.NewStore(harnessDB(pool, e.WS))
 	return e
 }
 

@@ -44,7 +44,7 @@ func (e *storeEnv) telegramActivity(t *testing.T) ids.ActivityID {
 func (e *storeEnv) stageChannel(t *testing.T, in StageChannelInput) ids.UUID {
 	t.Helper()
 	var id ids.UUID
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		var err error
 		id, err = e.store.StageChannelTx(e.ctx, tx, in)
 		return err
@@ -117,7 +117,7 @@ func TestStageAndLoadRoundTripAChannelDelivery(t *testing.T) {
 func TestStagingAChannelDeliveryWithNoRecipientIsRefused(t *testing.T) {
 	e := setupStore(t)
 	activity := e.telegramActivity(t)
-	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		_, err := e.store.StageChannelTx(e.ctx, tx, StageChannelInput{
 			ActivityID:     activity,
 			Provider:       "telegram",
@@ -140,7 +140,7 @@ func TestStagingAChannelDeliveryWithNoBodyIsRefused(t *testing.T) {
 	e := setupStore(t)
 	for _, body := range []string{"", "  \n "} {
 		activity := e.telegramActivity(t)
-		err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+		err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 			_, err := e.store.StageChannelTx(e.ctx, tx, StageChannelInput{
 				ActivityID:     activity,
 				Provider:       "telegram",

@@ -60,7 +60,7 @@ type participantBackfillWorker struct {
 }
 
 func newParticipantBackfillWorker(pool *pgxpool.Pool, log *slog.Logger) *participantBackfillWorker {
-	return &participantBackfillWorker{pool: pool, store: activities.NewStore(pool), log: log}
+	return &participantBackfillWorker{pool: pool, store: activities.NewStore(InstallationDB(pool)), log: log}
 }
 
 // Work sweeps every live workspace. A per-workspace fault is logged and never

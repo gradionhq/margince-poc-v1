@@ -77,7 +77,7 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	e := integration.Setup(t)
 	stager := &recordingStager{}
 	adapter := commsAdapter{
-		store:  activities.NewStore(e.Pool),
+		store:  activities.NewStore(e.DB()),
 		gate:   consent.NewGate(consent.NewStore(InstallationDB(e.Pool))),
 		stager: stager,
 	}

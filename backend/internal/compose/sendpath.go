@@ -122,7 +122,7 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 // override and never the source of the default.
 func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 	send = send.withPoolDefaults(pool)
-	return activities.NewStore(pool).
+	return activities.NewStore(InstallationDB(pool)).
 		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		WithPublicBaseURL(send.PublicBaseURL).
 		WithSendAuthority(send.SendAuthority).

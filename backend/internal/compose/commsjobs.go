@@ -330,7 +330,7 @@ type DeliveryMachinery interface {
 //
 //nolint:ireturn // returns the DeliveryMachinery seam by design: the concrete type is unexported and every caller holds the interface
 func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) DeliveryMachinery {
-	return commsStager{store: comms.NewStore(pool, time.Now, activities.NewStore(pool)), runner: runner}
+	return commsStager{store: comms.NewStore(InstallationDB(pool), time.Now, activities.NewStore(InstallationDB(pool))), runner: runner}
 }
 
 func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.DeliveryRequest) error {
@@ -434,7 +434,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		// The reconcile seam is the cross-module edge comms must not hold
 		// itself: activities owns the timeline row, comms owns the delivery,
 		// and the two meet here.
-		comms.NewStore(pool, time.Now, activities.NewStore(pool)),
+		comms.NewStore(InstallationDB(pool), time.Now, activities.NewStore(InstallationDB(pool))),
 		commsResolver{registry: registry, channels: registry},
 		NewSendSeatAuthority(pool),
 		NewSendAttachmentAuthority(pool),

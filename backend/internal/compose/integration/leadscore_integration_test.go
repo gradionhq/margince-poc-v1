@@ -41,7 +41,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	subject := "Re: your offer"
 	direction := "inbound"
 	occurred := time.Now().UTC().Add(-1 * time.Minute)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	reply, _, err := store.LogActivity(ctx, activities.LogActivityInput{
 		Kind: "email", Subject: &subject, Direction: &direction, OccurredAt: &occurred,
 		Links:  []activities.ActivityLinkInput{{EntityType: "lead", EntityID: leadID}},

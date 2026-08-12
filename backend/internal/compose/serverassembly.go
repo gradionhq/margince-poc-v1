@@ -50,7 +50,7 @@ func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
 // newActivitiesHandlers builds the timeline transport over the sibling
 // modules its inbound and outbound edges need.
 func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
-	return activities.NewHandlers(pool).
+	return activities.NewHandlers(InstallationDB(pool)).
 		WithConsent(consent.NewGate(consent.NewStore(InstallationDB(pool)))).
 		// The public booking capture seams (feedback/14): people is the
 		// idempotent-on-email person path, consent records the

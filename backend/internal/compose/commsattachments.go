@@ -36,7 +36,7 @@ type commsAttachments struct {
 //
 //nolint:ireturn // returns the comms.AttachmentAuthority seam by design: the concrete type is unexported and every caller holds the interface
 func NewSendAttachmentAuthority(pool *pgxpool.Pool) comms.AttachmentAuthority {
-	return commsAttachments{authority: identity.NewService(pool), files: activities.NewStore(pool)}
+	return commsAttachments{authority: identity.NewService(pool), files: activities.NewStore(InstallationDB(pool))}
 }
 
 // senderCtx rebuilds the sender's CURRENT authority on the worker's context.

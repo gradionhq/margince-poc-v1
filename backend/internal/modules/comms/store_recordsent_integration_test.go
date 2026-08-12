@@ -53,7 +53,7 @@ func (r *recordingReconciler) ReconcileMessageIdentityTx(_ context.Context, _ pg
 // storeWith rebuilds the fixture's store over a different reconciler, keeping
 // the injected clock so timestamps stay assertable.
 func (e *storeEnv) storeWith(identity MessageIdentityReconciler) *Store {
-	return NewStore(e.store.pool, e.store.now, identity)
+	return NewStore(e.store.db, e.store.now, identity)
 }
 
 // asSendWorker is the scope the dispatch job binds: the system completing a

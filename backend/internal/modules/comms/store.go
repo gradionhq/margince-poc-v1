@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -55,8 +54,9 @@ var ErrNoAddressee = errors.New("comms: a delivery needs at least one recipient 
 // own — see the internal/modules/comms waivers in backend/rbacgate_test.go
 // for why.
 type Store struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db  *database.DB
+	now func() time.Time
 	// identity re-keys the timeline row of a message whose provider stamped
 	// an identity other than the one this system minted. It is a REQUIRED
 	// constructor parameter rather than an option, because there is no safe
@@ -68,11 +68,13 @@ type Store struct {
 
 // NewStore builds the store. The clock is injected so age arithmetic is asserted
 // by advancing time, never by sleeping.
-func NewStore(pool *pgxpool.Pool, now func() time.Time, identity MessageIdentityReconciler) *Store {
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB, now func() time.Time, identity MessageIdentityReconciler) *Store {
 	if now == nil {
 		now = time.Now
 	}
-	return &Store{pool: pool, now: now, identity: identity}
+	return &Store{db: db, now: now, identity: identity}
 }
 
 // StageInput is one message staged for transmission, written in the caller's
@@ -224,7 +226,7 @@ func marshalList(values []string) ([]byte, error) {
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
 	var recipients, cc, refs, files []byte
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			UPDATE comms_outbound
 			   SET attempts = attempts + 1
@@ -339,7 +341,7 @@ func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connecto
 
 	var activityID ids.ActivityID
 	var staged string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// inflight_at is cleared with the receipt: the outcome is now KNOWN, and
 		// a sent row still carrying the marker would read as a transmission
 		// nobody could account for. It is already NULL on every mail row, so this
@@ -436,7 +438,7 @@ func (s *Store) RecordDeferral(ctx context.Context, id ids.UUID, reason string) 
 // delivery does not exist in this workspace or it is already closed; Load
 // answers both the same way, and these transitions do too.
 func (s *Store) update(ctx context.Context, sql string, args ...any) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, sql, args...)
 		if err != nil {
 			return fmt.Errorf("comms: updating delivery: %w", err)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -126,7 +127,7 @@ func TestSendEmailRefusesAMarketingSendWithNoConfiguredPublicBaseURL(t *testing.
 	stager := &recordingStager{}
 	// The store as an installation that wired the linker but never set the
 	// base URL — deliberately NOT e.store(), which configures one.
-	store := NewStore(e.pool).WithUnsubscribe(stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true})
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).WithUnsubscribe(stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true})
 
 	_, err := store.SendEmail(
 		e.as(principal.RowScopeAll), FromActivity(anchor), soloSendInput("marketing_email"), stubConsentGate{}, stager)
@@ -353,7 +354,7 @@ func TestSendEmailThreadsOntoNothingWhenTheAnchorIsNotMail(t *testing.T) {
 func TestReplayingASourceKeyLeavesTheStoredThreadKeyUntouched(t *testing.T) {
 	e := setupSend(t)
 	ctx := e.as(principal.RowScopeAll)
-	store := NewStore(e.pool)
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	system, sourceID := "gmail", "replayed@buyer.test"
 
 	first, created, err := store.LogActivity(ctx, LogActivityInput{

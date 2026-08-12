@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -38,7 +37,7 @@ type UnlabeledEmail struct {
 // query over live state rather than a queue anything has to remember to refill.
 func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int) ([]UnlabeledEmail, error) {
 	var out []UnlabeledEmail
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, coalesce(subject, ''), coalesce(left(body, $1), '')
 			FROM activity
@@ -75,7 +74,7 @@ func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int
 // labeled the row first wins and this write reports applied=false — the
 // earlier verdict stands, never an overwrite.
 func (s *Store) SetCaptureLabel(ctx context.Context, id ids.UUID, label string) (applied bool, err error) {
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE activity SET capture_label = $2, capture_labeled_at = now()
 			WHERE id = $1 AND capture_label IS NULL`, id, label)

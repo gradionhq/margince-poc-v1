@@ -99,7 +99,7 @@ func newFlipWriters(db *database.DB, ms *overlay.MirrorStore, incumbent string) 
 		pool:       pool,
 		people:     people.NewStore(db),
 		deals:      deals.NewStore(db, DealsInstallation()),
-		activities: activities.NewStore(pool),
+		activities: activities.NewStore(db),
 		ms:         ms,
 		identities: migration.NewRunStore(pool),
 		incumbent:  incumbent,

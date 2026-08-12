@@ -303,7 +303,7 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 // the real wiring was free to rot, because nothing under test was the thing
 // that ships.
 func fileKeeper(pool *pgxpool.Pool, blob blobstore.Store) capture.FileKeeper {
-	return capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(blob)}
+	return capturedFileKeeper{store: activities.NewStore(InstallationDB(pool)).WithBlobstore(blob)}
 }
 
 // A file on a message filed against a company rolls up to that company, which

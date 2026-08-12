@@ -211,7 +211,7 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 	}
 	estimator := costestimate.NewEstimator(
 		ai.NewCallReadStore(e.DB()), ai.NewRateStore(e.DB()), router,
-		activities.NewStore(e.Pool), registry, backfillFixedClock{},
+		activities.NewStore(e.DB()), registry, backfillFixedClock{},
 	)
 	return &backfillWireEnv{
 		env: e, registry: registry, gmail: gm, human: human,
