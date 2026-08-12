@@ -1083,9 +1083,17 @@
    grid; the brief says what is true TODAY, in a line. */
 .today-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  /* One row, one column per reading. auto-fit packed four readings into three
+     columns and left the fourth stranded on a row of its own, which reads as
+     a table that ran out of room rather than as the account's four answers. */
+  grid-template-columns: repeat(var(--today-readings, 4), minmax(0, 1fr));
   gap: var(--space-3) var(--space-5);
   padding: var(--space-4) var(--space-5);
+}
+@media (max-width: 68rem) {
+  .today-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 /* Each reading owns a cell: its name on one line, its answer under it. Run
    together on one wrapping line the readings broke mid-item and the dots
@@ -1093,10 +1101,14 @@
    the band read as a sentence that had come apart rather than as four things
    the account is. */
 .today-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 0 var(--space-2);
   min-width: 0;
+}
+.today-tile .today-headline {
+  grid-column: 1 / -1;
 }
 /* The separator belongs to the reading that FOLLOWS it, so a line that wraps
    never leaves a dot stranded at its end. */
@@ -1113,7 +1125,7 @@
   gap: var(--space-2);
   white-space: nowrap;
   overflow: hidden;
-  order: -1;
+  order: -2;
   font-size: var(--fs-meta);
   font-weight: var(--fw-regular);
   letter-spacing: var(--tracking-normal);
@@ -1138,7 +1150,10 @@
    the judgements would teach the reader that an unlabelled one is unexamined.
    In a line this dense it has to be the quietest thing in it, which is why it
    sheds the Badge's pill entirely rather than only its fill. */
+/* Beside the reading's NAME rather than under its answer: on its own line it
+   cost every cell a third row to say one quiet word. */
 .today-tile > .badge {
+  order: -1;
   align-self: flex-start;
   padding: 0;
   background: none;
