@@ -141,8 +141,8 @@ func TestAnUnmappedAdminMapsThemselvesAndTheRecordsAppear(t *testing.T) {
 	fakeInc := fake.New()
 	fakeInc.SeedOwner(recordOwner, unmatchedOwnerEmail)
 
-	store := overlaymod.NewMirrorStore(e.DB(), fakeInc)
-	svc := overlaymod.NewService(e.DB(), keyvault.NewMemory(), store).
+	store := overlaymod.NewMirrorStore(e.DBFor(ws), fakeInc)
+	svc := overlaymod.NewService(e.DBFor(ws), keyvault.NewMemory(), store).
 		WithIncumbentFactory(func(string, string) overlaymod.Incumbent { return fakeInc })
 
 	// The connection is what makes the owners directory readable, and the

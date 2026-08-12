@@ -61,7 +61,7 @@ func TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider(t *testing.T)
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
 
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(overlayWS), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}

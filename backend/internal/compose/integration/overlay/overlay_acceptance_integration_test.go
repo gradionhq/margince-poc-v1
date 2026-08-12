@@ -70,7 +70,7 @@ func seedMirroredPersonFixture(t *testing.T, e *integration.Env) (context.Contex
 	t.Helper()
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(overlayWS), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}

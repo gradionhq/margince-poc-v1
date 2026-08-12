@@ -192,7 +192,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
 
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(overlayWS), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestOverlayWritesRefuseAnUnreleasedAgentAtTheSeam(t *testing.T) {
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
 
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestOverlayListRecordsRefusesAFilterAndServesAnEnumeration(t *testing.T) {
 
 	// The served arm needs a row to serve: the mirror's visibility join is
 	// fail-closed, so an unmapped rep reads as not-found rather than as empty.
-	mirror := overlaymod.NewMirrorStore(e.DB(), stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](user), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
