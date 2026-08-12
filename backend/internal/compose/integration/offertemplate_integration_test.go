@@ -19,7 +19,6 @@ package integration
 // quotas_integration_test.go/quotas_http_integration_test.go split.
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -412,51 +411,5 @@ func TestOfferTemplateRBAC_RepCreatesReadOnlyCannot(t *testing.T) {
 	// The denials wrote nothing beyond the two legitimate creates (seed + rep).
 	if n := e.WsCount(t, `SELECT count(*) FROM offer_template`); n != 2 {
 		t.Fatalf("denied mutations must leave exactly the seed + rep rows, found %d", n)
-	}
-}
-
-func TestOfferTemplateRLS_TenantIsolation(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	ctxA := e.As(e.Rep1, nil, offerTemplateAdminPerms)
-
-	created, err := e.Deals.CreateOfferTemplate(ctxA, basicTemplateInput("Tenant A Template"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wsB := ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		wsB, "template-b-"+wsB.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
-	ctxB = principal.WithCorrelationID(ctxB, ids.NewV7())
-	ctxB = principal.WithActor(ctxB, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(),
-		UserID: ids.NewV7(), Permissions: offerTemplateAdminPerms,
-	})
-
-	// Tenant B asks through a store of its own: the workspace a read is scoped
-	// to is the handle's, so driving tenant A's store with tenant B's ctx would
-	// answer tenant A's rows and the isolation claim would be vacuous.
-	dealsB := e.DealsFor(wsB)
-
-	id := ids.From[ids.OfferTemplateKind](ids.UUID(created.Id))
-	if _, err := dealsB.GetOfferTemplate(ctxB, id, storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("tenant B must not resolve tenant A's template, got %v", err)
-	}
-	listed, _, err := dealsB.ListOfferTemplates(ctxB, deals.ListOfferTemplatesInput{IncludeArchived: true})
-	if err != nil || len(listed) != 0 {
-		t.Fatalf("tenant B's list = %d rows (%v), want empty", len(listed), err)
-	}
-	// Tenant B may still mint its OWN template with the identical name —
-	// offer_template_name_unique is scoped to (workspace_id, name).
-	if _, err := dealsB.CreateOfferTemplate(ctxB, basicTemplateInput("Tenant A Template")); err != nil {
-		t.Fatalf("tenant B minting the same name in its own workspace must succeed, got %v", err)
-	}
-	if _, err := e.Deals.GetOfferTemplate(ctxA, id, storekit.LiveOnly); err != nil {
-		t.Fatalf("tenant A must keep seeing its own template, got %v", err)
 	}
 }

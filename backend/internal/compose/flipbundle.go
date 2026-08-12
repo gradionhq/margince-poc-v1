@@ -232,7 +232,14 @@ func presentOwners(ctx context.Context, pool *pgxpool.Pool, owners map[string]id
 	}
 	live := make(map[ids.UUID]bool, len(candidates))
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id FROM app_user WHERE id = ANY($1)`, candidates)
+		rows, err := tx.Query(ctx, // Scoped to the workspace the rebuild lands in: the filter's whole
+			// purpose is "users that actually exist HERE", and tenant isolation
+			// used to supply the HERE. Without it an owner from the exporting
+			// installation passes the filter and the import then fails on the
+			// owner FK (ADR-0091 §8 phase A).
+			`SELECT id FROM app_user
+			  WHERE id = ANY($1)
+			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, candidates)
 		if err != nil {
 			return fmt.Errorf("reconstruction: checking which bundle owners exist here: %w", err)
 		}

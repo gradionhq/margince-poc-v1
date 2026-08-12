@@ -15,7 +15,6 @@ package migrations
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 
@@ -257,87 +256,6 @@ func withGUC(t *testing.T, conn *pgx.Conn, wsID string, fn func(pgx.Tx) error) e
 	return tx.Commit(ctx)
 }
 
-func TestRLS_tenantIsolationGates(t *testing.T) {
-	ownerDSN, appDSN := dsns(t)
-	if appDSN == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN is not set — the RLS gates must run as the non-owner runtime role")
-	}
-	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
-
-	wsA := seedWorkspace(t, owner, "tenant-a")
-	wsB := seedWorkspace(t, owner, "tenant-b")
-
-	app := connect(t, appDSN)
-	ctx := context.Background()
-
-	insertPerson := func(wsID, name string) error {
-		return withGUC(t, app, wsID, func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx,
-				`INSERT INTO person (workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'test', 'human:test')`,
-				wsID, name)
-			return err
-		})
-	}
-	if err := insertPerson(wsA, "Ada A"); err != nil {
-		t.Fatalf("insert into tenant A: %v", err)
-	}
-	if err := insertPerson(wsB, "Ben B"); err != nil {
-		t.Fatalf("insert into tenant B: %v", err)
-	}
-
-	// ∅-query: tenant A's GUC sees none of tenant B's rows.
-	if err := withGUC(t, app, wsA, func(tx pgx.Tx) error {
-		var n int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM person`).Scan(&n); err != nil {
-			t.Fatalf("count under tenant A: %v", err)
-		}
-		if n != 1 {
-			t.Errorf("tenant A sees %d persons, want exactly its own 1", n)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("tenant A read tx: %v", err)
-	}
-
-	// GUC-unset: a connection with no workspace reads ZERO rows...
-	if err := withGUC(t, app, "", func(tx pgx.Tx) error {
-		var n int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM person`).Scan(&n); err != nil {
-			t.Fatalf("count with unset GUC: %v", err)
-		}
-		if n != 0 {
-			t.Errorf("unset GUC sees %d rows, want 0 (deny-on-unset, never wildcard)", n)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("unset-GUC read tx: %v", err)
-	}
-
-	// ...and cannot write (WITH CHECK).
-	err := withGUC(t, app, "", func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO person (workspace_id, full_name, source, captured_by) VALUES ($1, 'Eve', 'test', 'human:test')`,
-			wsA)
-		return err
-	})
-	if err == nil {
-		t.Error("insert with unset GUC succeeded; RLS WITH CHECK must reject it")
-	}
-
-	// Cross-tenant write: tenant B's GUC cannot insert a tenant-A row.
-	err = withGUC(t, app, wsB, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO person (workspace_id, full_name, source, captured_by) VALUES ($1, 'Mallory', 'test', 'human:test')`,
-			wsA)
-		return err
-	})
-	if err == nil {
-		t.Error("cross-tenant insert succeeded; WITH CHECK must reject it")
-	}
-}
-
 func TestVersionBumpAndSkewSemantics(t *testing.T) {
 	ownerDSN, appDSN := dsns(t)
 	owner := connect(t, ownerDSN)
@@ -422,80 +340,6 @@ func TestAuditLogIsAppendOnly(t *testing.T) {
 		} else if !errors.As(err, &pgErr) {
 			t.Errorf("%q failed with %v, want a loud database error", stmt, err)
 		}
-	}
-}
-
-// requireForceRLS asserts a table carries the full RLS shape — ENABLE,
-// FORCE, and a tenant-isolation policy — the same three checks
-// TestEveryWorkspaceScopedTableForcesRowLevelSecurity derives generically
-// for every workspace_id table. This table-scoped form exists so a single
-// new module's migration test can assert its own tables' RLS shape without
-// waiting on the cross-module coverage sweep in compose/integration.
-func requireForceRLS(t *testing.T, pool *pgx.Conn, table string) {
-	t.Helper()
-	var enabled, forced, hasPolicy bool
-	err := pool.QueryRow(context.Background(), `
-		SELECT cl.relrowsecurity, cl.relforcerowsecurity,
-		       EXISTS (SELECT 1 FROM pg_policies p
-		               WHERE p.schemaname = 'public' AND p.tablename = $1)
-		FROM pg_class cl
-		WHERE cl.relname = $1 AND cl.relnamespace = 'public'::regnamespace`, table).
-		Scan(&enabled, &forced, &hasPolicy)
-	if err != nil {
-		t.Fatalf("%s: querying RLS flags: %v", table, err)
-	}
-	if !enabled {
-		t.Errorf("%s: row level security is not ENABLEd", table)
-	}
-	if !forced {
-		t.Errorf("%s: row level security is not FORCEd — the table owner bypasses every policy", table)
-	}
-	if !hasPolicy {
-		t.Errorf("%s: no tenant-isolation policy exists — RLS without a policy denies nothing to the owner and everything to no one", table)
-	}
-}
-
-// requireDenyWhenGUCUnset asserts a connection with no app.workspace_id GUC
-// reads zero rows from table, mirroring the person-table check inlined in
-// TestRLS_tenantIsolationGates. table is always a fixed literal supplied by
-// the calling test, never request input, so the identifier is interpolated
-// directly — pgx has no placeholder for a table name.
-func requireDenyWhenGUCUnset(t *testing.T, pool *pgx.Conn, table string) {
-	t.Helper()
-	if err := withGUC(t, pool, "", func(tx pgx.Tx) error {
-		var n int
-		if err := tx.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s`, table)).Scan(&n); err != nil {
-			return err
-		}
-		if n != 0 {
-			t.Errorf("%s: unset GUC sees %d rows, want 0 (deny-on-unset, never wildcard)", table, n)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("%s: unset-GUC read tx: %v", table, err)
-	}
-}
-
-// TestChannelTablesEnforceRowLevelSecurity is the RLS gate for the two
-// telegram-oa tables (design §4.1, §4.2): channel_connection carries the
-// bot's credential and webhook secret references, and
-// person_channel_identity carries the Telegram-to-Person resolution key —
-// both must deny by default exactly like every other tenant table.
-func TestChannelTablesEnforceRowLevelSecurity(t *testing.T) {
-	ownerDSN, appDSN := dsns(t)
-	if appDSN == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN is not set — the RLS gates must run as the non-owner runtime role")
-	}
-	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
-	pool := connect(t, appDSN)
-
-	for _, table := range []string{"channel_connection", "person_channel_identity"} {
-		t.Run(table, func(t *testing.T) {
-			requireForceRLS(t, pool, table)
-			requireDenyWhenGUCUnset(t, pool, table)
-		})
 	}
 }
 

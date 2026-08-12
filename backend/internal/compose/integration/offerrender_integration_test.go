@@ -27,8 +27,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -362,107 +360,6 @@ func TestOfferRenderSetPdfAssetRef_StalePreparedVersionRejectsWithVersionSkew(t 
 	}
 	if got.PdfAssetRef != nil {
 		t.Fatalf("a rejected SetPdfAssetRef must not persist any ref, got %+v", got.PdfAssetRef)
-	}
-}
-
-// seedOfferRenderWorkspaceB provisions a SECOND, genuinely separate
-// workspace (its own row, own admin user, own pipeline/deal) and renders
-// one draft offer inside it — the real cross-tenant fixture
-// TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound needs to
-// prove a row that actually EXISTS in another tenant is still invisible,
-// not merely that a random unknown id 404s (a stand-in for "no such row
-// anywhere", not for "this exact row belongs to someone else").
-func seedOfferRenderWorkspaceB(t *testing.T, e *Env, owner *pgx.Conn) ids.OfferID {
-	t.Helper()
-	ws, user := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "render-b-"+ws.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
-		user, ws, "b@render-b.test"); err != nil {
-		t.Fatal(err)
-	}
-	ctxB := principal.WithWorkspaceID(context.Background(), ws)
-	ctxB = principal.WithCorrelationID(ctxB, ids.NewV7())
-	ctxB = principal.WithActor(ctxB, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user,
-		// offerRenderDeskPerms plus "pipeline" — this actor also seeds
-		// tenant B's default pipeline, which the main harness's fixtures
-		// otherwise get for free from e.Admin().
-		Permissions: principal.Permissions{
-			RoleKeys: []string{"deal_desk"},
-			Objects: map[string]principal.ObjectGrant{
-				"pipeline":              {Create: true, Read: true},
-				"deal":                  {Create: true, Read: true, Update: true},
-				"offer":                 {Create: true, Read: true, Update: true},
-				"offer_template":        {Create: true, Read: true},
-				"installation_settings": {Read: true},
-			},
-			RowScope: principal.RowScopeAll,
-		},
-	})
-
-	// Tenant B is written through a store bound to tenant B: the workspace is
-	// the handle's, not the ctx's, so the harness's own store would stamp B's
-	// rows inside A's transaction and RLS would refuse them.
-	dealsB := e.DealsFor(ws)
-	if err := dealsB.SeedDefaults(ctxB); err != nil {
-		t.Fatal(err)
-	}
-	p, err := dealsB.DefaultPipeline(ctxB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var openStage ids.StageID
-	for _, st := range *p.Stages {
-		if st.Semantic == "open" {
-			openStage = ids.From[ids.StageKind](ids.UUID(st.Id))
-			break
-		}
-	}
-	deal, err := dealsB.CreateDeal(ctxB, deals.CreateDealInput{
-		Name: "Tenant B deal", PipelineID: ids.From[ids.PipelineKind](ids.UUID(p.Id)), StageID: openStage,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	created := renderOneLineOfferOn(ctxB, t, dealsB, ids.UUID(deal.Id), deals.CreateOfferInput{})
-	return ids.From[ids.OfferKind](ids.UUID(created.Id))
-}
-
-func TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound(t *testing.T) {
-	e := Setup(t)
-	pipeline, open, _ := DealFixture(t, e)
-	dealID := e.SeedDeal(t, "Render rbac deal", pipeline, open, &e.Rep1)
-	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
-
-	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
-	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
-
-	noOfferGrant := principal.Permissions{
-		RoleKeys: []string{"no_offer"},
-		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}, "installation_settings": {Read: true}},
-		RowScope: principal.RowScopeAll,
-	}
-	denied := e.As(e.Rep2, []ids.UUID{e.Team1}, noOfferGrant)
-	if _, err := e.Deals.PrepareRender(denied, offerID); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("PrepareRender without the offer read grant = %v, want ErrPermissionDenied", err)
-	}
-
-	if _, err := e.Deals.PrepareRender(ctx, ids.From[ids.OfferKind](ids.NewV7())); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("PrepareRender of an unknown offer id = %v, want ErrNotFound", err)
-	}
-
-	// A REAL offer that exists — just in another workspace — must answer
-	// the identical existence-hiding 404, never a 403 or a leak.
-	owner := OwnerConn(t)
-	otherOfferID := seedOfferRenderWorkspaceB(t, e, owner)
-	if _, err := e.Deals.PrepareRender(ctx, otherOfferID); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("PrepareRender of a real cross-workspace offer = %v, want ErrNotFound (existence-hiding)", err)
 	}
 }
 

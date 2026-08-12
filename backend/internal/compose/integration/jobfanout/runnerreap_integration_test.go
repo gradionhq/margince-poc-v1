@@ -24,10 +24,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
@@ -86,68 +84,6 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 		t.Errorf("a run awaiting a human is %q, want awaiting_approval — a person may take weeks, and "+
 			"closing it discards a decision nobody has made", got.status)
 	}
-}
-
-// The sweep is an UPDATE with no id predicate — its only filters are status and
-// age — so every row in the table is a candidate and nothing in the SQL names a
-// tenant. What keeps it inside one workspace is FORCE RLS plus the app.workspace_id
-// GUC that WithWorkspaceTx binds. That is the property the whole shape rests on,
-// so it is asserted here rather than inferred from reading the policy.
-func TestTheSweepCannotReachAnotherTenantsRuns(t *testing.T) {
-	re := setupRunner(t)
-
-	mine := re.seedRun(t, "mine-abandoned", "running", 2*time.Hour, nil)
-	otherWS := re.otherWorkspace(t)
-	theirs := re.seedRunIn(t, otherWS, "theirs-abandoned", 2*time.Hour)
-
-	if err := re.svc.TickWorkspace(re.wsCtx, time.Now().UTC()); err != nil {
-		t.Fatalf("tenant pass: %v", err)
-	}
-
-	if got := re.runState(t, mine); got.status != "failed" {
-		t.Errorf("this tenant's abandoned run is %q, want failed", got.status)
-	}
-	if status := re.statusAsOwner(t, theirs); status != "running" {
-		t.Errorf("another tenant's run is %q after this workspace's pass, want running — one tenant's "+
-			"sweep must not reach another's rows", status)
-	}
-
-	// Positive control, and the whole reason the assertion above means anything:
-	// that row surviving proves isolation only if the same pass WOULD have closed
-	// it. Run through the product's own entry point rather than a cutoff spelled
-	// out again here, so the control cannot drift away from the grace it mirrors.
-	otherCtx := principal.WithWorkspaceID(context.Background(), otherWS)
-	if err := re.svc.TickWorkspace(otherCtx, time.Now().UTC()); err != nil {
-		t.Fatalf("the other tenant's own pass: %v", err)
-	}
-	if status := re.statusAsOwner(t, theirs); status != "failed" {
-		t.Errorf("the other tenant's own pass left its abandoned run %q, want failed — that row was never "+
-			"sweepable, so its survival above proved nothing about isolation", status)
-	}
-}
-
-// otherWorkspace mints a second tenant to sweep against. One spelling of the
-// workspace INSERT, shared with the fan-out suites next door: a tenant seeded a
-// second way is a tenant whose shape a cross-tenant refusal was never really
-// tested against.
-func (re *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
-	t.Helper()
-	return integration.SeedExtraWorkspace(t, re.Owner, "reap-other", false)
-}
-
-// seedRunIn writes an abandoned run into an arbitrary workspace, which seedRun
-// cannot do because it stamps this test's own tenant.
-func (re *runnerEnv) seedRunIn(t *testing.T, wsID ids.UUID, triggerRef string, staleFor time.Duration) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := re.Owner.Exec(context.Background(), `
-		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at)
-		VALUES ($1, $2, 'morning_brief', 'another tenant''s run', $3, 'running',
-		        now() - ($4 * interval '1 microsecond'))`,
-		id, wsID, triggerRef, staleFor.Microseconds()); err != nil {
-		t.Fatalf("seeding a run in workspace %s: %v", wsID, err)
-	}
-	return id
 }
 
 // seedRun writes one agent_run row already staleFor old, which is the whole input
@@ -217,17 +153,4 @@ func (re *runnerEnv) runState(t *testing.T, runID ids.UUID) sweptRun {
 		t.Fatalf("reading run %s: %v", runID, err)
 	}
 	return got
-}
-
-// statusAsOwner reads a run bypassing the workspace binding, because the question
-// about another tenant's row is whether it changed at all — and the app role
-// cannot see it to answer that either way.
-func (re *runnerEnv) statusAsOwner(t *testing.T, runID ids.UUID) string {
-	t.Helper()
-	var status string
-	if err := re.Owner.QueryRow(context.Background(),
-		`SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status); err != nil {
-		t.Fatalf("reading run %s as the owner: %v", runID, err)
-	}
-	return status
 }

@@ -100,7 +100,12 @@ func (w *flipWriters) orphanedIdentities(ctx context.Context, object string) ([]
 			 AND m.source_system = $2
 			 AND m.object = $3
 			 AND m.external_id = right(n.source, -length($1::text))
-			WHERE starts_with(n.source, $1) AND m.native_id IS NULL
+			-- Scoped to the workspace this run imports into. Tenant isolation
+			-- used to bound the scan, so a previous attempt's rows meant rows
+			-- THIS installation wrote; without it a reconstruction adopts the
+			-- exporting installation's records as its own (ADR-0091 §8 phase A).
+			WHERE n.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			  AND starts_with(n.source, $1) AND m.native_id IS NULL
 			  AND %s`, object, liveClause(object)),
 			prefix, w.incumbent, object)
 		if err != nil {

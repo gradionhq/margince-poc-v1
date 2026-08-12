@@ -30,33 +30,6 @@ import (
 func strp(s string) *string { return &s }
 func intp(i int) *int       { return &i }
 
-// TestLeadScoreOverrideColumnsAndRLS pins the additive migration: the two
-// override columns exist and lead still carries FORCE row-level security
-// (ADD COLUMN never relaxes it).
-func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
-	e := SetupSearch(t)
-	ctx := context.Background()
-
-	var forced bool
-	if err := e.Owner.QueryRow(ctx,
-		`SELECT relforcerowsecurity FROM pg_class WHERE relname = 'lead'`).Scan(&forced); err != nil {
-		t.Fatal(err)
-	}
-	if !forced {
-		t.Fatal("lead lost FORCE ROW LEVEL SECURITY after the override migration")
-	}
-
-	var cols int
-	if err := e.Owner.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.columns
-		   WHERE table_name = 'lead' AND column_name IN ('score_override_reason', 'score_computed')`).Scan(&cols); err != nil {
-		t.Fatal(err)
-	}
-	if cols != 2 {
-		t.Fatalf("override columns present = %d, want 2", cols)
-	}
-}
-
 func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.DB())

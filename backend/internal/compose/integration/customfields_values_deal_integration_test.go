@@ -15,12 +15,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -115,82 +112,6 @@ func TestCustomFieldValues_DealRoundTrip(t *testing.T) {
 		t.Fatalf("ListDeals returned %d rows, want 1", len(list))
 	}
 	assertCF(t, list[0].AdditionalProperties, col, "mid-market")
-}
-
-// TestCustomFieldValues_DealWorkspaceIsolation: the physical cf_ column
-// on deal is shared across tenants, but the catalog is workspace-scoped
-// — a workspace that never defined the field neither writes nor reads it.
-func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
-	f := setupDealCFV(t)
-	col := f.defineDealField(t, customfields.FieldSpec{Object: "deal", Label: "Segment", Type: customfields.TypeText, Source: "ui"})
-
-	inA, err := f.store.CreateDeal(f.ctx, deals.CreateDealInput{
-		Name: "Tenant A Deal", PipelineID: f.pipeline, StageID: f.stage, Source: "ui",
-		CustomFields: map[string]any{col: "enterprise"},
-	})
-	if err != nil {
-		t.Fatalf("CreateDeal (tenant A): %v", err)
-	}
-	assertCF(t, inA.AdditionalProperties, col, "enterprise")
-
-	// The deal grants, not the catalog ones: this arm creates a DEAL in tenant B,
-	// so the perms it needs are the ones the write goes through.
-	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), dealCFVPerms)
-	// Tenant B's own store: a write lands in the workspace its handle names, so
-	// the tenant-A store would stamp B's ids into A's transaction and RLS would
-	// refuse them. The catalog service is shared on purpose — the physical
-	// column is one column, which is what this arm is about.
-	storeB := deals.NewStore(f.e.DBFor(wsB), installseam.Deals()).WithFieldCatalog(f.svc)
-	pipelineB, stageB := seedDealFixtureIn(ctxB, t, storeB)
-	inB, err := storeB.CreateDeal(ctxB, deals.CreateDealInput{
-		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
-		CustomFields: map[string]any{col: "enterprise"},
-	})
-	if err != nil {
-		t.Fatalf("CreateDeal (tenant B): %v", err)
-	}
-	assertNoCF(t, inB.AdditionalProperties, col)
-
-	// The dropped write really never landed: B's row holds NULL in the
-	// shared physical column.
-	var stored *string
-	err = database.WithWorkspaceTx(ctxB, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctxB,
-			`SELECT `+col+` FROM deal WHERE id = $1`, ids.UUID(inB.Id)).Scan(&stored)
-	})
-	if err != nil {
-		t.Fatalf("reading tenant B's column directly: %v", err)
-	}
-	if stored != nil {
-		t.Fatalf("tenant B's %s = %q, want NULL (write must be dropped)", col, *stored)
-	}
-
-	// Tenant A still reads its value.
-	gotA, err := f.store.GetDeal(f.ctx, dealIDOf(ids.UUID(inA.Id)), storekit.LiveOnly)
-	if err != nil {
-		t.Fatalf("GetDeal (tenant A): %v", err)
-	}
-	assertCF(t, gotA.AdditionalProperties, col, "enterprise")
-}
-
-// seedDealFixtureIn provisions the default pipeline in the context's
-// workspace and returns its pipeline id plus the first open stage.
-func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (ids.PipelineID, ids.StageID) {
-	t.Helper()
-	if err := store.SeedDefaults(ctx); err != nil {
-		t.Fatal(err)
-	}
-	p, err := store.DefaultPipeline(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, st := range *p.Stages {
-		if st.Semantic == "open" {
-			return ids.From[ids.PipelineKind](ids.UUID(p.Id)), ids.From[ids.StageKind](ids.UUID(st.Id))
-		}
-	}
-	t.Fatal("default pipeline has no open stage")
-	return ids.PipelineID{}, ids.StageID{}
 }
 
 // dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.

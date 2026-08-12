@@ -148,23 +148,6 @@ var computedFieldNoGrantPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
-// computedFieldWorkspaceBPerms grants workspace B's synthetic admin
-// exactly what this suite's cross-tenant scenario needs — organization
-// and deal writes plus computed_field:read — narrower than
-// AdminPerms/CustomFieldAdminPerms because neither existing fixture carries the
-// organization+deal+computed_field combination this suite exercises.
-var computedFieldWorkspaceBPerms = principal.Permissions{
-	RoleKeys: []string{"admin"},
-	Objects: map[string]principal.ObjectGrant{
-		"organization":          {Create: true, Read: true},
-		"deal":                  {Create: true, Read: true},
-		"pipeline":              {Create: true, Read: true},
-		"computed_field":        {Read: true},
-		"installation_settings": {Read: true},
-	},
-	RowScope: principal.RowScopeAll,
-}
-
 // TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead is
 // the happy path: two open deals with their FX frozen (the owner-conn
 // fixture above) sum to a known figure that must match both the view
@@ -356,77 +339,6 @@ func TestOrganizationComputed_UngatedPrincipal_ComputedFieldsKeyAbsentFromWire(t
 	}
 	if _, present := wire["computed_fields"]; present {
 		t.Fatalf("want the computed_fields KEY entirely absent from the wire, got %v", wire["computed_fields"])
-	}
-}
-
-// TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces is
-// the RLS proof T2's notes ask for: the view is security_invoker=true
-// (0065), so it runs with the CALLING role's privileges and RLS — this
-// seeds two workspaces with SAME-NAMED organizations, each with its own
-// real (FX-frozen) open pipeline total, and proves two things a broken
-// or missing RLS policy would fail: (1) probing the OTHER workspace's
-// real organization id from THIS workspace's GUC-bound transaction finds
-// NO view row at all (deal rows exist in the database, they are just
-// invisible under the wrong tenant context — organization_id uniqueness
-// alone would never catch a regression here, only RLS does); (2) each
-// workspace's own GET reflects its own total, never the other's.
-func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	pipelineA, openA := pipelineFixtureFor(e.Admin(), t, e.Deals)
-	orgA := e.SeedOrg(t, "Acme", nil)
-	dealA, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
-		Name: "A deal", AmountMinor: int64Ptr(500000), Currency: strPtr("EUR"),
-		PipelineID: pipelineA, StageID: openA, OrganizationID: orgIDPtr(orgIDOf(orgA)), Source: "manual",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	freezeDealFX(t, owner, ids.UUID(dealA.Id))
-
-	wsB, ctxB := SeedSecondWorkspace(t, owner, computedFieldWorkspaceBPerms)
-	// Tenant B writes through stores of its own: the workspace a row lands in
-	// is the handle's, so tenant A's stores would stamp B's ids inside A's
-	// transaction and RLS would refuse them. The cross-context PROBES below
-	// stay ctx-driven — they read the view directly, which is where the
-	// isolation claim actually lives.
-	dealsB, peopleB := e.DealsFor(wsB), e.PeopleFor(wsB)
-	pipelineB, openB := pipelineFixtureFor(ctxB, t, dealsB)
-	orgB := e.SeedOrgAs(ctxB, t, wsB, "Acme")
-	dealB, err := dealsB.CreateDeal(ctxB, deals.CreateDealInput{
-		Name: "B deal", AmountMinor: int64Ptr(999000), Currency: strPtr("EUR"),
-		PipelineID: pipelineB, StageID: openB, OrganizationID: orgIDPtr(orgIDOf(orgB)), Source: "manual",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	freezeDealFX(t, owner, ids.UUID(dealB.Id))
-
-	// The cross-context probe: workspace A's GUC bound, workspace B's
-	// real organization id — a leak would show B's 999000, not nothing.
-	if _, _, found := directOpenPipelineRead(e.Admin(), t, e, orgB); found {
-		t.Fatal("workspace A's context found a view row for workspace B's organization — RLS leak")
-	}
-	if _, _, found := directOpenPipelineRead(ctxB, t, e, orgA); found {
-		t.Fatal("workspace B's context found a view row for workspace A's organization — RLS leak")
-	}
-
-	orgAGet, err := e.People.GetOrganization(e.Admin(), orgIDOf(orgA), storekit.IncludeArchived)
-	if err != nil {
-		t.Fatal(err)
-	}
-	orgBGet, err := peopleB.GetOrganization(ctxB, orgIDOf(orgB), storekit.IncludeArchived)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aOpen := computedFieldByKey(*orgAGet.ComputedFields, "open_pipeline")
-	bOpen := computedFieldByKey(*orgBGet.ComputedFields, "open_pipeline")
-	if aOpen.ValueMinor == nil || *aOpen.ValueMinor != 500000 {
-		t.Fatalf("workspace A's own org.open_pipeline = %v, want 500000", aOpen.ValueMinor)
-	}
-	if bOpen.ValueMinor == nil || *bOpen.ValueMinor != 999000 {
-		t.Fatalf("workspace B's own org.open_pipeline = %v, want 999000", bOpen.ValueMinor)
 	}
 }
 

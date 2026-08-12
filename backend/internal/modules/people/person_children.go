@@ -135,7 +135,9 @@ func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []Person
 	for _, e := range emails {
 		var existing ids.PersonID
 		err := tx.QueryRow(ctx,
-			`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
+			`SELECT person_id FROM person_email
+			  WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			    AND email = lower($1) AND archived_at IS NULL`,
 			e.Email).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue

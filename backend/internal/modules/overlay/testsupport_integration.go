@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -48,6 +50,42 @@ func testBudgetMeter(t *testing.T, incumbents ...string) *overlaybudget.Meter {
 // which needs it). It fails loudly rather than skipping: a missing DSN
 // means the dependency (`make db-up`) was never provisioned, and a
 // silently skipped test looks exactly like a passing one.
+// resetOncePerTest truncates the database the FIRST time a test asks for a
+// workspace, and never again within that test.
+//
+// Every test in this package seeds its own workspace into ONE database, and
+// what used to keep their rows apart was deny-on-unset RLS. With tenant
+// isolation retired (ADR-0091 §8 phase A) the separation has to be real, so the
+// harness resets — the way compose/integration's already does.
+//
+// Once per TEST rather than once per call, because several tests here connect
+// two workspaces on purpose (the fail-closed portal binding is the clearest:
+// its whole subject is an id that two connections claim). Resetting on the
+// second call would delete the first workspace and quietly turn those tests
+// into single-workspace ones that assert nothing.
+func resetOncePerTest(ctx context.Context, t *testing.T, owner *pgx.Conn) {
+	t.Helper()
+	resetMu.Lock()
+	defer resetMu.Unlock()
+	if resetFor[t.Name()] {
+		return
+	}
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	resetFor[t.Name()] = true
+	t.Cleanup(func() {
+		resetMu.Lock()
+		defer resetMu.Unlock()
+		delete(resetFor, t.Name())
+	})
+}
+
+var (
+	resetMu  sync.Mutex
+	resetFor = map[string]bool{}
+)
+
 func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -65,6 +103,8 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+
+	resetOncePerTest(ctx, t, owner)
 
 	ws := ids.NewV7()
 	if _, err := owner.Exec(ctx,

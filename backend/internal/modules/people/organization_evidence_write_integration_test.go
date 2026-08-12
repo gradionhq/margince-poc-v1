@@ -334,30 +334,6 @@ func TestConfirmingAFactKeepsTheExtractionsClaimInTheAuditTrail(t *testing.T) {
 	}
 }
 
-// Every assertion above holds even if the two sidecar reads dropped their
-// workspace_id clause, because a single-workspace fixture cannot tell the
-// difference. This one can: it corrects through a store bound to workspace A
-// while the fact lives in workspace B.
-func TestEvidenceOfAnotherWorkspacesOrganizationIsNotReachable(t *testing.T) {
-	owner := setupDedupe(t)
-	orgID := evidenceOrg(owner.as(), t, owner)
-
-	stranger := setupDedupe(t)
-	corrected := "+49 30 9999"
-	_, err := stranger.store.UpdateOrganizationFact(stranger.as(), orgID, "phone:",
-		FactWriteInput{Value: &corrected})
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("got %v, want not found — another workspace's fact must be existence-hidden, never corrected", err)
-	}
-	if _, err := stranger.store.UpdateOrganizationProfileField(stranger.as(), orgID, "icp",
-		ProfileFieldWriteInput{Value: &corrected}); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("got %v, want not found", err)
-	}
-	if got := factValue(owner.as(), t, owner, orgID, "phone", ""); got != "+49 30 1234" {
-		t.Errorf("phone = %q — a foreign correction reached the row", got)
-	}
-}
-
 // PATCH /organizations/{id} refuses an archived record, so a correction routed
 // through its receipt must refuse it too — otherwise the sidecar is a way to
 // edit a company the ordinary path says is gone. The refusal does not depend on

@@ -150,7 +150,12 @@ func (w *flipWriters) stageCatalog(ctx context.Context) (*flipStageCatalog, erro
 		rows, err := tx.Query(ctx, `
 			SELECT s.id, s.pipeline_id, s.name, s.semantic, p.is_default
 			FROM stage s JOIN pipeline p ON p.id = s.pipeline_id AND p.workspace_id = s.workspace_id
-			WHERE s.archived_at IS NULL AND p.archived_at IS NULL
+			-- Scoped to the workspace the rebuild lands in: tenant isolation
+			-- used to supply it, and without it the catalog offers another
+			-- installation's stages, which the deal write then rejects
+			-- (ADR-0091 §8 phase A).
+			WHERE s.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			  AND s.archived_at IS NULL AND p.archived_at IS NULL
 			ORDER BY p.is_default DESC, s.position`)
 		if err != nil {
 			return fmt.Errorf("flip import: reading the native stage catalog: %w", err)

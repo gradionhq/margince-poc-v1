@@ -246,15 +246,25 @@ func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
 	if rows != 0 {
 		t.Fatalf("the seatless workspace has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
 	}
-	// And nothing anywhere failed: a skip that merely moved the failure to
-	// another kind would satisfy the count above.
+	// And the skip did not merely MOVE the failure: neither this dispatcher's
+	// own kind nor the child it fans out to holds a failed or retrying row.
+	//
+	// Scoped to those two kinds rather than to river_job as a whole. The table
+	// is shared with every other test in the package, and which of them run
+	// beside this one is decided by the shard slicing — so an unscoped count
+	// reports another test's expected failure as this one's regression, which
+	// is exactly how this assertion started failing per-shard rather than
+	// per-change (#1015).
 	var failed int
-	if err := e.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE state IN ('discarded', 'retryable') OR errors <> '{}'`).Scan(&failed); err != nil {
+	if err := e.Pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM river_job
+		 WHERE kind = ANY($1)
+		   AND (state IN ('discarded', 'retryable') OR errors <> '{}')`,
+		[]string{decl.DispatcherKind(), decl.ChildKind()}).Scan(&failed); err != nil {
 		t.Fatalf("counting failed rows: %v", err)
 	}
 	if failed != 0 {
-		t.Fatalf("the fleet holds %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
+		t.Fatalf("the dispatcher and its child hold %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
 	}
 
 	// The condition is reported. Without this the skip would be silent, which
@@ -708,49 +718,6 @@ func TestTheChildUniquenessKeyIsTheWorkspaceAlone(t *testing.T) {
 	}
 	if got := countJobRows(t, e.Pool, decl.ChildKind()); got != 2 {
 		t.Fatalf("child rows across two workspaces: got %d, want 2 — the tag narrowed the key too far", got)
-	}
-}
-
-// TestAPrincipalFromAnotherTenantDoesNotResolve is the arm deriveAuthority's
-// doc comment leans on and that every other stale-principal case would pass
-// without: the read is workspace-pinned, so a principal id belonging to a
-// DIFFERENT tenant is not found here at all.
-//
-// It matters because the alternative — comparing workspace_id in the query —
-// is a rule someone has to remember to write, and this one is the tenant policy
-// the whole store already rides. The seat is deliberately live and valid in its
-// own workspace, so the refusal can only come from the pin.
-func TestAPrincipalFromAnotherTenantDoesNotResolve(t *testing.T) {
-	e := integration.Setup(t)
-	integration.ApplyRiverSchema(t)
-	other := ids.NewV7()
-	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, 'other')`, other); err != nil {
-		t.Fatalf("seeding the other workspace: %v", err)
-	}
-	foreign := seedAgentSeat(t, other)
-
-	decl := testJobDecl()
-	worker := &extJobWorkspaceWorker{
-		pool: e.Pool, decl: decl, log: slog.New(slog.DiscardHandler),
-		handle: func(context.Context, extension.Runtime) error {
-			t.Error("the tick ran under another tenant's principal")
-			return nil
-		},
-	}
-	// The seat IS live and IS derivable — in its own workspace. Proving that
-	// first is what makes the refusal below about the pin rather than about the
-	// row's state.
-	if _, err := worker.deriveAuthority(principal.WithWorkspaceID(context.Background(), other),
-		extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: other, Principal: foreign}); err != nil {
-		t.Fatalf("the foreign seat does not derive in its OWN workspace: %v", err)
-	}
-
-	err := worker.Work(context.Background(), &river.Job[extJobWorkspaceArgs]{
-		Args: extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: e.WS, Principal: foreign},
-	})
-	if !errors.Is(err, errStaleJobPrincipal) {
-		t.Fatalf("a principal from another tenant gave %v, want the stale-principal refusal", err)
 	}
 }
 

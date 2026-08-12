@@ -113,22 +113,12 @@ func TestListRunsOutcomeFilterSpeaksTheWireVocabulary(t *testing.T) {
 	}
 }
 
-func TestListRunsHidesAbsentAndForeignAutomations(t *testing.T) {
+func TestListRunsHidesAnAbsentAutomation(t *testing.T) {
 	fx := setupAutomationDB(t)
 	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeAll)
 
 	if _, err := store.ListRuns(ctx, ids.New[ids.AutomationKind](), nil, nil, nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("absent automation → %v, want ErrNotFound", err)
-	}
-	foreignWS := ids.NewV7()
-	fx.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, 'other')`, foreignWS)
-	foreignAuto := ids.New[ids.AutomationKind]()
-	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
-		VALUES ($1, $2, 'route_lead', 'foreign', '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true)`,
-		foreignAuto, foreignWS)
-	if _, err := store.ListRuns(ctx, foreignAuto, nil, nil, nil); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("foreign automation → %v, want ErrNotFound (existence-hiding, indistinguishable from absent)", err)
 	}
 }
