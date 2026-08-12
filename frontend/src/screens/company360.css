@@ -1082,25 +1082,26 @@
    lower one. Two jobs, two shapes: the strip states what the account IS, in a
    grid; the brief says what is true TODAY, in a line. */
 .today-tiles {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  padding: var(--space-3) var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-5);
 }
+/* Each reading owns a cell: its name on one line, its answer under it. Run
+   together on one wrapping line the readings broke mid-item and the dots
+   between them ended up floating against whichever one happened to wrap, so
+   the band read as a sentence that had come apart rather than as four things
+   the account is. */
 .today-tile {
-  display: inline-flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   min-width: 0;
 }
 /* The separator belongs to the reading that FOLLOWS it, so a line that wraps
    never leaves a dot stranded at its end. */
-.today-tile + .today-tile::before {
-  content: "·";
-  color: var(--textTertiary);
-}
+/* No separators: the grid's own columns do that work now, and a dot between
+   cells reads as punctuation in a sentence the layout no longer is. */
 /* Sentence case, at reading size. Caps earn their place in a GRID, where a
    label owns its column and must be told apart from the value beneath it. Set
    inline, four capitalised labels beside four capitalised qualifiers put eight
@@ -1112,6 +1113,7 @@
   gap: var(--space-2);
   white-space: nowrap;
   overflow: hidden;
+  order: -1;
   font-size: var(--fs-meta);
   font-weight: var(--fw-regular);
   letter-spacing: var(--tracking-normal);
@@ -1137,6 +1139,7 @@
    In a line this dense it has to be the quietest thing in it, which is why it
    sheds the Badge's pill entirely rather than only its fill. */
 .today-tile > .badge {
+  align-self: flex-start;
   padding: 0;
   background: none;
   border: 0;
