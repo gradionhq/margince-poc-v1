@@ -27,7 +27,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -96,7 +95,7 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 	}
 	ctx = actorCtx(ctx, actor)
 	var expiresAt time.Time
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		superseded, err := supersedeSetPasswordTokens(ctx, tx, userID)
 		if err != nil {
 			return err

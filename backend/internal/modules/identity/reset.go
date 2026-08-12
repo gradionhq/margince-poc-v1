@@ -34,7 +34,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -202,7 +201,7 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 	}
 
 	minted := false
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var userID ids.UserID
 		lookupErr := tx.QueryRow(ctx,
 			`SELECT id FROM app_user
@@ -257,7 +256,7 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 	if err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var tokenID ids.UUID
 		var userID ids.UserID
 		lookupErr := tx.QueryRow(ctx,

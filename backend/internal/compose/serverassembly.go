@@ -72,7 +72,7 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// name, reporting zone, base currency — the last of which locks once a
 	// deal has converted against it (ADR-0085 §7).
 	s.installationSettingsHandlers = installationSettingsHandlers{
-		store: identity.NewInstallationSettings(pool, NewSettingsStore(pool)),
+		store: identity.NewInstallationSettings(InstallationDB(pool), NewSettingsStore(pool)),
 	}
 	// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
 	// domain control, and the only way an operator corrects a shipped
@@ -100,9 +100,9 @@ func (s *Server) wireOnboardingSurface(pool *pgxpool.Pool) {
 	s.companyHandlers = companyHandlers{store: people.NewStore(InstallationDB(pool)), rollout: companyContextRolloutOnboarding}
 	s.siteReadHandlers = siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding}
 	s.onboardingStateHandlers = onboardingStateHandlers{
-		state: identity.NewOnboardingStore(pool), company: people.NewStore(InstallationDB(pool)),
+		state: identity.NewOnboardingStore(InstallationDB(pool)), company: people.NewStore(InstallationDB(pool)),
 		proposal: &onboardingProposalEngine{
-			state: identity.NewOnboardingStore(pool), people: people.NewStore(InstallationDB(pool)),
+			state: identity.NewOnboardingStore(InstallationDB(pool)), people: people.NewStore(InstallationDB(pool)),
 			rollout: companyContextRolloutOnboarding,
 		},
 	}

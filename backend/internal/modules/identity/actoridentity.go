@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -51,7 +50,7 @@ func (s *Service) ActorIdentity(ctx context.Context) (name, email string, err er
 		return "", "", nil
 	}
 
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT display_name, email FROM app_user WHERE id = $1 AND archived_at IS NULL`,
 			human).Scan(&name, &email)

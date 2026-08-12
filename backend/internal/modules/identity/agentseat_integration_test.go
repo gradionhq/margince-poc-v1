@@ -151,8 +151,10 @@ func TestBootstrapMintsAnAgentSeatThatCarriesNoAuthorityOfItsOwn(t *testing.T) {
 // identity could come to hold a password.
 func TestNoSetPasswordLinkCanBeIssuedForTheAgentSeat(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
-	svc := NewService(pool)
 	wsID, slug := bootstrapForAgentSeat(t, pool)
+	// Bound to the workspace this test just bootstrapped: the suite seeds one
+	// per test, so there is no installation singleton to resolve.
+	svc := NewServiceFor(database.BindTo(pool, wsID))
 	// Workspace AND correlation id, as the HTTP middleware binds both. Without
 	// the correlation id the write shape refuses at the audit row, so a missing
 	// guard would fail this test on the wrong error and the assertions below

@@ -19,7 +19,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -62,7 +61,7 @@ type ListGrantsInput struct {
 
 func (s *Service) ListRecordGrants(ctx context.Context, in ListGrantsInput) ([]grantRow, error) {
 	var out []grantRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		where := "(expires_at IS NULL OR expires_at > now())"
@@ -155,7 +154,7 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		return grantRow{}, errors.New("crmauth: only a human shares records directly; agents stage through the approval gate")
 	}
 	var out grantRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Scope-intersection: you can only share what you can see (H1
 		// probe on the client-supplied record reference).
 		if err := auth.EnsureLinkTarget(ctx, tx, in.RecordType, in.RecordID); err != nil {
@@ -202,7 +201,7 @@ func (s *Service) RevokeRecordGrant(ctx context.Context, id ids.UUID) error {
 	if !ok || actor.Type != principal.PrincipalHuman {
 		return errors.New("crmauth: only a human revokes shares directly; agents stage through the approval gate")
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		grant, err := scanGrant(tx.QueryRow(ctx,
 			"SELECT "+grantColumns+" FROM record_grant WHERE id = $1", id))
 		if errors.Is(err, pgx.ErrNoRows) {

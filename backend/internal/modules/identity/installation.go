@@ -66,7 +66,7 @@ type InstallationBootstrap struct {
 // bootstrap values never reconcile into an existing organization
 // (restart never resets a password, role, or seed).
 func (s *Service) BootstrapInstallation(ctx context.Context, create *InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, err error) {
-	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
 		}
@@ -104,7 +104,7 @@ func (s *Service) InstallationWorkspace(ctx context.Context) (ids.WorkspaceID, e
 		return *cached, nil
 	}
 	var wsID ids.WorkspaceID
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		existing, err := activeWorkspaces(ctx, tx)
 		if err != nil {
 			return err

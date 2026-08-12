@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -393,7 +392,7 @@ const clientRevokeReason = "revoked via RFC 7009 /oauth/revoke"
 // forbids this endpoint from ever becoming an oracle for whether a token
 // string is real.
 func (s *Service) revokeToken(ctx context.Context, in revokeTokenInput) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		grantID, err := resolveGrantID(ctx, tx, in)
 		if err != nil {
 			return err

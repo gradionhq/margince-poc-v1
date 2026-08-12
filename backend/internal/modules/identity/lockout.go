@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -149,7 +148,7 @@ func (s *Service) checkCredentials(ctx context.Context, tx pgx.Tx, email, plaint
 // An unknown or non-active email still lands the audit row — an
 // invisible brute-force is exactly what the trail exists to catch.
 func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		outcome := "failed"
 		var userID ids.UserID
 		var state lockoutState
