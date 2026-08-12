@@ -313,3 +313,51 @@ func TestEveryIchHoffeOpenerIsCaught(t *testing.T) {
 		}
 	}
 }
+
+// A draft turned the recipient's own CONDITION into a completed fact: the input
+// said they would look again once the budget round closed, and the draft wrote
+// "as the budget round has now concluded". Nobody said it concluded — and the
+// draft then reasoned from it.
+//
+// It is a claim about THEIR side's state, which is the one thing a drafter
+// cannot know: the record holds what they told us, and anything past that is
+// invention wearing the grammar of an update.
+func TestADraftMayNotDeclareTheirSideResolved(t *testing.T) {
+	invented := "Hello Priya, now that the budget round has concluded, I wanted to " +
+		"see whether the integration is moving forward."
+
+	findings := draftcheck.Body(invented, textlang.English, convstate.BandMonths)
+	if len(findings) == 0 {
+		t.Fatal("a draft asserting their side resolved something should be caught")
+	}
+	if findings[0].Rule != "assumed-resolution" {
+		t.Errorf("expected an assumed-resolution finding, got %q", findings[0].Rule)
+	}
+}
+
+// In a LIVE exchange the same words usually refer to something the exchange
+// itself established, so the check is gated on the long gap.
+func TestTheResolutionCheckIsOnlyForALongSilence(t *testing.T) {
+	same := "Hi Priya, now that the review has concluded, here is the scope."
+
+	if f := draftcheck.Body(same, textlang.English, convstate.BandFresh); len(f) != 0 {
+		t.Errorf("a live exchange may refer to what it established, got %+v", f)
+	}
+	if f := draftcheck.Body(same, textlang.English, convstate.BandMonths); len(f) == 0 {
+		t.Error("after months of silence the same sentence is an assertion about them")
+	}
+}
+
+// The phrasings the model actually produced on the stale-thread fixture, which
+// the first list missed.
+func TestTheStaleThreadPhrasingsAreCaught(t *testing.T) {
+	for _, body := range []string{
+		"Hello Priya, when we last spoke regarding the integration project, you mentioned...",
+		"Hello Priya, I am following up on our discussion regarding the integration timeline.",
+		"Hello Priya, picking up where we left off on the integration.",
+	} {
+		if f := draftcheck.Body(body, textlang.English, convstate.BandMonths); len(f) == 0 {
+			t.Errorf("not caught: %q", body[:55])
+		}
+	}
+}

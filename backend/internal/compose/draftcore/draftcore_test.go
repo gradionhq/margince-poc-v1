@@ -101,22 +101,36 @@ func TestTheModelIsNeverAskedMoreThanTwice(t *testing.T) {
 	}
 }
 
-// A retry that makes things WORSE is discarded. A second attempt is not
-// automatically better, and the count is the only evidence available without
-// asking a model to judge its own output.
-func TestTheBetterOfTheTwoAttemptsIsServed(t *testing.T) {
+// A retry that makes things WORSE is discarded. Strictly worse: a TIE goes to
+// the retry, because both attempts carry one finding often enough to matter —
+// the model swaps "circling back" for "checking in" — and the retried one was
+// at least written with the correction in hand.
+func TestOnlyAStrictlyWorseRetryIsDiscarded(t *testing.T) {
+	tied := &scripted{bodies: []string{
+		"Hi Priya, just circling back on this.",
+		"Hi Priya, just checking in on this.",
+	}}
+	got, err := draftcore.CorrectOnce(context.Background(),
+		textlang.English, convstate.BandMonths, tied.write, bodyOf, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.body != tied.bodies[1] {
+		t.Errorf("a tie should go to the corrected attempt, got %q", got.body)
+	}
+
 	lane := &scripted{bodies: []string{
 		"Hi Priya, just checking in.",
 		"Hi Priya, just checking in, as discussed, and touching base.",
 	}}
 
-	got, err := draftcore.CorrectOnce(context.Background(),
+	worse, err := draftcore.CorrectOnce(context.Background(),
 		textlang.English, convstate.BandMonths, lane.write, bodyOf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.body != lane.bodies[0] {
-		t.Errorf("the worse retry should be discarded, got %q", got.body)
+	if worse.body != lane.bodies[0] {
+		t.Errorf("the strictly worse retry should be discarded, got %q", worse.body)
 	}
 }
 

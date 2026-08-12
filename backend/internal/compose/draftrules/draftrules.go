@@ -84,6 +84,10 @@ since either side wrote.
   announces a template.
   Say what has happened or what you want, and ask a question they can answer
   without reconstructing the history first.
+  Do not declare their side's state. If they said they would come back once
+  something closed, you know only that they said it — not that it closed. "Now
+  that the budget round has concluded" is an invented fact, and a draft that
+  reasons from one is worse than a draft that asks.
 
 GAPS
 If you want a figure, a date, a name or a commitment that you were not given,

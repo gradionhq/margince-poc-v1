@@ -50,13 +50,15 @@ var assumedMemory = map[textlang.Lang][]string{
 		"circling back", "circle back", "checking in", "check in with you",
 		"touching base", "as discussed", "as promised", "as mentioned",
 		"our previous discussion", "our previous conversation",
-		"our last conversation", "we discussed", "we spoke about",
-		"following up on our",
+		"our last conversation", "our discussion", "our conversation",
+		"we discussed", "we spoke about", "when we last spoke",
+		"we last spoke", "following up on our", "picking up where we",
 	},
 	textlang.German: {
 		"wie besprochen", "wie vereinbart", "wie angekündigt", "wie erwähnt",
 		"unser letztes gespräch", "unserem letzten gespräch",
 		"unsere letzte unterhaltung", "wir hatten besprochen",
+		"unserem letzten austausch", "als wir zuletzt", "seinerzeit besprochen",
 	},
 	textlang.Vietnamese: {
 		"như đã trao đổi", "như đã thống nhất", "như đã đề cập",
@@ -202,6 +204,31 @@ func mixedRegister(body string) bool {
 		textlang.HasBothRegisters(body)
 }
 
+// resolvedEvent are the ways a draft asserts that something the other side was
+// WAITING ON has now happened.
+//
+// The shape that produced this: an input saying "we will look at this again
+// once the budget round closes" came back as "as the budget round has now
+// concluded". Nobody said it concluded. The draft turned the recipient's own
+// condition into a completed fact, and then reasoned from it.
+//
+// It is a first-person claim about THEIR side's state, which is the one thing a
+// drafter cannot know: the record holds what they told us, and anything past
+// that is invention wearing the grammar of an update.
+var resolvedEvent = map[textlang.Lang][]string{
+	textlang.English: {
+		"has now concluded", "has now closed", "has now completed",
+		"now that the", "now concluded", "now closed", "now complete",
+	},
+	textlang.German: {
+		"inzwischen abgeschlossen", "mittlerweile abgeschlossen",
+		"nun abgeschlossen", "jetzt abgeschlossen", "nachdem die",
+	},
+	textlang.Vietnamese: {
+		"đã hoàn tất", "đã kết thúc",
+	},
+}
+
 // Body reads a draft body against the state it was written in.
 //
 // Nothing is checked at band fresh except the pleasantries: a live exchange may
@@ -242,6 +269,23 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 					Phrase: phrase,
 					Why: "this is a first message and nothing in the input supports that claim — " +
 						"write only from the recipient, their employer and the stated reason for writing",
+				})
+			}
+		}
+	}
+
+	// Only after a long gap. In a live exchange "now that the review is done"
+	// usually refers to something the exchange itself established; after months
+	// of silence there is no such shared ground, and the draft is asserting a
+	// change on the other side's own calendar.
+	if band == convstate.BandMonths {
+		for _, phrase := range resolvedEvent[lang] {
+			if strings.Contains(lowered, phrase) {
+				findings = append(findings, Finding{
+					Rule:   "assumed-resolution",
+					Phrase: phrase,
+					Why: "nothing in the input says that happened — after months of silence " +
+						"their side's state is unknown, so ask rather than assert",
 				})
 			}
 		}
@@ -343,9 +387,16 @@ func Feedback(findings []Finding) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\nThe previous draft was rejected. Fix each of these and rewrite it:\n")
+	b.WriteString("\n\nThe previous draft was rejected. Rewrite it, and this time:\n")
 	for _, f := range findings {
-		b.WriteString("- Remove \"" + f.Phrase + "\": " + f.Why + ".\n")
+		b.WriteString("- Do not write \"" + f.Phrase + "\" or any synonym of it. " + f.Why + ".\n")
 	}
+	// A correction that only says what to delete gets the nearest synonym back:
+	// told to drop "circling back", the model returns "checking in", which is
+	// the same sentence. So the retry is told what to WRITE — a message with a
+	// reason to exist does not need a re-contact formula at all.
+	b.WriteString("Open on the substance instead. Name what the message is about " +
+		"in your own words and ask one question they can answer. A message that " +
+		"opens on why you are writing needs no phrase for the act of writing.\n")
 	return b.String()
 }
