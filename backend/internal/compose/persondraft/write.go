@@ -170,8 +170,15 @@ func groundedRequest(in Input) (model.Request, error) {
 		content += "\n\nThe salesperson asks for: " + in.Intent
 	}
 	return model.Request{
-		System:         draftSystemFor(fence),
-		Messages:       []model.Message{{Role: "user", Content: content}},
+		System:   draftSystemFor(fence),
+		Messages: []model.Message{{Role: "user", Content: content}},
+		// Thinking headroom. A reasoning model spends output tokens on internal
+		// thinking BEFORE its answer, and that thinking counts against the cap —
+		// so a request with no cap takes the provider's default, and on a
+		// premium rung the answer is starved into a MAX_TOKENS stop with zero
+		// visible text. The reply site has always set this; these two never did,
+		// which is why raising the tier failed here and not there.
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: json.RawMessage(draftSchema),
 		SecretStripper: ai.NewSecretStripper(),
 	}, nil
@@ -316,3 +323,8 @@ func reasonLabels(reasons []Reason) []string {
 	}
 	return out
 }
+
+// GroundedRequest is the request this site sends, for the compose-level gate
+// that asserts every drafting surface carries thinking headroom. Exported for
+// that assertion alone; the site itself calls groundedRequest.
+func GroundedRequest(in Input) (model.Request, error) { return groundedRequest(in) }
