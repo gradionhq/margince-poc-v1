@@ -1915,6 +1915,7 @@ export const de = {
   "ob.ai.tier.localSmall": "lokal, schnell",
   "ob.ai.tier.cheapCloud": "Cloud, effizient",
   "ob.ai.tier.premium": "Premium-Reasoning",
+  "ob.ai.tier.frontier": "Frontier-Reasoning",
   "ob.ai.tier.localLarge": "lokal, erweitert",
   // Die Klartext-Zeile im Rail-Footer: Die genauen IDs sind einen Klick
   // entfernt in der Zeile „Konfigurierte KI“ des Laufzeit-Chips — hier steht

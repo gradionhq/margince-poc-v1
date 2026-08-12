@@ -11,7 +11,7 @@
 # tools/gen-aitasks compiles that copy into the binary (tasks_gen.go) behind a
 # drift gate, the same mechanism crm.yaml already uses for the HTTP contract.
 # Tier→model binding (which concrete provider/model serves local_small /
-# cheap_cloud / premium / local_large) stays a per-deployment runtime config
+# cheap_cloud / premium / frontier / local_large) stays a per-deployment config
 # (config/ai-routing.yaml, §1.4) — editing THAT never requires a rebuild.
 # Editing the ladders/posture below is a routing-POLICY change: it requires a
 # spec update here, the mirrored edit in the build repo, `make gen`, and a
@@ -56,7 +56,12 @@
 # required certification band — the certification lane is paid and BYOK-gated,
 # so it reports release readiness (naming its provider/model binding) and never
 # gates a merge.
-tiers: [local_small, cheap_cloud, premium, local_large]
+#
+# frontier sits one rung above premium: the strongest model a deployment is
+# willing to pay for. No task ladder selects it — it is declared so an operator
+# can bind one, and so a task that genuinely needs the top rung has a name to
+# reach for without redefining what premium means for every other task.
+tiers: [local_small, cheap_cloud, premium, frontier, local_large]
 
 tasks:
   capture_classify:
@@ -253,6 +258,7 @@ embed:
   cost_unit: per_entity
 
 degrade_to:
+  frontier: premium
   premium: cheap_cloud
   cheap_cloud: local_small
   local_large: local_small

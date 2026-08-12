@@ -1910,6 +1910,7 @@ export const vi = {
   "ob.ai.tier.localSmall": "cục bộ, nhanh",
   "ob.ai.tier.cheapCloud": "đám mây, tiết kiệm",
   "ob.ai.tier.premium": "suy luận cao cấp",
+  "ob.ai.tier.frontier": "suy luận tiên phong",
   "ob.ai.tier.localLarge": "cục bộ, mạnh",
   // The rail footer's plain-language line: the exact ids sit one click away
   // in the runtime chip's "Configured AI" row, so this says only what a

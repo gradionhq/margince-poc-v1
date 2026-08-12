@@ -7424,7 +7424,7 @@ export interface components {
                 tasks: {
                     /** @description capture_classify, enrich, summarize, … */
                     task: string;
-                    /** @description local_small, cheap_cloud, premium, local_large. */
+                    /** @description local_small, cheap_cloud, premium, frontier, local_large. */
                     tier: string;
                     calls: number;
                     cached_hits?: number;
@@ -11731,7 +11731,7 @@ export interface components {
         };
         AssistantConfiguredModel: {
             /** @enum {string} */
-            tier: "local_small" | "cheap_cloud" | "premium" | "local_large";
+            tier: "local_small" | "cheap_cloud" | "premium" | "frontier" | "local_large";
             /** @enum {string} */
             provider: "anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm";
             model: string;

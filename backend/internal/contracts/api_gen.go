@@ -690,6 +690,7 @@ func (e AssistantConfiguredModelProvider) Valid() bool {
 // Defines values for AssistantConfiguredModelTier.
 const (
 	AssistantModelTierCheapCloud AssistantConfiguredModelTier = "cheap_cloud"
+	AssistantModelTierFrontier   AssistantConfiguredModelTier = "frontier"
 	AssistantModelTierLocalLarge AssistantConfiguredModelTier = "local_large"
 	AssistantModelTierLocalSmall AssistantConfiguredModelTier = "local_small"
 	AssistantModelTierPremium    AssistantConfiguredModelTier = "premium"
@@ -699,6 +700,8 @@ const (
 func (e AssistantConfiguredModelTier) Valid() bool {
 	switch e {
 	case AssistantModelTierCheapCloud:
+		return true
+	case AssistantModelTierFrontier:
 		return true
 	case AssistantModelTierLocalLarge:
 		return true
@@ -9966,7 +9969,7 @@ type AiUsage struct {
 			// Task capture_classify, enrich, summarize, …
 			Task string `json:"task"`
 
-			// Tier local_small, cheap_cloud, premium, local_large.
+			// Tier local_small, cheap_cloud, premium, frontier, local_large.
 			Tier      string `json:"tier"`
 			TokensIn  int    `json:"tokens_in"`
 			TokensOut int    `json:"tokens_out"`

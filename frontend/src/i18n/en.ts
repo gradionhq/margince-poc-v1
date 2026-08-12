@@ -1909,6 +1909,7 @@ export const en = {
   "ob.ai.tier.localSmall": "local, fast",
   "ob.ai.tier.cheapCloud": "cloud, efficient",
   "ob.ai.tier.premium": "premium reasoning",
+  "ob.ai.tier.frontier": "frontier reasoning",
   "ob.ai.tier.localLarge": "local, advanced",
   // The rail footer's plain-language line: the exact ids sit one click away
   // in the runtime chip's "Configured AI" row, so this says only what a

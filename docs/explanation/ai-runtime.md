@@ -67,7 +67,7 @@ Each task declares a **ladder** — an ordered list of capability **tiers** — 
 
 ```yaml
 # backend/api/ai-tasks.yaml
-tiers: [local_small, cheap_cloud, premium, local_large]
+tiers: [local_small, cheap_cloud, premium, frontier, local_large]
 
 tasks:
   cold_start:    {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
@@ -76,8 +76,10 @@ tasks:
 ```
 
 - **Tiers** are *capability classes*, not models: `local_small` / `local_large`
-  (on-box, zero-egress), `cheap_cloud` (fast/cheap hosted), `premium`
-  (strongest). A task's ladder is its **fallback order** — the Router starts at
+  (on-box, zero-egress), `cheap_cloud` (fast/cheap hosted), `premium` (strong
+  hosted reasoning), `frontier` (the strongest a deployment will pay for — no
+  task ladder names it, so it costs nothing until one does).
+  A task's ladder is its **fallback order** — the Router starts at
   the first tier and walks to the next on a provider error or a schema-validation
   failure, so a transient failure degrades instead of dropping the call.
 - **`execution_mode`** names who is waiting: `interactive` (a human, mid-flow)

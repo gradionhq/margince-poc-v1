@@ -72,7 +72,7 @@ type aiUsageTask = struct {
 	// Task capture_classify, enrich, summarize, …
 	Task string `json:"task"`
 
-	// Tier local_small, cheap_cloud, premium, local_large.
+	// Tier local_small, cheap_cloud, premium, frontier, local_large.
 	Tier      string `json:"tier"`
 	TokensIn  int    `json:"tokens_in"`
 	TokensOut int    `json:"tokens_out"`

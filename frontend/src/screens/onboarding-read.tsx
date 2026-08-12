@@ -139,6 +139,7 @@ const tierKeys = {
   local_small: "ob.ai.tier.localSmall",
   cheap_cloud: "ob.ai.tier.cheapCloud",
   premium: "ob.ai.tier.premium",
+  frontier: "ob.ai.tier.frontier",
   local_large: "ob.ai.tier.localLarge",
 } as const;
 
