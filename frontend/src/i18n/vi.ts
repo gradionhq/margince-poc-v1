@@ -1452,6 +1452,8 @@ export const vi = {
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
   "field.domain": "Tên miền",
+  "field.domainRequired":
+    "Không thể xóa tên miền tại đây — hãy dùng trình chỉnh sửa đầy đủ để xóa.",
   "field.emailType": "Loại",
   "field.emailWork": "Công việc",
   "field.emailPersonal": "Cá nhân",

@@ -24,22 +24,4 @@
 .fieldgrid-value {
   color: var(--textContent);
   min-width: 0;
-  /* The hover target is a comfortable box, not the bare text: padding grows
-     it, and the matching negative margin pulls the box back by the same
-     amount so the TEXT still lands on the grid's shared left edge — without
-     the offset, adding padding would shift every value right of where its
-     label lines up. */
-  padding: var(--space-2);
-  margin: 0 calc(var(--space-2) * -1);
-  border-radius: var(--r-sm);
-}
-/* Scoped to a cell that actually holds a clickable edit trigger
-   (InlineText/InlineChoice's own `.link-button`, drawn only while
-   `canEdit`): a read-only fact — owner, domain, address — gets no box and no
-   text cursor, because hovering it cannot open anything. The affordance says
-   "this is editable" only where that is true. */
-.fieldgrid-value:has(.link-button):hover {
-  background: var(--bgHover);
-  box-shadow: inset 0 0 0 1px var(--borderSubtle);
-  cursor: text;
 }

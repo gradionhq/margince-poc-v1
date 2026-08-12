@@ -202,7 +202,15 @@ export function useCompanyReadOnlyReason(
   return undefined;
 }
 
-function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
+// Exported so the rail's Details grid mounts the SAME control rather than a
+// second InlineChoice with its own PATCH — one implementation of "how
+// lifecycle is written," two places it is drawn. `hideLabel` is already
+// unconditional (see the comment on the badge below): the grid's own
+// FieldRow label column names the field exactly the way the header's own
+// prose line already does, so nothing here needs to vary by caller.
+export function CompanyLifecycleControl({
+  org,
+}: Readonly<{ org: Organization }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);

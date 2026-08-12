@@ -1523,23 +1523,36 @@ describe("company view — where the account stands, and what it is to us", () =
   it("shows where the account stands and every relationship type, as separate things", async () => {
     // Not "partner": that type also raises the Partner tab, and the badge and
     // the tab would then share a label, which tells the test nothing.
-    stub(view(), 200, {
+    // The SAME override goes into both reads the page makes — the composite
+    // 360's own `organization` (what the rail's grid reads) and the standalone
+    // GET (what the header reads) — because now that both draw a lifecycle
+    // control, a fixture that only overrode one would fail for the same
+    // reason two real reads of one row never disagree: there is only one row.
+    const withLifecycle = {
       ...org,
       lifecycle: "former_customer",
       relationship_types: ["customer", "supplier"],
-    });
+    };
+    stub(view({ organization: withLifecycle }), 200, withLifecycle);
     renderCompany();
     await screen.findByRole("complementary", { name: "Context" });
 
     // The retired classification held ONE value, which is how an account whose
     // contract had ended still read as "Prospect" while it was also a partner.
     // Lifecycle is now the editable control; the types stay read-only badges.
-    // findBy, not getBy: the control appears only once /me answers with the
-    // viewer's grants, which resolves independently of the 360 awaited above.
-    expect(
-      await screen.findByRole("button", { name: "Change Account lifecycle" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Former customer")).toBeTruthy();
+    // findAllBy, not getBy: the controls appear only once /me answers with
+    // the viewer's grants, which resolves independently of the 360 awaited
+    // above. TWO controls, not one — the header's pulse line and the rail's
+    // Details grid both mount `CompanyLifecycleControl`, the SAME
+    // implementation reused rather than a second one, so both show the same
+    // value and either one writes through the same patch.
+    const controls = await screen.findAllByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.textContent).toContain("Former customer");
+    }
     expect(screen.getByText("Customer")).toBeTruthy();
     expect(screen.getByText("Supplier")).toBeTruthy();
   });
@@ -1554,11 +1567,76 @@ describe("company view — where the account stands, and what it is to us", () =
     // for a control: hiding it at 'unknown' takes the field away from exactly
     // the account that needs it set, and there is no other way in from here.
     // What it must NOT do is read as a verdict, which is why it carries the
-    // field name and 'Not assessed' never stands on its own.
-    const control = await screen.findByRole("button", {
+    // field name and 'Not assessed' never stands on its own. Both mount
+    // points (header, grid) show it, since both draw the same control.
+    const controls = await screen.findAllByRole("button", {
       name: "Change Account lifecycle",
     });
-    expect(control.textContent).toContain("Not assessed");
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.textContent).toContain("Not assessed");
+    }
+  });
+
+  it("writes lifecycle once and shows the new value on both mount points", async () => {
+    // The one thing "one implementation, two mount points" actually promises:
+    // a save through EITHER control reaches the server exactly once, and the
+    // OTHER control reflects the new value once the record refetches — not a
+    // second write, and not one control left showing the stale value.
+    let currentOrg = { ...org, lifecycle: "unknown" as const };
+    let patchCount = 0;
+    let lastIfMatch: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          return jsonResponse(view({ organization: currentOrg }));
+        }
+        if (pathname.endsWith("/v1/me")) {
+          return jsonResponse(
+            meFixture({ allow: { organization: ["read", "update"] } }),
+          );
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          if (request.method === "PATCH") {
+            patchCount += 1;
+            lastIfMatch = request.headers.get("if-match");
+            const body = (await request.json()) as { lifecycle?: string };
+            currentOrg = {
+              ...currentOrg,
+              lifecycle: (body.lifecycle ?? currentOrg.lifecycle) as "unknown",
+              version: currentOrg.version + 1,
+            };
+          }
+          return jsonResponse(currentOrg);
+        }
+        return jsonResponse({ data: [], page: emptyPage });
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Context" });
+
+    const [headerControl] = await screen.findAllByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    await userEvent.click(headerControl);
+    await userEvent.click(screen.getByRole("option", { name: "Prospect" }));
+
+    await waitFor(() => expect(patchCount).toBe(1));
+    expect(lastIfMatch).toBe("1");
+    // Both controls now read "Prospect" — the header's own and the grid's
+    // reused copy — because the single write invalidates the one query both
+    // read from, not because either wrote a second time.
+    await waitFor(async () => {
+      const updated = await screen.findAllByRole("button", {
+        name: "Change Account lifecycle",
+      });
+      expect(updated).toHaveLength(2);
+      for (const control of updated) {
+        expect(control.textContent).toContain("Prospect");
+      }
+    });
   });
 });
 

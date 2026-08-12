@@ -147,7 +147,10 @@ describe("CompanyRail", () => {
     expect(screen.getByText("Brandt Automotive GmbH")).toBeInTheDocument();
     expect(screen.getByText("Automotive")).toBeInTheDocument();
     expect(screen.getByText("51-200")).toBeInTheDocument();
-    expect(screen.getByText("Munich, DE")).toBeInTheDocument();
+    // Address draws one row per part now rather than one combined "Munich, DE"
+    // summary.
+    expect(screen.getByText("Munich")).toBeInTheDocument();
+    expect(screen.getByText("DE")).toBeInTheDocument();
     expect(screen.getByText("brandt.example")).toBeInTheDocument();
     // The owner cell resolves through the roster read, same as EntityRef
     // does everywhere else: not shown until the read lands.
@@ -183,13 +186,14 @@ describe("CompanyRail", () => {
     // (InlineChoice with `hideLabel`, which suppresses its own visible
     // "label: value") get their visible label from FieldRow's own label
     // column and no other node — checked directly since neither wraps its
-    // label into a combined string anymore.
+    // label into a combined string anymore. Address is six rows now, one per
+    // part; City stands in for the other five.
     expect(screen.getByText("Industry")).toBeInTheDocument();
     expect(screen.getByText("Company size")).toBeInTheDocument();
-    expect(screen.getByText("Address")).toBeInTheDocument();
-    // The read-only rows (owner, domain, address) fall back to a stated
-    // absence rather than an empty cell — "Unassigned"/"Not set" are facts,
-    // not blanks.
+    expect(screen.getByText("City")).toBeInTheDocument();
+    // No /me grant in this stub, so every field renders its read-only
+    // fallback rather than a control — owner and every address part share
+    // the same "Not set"/"Unassigned" absence text the grid always used.
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
     expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
   });
@@ -228,8 +232,11 @@ describe("CompanyRail", () => {
     );
     const input = screen.getByLabelText("LinkedIn URL");
     await userEvent.clear(input);
-    await userEvent.type(input, "https://linkedin.com/company/brandt-gmbh");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    // No Save button in the edit-in-place rework: Enter is the commit.
+    await userEvent.type(
+      input,
+      "https://linkedin.com/company/brandt-gmbh{Enter}",
+    );
     await waitFor(() =>
       expect(patchBody).toMatchObject({
         linkedin_url: "https://linkedin.com/company/brandt-gmbh",
@@ -273,8 +280,9 @@ describe("CompanyRail", () => {
     await waitFor(() =>
       expect(screen.getByText("Mira Voss")).toBeInTheDocument(),
     );
+    // The click that starts editing already opens the picker — no second
+    // click on the combobox first.
     await userEvent.click(screen.getByRole("button", { name: "Change Owner" }));
-    await userEvent.click(screen.getByRole("combobox"));
     await userEvent.click(screen.getByRole("option", { name: "Ravi Shah" }));
     await waitFor(() => expect(patchBody).toMatchObject({ owner_id: "u-2" }));
   });
@@ -330,7 +338,6 @@ describe("CompanyRail", () => {
       expect(screen.getByText("Mira Voss")).toBeInTheDocument(),
     );
     await userEvent.click(screen.getByRole("button", { name: "Change Owner" }));
-    await userEvent.click(screen.getByRole("combobox"));
     await userEvent.click(screen.getByRole("option", { name: "Ravi Shah" }));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
@@ -340,6 +347,188 @@ describe("CompanyRail", () => {
     // The picker stays open on the reader's choice rather than snapping back
     // to the old owner, the same rule InlineChoice keeps for every field.
     expect(screen.getByRole("combobox")).toBeInTheDocument();
+  });
+
+  it("edits lifecycle in the grid through the header's own control", async () => {
+    // Only the rail renders in this suite — the header's copy of this same
+    // control (and the "one implementation, two mount points" claim that
+    // depends on both being on screen at once) is company360.test.tsx's own
+    // to prove, since that is where both actually mount together.
+    let patchBody: unknown;
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          patchBody = await request.json();
+          return jsonResponse({ ...org, version: 2 });
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change Account lifecycle" }),
+    );
+    // The fixture is already "customer" — picking a DIFFERENT value, or the
+    // no-op guard skips the write entirely.
+    await userEvent.click(screen.getByRole("option", { name: "Prospect" }));
+    await waitFor(() =>
+      expect(patchBody).toMatchObject({ lifecycle: "prospect" }),
+    );
+  });
+
+  it("renames the primary domain while preserving every other domain on the account", async () => {
+    let patchBody: unknown;
+    const threeDomains = {
+      ...org,
+      domains: [
+        { domain: "brandt.example", is_primary: true, source: "manual" },
+        { domain: "brandt.de", is_primary: false, source: "manual" },
+        {
+          domain: "brandt-automotive.com",
+          is_primary: false,
+          source: "manual",
+        },
+      ],
+    };
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          patchBody = await request.json();
+          return jsonResponse({ ...threeDomains, version: 2 });
+        }
+        return jsonResponse(threeDomains);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view({ organization: threeDomains })}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change Domain" }),
+    );
+    const input = screen.getByLabelText("Domain");
+    await userEvent.clear(input);
+    await userEvent.type(input, "brandt-gmbh.example{Enter}");
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    // The other two domains survive untouched, and only the renamed primary
+    // changed — sending just the edited entry would have silently dropped
+    // them, exactly the replace-set trap this row exists to avoid.
+    expect(patchBody).toMatchObject({
+      domains: expect.arrayContaining([
+        expect.objectContaining({ domain: "brandt.de", is_primary: false }),
+        expect.objectContaining({
+          domain: "brandt-automotive.com",
+          is_primary: false,
+        }),
+        expect.objectContaining({
+          domain: "brandt-gmbh.example",
+          is_primary: true,
+        }),
+      ]),
+    });
+    expect((patchBody as { domains: unknown[] }).domains).toHaveLength(3);
+  });
+
+  it("refuses to clear the domain field rather than deleting the primary domain", async () => {
+    const onSave = vi.fn();
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          onSave(await request.json());
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change Domain" }),
+    );
+    const input = screen.getByLabelText("Domain");
+    await userEvent.clear(input);
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "cannot be cleared here",
+      ),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("edits an address part by sending the whole address back with only that part changed", async () => {
+    let patchBody: unknown;
+    stub({
+      "/me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { organization: { update: true } } },
+        }),
+      "/organizations/o-1": async (request) => {
+        if (request.method === "PATCH") {
+          patchBody = await request.json();
+          return jsonResponse({ ...org, version: 2 });
+        }
+        return jsonResponse(org);
+      },
+    });
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change City" }),
+    );
+    const input = screen.getByLabelText("City");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Stuttgart{Enter}");
+    await waitFor(() =>
+      expect(patchBody).toMatchObject({
+        // `country` survives from the record's existing address even though
+        // this edit never touched it — a write that omitted it would have
+        // blanked it, since `address` replaces the object wholesale.
+        address: { city: "Stuttgart", country: "DE" },
+      }),
+    );
   });
 
   it("shows the account's rating in the Health summary rather than a count", () => {
