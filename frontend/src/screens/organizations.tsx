@@ -2099,29 +2099,7 @@ function CompanyPage({
       // and this record passes no `controls` at all. The verbs still sit on
       // the identity's own row, which is what `actionsInline` asks for.
       actionsInline
-      band={
-        <CompanyBand
-          org={org}
-          view={view}
-          overlay={overlay}
-          loading={loading}
-          failed={failed}
-          t={t}
-          onOpenRecord={receipt.open}
-          onOpenTasks={() => onTab("tasks")}
-          onCompose={(id) => setComposing({ kind: "reply", id })}
-          onDraftTo={(id) => setComposing({ kind: "account", id })}
-          onPerform={(action) => {
-            if (action.kind === "draft_reply" && action.activity_id) {
-              setComposing({ kind: "reply", id: action.activity_id });
-            } else if (action.kind === "open_deal" && action.deal_id) {
-              navigate({ screen: "deals", id: action.deal_id });
-            }
-            // `add_task` names no surface of its own yet: the row's own
-            // dismiss stays the only control until the brief has one.
-          }}
-        />
-      }
+      band={<CompanyBand org={org} view={view} overlay={overlay} t={t} />}
       // The account's context, beside the work rather than under it (mockup
       // State A) — the LEFT rail, so the story keeps the wider share
       // (record-zones-rail: 3fr/7fr) rather than splitting three ways. It
@@ -2157,6 +2135,15 @@ function CompanyPage({
         receipt={receipt}
         composing={composing}
         onCompose={setComposing}
+        onPerform={(action) => {
+          if (action.kind === "draft_reply" && action.activity_id) {
+            setComposing({ kind: "reply", id: action.activity_id });
+          } else if (action.kind === "open_deal" && action.deal_id) {
+            navigate({ screen: "deals", id: action.deal_id });
+          }
+          // `add_task` names no surface of its own yet: the row's own dismiss
+          // stays the only control until the brief has one.
+        }}
         decisionsOpen={decisionsOpen}
         onDecisionsOpen={setDecisionsOpen}
         readOnly={readOnly}
@@ -2197,26 +2184,12 @@ function CompanyBand({
   org,
   view,
   overlay,
-  loading,
-  failed,
   t,
-  onOpenRecord,
-  onOpenTasks,
-  onCompose,
-  onDraftTo,
-  onPerform,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
-  loading: boolean;
-  failed: boolean;
   t: ReturnType<typeof useT>;
-  onOpenRecord: (entityType: string, entityId: string) => void;
-  onOpenTasks: () => void;
-  onCompose: (activityId: string) => void;
-  onDraftTo: (personId: string) => void;
-  onPerform: (action: SuggestionAction) => void;
 }>) {
   return (
     <>
@@ -2249,23 +2222,6 @@ function CompanyBand({
           }
         />
       )}
-      {/* The daily brief, between the strip and the tab bar: what the strip
-          says is the account's STANDING state, this is everything DATED about
-          it and what to do next. It stays on screen on every tab, not only
-          Overview — the strip already does, for the same reason. */}
-      {!overlay && (
-        <TodayOnThisAccount
-          orgId={org.id}
-          view={view}
-          loading={loading}
-          failed={failed}
-          onPrepareMeeting={onCompose}
-          onDraftTo={onDraftTo}
-          onOpenRecord={onOpenRecord}
-          onPerform={onPerform}
-          onOpenTasks={onOpenTasks}
-        />
-      )}
     </>
   );
 }
@@ -2286,6 +2242,7 @@ function CompanyRecordBody({
   receipt,
   composing,
   onCompose,
+  onPerform,
   decisionsOpen,
   onDecisionsOpen,
   readOnly,
@@ -2309,6 +2266,7 @@ function CompanyRecordBody({
   receipt: ReturnType<typeof useCitedReceipt>;
   composing: ComposeAnchor | null;
   onCompose: (anchor: ComposeAnchor | null) => void;
+  onPerform: (action: SuggestionAction) => void;
   decisionsOpen: boolean;
   onDecisionsOpen: (open: boolean) => void;
   readOnly: boolean;
@@ -2344,10 +2302,15 @@ function CompanyRecordBody({
           view={view}
           overlay={overlay}
           loading={loading}
+          failed={failed}
           readOnly={readOnly}
           onAllDeals={() => onTab("deals")}
           onOpenHistory={onOpenHistory}
           onOpenRecord={receipt.open}
+          onOpenTasks={() => onTab("tasks")}
+          onCompose={(id) => onCompose({ kind: "reply", id })}
+          onDraftTo={(id) => onCompose({ kind: "account", id })}
+          onPerform={onPerform}
         />
       )}
       {/* Deals and Tasks, pulled off the overview: a reader who came for the
@@ -2435,16 +2398,22 @@ function CompanyOverviewStack({
   view,
   overlay,
   loading,
+  failed,
   readOnly,
   onAllDeals,
   onOpenHistory,
   onOpenRecord,
+  onOpenTasks,
+  onCompose,
+  onDraftTo,
+  onPerform,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   // The composite read's own pending flag — see CompanyRecordBody's own doc.
   loading: boolean;
+  failed: boolean;
   // An archived company takes no new deal, task or role, so the panels below
   // show no verb that would only be refused.
   readOnly: boolean;
@@ -2454,9 +2423,30 @@ function CompanyOverviewStack({
   // the same records and two owners would mean two receipts open over each
   // other.
   onOpenRecord: (entityType: string, entityId: string) => void;
+  onOpenTasks: () => void;
+  onCompose: (activityId: string) => void;
+  onDraftTo: (personId: string) => void;
+  onPerform: (action: SuggestionAction) => void;
 }>) {
   return (
     <div className="co-overview-stack">
+      {/* What needs a person today leads the column: the readings above
+          describe the account, this asks for a move on it. It belongs to the
+          overview rather than to the record, because a rep who has opened
+          People or Documents has already chosen what to read. */}
+      {!overlay && (
+        <TodayOnThisAccount
+          orgId={org.id}
+          view={view}
+          loading={loading}
+          failed={failed}
+          onPrepareMeeting={onCompose}
+          onDraftTo={onDraftTo}
+          onOpenRecord={onOpenRecord}
+          onPerform={onPerform}
+          onOpenTasks={onOpenTasks}
+        />
+      )}
       {/* The account, in its own words and ours — the main column's own
           lead now that "worth doing next" merged into the daily brief in the
           band above (CompanyBand, organizations.tsx). */}
