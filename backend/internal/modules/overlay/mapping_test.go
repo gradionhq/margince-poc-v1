@@ -30,39 +30,17 @@ func TestTargetKindString(t *testing.T) {
 	}
 }
 
-// TestApplyTargetChildAssemblesAChildRow proves the TargetChild kind
-// (design.md §4.8): a 1:N mapping into a child row lands under
-// "<parent>.<child column>", and a second field on the SAME parent
-// merges into the same child row rather than overwriting it.
-func TestApplyTargetChildAssemblesAChildRow(t *testing.T) {
-	m := overlay.ObjectMapping{
-		Source: "contacts",
-		Target: "person",
-		Fields: []overlay.FieldMapping{
-			{From: []string{"email"}, To: "person_email.email", Kind: overlay.TargetChild},
-			{From: []string{"email_type"}, To: "person_email.kind", Kind: overlay.TargetChild},
-		},
-	}
-	out, _, err := overlay.Apply(m, map[string]any{"email": "a@example.com", "email_type": "work"})
-	if err != nil {
-		t.Fatalf("Apply returned an error: %v", err)
-	}
-	child, ok := out["person_email"].(map[string]any)
-	if !ok {
-		t.Fatalf("person_email = %#v, want a child row map", out["person_email"])
-	}
-	if child["email"] != "a@example.com" || child["kind"] != "work" {
-		t.Fatalf("person_email = %#v, want both fields merged into the same child row", child)
-	}
-}
-
 // TestApplyTargetChildRejectsAMalformedTo proves a TargetChild field
 // whose To carries no "." separator is a declaration error, never a
-// panic or a silently-dropped value.
+// panic or a silently-dropped value. The field carries a well-formed
+// ChildRow so the separator is the only thing left to reject it.
 func TestApplyTargetChildRejectsAMalformedTo(t *testing.T) {
 	m := overlay.ObjectMapping{
 		Source: "contacts", Target: "person",
-		Fields: []overlay.FieldMapping{{From: []string{"email"}, To: "email", Kind: overlay.TargetChild}},
+		Fields: []overlay.FieldMapping{{
+			From: []string{"email"}, To: "email", Kind: overlay.TargetChild,
+			Child: &overlay.ChildRow{Position: 0},
+		}},
 	}
 	if _, _, err := overlay.Apply(m, map[string]any{"email": "a@example.com"}); err == nil {
 		t.Fatal("Apply: want an error for a TargetChild field with no \"<parent>.<child>\" separator")
@@ -365,6 +343,144 @@ func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
 	} {
 		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad, "deal_currency_code": "EUR"}); err == nil {
 			t.Errorf("Apply(amount=%q): want an error, got none", bad)
+		}
+	}
+}
+
+// A contact's work email and mobile number are different rows of one
+// collection, distinguished by the type the mapping declares — not by
+// anything present in the incumbent property itself. A child target that
+// held a single row could express only one of them.
+func TestChildTargetsLandAsACollection(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work", "is_primary": true}, Position: 0},
+			},
+			{
+				From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile", "is_primary": false}, Position: 1},
+			},
+		},
+	}
+	out, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "phone": "+4930111", "mobilephone": "+4917622",
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	rows, ok := out["person_phone"].([]map[string]any)
+	if !ok {
+		t.Fatalf("person_phone = %T, want a []map[string]any collection", out["person_phone"])
+	}
+	if len(rows) != 2 {
+		t.Fatalf("person_phone has %d rows, want 2 — work and mobile are separate rows", len(rows))
+	}
+	if rows[0]["phone"] != "+4930111" || rows[0]["phone_type"] != "work" || rows[0]["is_primary"] != true {
+		t.Errorf("row 0 = %v, want the work number carrying its declared attributes", rows[0])
+	}
+	if rows[1]["phone"] != "+4917622" || rows[1]["phone_type"] != "mobile" {
+		t.Errorf("row 1 = %v, want the mobile number carrying its declared attributes", rows[1])
+	}
+	if rows[0]["position"] != 0 || rows[1]["position"] != 1 {
+		t.Errorf("positions = %v/%v, want each row to carry the order the mapping declared", rows[0]["position"], rows[1]["position"])
+	}
+}
+
+// A row the incumbent sent nothing for is absent, not an empty row: a
+// contact with no mobile number must not publish a blank mobile.
+func TestChildCollectionOmitsRowsTheIncumbentDidNotSend(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work"}, Position: 0},
+			},
+			{
+				From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile"}, Position: 1},
+			},
+		},
+	}
+	out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "phone": "+4930111"})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	rows, ok := out["person_phone"].([]map[string]any)
+	if !ok {
+		t.Fatalf("person_phone = %T, want a []map[string]any collection", out["person_phone"])
+	}
+	if len(rows) != 1 || rows[0]["phone_type"] != "work" {
+		t.Errorf("person_phone = %v, want only the work row the incumbent actually sent", rows)
+	}
+}
+
+// Two rows of one parent claiming the same position is a declaration
+// defect, and it makes the collection's order arbitrary. It fires on the
+// first record mapped rather than on some unlucky later one.
+func TestChildRowsCollidingOnPositionAreADeclarationError(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work"}, Position: 0},
+			},
+			{
+				From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile"}, Position: 0},
+			},
+		},
+	}
+	// The record carries NEITHER colliding property, so only a check made on
+	// the declaration itself can catch it.
+	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"})
+	if err == nil {
+		t.Fatal("Apply accepted two child rows at position 0; a collection with an arbitrary order is a declaration defect")
+	}
+	if !strings.Contains(err.Error(), "person_phone") {
+		t.Errorf("error %q does not name the colliding parent, so it does not say where to look", err)
+	}
+}
+
+// A child field with no ChildRow cannot say which row it belongs to.
+func TestChildTargetWithoutARowDeclarationIsAnError(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"email"}, To: "person_email.email", Kind: overlay.TargetChild},
+		},
+	}
+	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "a@b.de"})
+	if err == nil {
+		t.Fatal("Apply accepted a child target with no ChildRow; the row it lands on is then undeclared")
+	}
+}
+
+// A declared attribute may not restate the row's mapped column or its
+// position: the row would then carry two answers for one member and the
+// winner would depend on map iteration order.
+func TestChildRowAttributesMayNotShadowTheRowsOwnMembers(t *testing.T) {
+	shadowing := []struct {
+		name string
+		attr string
+	}{
+		{name: "the mapped column", attr: "email"},
+		{name: "the declared position", attr: "position"},
+	}
+	for _, s := range shadowing {
+		m := overlay.ObjectMapping{
+			Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+			Fields: []overlay.FieldMapping{{
+				From: []string{"email"}, To: "person_email.email", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{s.attr: "shadow"}, Position: 0},
+			}},
+		}
+		if _, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "email": "a@b.de"}); err == nil {
+			t.Errorf("Apply accepted an attribute shadowing %s", s.name)
 		}
 	}
 }

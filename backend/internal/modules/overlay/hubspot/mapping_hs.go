@@ -188,6 +188,7 @@ var contactsMapping = overlay.ObjectMapping{
 			To:        "person_email.email",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
+			Child:     &overlay.ChildRow{Attrs: map[string]any{"email_type": "work", "is_primary": true}, Position: 0},
 		},
 		ownerIDField,
 		{
@@ -225,6 +226,7 @@ var companiesMapping = overlay.ObjectMapping{
 			To:        "organization_domain.domain",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
+			Child:     &overlay.ChildRow{Attrs: map[string]any{"is_primary": true}, Position: 0},
 		},
 		ownerIDField,
 		{

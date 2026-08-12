@@ -47,34 +47,57 @@ func overlayAddress(fields map[string]any) *crmcontracts.Address {
 	return &addr
 }
 
-// overlayPersonEmail digs the mapped email out of the person_email child
-// payload (the mapper's "person_email.email" child target lands as a
-// nested object in the canonical fields).
-func overlayPersonEmail(fields map[string]any) string {
-	child, ok := fields["person_email"].(map[string]any)
-	if !ok {
-		return ""
+// overlayChildRows reads a child collection out of the canonical payload. It
+// answers both real shapes of one: the mapper builds []map[string]any
+// in-process, while a payload that has been through the mirror's jsonb column
+// arrives from json.Unmarshal as []any of map[string]any. A single object is
+// the shape written before a child target held a collection; the mirror is a
+// cache that heals as the poller touches a record, but a record never modified
+// upstream keeps its original shape indefinitely, so reading it is permanent
+// rather than transitional.
+func overlayChildRows(fields map[string]any, parent string) []map[string]any {
+	switch held := fields[parent].(type) {
+	case []map[string]any:
+		return held
+	case []any:
+		rows := make([]map[string]any, 0, len(held))
+		for _, entry := range held {
+			if row, ok := entry.(map[string]any); ok {
+				rows = append(rows, row)
+			}
+		}
+		return rows
+	case map[string]any:
+		return []map[string]any{held}
+	default:
+		return nil
 	}
-	email, ok := child["email"].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(email)
 }
 
-// overlayOrgDomain digs the mapped domain out of the organization_domain
-// child payload (the mapper's "organization_domain.domain" child target lands
-// as a nested object in the canonical fields), mirroring overlayPersonEmail.
+// overlayPersonEmail answers the mirrored contact's email — the first row of
+// the person_email collection that carries one, so a collection whose leading
+// row holds only its declared attributes still yields the address.
+func overlayPersonEmail(fields map[string]any) string {
+	return overlayFirstChildValue(fields, "person_email", "email")
+}
+
+// overlayOrgDomain answers the mirrored company's domain out of the
+// organization_domain collection, mirroring overlayPersonEmail.
 func overlayOrgDomain(fields map[string]any) string {
-	child, ok := fields["organization_domain"].(map[string]any)
-	if !ok {
-		return ""
+	return overlayFirstChildValue(fields, "organization_domain", "domain")
+}
+
+// overlayFirstChildValue answers the first non-empty string a child
+// collection's rows hold under column, "" when no row holds one.
+func overlayFirstChildValue(fields map[string]any, parent, column string) string {
+	for _, row := range overlayChildRows(fields, parent) {
+		if value, ok := row[column].(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
 	}
-	domain, ok := child["domain"].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(domain)
+	return ""
 }
 
 // fieldString answers the string value of a canonical field, "" when

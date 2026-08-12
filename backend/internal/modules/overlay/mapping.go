@@ -18,8 +18,11 @@ type TargetKind int
 const (
 	// TargetColumn is a 1:1 property → mirror column mapping.
 	TargetColumn TargetKind = iota
-	// TargetChild is a 1:N mapping into a child row (e.g. person_email):
-	// To is "<parent>.<child column>".
+	// TargetChild is a 1:N mapping into a child collection (e.g.
+	// person_email): To is "<parent>.<child column>" and the field's ChildRow
+	// says which row of that collection it lands on. The parent key always
+	// holds a collection, one row per declared ChildRow the incumbent
+	// populated.
 	TargetChild
 	// TargetAssembler is an N:1 mapping: every From property is gathered
 	// into one map[string]any and handed to Transform, which constructs
@@ -64,6 +67,23 @@ type FieldMapping struct {
 	// OVA-MAP-3: never left empty). It is meaningless on the other kinds,
 	// whose absence-is-a-no-op behavior is exactly right.
 	AlwaysEmit bool
+	// Child declares the row a TargetChild field lands on. Required on that
+	// kind and meaningless on the others.
+	Child *ChildRow
+}
+
+// ChildRow declares which row of a child collection a TargetChild field lands
+// on. A contact's work email and mobile number are different rows of one
+// collection, and nothing in the incumbent property itself says which is which
+// — the mapping does. Attrs are the row's fixed members (the type
+// discriminator, the primary flag), which no incumbent property supplies.
+// Position is the row's place in the collection, unique among the rows of one
+// parent and carried into the payload, so a consumer that regroups the rows
+// orders them by what the mapping declared rather than by the order it
+// happened to traverse them in.
+type ChildRow struct {
+	Attrs    map[string]any
+	Position int
 }
 
 // ObjectMapping is the code-declared, test-guarded field map for one
@@ -100,14 +120,24 @@ const (
 	keyLastSyncedAt = "last_synced_at"
 )
 
+// childPositionKey carries a child row's declared order into the mirror
+// payload, so a collection reads back in the order the mapping fixed rather
+// than in whatever order a consumer reassembles the rows.
+const childPositionKey = "position"
+
 // Apply projects a raw incumbent record (a flat properties map, per the
 // wire shapes observed in design.md §11) through an ObjectMapping,
 // returning the mirror-shaped target map, the list of raw keys that
 // matched no declared mapping (UnmappedPolicy governs what the caller
 // does with them — "flag" surfaces them, never silently drops per
 // UC-E18-01 F3), and an error if the mapping itself is malformed (an
-// unknown Transform name, or an unrecognized TargetKind).
+// unknown Transform name, an unrecognized TargetKind, or child rows of one
+// parent that collide).
 func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error) {
+	if err := checkChildRowDeclarations(m); err != nil {
+		return nil, nil, err
+	}
+
 	out := map[string]any{}
 	consumed := make(map[string]bool, len(raw))
 
@@ -163,6 +193,32 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 	return out, unmapped, nil
 }
 
+// checkChildRowDeclarations rejects a mapping whose child rows collide,
+// independently of what any one record happens to carry. applyField returns
+// early for a property the incumbent did not send, so a check made while
+// projecting would fire only when two colliding rows both happened to be
+// populated — a defect that surfaces on particular data only is a defect that
+// reaches production and waits.
+func checkChildRowDeclarations(m ObjectMapping) error {
+	positions := map[string]map[int]bool{}
+	for _, f := range m.Fields {
+		if f.Kind != TargetChild || f.Child == nil {
+			continue
+		}
+		parent, _, _ := strings.Cut(f.To, ".")
+		seen := positions[parent]
+		if seen == nil {
+			seen = map[int]bool{}
+			positions[parent] = seen
+		}
+		if seen[f.Child.Position] {
+			return fmt.Errorf("overlay: two child rows of %q both claim position %d; the collection's order would be arbitrary", parent, f.Child.Position)
+		}
+		seen[f.Child.Position] = true
+	}
+	return nil
+}
+
 // applyField computes one FieldMapping's projected value and writes it
 // into out at the shape its TargetKind dictates. It is a no-op (not an
 // error) when the incumbent record never sent any of the field's From
@@ -184,12 +240,18 @@ func applyField(out map[string]any, f FieldMapping, raw map[string]any) error {
 		if !ok {
 			return fmt.Errorf("overlay: child target %q must be \"<parent>.<child column>\"", f.To)
 		}
-		childRow, _ := out[parent].(map[string]any)
-		if childRow == nil {
-			childRow = map[string]any{}
+		if f.Child == nil {
+			return fmt.Errorf("overlay: child target %q declares no ChildRow, so the row it lands on is undeclared", f.To)
 		}
-		childRow[child] = val
-		out[parent] = childRow
+		row := map[string]any{child: val, childPositionKey: f.Child.Position}
+		for k, v := range f.Child.Attrs {
+			if k == child || k == childPositionKey {
+				return fmt.Errorf("overlay: child target %q declares an attribute %q that the row already owns", f.To, k)
+			}
+			row[k] = v
+		}
+		rows, _ := out[parent].([]map[string]any)
+		out[parent] = append(rows, row)
 	case TargetAssembler:
 		out[f.To] = val
 	default:

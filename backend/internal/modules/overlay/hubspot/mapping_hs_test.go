@@ -64,12 +64,18 @@ func TestHubSpotContactMapping(t *testing.T) {
 		t.Errorf("owner_id = %v, want the raw hubspot_owner_id (resolved downstream)", got)
 	}
 
-	childRow, ok := out["person_email"].(map[string]any)
+	emails, ok := out["person_email"].([]map[string]any)
 	if !ok {
-		t.Fatalf("person_email = %#v, want a child row map", out["person_email"])
+		t.Fatalf("person_email = %#v, want a child collection", out["person_email"])
 	}
-	if got := childRow["email"]; got != "christian.mueller@example.de" {
-		t.Errorf("person_email.email = %v, want the lowercased address", got)
+	if len(emails) != 1 {
+		t.Fatalf("person_email has %d rows, want the one work address the contact carries", len(emails))
+	}
+	if got := emails[0]["email"]; got != "christian.mueller@example.de" {
+		t.Errorf("person_email[0].email = %v, want the lowercased address", got)
+	}
+	if emails[0]["email_type"] != "work" || emails[0]["is_primary"] != true {
+		t.Errorf("person_email[0] = %v, want the work/primary attributes the mapping declares", emails[0])
 	}
 
 	address, ok := out["address"].(map[string]any)
@@ -246,12 +252,18 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 	// domain maps into the organization_domain child (the same 1:N child
 	// shape contacts' email → person_email uses), lowercased — so it is
 	// consumed, never left unmapped.
-	domainRow, ok := out["organization_domain"].(map[string]any)
+	domains, ok := out["organization_domain"].([]map[string]any)
 	if !ok {
-		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+		t.Fatalf("organization_domain = %#v, want a child collection", out["organization_domain"])
 	}
-	if got := domainRow["domain"]; got != "muller-gmbh.example" {
-		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
+	if len(domains) != 1 {
+		t.Fatalf("organization_domain has %d rows, want the one domain the company carries", len(domains))
+	}
+	if got := domains[0]["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain[0].domain = %v, want the lowercased domain", got)
+	}
+	if domains[0]["is_primary"] != true {
+		t.Errorf("organization_domain[0] = %v, want the primary attribute the mapping declares", domains[0])
 	}
 	if containsString(unmapped, "domain") {
 		t.Errorf("unmapped = %v, want it NOT to contain %q now that it maps to the child", unmapped, "domain")
@@ -270,12 +282,12 @@ func TestHubSpotCompanyDomainLowercases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	child, ok := out["organization_domain"].(map[string]any)
-	if !ok {
-		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+	rows, ok := out["organization_domain"].([]map[string]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("organization_domain = %#v, want a one-row child collection", out["organization_domain"])
 	}
-	if got := child["domain"]; got != "muller-gmbh.example" {
-		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
+	if got := rows[0]["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain[0].domain = %v, want the lowercased domain", got)
 	}
 }
 

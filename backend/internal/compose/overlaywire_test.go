@@ -13,6 +13,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -63,7 +65,7 @@ func TestOverlayWirePersonAssemblesNameAndStampsProvenance(t *testing.T) {
 
 func TestOverlayWirePersonNamelessFallsBackToEmailThenUnnamed(t *testing.T) {
 	withEmail := wireRecord(t, datasource.EntityPerson, map[string]any{
-		"person_email": map[string]any{"email": "ada@example.test"},
+		"person_email": []map[string]any{{"email": "ada@example.test", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	person, err := overlayWirePerson(wireCtx(), withEmail)
 	if err != nil {
@@ -84,7 +86,7 @@ func TestOverlayWirePersonNamelessFallsBackToEmailThenUnnamed(t *testing.T) {
 func TestOverlayWireOrganizationSurfacesDomain(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{
 		"display_name":        "Acme",
-		"organization_domain": map[string]any{"domain": "acme.io"},
+		"organization_domain": []map[string]any{{"domain": "acme.io", "is_primary": true, "position": 0}},
 	})
 	org, err := overlayWireOrganization(wireCtx(), rec)
 	if err != nil {
@@ -270,7 +272,7 @@ func TestOverlayWireActivitySurfacesDurationAndDueAt(t *testing.T) {
 func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
 		"full_name": "grace.hopper", "first_name": "", "last_name": "",
-		"person_email": map[string]any{"email": "grace.hopper@navy.mil"},
+		"person_email": []map[string]any{{"email": "grace.hopper@navy.mil", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	person, err := overlayWirePerson(wireCtx(), rec)
 	if err != nil {
@@ -395,6 +397,96 @@ func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	} {
 		if got := overlayWireTitle(tc.et, tc.fields); got != tc.want {
 			t.Errorf("title(%s) = %q, want %q", tc.et, got, tc.want)
+		}
+	}
+}
+
+// The child collection the wire reads is the one the mapping pipeline
+// actually writes, seeded through the real HubSpot mapping and put through
+// the same json round trip the mirror's jsonb column performs. Apply builds
+// []map[string]any in-process and json.Unmarshal hands back []any; a reader
+// tested only against the in-process shape would answer "" for every record
+// that ever reached the database.
+func TestOverlayChildReadersReadWhatTheMappingPipelineWrites(t *testing.T) {
+	cases := []struct {
+		incumbentClass string
+		raw            map[string]any
+		parent         string
+		read           func(map[string]any) string
+		want           string
+	}{
+		{
+			incumbentClass: "contacts",
+			raw:            map[string]any{"hs_object_id": "1", "email": "Ada@Example.TEST"},
+			parent:         "person_email",
+			read:           overlayPersonEmail,
+			want:           "ada@example.test",
+		},
+		{
+			incumbentClass: "companies",
+			raw:            map[string]any{"hs_object_id": "2", "domain": "Acme.IO"},
+			parent:         "organization_domain",
+			read:           overlayOrgDomain,
+			want:           "acme.io",
+		},
+	}
+	for _, tc := range cases {
+		m, ok := hubspot.Mapping(tc.incumbentClass)
+		if !ok {
+			t.Fatalf("Mapping(%s): want a declared mapping", tc.incumbentClass)
+		}
+		canonical, _, err := overlay.Apply(m, tc.raw)
+		if err != nil {
+			t.Fatalf("Apply(%s): %v", tc.incumbentClass, err)
+		}
+		if _, inProcess := canonical[tc.parent].([]map[string]any); !inProcess {
+			t.Fatalf("%s in-process = %T, want the []map[string]any collection Apply builds", tc.parent, canonical[tc.parent])
+		}
+		encoded, err := json.Marshal(canonical)
+		if err != nil {
+			t.Fatalf("marshaling the canonical payload: %v", err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatalf("decoding the canonical payload: %v", err)
+		}
+		if _, isAnySlice := decoded[tc.parent].([]any); !isAnySlice {
+			t.Fatalf("%s decoded = %T, want the []any every JSON array decodes to", tc.parent, decoded[tc.parent])
+		}
+		if got := tc.read(decoded); got != tc.want {
+			t.Errorf("reading %s from the decoded payload = %q, want %q", tc.parent, got, tc.want)
+		}
+		if got := tc.read(canonical); got != tc.want {
+			t.Errorf("reading %s from the in-process payload = %q, want %q", tc.parent, got, tc.want)
+		}
+	}
+}
+
+// A mirror row written before child targets held collections carries a bare
+// object, and the poller rewrites it only when the incumbent touches that
+// record — never, for a record nobody edits again. Its email must still reach
+// the wire.
+func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
+	legacy := map[string]any{
+		"person_email":        map[string]any{"email": "ada@example.test"},
+		"organization_domain": map[string]any{"domain": "acme.io"},
+	}
+	if got := overlayPersonEmail(legacy); got != "ada@example.test" {
+		t.Errorf("overlayPersonEmail = %q, want the address the pre-collection payload holds", got)
+	}
+	if got := overlayOrgDomain(legacy); got != "acme.io" {
+		t.Errorf("overlayOrgDomain = %q, want the domain the pre-collection payload holds", got)
+	}
+	// A payload holding neither shape answers absent rather than erroring:
+	// the true value always survives in raw.
+	for name, fields := range map[string]map[string]any{
+		"no key":                {},
+		"a bare string":         {"person_email": "ada@example.test"},
+		"rows that are strings": {"person_email": []any{"ada@example.test"}},
+		"a row with no email":   {"person_email": []any{map[string]any{"email_type": "work"}}},
+	} {
+		if got := overlayPersonEmail(fields); got != "" {
+			t.Errorf("%s: overlayPersonEmail = %q, want the empty answer", name, got)
 		}
 	}
 }
