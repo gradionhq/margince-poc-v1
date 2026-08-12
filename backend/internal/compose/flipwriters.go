@@ -355,38 +355,36 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 // drops every contact's email, and with it the duplicate-email skip
 // ensurePerson depends on. Type and primary flag are the row's own declared
 // attributes, so the native row inherits what the mapping said rather than an
-// assumption. A row carrying neither — the mirror is a cache whose rows are
-// rewritten only as the poller next touches the record — is the single primary
-// work address one mapped address means.
+// assumption. The type is held to the contract's enum before it is forwarded:
+// person_email.email_type is CHECK-constrained, so a mapping declaring a type
+// outside that set would abort the whole import with a raw constraint error
+// where the read wire falls back — the work address one mapped address means.
 func flipPersonEmails(fields map[string]any) []people.PersonEmailInput {
 	row, email := overlayPersonEmailRow(fields)
 	if email == "" {
 		return nil
 	}
-	in := people.PersonEmailInput{Email: email, EmailType: "work", IsPrimary: true}
-	if emailType := strings.TrimSpace(fieldString(row, "email_type")); emailType != "" {
-		in.EmailType = emailType
+	emailType := crmcontracts.PersonEmailEmailType(strings.TrimSpace(fieldString(row, "email_type")))
+	if !emailType.Valid() {
+		emailType = crmcontracts.PersonEmailEmailTypeWork
 	}
-	if primary, declared := row[childAttrIsPrimary].(bool); declared {
-		in.IsPrimary = primary
-	}
-	return []people.PersonEmailInput{in}
+	return []people.PersonEmailInput{{
+		Email:     email,
+		EmailType: string(emailType),
+		IsPrimary: childRowIsPrimary(row),
+	}}
 }
 
 // flipOrgDomains shapes the mirrored company's domain the way flipPersonEmails
 // shapes the contact's address — the same child-collection row, carried across
 // rather than dropped (the people store normalizes the host, so no pre-cleaning
-// here).
+// here). A domain row declares no type, so there is no enum to hold it to.
 func flipOrgDomains(fields map[string]any) []people.OrgDomainInput {
 	row, domain := overlayOrgDomainRow(fields)
 	if domain == "" {
 		return nil
 	}
-	in := people.OrgDomainInput{Domain: domain, IsPrimary: true}
-	if primary, declared := row[childAttrIsPrimary].(bool); declared {
-		in.IsPrimary = primary
-	}
-	return []people.OrgDomainInput{in}
+	return []people.OrgDomainInput{{Domain: domain, IsPrimary: childRowIsPrimary(row)}}
 }
 
 func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {

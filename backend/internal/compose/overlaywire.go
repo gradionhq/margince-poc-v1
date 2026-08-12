@@ -126,8 +126,11 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 // mirror record. size_band rides only when it lands on the contract's
 // own enum (the mapper's transform already targets those band labels);
 // an off-enum value stays in raw rather than shipping an invalid enum.
-// The address is the mapper's own address_json assembly, already spelled in
-// the contract's member vocabulary, so it is shaped rather than re-derived.
+// The address is the mapper's own address_json assembly, so it is shaped
+// rather than re-derived. The domains collection is the mirrored child rows
+// themselves, carried across whole the way a person's emails and phones are —
+// the primary flag among them is the mapping's declaration, never this
+// reader's assumption.
 func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcontracts.Organization, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {
@@ -138,13 +141,15 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if displayName == "" {
 		displayName = overlayUnnamed
 	}
+	orgID := openapi_types.UUID(rec.Ref.ID)
 	org := crmcontracts.Organization{
-		Id:          openapi_types.UUID(rec.Ref.ID),
+		Id:          orgID,
 		Source:      overlaySource,
 		CapturedBy:  ptrString(overlayCapturedByValue),
 		DisplayName: displayName,
 		Industry:    fieldStringPtr(fields, "industry"),
 		Address:     overlayAddress(fields),
+		Domains:     overlayOrganizationDomains(orgID, fields),
 		CreatedAt:   overlayTimeOr(fields, "created_at", syncedAt),
 		UpdatedAt:   overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:         &fields,
@@ -157,15 +162,6 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	}
 	if band := crmcontracts.OrganizationSizeBand(fieldString(fields, "size_band")); band.Valid() {
 		org.SizeBand = &band
-	}
-	if row, domain := overlayOrgDomainRow(fields); domain != "" {
-		org.Domains = &[]crmcontracts.OrganizationDomain{{
-			Id:         overlaySyntheticID(openapi_types.UUID(rec.Ref.ID), childRowPosition(row), domain),
-			Domain:     domain,
-			IsPrimary:  true,
-			Source:     overlaySource,
-			CapturedBy: ptrString(overlayCapturedByValue),
-		}}
 	}
 	return org, nil
 }

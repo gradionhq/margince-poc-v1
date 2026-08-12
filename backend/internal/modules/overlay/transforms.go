@@ -295,11 +295,12 @@ var addressMemberNames = map[string]string{
 // silently drops it (UC-E18-01 F3), and the contract's Address admits
 // additional properties.
 //
-// A mirror payload whose members still carry incumbent names surfaces only
-// the members whose spelling already agrees (city, country). The incremental
-// poller rewrites each record's payload on its next incumbent change, so
-// those rows heal themselves — a reader that accepted both spellings would
-// outlive the condition it was written for.
+// This rename governs what is WRITTEN; it says nothing about what is already
+// stored. A payload assembled before it carries the incumbent's own member
+// names for as long as the record stands still upstream — the poller rewrites
+// a record's fields only when its incumbent baseline advances, and a converged
+// backfill does not revisit it — so reading both spellings is permanent work
+// the reader owns (compose's overlayAddress), not a transitional shim.
 //
 //craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
 func transformAddressJSON(v any) (any, error) {

@@ -37,13 +37,15 @@ func TestTargetKindString(t *testing.T) {
 // ChildRow so the separator is the only thing left to reject it.
 func TestApplyTargetChildRejectsAMalformedTo(t *testing.T) {
 	m := overlay.ObjectMapping{
-		Source: "contacts", Target: "person",
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
 		Fields: []overlay.FieldMapping{{
 			From: []string{"email"}, To: "email", Kind: overlay.TargetChild,
 			Child: &overlay.ChildRow{Position: 0},
 		}},
 	}
-	if _, _, err := overlay.Apply(m, map[string]any{"email": "a@example.com"}); err == nil {
+	// The record carries none of the mapped properties, so only a check made
+	// on the declaration itself can catch it.
+	if _, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"}); err == nil {
 		t.Fatal("Apply: want an error for a TargetChild field with no \"<parent>.<child>\" separator")
 	}
 }

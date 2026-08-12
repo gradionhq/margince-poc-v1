@@ -120,6 +120,39 @@ func TestOverlayWireOrganizationSurfacesDomain(t *testing.T) {
 	}
 }
 
+// A company's domains are a collection, read whole the way a contact's emails
+// are. The wire-coverage gate only asks that the slot is non-empty and differs
+// from the fallback, so a reader publishing the leading row alone passes it
+// while dropping every domain after the first.
+func TestOverlayWireOrganizationPublishesEveryDomainRow(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{
+		"display_name": "Acme",
+		"organization_domain": []map[string]any{
+			{"domain": "acme.io", "is_primary": true, "position": 0},
+			{"domain": "acme.de", "position": 1},
+		},
+	})
+	org, err := overlayWireOrganization(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireOrganization: %v", err)
+	}
+	if org.Domains == nil || len(*org.Domains) != 2 {
+		t.Fatalf("Domains = %#v, want both mirrored rows", org.Domains)
+	}
+	rows := *org.Domains
+	if rows[0].Domain != "acme.io" || rows[1].Domain != "acme.de" {
+		t.Errorf("domains = %q then %q, want the mapping's declared order", rows[0].Domain, rows[1].Domain)
+	}
+	// The second row declares no flag, so it is not a second primary — which
+	// the native collection's partial unique index would reject outright.
+	if !rows[0].IsPrimary || rows[1].IsPrimary {
+		t.Errorf("is_primary = %v then %v, want only the row that declared it", rows[0].IsPrimary, rows[1].IsPrimary)
+	}
+	if rows[0].Id == rows[1].Id {
+		t.Error("two domain rows of one company must not share a synthesized id; a keyed render collapses the pair")
+	}
+}
+
 func TestOverlayWireOrganizationWithoutDomainOmitsDomains(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{"display_name": "Acme"})
 	org, err := overlayWireOrganization(wireCtx(), rec)
@@ -337,22 +370,16 @@ func TestOverlayAddressCarriesEveryMemberAndOmitsAnEmptyOne(t *testing.T) {
 	}
 	// VALUES, not presence: a presence-only check would pass a transposition
 	// that ships a postcode into the region slot of every record.
-	for member, pair := range map[string]struct {
-		got  *string
-		want string
-	}{
-		"line1":       {full.Line1, "12 Main St"},
-		"city":        {full.City, "Frankfurt"},
-		"region":      {full.Region, "HE"},
-		"postal_code": {full.PostalCode, "60311"},
-		"country":     {full.Country, "DE"},
+	got := addressMemberValues(full)
+	for member, want := range map[string]string{
+		"line1":       "12 Main St",
+		"city":        "Frankfurt",
+		"region":      "HE",
+		"postal_code": "60311",
+		"country":     "DE",
 	} {
-		got := "<nil>"
-		if pair.got != nil {
-			got = *pair.got
-		}
-		if got != pair.want {
-			t.Errorf("%s = %q, want %q — a transposed member ships the wrong value into every record", member, got, pair.want)
+		if got[member] != want {
+			t.Errorf("%s = %q, want %q — a transposed member ships the wrong value into every record", member, got[member], want)
 		}
 	}
 
@@ -364,6 +391,62 @@ func TestOverlayAddressCarriesEveryMemberAndOmitsAnEmptyOne(t *testing.T) {
 	}
 	if partial != nil && partial.Line1 != nil {
 		t.Errorf("absent members must stay nil, got line1 = %v", *partial.Line1)
+	}
+}
+
+// addressMemberValues renders an assembled Address as member → value, an
+// absent member reading "<nil>" so a mismatch names the member instead of
+// dereferencing past it.
+func addressMemberValues(addr *crmcontracts.Address) map[string]string {
+	out := make(map[string]string, 6)
+	for member, value := range map[string]*string{
+		"line1":       addr.Line1,
+		"line2":       addr.Line2,
+		"city":        addr.City,
+		"region":      addr.Region,
+		"postal_code": addr.PostalCode,
+		"country":     addr.Country,
+	} {
+		out[member] = "<nil>"
+		if value != nil {
+			out[member] = *value
+		}
+	}
+	return out
+}
+
+// A mirror payload assembled before the address transform renamed its members
+// still carries the incumbent's own spelling, and nothing rewrites it: the
+// poller touches a record only when its incumbent baseline advances, and a
+// converged backfill does not revisit it. Read under the contract's names
+// alone, such a record would lose its street, region and postcode on every
+// read, permanently, keeping only the two members whose spelling coincides.
+func TestOverlayAddressReadsTheIncumbentMemberSpelling(t *testing.T) {
+	stored := overlayAddress(map[string]any{"address": map[string]any{
+		"address": "12 Main St", "city": "Frankfurt", "state": "HE",
+		"zip": "60311", "country": "DE",
+	}})
+	if stored == nil {
+		t.Fatal("an address held under the incumbent's member names must still reach the contract's Address")
+	}
+	got := addressMemberValues(stored)
+	for member, want := range map[string]string{
+		"line1":       "12 Main St",
+		"city":        "Frankfurt",
+		"region":      "HE",
+		"postal_code": "60311",
+		"country":     "DE",
+	} {
+		if got[member] != want {
+			t.Errorf("%s = %q, want %q — a member stored under the incumbent's name is lost for good", member, got[member], want)
+		}
+	}
+
+	// A payload carrying both spellings answers with the contract's own, so a
+	// re-synced record is never read through the older name.
+	both := overlayAddress(map[string]any{"address": map[string]any{"line1": "Neu 1", "address": "Alt 9"}})
+	if both == nil || both.Line1 == nil || *both.Line1 != "Neu 1" {
+		t.Errorf("line1 = %+v, want the contract's member to win over the incumbent one", both)
 	}
 }
 
@@ -401,12 +484,6 @@ func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	}
 }
 
-// The child collection the wire reads is the one the mapping pipeline
-// actually writes, seeded through the real HubSpot mapping and put through
-// the same json round trip the mirror's jsonb column performs. Apply builds
-// []map[string]any in-process and json.Unmarshal hands back []any; a reader
-// tested only against the in-process shape would answer "" for every record
-// that ever reached the database.
 // orgDomainOf drops the row overlayOrgDomainRow answers alongside the domain,
 // so a case table can hold it next to overlayPersonEmail's matching shape.
 func orgDomainOf(fields map[string]any) string {
@@ -414,6 +491,12 @@ func orgDomainOf(fields map[string]any) string {
 	return domain
 }
 
+// The child collection the wire reads is the one the mapping pipeline
+// actually writes, seeded through the real HubSpot mapping and put through
+// the same json round trip the mirror's jsonb column performs. Apply builds
+// []map[string]any in-process and json.Unmarshal hands back []any; a reader
+// tested only against the in-process shape would answer "" for every record
+// that ever reached the database.
 func TestOverlayChildReadersReadWhatTheMappingPipelineWrites(t *testing.T) {
 	cases := []struct {
 		incumbentClass string
@@ -501,8 +584,10 @@ func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
 // A child row's type and primary flag are the mapping's declaration, and the
 // flip carries them onto the native row rather than assuming them — an
 // imported contact whose mirrored address is a personal, non-primary one must
-// not land as the work primary. A row carrying neither attribute reads as the
-// single primary work address one mapped address means.
+// not land as the work primary. A row declaring no flag is not the primary,
+// and a type the contract does not know is the work address one mapped address
+// means: person_email.email_type is CHECK-constrained, so forwarding it raw
+// would abort the whole import instead of importing the contact.
 func TestFlipCarriesTheChildRowsDeclaredAttributes(t *testing.T) {
 	m, ok := hubspot.Mapping("contacts")
 	if !ok {
@@ -528,8 +613,15 @@ func TestFlipCarriesTheChildRowsDeclaredAttributes(t *testing.T) {
 	}
 
 	bare := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{"email": "ada@example.test"}}})
-	if len(bare) != 1 || bare[0].EmailType != "work" || !bare[0].IsPrimary {
-		t.Errorf("emails = %+v on a row declaring no attributes, want the primary work address", bare)
+	if len(bare) != 1 || bare[0].EmailType != "work" || bare[0].IsPrimary {
+		t.Errorf("emails = %+v on a row declaring no attributes, want the work address and no primary claim", bare)
+	}
+
+	offEnum := flipPersonEmails(map[string]any{"person_email": []any{map[string]any{
+		"email": "ada@example.test", "email_type": "billing",
+	}}})
+	if len(offEnum) != 1 || offEnum[0].EmailType != "work" {
+		t.Errorf("emails = %+v for a type the contract does not know, want the work fallback rather than a value the column's CHECK rejects", offEnum)
 	}
 	if got := flipPersonEmails(map[string]any{}); got != nil {
 		t.Errorf("emails = %+v for a record holding no address, want none", got)

@@ -25,28 +25,57 @@ import (
 // overlayAddress lifts the mapper's address_json assembly onto the
 // contract's structured Address — the one reader of that payload, shared by
 // the overlay read wire and the flip import, since both see the same
-// canonical jsonb. The mapper already spells the members in the contract's
-// vocabulary, so this only shapes them. An address with no populated member
-// answers nil rather than an empty object, so a record the incumbent holds
-// no address for reads as absent instead of as a blank address.
+// canonical jsonb. The mapper spells the members in the contract's vocabulary,
+// so this mostly shapes them; the incumbent spellings are read alongside for
+// the same reason overlayChildRows still reads a bare object, and that reason
+// is permanent rather than transitional (see addressIncumbentMembers). An
+// address with no populated member answers nil rather than an empty object, so
+// a record the incumbent holds no address for reads as absent instead of as a
+// blank address.
 func overlayAddress(fields map[string]any) *crmcontracts.Address {
 	nested, ok := fields["address"].(map[string]any)
 	if !ok {
 		return nil
 	}
 	addr := crmcontracts.Address{
-		Line1:      fieldStringPtr(nested, "line1"),
-		Line2:      fieldStringPtr(nested, "line2"),
-		City:       fieldStringPtr(nested, "city"),
-		Region:     fieldStringPtr(nested, "region"),
-		PostalCode: fieldStringPtr(nested, "postal_code"),
-		Country:    fieldStringPtr(nested, "country"),
+		Line1:      addressMember(nested, "line1"),
+		Line2:      addressMember(nested, "line2"),
+		City:       addressMember(nested, "city"),
+		Region:     addressMember(nested, "region"),
+		PostalCode: addressMember(nested, "postal_code"),
+		Country:    addressMember(nested, "country"),
 	}
 	if addr.Line1 == nil && addr.Line2 == nil && addr.City == nil &&
 		addr.Region == nil && addr.PostalCode == nil && addr.Country == nil {
 		return nil
 	}
 	return &addr
+}
+
+// addressIncumbentMembers maps a contract Address member to the incumbent
+// property name a mirror payload assembled before the mapper's rename carries
+// it under. Such a payload is not a passing state: the poller rewrites a
+// record's fields only when the incumbent's own last-modified baseline
+// advances, and a converged backfill does not revisit it either, so a record
+// nobody edits upstream again keeps its original member names for good. Only
+// the three that differ appear — city and country spell alike in both
+// vocabularies, and line2 has no incumbent counterpart to fall back to.
+var addressIncumbentMembers = map[string]string{
+	"line1":       "address",
+	"region":      "state",
+	"postal_code": "zip",
+}
+
+// addressMember reads one Address member under the contract's own name,
+// falling back to the incumbent spelling where the two differ.
+func addressMember(nested map[string]any, member string) *string {
+	if value := fieldStringPtr(nested, member); value != nil {
+		return value
+	}
+	if incumbent, differs := addressIncumbentMembers[member]; differs {
+		return fieldStringPtr(nested, incumbent)
+	}
+	return nil
 }
 
 // overlayChildRows reads a child collection out of the canonical payload. It
@@ -93,10 +122,11 @@ func overlayPersonEmail(fields map[string]any) string {
 }
 
 // overlayOrgDomainRow answers the mirrored company's domain and its row out of
-// the organization_domain collection, mirroring overlayPersonEmailRow. Both
-// readers of a company domain need the row — the flip import for its primary
-// flag, the read wire for the position its row id is derived from — so there is
-// no domain-only counterpart to overlayPersonEmail.
+// the organization_domain collection, mirroring overlayPersonEmailRow. Its one
+// reader is the flip import, which needs the row for the primary flag the
+// mapping declared, so there is no domain-only counterpart to
+// overlayPersonEmail. The read wire takes the whole collection instead
+// (overlayOrganizationDomains).
 func overlayOrgDomainRow(fields map[string]any) (map[string]any, string) {
 	return overlayFirstChildRow(fields, "organization_domain", "domain")
 }
@@ -165,6 +195,33 @@ func overlayPersonPhones(parent openapi_types.UUID, fields map[string]any) *[]cr
 	return &out
 }
 
+// overlayOrganizationDomains assembles the contract's domain collection from
+// the mirrored child rows, as overlayPersonEmails does for a contact's
+// addresses. A row whose domain is missing or blank is skipped rather than
+// published as an empty host — the true payload survives in `raw` either way.
+// The whole collection is published, not its leading row: a mapping that
+// declares a second domain row is a mapping change, not a wire change.
+func overlayOrganizationDomains(parent openapi_types.UUID, fields map[string]any) *[]crmcontracts.OrganizationDomain {
+	var out []crmcontracts.OrganizationDomain
+	for _, row := range overlayChildRows(fields, "organization_domain") {
+		domain := strings.TrimSpace(fieldString(row, "domain"))
+		if domain == "" {
+			continue
+		}
+		out = append(out, crmcontracts.OrganizationDomain{
+			Id:         overlaySyntheticID(parent, childRowPosition(row), domain),
+			Domain:     domain,
+			IsPrimary:  childRowIsPrimary(row),
+			Source:     overlaySource,
+			CapturedBy: ptrString(overlayCapturedByValue),
+		})
+	}
+	if out == nil {
+		return nil
+	}
+	return &out
+}
+
 // The attribute vocabulary a mirrored child row declares, in one place next to
 // the readers below: everything a row carries beyond its own mapped column.
 // The mapping module writes these keys (overlay's ChildRow.Attrs and its
@@ -177,7 +234,11 @@ const (
 
 // childRowIsPrimary reports whether a child row is its collection's primary.
 // A row that declares nothing is not the primary — the flag is the mapping's
-// to assert, never the reader's to assume.
+// to assert, never the reader's to assume. This is the ONE rule for the flag,
+// read wire and flip import alike: the native column defaults to false and
+// carries a partial unique index over the primary of a collection, so a reader
+// that assumed true would both invent an assertion no mapping made and abort a
+// second row that made the same assumption honestly.
 func childRowIsPrimary(row map[string]any) bool {
 	primary, _ := row[childAttrIsPrimary].(bool)
 	return primary
