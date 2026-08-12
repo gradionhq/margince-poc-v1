@@ -130,8 +130,8 @@ type OrgNamePromoter struct {
 func NewOrgNamePromoter(pool *pgxpool.Pool, log *slog.Logger) *OrgNamePromoter {
 	return &OrgNamePromoter{
 		pool:      pool,
-		store:     people.NewStore(pool),
-		approvals: approvals.NewService(pool),
+		store:     people.NewStore(InstallationDB(pool)),
+		approvals: approvals.NewService(InstallationDB(pool)),
 		log:       log,
 	}
 }

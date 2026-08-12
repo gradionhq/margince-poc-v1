@@ -93,3 +93,16 @@ func (d *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	}
 	return withBoundTx(ctx, d.pool, ws, fn)
 }
+
+// ForWorkspace is this handle re-bound to another workspace, for the fleet
+// passes that enumerate every tenant and must read each one in its own bound
+// transaction.
+//
+// It is deliberately narrow: a pass qualifies only when it is driven by the
+// workspace ENUMERATION itself, never by a request. The single-installation
+// collapse (ADR-0091) retires these — with one workspace there is nothing to
+// enumerate — so a new caller here is a sign the work belongs on the job
+// fan-out, which hands each pass the tenant it runs for.
+func (d *DB) ForWorkspace(ws ids.WorkspaceID) *DB {
+	return BindTo(d.pool, ws)
+}

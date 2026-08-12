@@ -40,7 +40,7 @@ type domainTriageTrigger struct {
 
 func newDomainTriageTrigger(pool *pgxpool.Pool, log *slog.Logger) *domainTriageTrigger {
 	return &domainTriageTrigger{
-		people:     people.NewStore(pool),
+		people:     people.NewStore(InstallationDB(pool)),
 		settings:   capture.NewSettings(NewSettingsStore(pool)),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		dailyCap:   autoEnrichDailyCap,

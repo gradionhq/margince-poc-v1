@@ -21,10 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
-
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -62,9 +61,9 @@ func setupReconcile(t *testing.T) *reconcileEnv {
 	e := &reconcileEnv{Env: integration.Setup(t), owner: integration.OwnerConn(t)}
 	e.pipeline, e.open, _ = integration.DealFixture(t, e.Env)
 	quiet := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	e.svc = approvals.NewService(e.Pool)
+	e.svc = approvals.NewService(e.DB())
 	e.svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(e.svc, e.Activities))
-	e.reconciler = deals.NewFollowUpReconciler(e.Pool, followUpStager{svc: e.svc}, quiet)
+	e.reconciler = deals.NewFollowUpReconciler(e.DB(), followUpStager{svc: e.svc}, quiet)
 	return e
 }
 
@@ -321,7 +320,7 @@ func TestADealEditDoesNotCancelAWaitingFollowUp(t *testing.T) {
 	// Through the real writer, so the row's version moves the way any edit in
 	// the product moves it.
 	renamed := "Renamed while it waited"
-	if _, err := deals.NewStore(e.Pool, DealsInstallation()).UpdateDeal(human, ids.From[ids.DealKind](deal),
+	if _, err := deals.NewStore(e.DB(), DealsInstallation()).UpdateDeal(human, ids.From[ids.DealKind](deal),
 		deals.UpdateDealInput{Name: &renamed}); err != nil {
 		t.Fatalf("editing the deal: %v", err)
 	}

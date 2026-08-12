@@ -63,7 +63,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// exactly like the MCP registry's tools do — and the overlay-mode
 	// human read shadows (overlayread.go) ride this same instance.
 	provider := srv.sorDispatch
-	staging := approvalsAdapter{svc: approvals.NewService(pool)}
+	staging := approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}
 	// Wrap order: the generated router applies the slice left-to-right
 	// around the handler, so the LAST entry is outermost — idempotency
 	// must sit outside the agent gate so a staged-approval refusal is

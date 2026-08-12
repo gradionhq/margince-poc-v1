@@ -42,7 +42,7 @@ import (
 // people and a module never imports one: compose is where that edge is
 // made, as it is for every other cross-module dependency.
 func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
-	return people.NewHandlers(pool).
+	return people.NewHandlers(InstallationDB(pool)).
 		WithFieldCatalog(customfields.NewService(pool, nil)).
 		WithMatchStager(linkedInMatchStager(pool))
 }
@@ -55,7 +55,7 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		// The public booking capture seams (feedback/14): people is the
 		// idempotent-on-email person path, consent records the
 		// passthrough — both injected here, never sibling imports.
-		WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
+		WithPublicBooking(people.NewStore(InstallationDB(pool)), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 		// preference token behind the List-Unsubscribe URL.
 		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))})
@@ -97,12 +97,12 @@ func (s *Server) wireOnboardingSurface(pool *pgxpool.Pool) {
 	// The installation's own company (the 0083 anchor). Its own store
 	// instance, like every other people-backed shadow here: the company
 	// form's write shape is people's, the transport is compose's.
-	s.companyHandlers = companyHandlers{store: people.NewStore(pool), rollout: companyContextRolloutOnboarding}
+	s.companyHandlers = companyHandlers{store: people.NewStore(InstallationDB(pool)), rollout: companyContextRolloutOnboarding}
 	s.siteReadHandlers = siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding}
 	s.onboardingStateHandlers = onboardingStateHandlers{
-		state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
+		state: identity.NewOnboardingStore(pool), company: people.NewStore(InstallationDB(pool)),
 		proposal: &onboardingProposalEngine{
-			state: identity.NewOnboardingStore(pool), people: people.NewStore(pool),
+			state: identity.NewOnboardingStore(pool), people: people.NewStore(InstallationDB(pool)),
 			rollout: companyContextRolloutOnboarding,
 		},
 	}
@@ -133,8 +133,8 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// The model lane is nil here: WithAccountBrief binds the api role's
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
-	s.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
-	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
+	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
 	// The dossier reads the SAME people store the 360 and the brief read, so

@@ -105,8 +105,8 @@ func asCommitments(tasks []activities.OpenTask) []agents.OpenCommitment {
 // project outside the caller's scope answers not-found exactly as reading it
 // directly would.
 func handoffReader(pool *pgxpool.Pool) agents.HandoffReader {
-	dealStore := deals.NewStore(pool, DealsInstallation())
-	peopleStore := people.NewStore(pool)
+	dealStore := deals.NewStore(InstallationDB(pool), DealsInstallation())
+	peopleStore := people.NewStore(InstallationDB(pool))
 	taskStore := activities.NewStore(pool)
 	seats := identity.NewService(pool)
 	return func(ctx context.Context, projectID ids.UUID) (agents.HandoffFacts, error) {

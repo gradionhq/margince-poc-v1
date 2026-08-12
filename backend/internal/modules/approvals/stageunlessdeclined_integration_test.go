@@ -71,7 +71,7 @@ func setupStaging(t *testing.T) *stagingEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.pool, e.svc = pool, NewService(pool)
+	e.pool, e.svc = pool, NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
 	return e
 }
 

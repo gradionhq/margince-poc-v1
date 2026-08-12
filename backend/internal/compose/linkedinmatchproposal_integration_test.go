@@ -65,7 +65,7 @@ func TestApprovingAStagedLinkedInMatchLinksTheConnectionAndWritesTheURL(t *testi
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	person := linkedInMatchFixture(ctx, t, e)
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestARefusedLinkedInMatchIsNeverProposedAgain(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	linkedInMatchFixture(ctx, t, e)
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestAPersonEventStagesTheLinkedInSuggestionItProduced(t *testing.T) {
 	// nothing is skipped, and the test would prove nothing about this path.
 	grantReadPeopleRole(t, e, e.Rep1, "all")
 
-	matcher := NewLinkedInMatchGen(e.Pool, people.NewStore(e.Pool), identity.NewService(e.Pool),
+	matcher := NewLinkedInMatchGen(e.Pool, people.NewStore(e.DB()), identity.NewService(e.Pool),
 		slog.New(slog.DiscardHandler))
 	if err := matcher.HandleEvent(context.Background(),
 		envelopeFor(e.WS, "person.created", "person", person)); err != nil {
@@ -180,7 +180,7 @@ func TestTheSweepStagesALinkedInSuggestionNobodyWasEverAskedAbout(t *testing.T) 
 
 	// The residue, seeded through the real matcher rather than by hand: match
 	// and do NOT stage, which is exactly the state the old event path left.
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestTheSweepNeverReasksALinkedInMatchThatWasRefused(t *testing.T) {
 	linkedInMatchFixture(ctx, t, e)
 	grantReadPeopleRole(t, e, e.Rep1, "all")
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestAContactEditDoesNotCancelAWaitingLinkedInMatch(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	person := linkedInMatchFixture(ctx, t, e)
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
 		t.Fatalf("matching: %v", err)
 	}

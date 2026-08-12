@@ -233,7 +233,7 @@ func requestedBy(ctx context.Context) string {
 func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		engine := &deepReadEngine{
-			people: people.NewStore(pool), approvals: approvals.NewService(pool),
+			people: people.NewStore(InstallationDB(pool)), approvals: approvals.NewService(InstallationDB(pool)),
 			runtime: ai.NewRunTransparency(InstallationDB(pool)), brain: brain, enqueue: inserter, log: s.log,
 			// Read here AND written by WithBlobstore, so neither option order
 			// leaves the onboarding confirmation unable to collect the mark its
@@ -243,11 +243,11 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
 		s.assistant = &onboardingCompanyAssistant{
-			state: s.state, people: people.NewStore(pool),
+			state: s.state, people: people.NewStore(InstallationDB(pool)),
 			brain: brain, runtime: ai.NewRunTransparency(InstallationDB(pool)),
 			rollout: &s.companyContextRollout,
 			voice:   ai.NewVoiceStore(pool),
-			company: people.NewStore(pool),
+			company: people.NewStore(InstallationDB(pool)),
 		}
 	}
 }

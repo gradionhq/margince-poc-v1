@@ -4,10 +4,15 @@
 package compose
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // InstallationDB is the pool bound to the installation's own workspace
@@ -25,4 +30,19 @@ import (
 func InstallationDB(pool *pgxpool.Pool) *database.DB {
 	svc := identity.NewService(pool)
 	return database.Bind(pool, svc.InstallationWorkspace)
+}
+
+// actingWorkspaceDB binds pool to the workspace the CALLER is acting in, for
+// the few paths whose target tenant is not the installation's own.
+//
+// The overlay flip and its reconstruction are the whole list: a rebuild writes
+// an exported estate into the workspace whose operator ordered it, which on a
+// clean instance is a workspace the server never resolved. Everything else on a
+// request path is the installation's one workspace and takes InstallationDB.
+func actingWorkspaceDB(ctx context.Context, pool *pgxpool.Pool) (*database.DB, error) {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("%w: this call was made outside a workspace", database.ErrNoWorkspace)
+	}
+	return database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), nil
 }

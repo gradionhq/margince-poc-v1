@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -84,7 +83,8 @@ func UnmarshalCloseDateCorrection(raw json.RawMessage) (CloseDateCorrection, err
 
 // CloseDateCorrector drives the sweep; the worker ticks it nightly.
 type CloseDateCorrector struct {
-	pool   *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db     *database.DB
 	stager CorrectionStager
 	log    *slog.Logger
 	// now is the corrector's clock so the fixed-clock invariant test
@@ -98,11 +98,11 @@ type CloseDateCorrector struct {
 // NewCloseDateCorrector assembles the sweep over the pool it reads through,
 // the stager it raises corrections into, and the seam that answers which zone
 // its dates are computed in.
-func NewCloseDateCorrector(pool *pgxpool.Pool, stager CorrectionStager, log *slog.Logger,
+func NewCloseDateCorrector(db *database.DB, stager CorrectionStager, log *slog.Logger,
 	inst Installation,
 ) *CloseDateCorrector {
 	return &CloseDateCorrector{
-		pool: pool, stager: stager, log: log, now: time.Now, installation: inst.orRefusing(),
+		db: db, stager: stager, log: log, now: time.Now, installation: inst.orRefusing(),
 	}
 }
 
@@ -134,7 +134,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 	var tzName string
 	var candidates []closeDateCandidate
 	now := c.now().UTC()
-	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
+	err := c.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		if tzName, err = c.installation.Timezone(ctx, tx); err != nil {
 			return fmt.Errorf("read the installation's timezone: %w", err)
@@ -215,7 +215,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 func (c *CloseDateCorrector) stageVelocityDays(ctx context.Context, pipelineID ids.PipelineID) (float64, error) {
 	var wonDeals int
 	var medianSeconds *float64
-	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
+	err := c.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			WITH stints AS (
 				SELECT d.id AS deal_id,
@@ -351,7 +351,7 @@ func (c *CloseDateCorrector) correct(ctx context.Context, cand closeDateCandidat
 // staging can bind to exactly what the human will see.
 func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate, correction string, build func(*storekit.Patch), extra map[string]any) (int64, error) {
 	var version int64
-	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
+	err := c.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The candidate scan and this write are separate transactions:
 		// a deal closed or archived in between must not be re-dated.
 		lock, err := storekit.LockRow(ctx, tx, "deal", cand.id.UUID, storekit.LiveOnly)
@@ -409,7 +409,7 @@ func (c *CloseDateCorrector) ensureStaged(ctx context.Context, dealID ids.DealID
 	if targetVersion == 0 {
 		// The keep-alive path wrote nothing this pass; bind the staging
 		// to the row's current version so redemption still detects skew.
-		err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
+		err := c.db.Tx(ctx, func(tx pgx.Tx) error {
 			return tx.QueryRow(ctx, `SELECT version FROM deal WHERE id = $1`, dealID).Scan(&targetVersion)
 		})
 		if err != nil {

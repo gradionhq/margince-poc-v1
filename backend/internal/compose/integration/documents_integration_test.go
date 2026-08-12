@@ -348,7 +348,7 @@ func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 func TestAnOrganizationMergeCarriesTheDocumentsAcross(t *testing.T) {
 	e := Setup(t)
 	files := activities.NewStore(e.Pool)
-	orgs := people.NewStore(e.Pool)
+	orgs := people.NewStore(e.DB())
 	survivor := e.SeedOrg(t, "Acme", &e.Rep1)
 	dissolved := e.SeedOrg(t, "Acme Holdings", &e.Rep1)
 

@@ -58,7 +58,7 @@ func newOfferDrafterFixture(t *testing.T, e *integration.Env, brain *ai.FakeClie
 		brain:    fakeModelPath(t, brain).OfferDraft,
 		deals:    e.Deals,
 		rateCard: e.Deals,
-		context:  search.NewRetriever(search.NewStore(e.Pool), nil),
+		context:  search.NewRetriever(search.NewStore(e.DB()), nil),
 	}
 }
 

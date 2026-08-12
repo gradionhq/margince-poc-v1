@@ -133,10 +133,10 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	if err != nil {
 		return ModelPath{}, err
 	}
-	if err := seedEmbedBinding(context.Background(), search.NewStore(pool), router, log); err != nil {
+	if err := seedEmbedBinding(context.Background(), search.NewStore(InstallationDB(pool)), router, log); err != nil {
 		return ModelPath{}, err
 	}
-	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(pool))), nil
+	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(InstallationDB(pool)))), nil
 }
 
 // seedEmbedBinding plants search's embed_store_binding marker (Task 9's

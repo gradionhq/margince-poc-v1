@@ -109,8 +109,8 @@ func Setup(t *testing.T) *Env {
 	// last and sees a package that has genuinely stopped.
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
-	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool, installseam.Deals())
+	e.People = people.NewStore(harnessDB(pool, e.WS))
+	e.Deals = deals.NewStore(harnessDB(pool, e.WS), installseam.Deals())
 	e.Activities = activities.NewStore(pool)
 	return e
 }
@@ -360,13 +360,16 @@ func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 	return ids.UUID(org.Id)
 }
 
-// SeedOrgAs creates an ownerless organization under the caller's own
-// context — unlike SeedOrg (always e.Admin(), the harness's one primary
-// workspace), this lets a cross-tenant suite seed a fixture in a SECOND
-// workspace's own context.
-func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, name string) ids.UUID {
+// SeedOrgAs creates an ownerless organization in a SECOND workspace, under
+// that workspace's own context — unlike SeedOrg, which always writes the
+// harness's primary workspace as e.Admin().
+//
+// It names the workspace as well as the ctx because the row lands wherever the
+// STORE is bound: the harness's own store would stamp the second tenant's ids
+// into the first tenant's transaction, which RLS refuses.
+func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, ws ids.UUID, name string) ids.UUID {
 	t.Helper()
-	org, err := e.People.CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
+	org, err := e.PeopleFor(ws).CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,7 @@ func setupWithOfferDraft(t *testing.T) (*apptest.AppEnv, *ai.FakeClient) {
 		t.Fatalf("opening the offer-draft retriever's pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	retriever := search.NewRetriever(search.NewStore(pool), nil)
+	retriever := search.NewRetriever(search.NewStore(compose.InstallationDB(pool)), nil)
 	fake := ai.NewFakeClient()
 	// The OfferDraft lane rides the DB-less router (ai.WithFakeClient swaps
 	// in this scripted fake) instead of handing fake straight to

@@ -16,10 +16,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
-
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -59,7 +58,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"this text is NOT on the page","confidence":0.9},
 		{"field":"industry","value":"Software","evidence_snippet":"Acme GmbH","confidence":1.7},
 		{"field":"made_up_field","value":"x","evidence_snippet":"Acme GmbH","confidence":0.5}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.DB())}
 
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 	proposal, err := engine.Propose(ctx, fromURL("https://acme.example"))
@@ -96,7 +95,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	// Accepting needs organization.update (the effect the proposal
 	// writes on acceptance) — the admin has it; the decision echoes
 	// coldstart.accepted.
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accepting the proposal: %v", err)
 	}
@@ -122,7 +121,7 @@ func TestColdStartTextInputGroundsFieldsInThePaste(t *testing.T) {
 		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"onboard in minutes","confidence":0.8},
 		{"field":"icp","value":"Scaling B2B SaaS","evidence_snippet":"scaling B2B SaaS companies","confidence":0.7},
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"registered as Acme GmbH in Berlin","confidence":0.9}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.DB())}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromPastedText(pasted))
 	if err != nil {
@@ -161,7 +160,7 @@ func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.
 		{"field":"icp","value":"Seed-stage German startups","evidence_snippet":"seed-stage German startups","confidence":0.8},
 		{"field":"value_proposition","value":"Fractional CFO services","evidence_snippet":"We sell fractional CFO services","confidence":0.9},
 		{"field":"industry","value":"Financial consulting","evidence_snippet":"a leading financial consultancy","confidence":0.9}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.DB())}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	proposal, err := engine.Propose(ctx, fromSelfDescription(statement))
@@ -192,7 +191,7 @@ func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.
 	// padded (the same honest degradation as an unreadable page).
 	unsupported := ai.NewFakeClient().Script(`{"fields":[
 		{"field":"icp","value":"guessed","evidence_snippet":"enterprise Fortune-500 buyers","confidence":0.9}]}`)
-	empty := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, unsupported).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	empty := &coldStartEngine{extract: evidenceExtractor{brain: fakeModelPath(t, unsupported).ColdStart}, approvals: approvals.NewService(e.DB())}
 	var unreadable *unreadableError
 	if _, err := empty.Propose(ctx, fromSelfDescription(statement)); !errors.As(err, &unreadable) {
 		t.Fatalf("unsupported statement → %v, want unreadable (no-guess)", err)
@@ -208,7 +207,7 @@ func TestColdStartPreviewReturnsEvidencedFieldsAndStagesNothing(t *testing.T) {
 		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
 		{"field":"icp","value":"RevOps at SaaS scale-ups","evidence_snippet":"Built for RevOps leaders at scaling SaaS companies","confidence":0.7},
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"a claim the page never makes","confidence":0.9}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.DB())}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	fields, err := engine.Readback(ctx, fromURL("https://acme.example"))
@@ -256,7 +255,7 @@ func TestColdStartPreviewRefusesWhatItCannotQuote(t *testing.T) {
 	e := integration.Setup(t)
 	fake := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, approvals: approvals.NewService(e.DB())}
 
 	var unreadable *unreadableError
 	_, err := engine.Readback(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromURL("https://acme.example"))
@@ -271,7 +270,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`,
 		`not even JSON`)
 	brain := fakeModelPath(t, fake).ColdStart
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.DB())}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	var unreadable *unreadableError
@@ -290,7 +289,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 		t.Fatalf("unparseable model output → %v, want it to wrap ai.ErrOutputRejected", err)
 	}
 	// A page below the readable floor never reaches the model.
-	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.Pool)}
+	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.DB())}
 	if _, err := tiny.Propose(ctx, fromURL("https://acme.example")); !errors.As(err, &unreadable) {
 		t.Fatalf("tiny page → %v, want unreadable", err)
 	}
@@ -313,8 +312,8 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	admin := e.Admin()
 	orgID := seedAcmeOrgWithHumanIndustry(t, e, admin)
 
-	svc := approvals.NewService(e.Pool)
-	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.Pool)))
+	svc := approvals.NewService(e.DB())
+	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.DB())))
 	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: svc}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromURL("https://www.acme.example/about"))

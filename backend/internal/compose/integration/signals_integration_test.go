@@ -43,7 +43,7 @@ func (a signalStrengthAdapter) PersonStrength(ctx context.Context, id ids.Person
 }
 
 func signalStore(e *SearchEnv) *signals.Store {
-	return signals.NewStore(e.Pool, signalStrengthAdapter{people: people.NewStore(e.Pool)})
+	return signals.NewStore(e.Pool, signalStrengthAdapter{people: people.NewStore(e.DB())})
 }
 
 // signalActor is a full-scope human over the entities the warm room reads

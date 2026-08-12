@@ -107,7 +107,7 @@ func TestAC_TG_6_IdentityPhoneDisagreementIsAConflictNotAMerge(t *testing.T) {
 		t.Fatal("two exact lanes named different people and no conflict was reported — the disagreement would be resolved silently")
 	}
 
-	recorded, err := people.NewStore(c.Pool).EnqueueIdentityConflict(admin, *conflict,
+	recorded, err := people.NewStore(c.DB()).EnqueueIdentityConflict(admin, *conflict,
 		"telegram:"+fmt.Sprintf("%d", telegramBotID)+":"+account+":1", "connector:telegram")
 	if err != nil {
 		t.Fatalf("EnqueueIdentityConflict: %v", err)
@@ -316,7 +316,7 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	second := telegramUpdate{updateID: 5702, messageID: 72, senderID: 770701, username: "racer", firstName: "Nadia", text: "second"}
 
 	sink := capture.NewSink(c.DB()).
-		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.Pool)})
+		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.DB())})
 	ctx := c.channelConnectorCtx(t)
 
 	start := make(chan struct{})

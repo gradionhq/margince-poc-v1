@@ -34,7 +34,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -110,7 +109,8 @@ type FollowUpStager interface {
 
 // FollowUpReconciler drives the pass; the worker ticks it nightly.
 type FollowUpReconciler struct {
-	pool   *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db     *database.DB
 	stager FollowUpStager
 	log    *slog.Logger
 	// now is the pass's clock so the reconciliation window and the
@@ -118,8 +118,10 @@ type FollowUpReconciler struct {
 	now func() time.Time
 }
 
-func NewFollowUpReconciler(pool *pgxpool.Pool, stager FollowUpStager, log *slog.Logger) *FollowUpReconciler {
-	return &FollowUpReconciler{pool: pool, stager: stager, log: log, now: time.Now}
+// NewFollowUpReconciler builds the follow-up pass over a workspace-bound
+// handle, staging what it proposes through the given stager.
+func NewFollowUpReconciler(db *database.DB, stager FollowUpStager, log *slog.Logger) *FollowUpReconciler {
+	return &FollowUpReconciler{db: db, stager: stager, log: log, now: time.Now}
 }
 
 // ReconcileWorkspace is one follow-up reconciliation pass over the workspace
@@ -143,7 +145,7 @@ type followUpCandidate struct {
 func (r *FollowUpReconciler) reconcileWorkspace(ctx context.Context) error {
 	now := r.now().UTC()
 	var candidates []followUpCandidate
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The discrepancy: an open deal whose most recent real interaction
 		// (call/mail/meeting) landed inside the window, and which has NO
 		// open task on its timeline — a touch with no next step planned.

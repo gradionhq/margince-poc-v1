@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -76,7 +77,7 @@ func WithSpecResolver(resolve func(string) (runner.AgentSpec, bool)) RunnerOptio
 // (reads and non-SoR tools are unaffected).
 func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, opts ...RunnerOption) *RunnerService {
 	svc := &RunnerService{
-		store:      runner.NewStore(pool),
+		store:      runner.NewStore(InstallationDB(pool)),
 		runner:     runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
 		identity:   identity.NewService(pool),
 		specByName: runner.SpecByName,
@@ -87,6 +88,21 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 		opt(svc)
 	}
 	return svc
+}
+
+// forWorkspaceIn is this service with its store bound to the workspace ctx
+// names. The rest of the service — the tool registry, the brain, the identity
+// resolver — is tenant-agnostic and shared; only the store writes rows, and a
+// row lands in the workspace its handle binds.
+func (s *RunnerService) forWorkspaceIn(ctx context.Context) (*RunnerService, error) {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("%w: this pass was handed no workspace; the fan-out binds one per job row",
+			database.ErrNoWorkspace)
+	}
+	bound := *s
+	bound.store = s.store.ForWorkspace(ids.From[ids.WorkspaceKind](ws))
+	return &bound, nil
 }
 
 // TickWorkspace is ONE tenant's scheduler pass: close the runs abandoned since
@@ -104,6 +120,15 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 // schedule must still run when the accounting for last week's crash cannot.
 func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) error {
 	now = now.UTC()
+	// The fan-out names this pass's tenant in wsCtx, and everything below runs
+	// through a service bound to it. One long-lived RunnerService serves every
+	// tenant's pass, so a pass that used the assembled store directly would
+	// seed, claim and record in whichever workspace the SERVICE was built for —
+	// the whole fleet's rows landing in one tenant.
+	s, err := s.forWorkspaceIn(wsCtx)
+	if err != nil {
+		return err
+	}
 	s.reapAbandonedRuns(wsCtx)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
@@ -253,6 +278,14 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	}
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("runner: approval.decided payload: %w", err)
+	}
+
+	// The envelope names the tenant, and the store is bound to it before any
+	// row is read or written: this consumer, like the scheduler pass, runs on
+	// one shared service.
+	s, err := s.forWorkspaceIn(wsCtx)
+	if err != nil {
+		return err
 	}
 
 	// Claim, don't just look: the bus is at-least-once and a resumed run is

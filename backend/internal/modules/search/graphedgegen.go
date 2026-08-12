@@ -35,7 +35,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -110,7 +109,7 @@ func (g *GraphEdgeGen) onActivity(ctx context.Context, env events.Envelope, acti
 	default:
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, g.store.pool, func(tx pgx.Tx) error {
+	return g.store.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID}); err != nil {
 			return fmt.Errorf("graph-edge: %s: %w", env.Type, err)
 		}
@@ -120,7 +119,7 @@ func (g *GraphEdgeGen) onActivity(ctx context.Context, env events.Envelope, acti
 
 // onPerson refolds or drops the edges to one contact.
 func (g *GraphEdgeGen) onPerson(ctx context.Context, env events.Envelope, personID ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, g.store.pool, func(tx pgx.Tx) error {
+	return g.store.db.Tx(ctx, func(tx pgx.Tx) error {
 		switch env.Type {
 		case "person.merged":
 			// The source's edges belong to the survivor now. Dropping the

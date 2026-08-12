@@ -19,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -160,7 +159,7 @@ func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, o
 // double-spend the daily budget on a crawl that is already running.
 func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, error) {
 	var out []DueDomain
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT d.domain
 			FROM organization_domain_disposition d
@@ -209,7 +208,7 @@ func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, err
 // attempt spent, the next not due until the backoff elapses. A worker that
 // dies without answering therefore costs a delay, never a hot loop.
 func (s *Store) MarkTriageQueued(ctx context.Context, domain string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return MarkTriageQueuedTx(ctx, tx, domain)
 	})
 }
@@ -237,7 +236,7 @@ func MarkTriageQueuedTx(ctx context.Context, tx pgx.Tx, domain string) error {
 // nothing on the row to say why.
 func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, error) {
 	var out []DueDomain
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT domain FROM organization_domain_disposition
 			WHERE status = 'pending'
@@ -276,7 +275,7 @@ func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, e
 // the staleness bound, and only from a live status to `failed`. A read that is
 // merely slow is not touched.
 func (s *Store) RetireStaleTriageRead(ctx context.Context, domain string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
 			UPDATE site_read
 			   SET status = 'failed', finished_at = now(), updated_at = now(),

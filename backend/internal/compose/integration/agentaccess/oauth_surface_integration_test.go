@@ -80,7 +80,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	}
 	wsCtx := principal.WithWorkspaceID(context.Background(), wsID)
 
-	svc := approvals.NewService(pool)
+	svc := approvals.NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID)))
 	claims, err := svc.VerifyApprovalToken(wsCtx, *approved.ApprovalToken)
 	if err != nil {
 		t.Fatalf("verify: %v", err)

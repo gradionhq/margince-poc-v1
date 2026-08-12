@@ -13,7 +13,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -72,7 +71,7 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	p, _ := principal.Actor(ctx)
 
 	var a row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = s.decideInTx(ctx, tx, p, id, approve, reason, edited)
 		return err

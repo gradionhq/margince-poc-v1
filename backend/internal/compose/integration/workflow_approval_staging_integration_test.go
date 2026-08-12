@@ -100,7 +100,7 @@ func TestConfirmationRequiredActionStagesARealApprovalAndRejectionBlocksTheRun(t
 	pipeline, open, won := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Confirmation-Required Probe Deal", pipeline, open, nil)
 
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	engine := compose.NewWorkflowEngine(e.DB())
 	engine.RegisterSystemWorkflow(confirmationRequiredStagingProbe{
 		approvals: testApprovalsAdapter{svc: svc},

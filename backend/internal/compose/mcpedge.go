@@ -135,7 +135,7 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// per-kind effects belong to the DECIDE path, and a task neither decides
 		// nor triggers one. What it does is read a decision and then take the
 		// ordinary redemption route through Registry.Invoke.
-		agents.WithTaskStore(toolTasks(pool), approvalsAdapter{svc: approvals.NewService(pool)}))
+		agents.WithTaskStore(toolTasks(pool), approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

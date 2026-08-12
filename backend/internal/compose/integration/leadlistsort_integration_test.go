@@ -40,7 +40,7 @@ func TestLeadListSortsByScoreAndPagesUnderIt(t *testing.T) {
 	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
 	           VALUES ($1, $2, 'Coldest', 'working', 'inbound', 10, 'human:x')`)
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	sortField := "-score"
 	one := 1
 
@@ -87,7 +87,7 @@ func TestLeadListNarrowsToTheRequestedMinimumScore(t *testing.T) {
 	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
 	           VALUES ($1, $2, 'Coldest', 'working', 'inbound', 10, 'human:x')`)
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	sortField := "-score"
 	floor := 50
 
@@ -108,7 +108,7 @@ func TestLeadListRefusesAnUnknownSortField(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := e.AsFullUser()
 
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	sortField := "not_a_column"
 	if _, _, err := store.ListLeads(ctx, people.ListLeadsInput{Sort: &sortField}); err == nil {
 		t.Fatal("ListLeads sort=not_a_column: want a refusal, got none")

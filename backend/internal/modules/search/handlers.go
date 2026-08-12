@@ -6,11 +6,10 @@ package search
 import (
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
@@ -21,8 +20,9 @@ type Handlers struct {
 	retriever *Retriever
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	store := NewStore(pool)
+// NewHandlers builds the module's HTTP surface over a workspace-bound handle.
+func NewHandlers(db *database.DB) Handlers {
+	store := NewStore(db)
 	// Embedder is nil, and stays nil: the only thing this retriever serves is
 	// AssembleContext, which walks the context graph and never embeds. The
 	// request-path embed lane compose binds is for the RANKED half, and

@@ -217,7 +217,7 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	if modelPath.AgentLoop == nil {
 		return nil
 	}
-	grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
+	grounding := search.NewRetriever(search.NewStore(compose.InstallationDB(pool)), modelPath.Embedder)
 	// The Surface-B runner's agent tools reach overlay write-back through
 	// the workspace's own vaulted incumbent token; wire the FromEnv
 	// vault-backed resolver so an autonomous run can write back (nil vault
@@ -255,7 +255,7 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 // projections that need no model at all.
 func startProjectionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger, stdout io.Writer) {
 	if modelPath.Embedder != nil {
-		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
+		gen := search.NewEmbedGen(search.NewStore(compose.InstallationDB(pool)), modelPath.Embedder)
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger, 0) })
 	}
@@ -263,14 +263,14 @@ func startProjectionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Cl
 	// model, so it runs on every worker rather than only where a provider is
 	// configured — a deployment without AI still answers "who on our team knows
 	// this contact", which is a deterministic question about our own mail.
-	edges := search.NewGraphEdgeGen(search.NewStore(pool))
+	edges := search.NewGraphEdgeGen(search.NewStore(compose.InstallationDB(pool)))
 	_, _ = fmt.Fprintln(stdout, "worker maintaining interaction edges")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:graph-edge", edges.HandleEvent, logger, 0) })
 
 	// The LinkedIn ghost matcher (ADR-0078 §8b): a ghost attaches the moment
 	// its contact exists, whoever created them. Deterministic like the edge
 	// projection above, so it runs on every worker.
-	matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(pool), identity.NewService(pool), logger)
+	matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(compose.InstallationDB(pool)), identity.NewService(pool), logger)
 	_, _ = fmt.Fprintln(stdout, "worker matching LinkedIn connections as contacts appear")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:linkedin-match", matcher.HandleEvent, logger, 0) })
 

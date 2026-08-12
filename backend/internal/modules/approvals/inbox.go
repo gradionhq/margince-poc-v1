@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -146,7 +145,7 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]row, storekit.Page,
 	}
 	var out []row
 	var page storekit.Page
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) (err error) {
 		if in.targeted() {
 			out, page, err = listForTarget(ctx, tx, p, in, start)
 			return err
@@ -402,7 +401,7 @@ func (s *Service) Get(ctx context.Context, id ids.ApprovalID) (row, error) {
 	}
 	p, _ := principal.Actor(ctx)
 	var a row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) (err error) {
 		a, err = get(ctx, tx, id)
 		if err != nil {
 			return err

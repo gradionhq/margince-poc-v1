@@ -115,12 +115,12 @@ func assertHonestFloors(t *testing.T, rows []crmcontracts.ComputedField) {
 // second workspace (the cross-tenant suite below) can seed its own
 // default pipeline — DealFixture itself is hard-wired to e.Admin(),
 // which is always bound to the harness's primary workspace.
-func pipelineFixtureFor(ctx context.Context, t *testing.T, e *Env) (pipeline ids.PipelineID, open ids.StageID) {
+func pipelineFixtureFor(ctx context.Context, t *testing.T, store *deals.Store) (pipeline ids.PipelineID, open ids.StageID) {
 	t.Helper()
-	if err := e.Deals.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx); err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.Deals.DefaultPipeline(ctx)
+	p, err := store.DefaultPipeline(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ var computedFieldWorkspaceBPerms = principal.Permissions{
 func TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
-	pipeline, open := pipelineFixtureFor(e.Admin(), t, e)
+	pipeline, open := pipelineFixtureFor(e.Admin(), t, e.Deals)
 	orgID := e.SeedOrg(t, "Acme Corp", nil)
 
 	d1, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
@@ -262,7 +262,7 @@ func TestOrganizationComputed_NoOpenDeals_FloorsToZero(t *testing.T) {
 // genuine-zero no-row case the next test covers.
 func TestOrganizationComputed_OpenDealsWithoutFrozenFX_AwaitingFX(t *testing.T) {
 	e := Setup(t)
-	pipeline, open := pipelineFixtureFor(e.Admin(), t, e)
+	pipeline, open := pipelineFixtureFor(e.Admin(), t, e.Deals)
 	orgID := e.SeedOrg(t, "Unpriced Pipeline LLC", nil)
 
 	for _, amount := range []int64{75000, 125000} {
@@ -374,7 +374,7 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 	e := Setup(t)
 	owner := OwnerConn(t)
 
-	pipelineA, openA := pipelineFixtureFor(e.Admin(), t, e)
+	pipelineA, openA := pipelineFixtureFor(e.Admin(), t, e.Deals)
 	orgA := e.SeedOrg(t, "Acme", nil)
 	dealA, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "A deal", AmountMinor: int64Ptr(500000), Currency: strPtr("EUR"),
@@ -385,10 +385,16 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 	}
 	freezeDealFX(t, owner, ids.UUID(dealA.Id))
 
-	_, ctxB := SeedSecondWorkspace(t, owner, computedFieldWorkspaceBPerms)
-	pipelineB, openB := pipelineFixtureFor(ctxB, t, e)
-	orgB := e.SeedOrgAs(ctxB, t, "Acme")
-	dealB, err := e.Deals.CreateDeal(ctxB, deals.CreateDealInput{
+	wsB, ctxB := SeedSecondWorkspace(t, owner, computedFieldWorkspaceBPerms)
+	// Tenant B writes through stores of its own: the workspace a row lands in
+	// is the handle's, so tenant A's stores would stamp B's ids inside A's
+	// transaction and RLS would refuse them. The cross-context PROBES below
+	// stay ctx-driven — they read the view directly, which is where the
+	// isolation claim actually lives.
+	dealsB, peopleB := e.DealsFor(wsB), e.PeopleFor(wsB)
+	pipelineB, openB := pipelineFixtureFor(ctxB, t, dealsB)
+	orgB := e.SeedOrgAs(ctxB, t, wsB, "Acme")
+	dealB, err := dealsB.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "B deal", AmountMinor: int64Ptr(999000), Currency: strPtr("EUR"),
 		PipelineID: pipelineB, StageID: openB, OrganizationID: orgIDPtr(orgIDOf(orgB)), Source: "manual",
 	})
@@ -410,7 +416,7 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	orgBGet, err := e.People.GetOrganization(ctxB, orgIDOf(orgB), storekit.IncludeArchived)
+	orgBGet, err := peopleB.GetOrganization(ctxB, orgIDOf(orgB), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}

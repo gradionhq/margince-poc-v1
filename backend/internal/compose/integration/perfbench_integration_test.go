@@ -116,7 +116,7 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	store := search.NewStore(pool)
+	store := search.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 	retriever := search.NewRetriever(store, nil)
 
 	actx := benchAdminCtx(ws)

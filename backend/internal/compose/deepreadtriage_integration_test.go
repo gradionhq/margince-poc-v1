@@ -43,7 +43,7 @@ func (f *triageBrainFake) Complete(_ context.Context, _ model.Request) (model.Re
 // exactly as compose wires it: the classification never rides the profile
 // lane's brain.
 func newTriageTestWorker(e *integration.Env, site *fakeSite, extractBrain completer, triage completer) *siteDeepReadWorker {
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
 		pool:        e.Pool,

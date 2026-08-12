@@ -21,7 +21,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -99,7 +98,7 @@ func (s *Store) suggestedMatches(ctx context.Context, forPerson ids.UUID) ([]Pen
 		return nil, err
 	}
 	var out []PendingLinkedInMatch
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		ownerPos := arg(actor.UserID)
@@ -152,7 +151,7 @@ func (s *Store) ApplyLinkedInMatch(ctx context.Context, connectionID, personID i
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisibleLive(ctx, tx, entityPerson, personID); err != nil {
 			return err
 		}

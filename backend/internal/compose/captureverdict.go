@@ -112,7 +112,7 @@ func NewCounterpartyVerdictEngine(pool *pgxpool.Pool, brain completer, log *slog
 		pending:    capture.NewPendingStore(pool),
 		people:     newCounterpartyStore(pool),
 		activities: activities.NewStore(pool),
-		approvals:  approvals.NewService(pool),
+		approvals:  approvals.NewService(InstallationDB(pool)),
 		brain:      brain,
 		triage:     newDomainTriageTrigger(pool, log),
 		log:        log,

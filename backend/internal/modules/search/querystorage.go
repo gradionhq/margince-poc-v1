@@ -35,7 +35,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // StoredColumn is one physical column, as this module needs to see it: its
@@ -59,11 +60,12 @@ type ColumnReader interface {
 
 // ColumnCatalog reads the live schema.
 type ColumnCatalog struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
 // NewColumnCatalog builds the reader over the pool.
-func NewColumnCatalog(pool *pgxpool.Pool) *ColumnCatalog { return &ColumnCatalog{pool: pool} }
+func NewColumnCatalog(db *database.DB) *ColumnCatalog { return &ColumnCatalog{db: db} }
 
 // Columns answers one table's column names.
 //
@@ -73,7 +75,7 @@ func NewColumnCatalog(pool *pgxpool.Pool) *ColumnCatalog { return &ColumnCatalog
 // process restarted, for a saving of one indexed catalog read per plan.
 func (c *ColumnCatalog) Columns(ctx context.Context, table string) ([]StoredColumn, error) {
 	// rls-exempt: information_schema is the database's own schema catalog; it holds no tenant rows, so there is no workspace to bind
-	rows, err := c.pool.Query(ctx,
+	rows, err := c.db.Pool().Query(ctx,
 		`SELECT column_name, data_type FROM information_schema.columns
 		  WHERE table_schema = current_schema() AND table_name = $1`, table)
 	if err != nil {

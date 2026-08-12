@@ -92,7 +92,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
 	pool := db.Pool()
-	native := NewProvider(pool)
+	native := NewProviderFor(db)
 	provider := NewDispatcher(native, NewOverlayProviderFor(db, failClosedOverlayMeter(), resolveIncumbent), pool)
 	// Retry safety, wired for EVERY role that composes this surface rather than
 	// arriving as the API server's option the way the read charger does. The
@@ -112,7 +112,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// two answers, which is what ADR-0055 exists to prevent.
 	opts = append(opts, withContractTierFloor(),
 		agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
@@ -170,7 +170,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 		mode: sorMode,
 		inner: riskAwareRetriever{
 			pool:  pool,
-			inner: search.NewRetriever(search.NewStore(pool), embedder),
+			inner: search.NewRetriever(search.NewStore(InstallationDB(pool)), embedder),
 		},
 	}
 	agents.RegisterIntentTools(registry, retriever)

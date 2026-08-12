@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -79,7 +78,7 @@ func (s *Store) MyLinkedInReach(ctx context.Context, limit *int) (LinkedInReach,
 	capped := storekit.ClampLimit(limit)
 
 	var out LinkedInReach
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.readReachAccounts(ctx, tx, actor.UserID, capped, &out); err != nil {
 			return err
 		}

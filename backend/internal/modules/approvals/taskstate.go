@@ -33,7 +33,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -140,7 +139,7 @@ func (s *Service) Withdraw(ctx context.Context, id ids.ApprovalID, reason string
 	if err != nil {
 		return false, err
 	}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := ownProposal(ctx, tx, id, passport); err != nil {
 			return err
 		}
@@ -160,7 +159,7 @@ func (s *Service) readOwnProposal(ctx context.Context, id ids.ApprovalID, read f
 	if err != nil {
 		return err
 	}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		a, err := ownProposal(ctx, tx, id, passport)
 		if err != nil {
 			return err
