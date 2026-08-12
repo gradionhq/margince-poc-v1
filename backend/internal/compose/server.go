@@ -376,7 +376,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
-		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
+		automationHandlers: automation.NewHandlers(pool),
 		voiceHandlers:      ai.NewHandlers(pool, NewSeatBudget(pool)),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;

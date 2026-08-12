@@ -45,7 +45,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -164,7 +163,7 @@ func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webh
 }
 
 func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
-	store := webhooks.NewStore(database.BindTo(we.pool, ids.From[ids.WorkspaceKind](we.wsID)), we.cipher)
+	store := webhooks.NewStore(we.pool, we.cipher)
 	clock := func() time.Time { return *now }
 	return webhooks.NewDeliverer(store, client, clock, resolver,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))

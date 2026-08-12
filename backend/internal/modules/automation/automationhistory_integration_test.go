@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -58,7 +57,7 @@ func seedRunHistory(t *testing.T, fx *autoFixture, autoID ids.AutomationID) int 
 
 func TestListRunsPagesNewestFirstScopedToTheInstance(t *testing.T) {
 	fx := setupAutomationDB(t)
-	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
+	store := NewAutomationStore(fx.pool)
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeAll)
 	autoID := fx.seedAutomation(t, "stage_change_create_task")
 	seeded := seedRunHistory(t, fx, autoID)
@@ -92,7 +91,7 @@ func TestListRunsPagesNewestFirstScopedToTheInstance(t *testing.T) {
 
 func TestListRunsOutcomeFilterSpeaksTheWireVocabulary(t *testing.T) {
 	fx := setupAutomationDB(t)
-	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
+	store := NewAutomationStore(fx.pool)
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeAll)
 	autoID := fx.seedAutomation(t, "stage_change_create_task")
 	seedRunHistory(t, fx, autoID)
@@ -115,7 +114,7 @@ func TestListRunsOutcomeFilterSpeaksTheWireVocabulary(t *testing.T) {
 
 func TestListRunsHidesAbsentAndForeignAutomations(t *testing.T) {
 	fx := setupAutomationDB(t)
-	store := NewAutomationStore(database.BindTo(fx.pool, ids.From[ids.WorkspaceKind](fx.ws)))
+	store := NewAutomationStore(fx.pool)
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeAll)
 
 	if _, err := store.ListRuns(ctx, ids.New[ids.AutomationKind](), nil, nil, nil); !errors.Is(err, apperrors.ErrNotFound) {

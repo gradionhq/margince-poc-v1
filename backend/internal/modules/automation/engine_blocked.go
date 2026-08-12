@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -66,7 +67,7 @@ func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.Appr
 	if err != nil {
 		return fmt.Errorf("automation: encoding the blocked reason: %w", err)
 	}
-	return e.db.Tx(ctx, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE workflow_run SET status = 'blocked', detail = $2
 			WHERE status = 'requires_approval' AND detail->>'approval_id' = $1`,

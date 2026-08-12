@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -140,7 +141,7 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 // Split out of runOne so the dispatch flow above stays readable as the
 // outcome vocabulary grows.
 func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Handler, ev workflow.Event, result workflow.RunResult, applyErr error) error {
-	return e.db.Tx(ctx, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var staged *workflow.StagedApprovalError
 		switch {
 		case errors.As(applyErr, &staged):
@@ -206,7 +207,7 @@ func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Hand
 // column guards against).
 func (e *WorkflowEngine) claimRun(ctx context.Context, h workflow.Handler, ev workflow.Event, planned []byte, status string, detail []byte) (bool, error) {
 	claimed := false
-	err := e.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO workflow_run (workspace_id, handler, idempotency_key, trigger_event, planned, status, detail)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)

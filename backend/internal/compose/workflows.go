@@ -50,7 +50,7 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
 	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
-	engine := automation.NewWorkflowEngine(InstallationDB(pool), identity.NewService(pool))
+	engine := automation.NewWorkflowEngine(pool, identity.NewService(pool))
 	peopleStore := people.NewStore(pool)
 	// Executors ride the same per-workspace dispatch as every other
 	// datasource consumer: a starter firing for an overlay-mode

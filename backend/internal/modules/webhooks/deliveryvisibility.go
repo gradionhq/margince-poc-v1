@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -225,7 +226,7 @@ func objectReadable(ctx context.Context, object string) (bool, error) {
 // and maps its outcome to (visible, err): nil → visible, ErrNotFound → not
 // visible (out of scope), anything else → a real error the caller surfaces.
 func (s *Store) probeVisible(ctx context.Context, probe func(context.Context, pgx.Tx) error) (bool, error) {
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error { return probe(ctx, tx) })
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error { return probe(ctx, tx) })
 	switch {
 	case err == nil:
 		return true, nil
@@ -254,7 +255,7 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 // not-visible.
 func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, error) {
 	var dealID ids.UUID
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, offerID).Scan(&dealID)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -272,7 +273,7 @@ func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, e
 // the workspace-shared-config floor the approval-target gate shares.
 func (s *Store) rowExists(ctx context.Context, query string, id ids.UUID) (bool, error) {
 	var exists bool
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, query, id).Scan(&exists)
 	})
 	if err != nil {

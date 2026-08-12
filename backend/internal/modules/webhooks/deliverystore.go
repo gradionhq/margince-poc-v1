@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -65,7 +66,7 @@ func (s *Store) ListDeliveries(ctx context.Context, subID ids.UUID, limit int) (
 		limit = 50
 	}
 	var out []Delivery
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// Fetch one past the page so a full page is distinguishable from a
 		// truncated one without a second count query.
 		rows, err := tx.Query(ctx, "SELECT "+deliveryColumns+
@@ -97,7 +98,7 @@ func (s *Store) ListDeliveries(ctx context.Context, subID ids.UUID, limit int) (
 // getDelivery reads one delivery by id in the caller's workspace.
 func (s *Store) getDelivery(ctx context.Context, deliveryID ids.UUID) (Delivery, error) {
 	var out Delivery
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanDelivery(tx.QueryRow(ctx,
 			"SELECT "+deliveryColumns+" FROM webhook_delivery WHERE id = $1", deliveryID))
@@ -120,7 +121,7 @@ func (s *Store) requireReplay(ctx context.Context, subID, deliveryID ids.UUID) e
 	if _, err := s.GetSubscription(ctx, subID); err != nil {
 		return err
 	}
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var belongs bool
 		err := tx.QueryRow(ctx,
 			"SELECT EXISTS (SELECT 1 FROM webhook_delivery WHERE id = $1 AND subscription_id = $2)",
@@ -163,7 +164,7 @@ type subCandidate struct {
 // the envelope's workspace under the tenant GUC.
 func (s *Store) matchingSubscriptions(ctx context.Context, eventType string) ([]subCandidate, error) {
 	var out []subCandidate
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, owner_id FROM webhook_subscription
 			WHERE state = 'active' AND archived_at IS NULL
@@ -195,7 +196,7 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 		return nil, nil
 	}
 	var targets []attemptTarget
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			WITH matched AS (
 				SELECT id, target_url, signing_secret_ref
@@ -234,7 +235,7 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 // subscription's retries wait until it resumes). Runs under the tenant GUC.
 func (s *Store) dueRetries(ctx context.Context, now time.Time, limit int) ([]ids.UUID, error) {
 	var out []ids.UUID
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT d.id
 			FROM webhook_delivery d
@@ -264,7 +265,7 @@ func (s *Store) dueRetries(ctx context.Context, now time.Time, limit int) ([]ids
 // secret (so a rotation between attempts takes effect). Runs in-workspace.
 func (s *Store) loadTarget(ctx context.Context, deliveryID ids.UUID) (attemptTarget, error) {
 	var t attemptTarget
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT d.id, d.subscription_id, s.target_url, s.signing_secret_ref,
 			       d.event_type, d.event_id, d.payload, d.attempts
@@ -298,7 +299,7 @@ func (s *Store) recordOutcome(ctx context.Context, t attemptTarget, res outcome,
 	if res.statusCode != 0 {
 		statusCode = &res.statusCode
 	}
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if res.failure == "" {
 			_, err := tx.Exec(ctx, `
 				UPDATE webhook_delivery
@@ -329,7 +330,7 @@ func (s *Store) recordOutcome(ctx context.Context, t attemptTarget, res outcome,
 // re-attempted. Returns ErrNotFound if the delivery is absent in the
 // caller's workspace (existence-hiding).
 func (s *Store) resetForReplay(ctx context.Context, deliveryID ids.UUID) error {
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE webhook_delivery
 			SET status = 'pending', next_retry_at = NULL, dead_lettered_at = NULL, last_error = NULL
