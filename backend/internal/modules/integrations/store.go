@@ -38,6 +38,14 @@ type Store struct {
 	// deleteClaims is the owning domain's own delete, supplied by compose.
 	// Nil when no domain is bound, which is also when no claims exist.
 	deleteClaims DeleteClaimsFunc
+
+	// The owning domain's callbacks (runs.go). Nil until compose binds them,
+	// and QueueRun refuses rather than guessing at a subject's consent.
+	fence       FenceSubjectFunc
+	cluster     DuplicateClusterFunc
+	identifiers SubjectIdentifiersFunc
+	// enqueueSubmit commits the submit job with the run row.
+	enqueueSubmit EnqueueSubmitFunc
 }
 
 // DeleteClaimsFunc is the owning domain's delete of everything one provider
