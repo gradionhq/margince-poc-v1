@@ -22,12 +22,15 @@ import (
 // A target the caller cannot see is refused BEFORE anything is staged. The
 // archive itself would answer the same not-found once released, by which point
 // a human has spent a one-shot authority on a call that was never going to run.
+//
+// Asked of Guards directly rather than through StageSubject: Subject reads the
+// same row for its label and would refuse this too, so a whole-seam assertion
+// passes whether or not the guard is there at all.
 func TestArchiveGuardsRefuseATargetTheCallerCannotSee(t *testing.T) {
-	id := ids.NewV7()
-	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "person", ID: id})
+	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
-	if _, err := StageSubject(context.Background(), call); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("staging an unreadable person answered %v, want the row-scope miss — a staged approval "+
+	if err := call.Guards(context.Background()); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("guarding an unreadable person answered %v, want the row-scope miss — a staged approval "+
 			"for a record the caller cannot see is authority nobody asked for", err)
 	}
 }
@@ -38,8 +41,8 @@ func TestArchiveGuardsRefuseATargetTheCallerCannotSee(t *testing.T) {
 func TestArchiveGuardsRefuseATargetHeldElsewhere(t *testing.T) {
 	call := Bind(NewArchiveResolver(elsewhereProvider{}), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
-	if _, err := StageSubject(context.Background(), call); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-		t.Fatalf("staging a mirrored person answered %v, want the unsupported-by-SoR refusal", err)
+	if err := call.Guards(context.Background()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("guarding a mirrored person answered %v, want the unsupported-by-SoR refusal", err)
 	}
 }
 

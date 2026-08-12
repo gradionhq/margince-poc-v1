@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // stageOrRedeem handles the 🟡 outcome. The identical call is the
@@ -40,12 +41,12 @@ import (
 // whether an effect was performed and so whether one is charged. A redemption
 // that forwarded reports true; a refused token and a fresh staging both report
 // false, because neither ran anything.
-func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) bool {
+func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, records datasource.SystemOfRecordProvider, pol agentPolicy, body []byte) bool {
 	handled, ran := redeemIfPresented(w, r, next, staging, pol, body)
 	if handled {
 		return ran
 	}
-	stageRefusal(w, r, staging, pol, body)
+	stageRefusal(w, r, staging, records, pol, body)
 	return false
 }
 
@@ -110,7 +111,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 // stageRefusal stages the refused call as a pending approval and answers
 // with the redemption instructions — the whole request, unapplied, is the
 // staged change, so the approved retry is this exact request again.
-func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) {
+func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, records datasource.SystemOfRecordProvider, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, body)
 	if cErr != nil {
@@ -125,25 +126,8 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
 		return
 	}
-	var targetID ids.UUID
-	if raw := chi.URLParam(r, "id"); raw != "" {
-		var err error
-		if targetID, err = ids.Parse(raw); err != nil {
-			httperr.Write(w, r, apperrors.ErrNotFound)
-			return
-		}
-	}
-	// A concrete target with no record type is unstageable authority: the
-	// approvals surface scopes an inbox row by probing its target's own/team
-	// visibility, and it cannot probe a type it was not told. Such a row
-	// would show a record's summary and proposed change to everyone holding
-	// the object grant, and let any of them decide a write against a row
-	// their own scope hides. Refuse it here, the same fail-closed shape as
-	// an undecidable kind, rather than mint an unscopable authority object.
-	if targetID != (ids.UUID{}) && pol.RecordType == "" {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s stages against a concrete record but declares no record type: %w",
-			pol.Op, apperrors.ErrPermissionDenied))
+	target, ok := stagedTarget(w, r, records, pol)
+	if !ok {
 		return
 	}
 	// The version a human approves is pinned SERVER-SIDE, inside the staging
@@ -159,8 +143,8 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     string(pol.RecordType),
-		TargetID:       targetID,
+		TargetType:     target.TargetType,
+		TargetID:       target.TargetID,
 		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
 	})
 	if sErr != nil {
@@ -169,5 +153,69 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 	}
 	httperr.Write(w, r, fmt.Errorf(
 		"staged as approval %s — once a human approves it, repeat this exact request with the %s: %s header: %w",
-		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
+		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval,
+	))
+}
+
+// stagedTarget answers what the approval binds to: the record type and the id
+// the human's decision will be scoped and pinned by.
+//
+// An operation this door can decode into a typed command (agentcommand.go) is
+// answered by the SAME resolver the tool door asks, so the two cannot describe
+// one operation differently — and the resolver's guards run here too, refusing
+// a target the caller cannot see before a human is asked about it. Everything
+// else still walks the route below.
+//
+// Only the target is taken from the resolver. The line the human reads stays
+// this door's own (restSummary), because a REST summary names the concrete
+// method, path and body fields that this door's diff_hash actually binds.
+//
+// It writes the refusal itself and reports ok=false, so a caller that cannot
+// name a target stages nothing.
+func stagedTarget(w http.ResponseWriter, r *http.Request, records datasource.SystemOfRecordProvider, pol agentPolicy) (agents.StageInfo, bool) {
+	decode, described := restCommands[pol.Op]
+	if !described {
+		return stagedTargetByRoute(w, r, pol)
+	}
+	call, err := decode(pol, records, r)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return agents.StageInfo{}, false
+	}
+	info, err := agents.StageSubject(r.Context(), call)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return agents.StageInfo{}, false
+	}
+	return info, true
+}
+
+// stagedTargetByRoute is the guess the seam above is replacing: the target id
+// read out of the route's {id} parameter and paired with the record type the
+// generated policy declares. It stands for every operation with no command
+// entry yet, and goes away with the last of them.
+func stagedTargetByRoute(w http.ResponseWriter, r *http.Request, pol agentPolicy) (agents.StageInfo, bool) {
+	var targetID ids.UUID
+	if raw := chi.URLParam(r, "id"); raw != "" {
+		var err error
+		if targetID, err = ids.Parse(raw); err != nil {
+			httperr.Write(w, r, apperrors.ErrNotFound)
+			return agents.StageInfo{}, false
+		}
+	}
+	// A concrete target with no record type is unstageable authority: the
+	// approvals surface scopes an inbox row by probing its target's own/team
+	// visibility, and it cannot probe a type it was not told. Such a row
+	// would show a record's summary and proposed change to everyone holding
+	// the object grant, and let any of them decide a write against a row
+	// their own scope hides. Refuse it here, the same fail-closed shape as
+	// an undecidable kind, rather than mint an unscopable authority object.
+	if targetID != (ids.UUID{}) && pol.RecordType == "" {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s stages against a concrete record but declares no record type: %w",
+			pol.Op, apperrors.ErrPermissionDenied,
+		))
+		return agents.StageInfo{}, false
+	}
+	return agents.StageInfo{TargetType: string(pol.RecordType), TargetID: targetID}, true
 }
