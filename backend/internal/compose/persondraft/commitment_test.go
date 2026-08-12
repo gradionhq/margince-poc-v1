@@ -346,3 +346,88 @@ func TestAnEmptyNewestInboundDoesNotFallThroughToAnOlderOne(t *testing.T) {
 		}
 	}
 }
+
+// The next meeting is the most concrete thing a follow-up can refer to, and a
+// draft asking for a call when one is already booked reads as not knowing.
+func TestTheNextMeetingReachesTheDraft(t *testing.T) {
+	soon := draftedAt.Add(72 * time.Hour)
+	in := foldedWithMeeting(&crmcontracts.Person360NextMeeting{
+		StartsAt:     soon,
+		Subject:      strPtr("Integration review"),
+		Participants: participants(recipientID),
+	})
+
+	if in.Meeting == nil {
+		t.Fatal("a meeting this person attends should reach the draft")
+	}
+	if in.Meeting.Subject != "Integration review" {
+		t.Errorf("subject = %q", in.Meeting.Subject)
+	}
+}
+
+// The privacy line this grounding sits closest to: a meeting the recipient is
+// NOT on is somebody else's calendar, and naming it to them discloses a meeting
+// they were never invited to.
+func TestAMeetingTheyAreNotOnIsNeverMentioned(t *testing.T) {
+	soon := draftedAt.Add(72 * time.Hour)
+
+	other := foldedWithMeeting(&crmcontracts.Person360NextMeeting{
+		StartsAt:     soon,
+		Subject:      strPtr("Internal pricing review"),
+		Participants: participants(openapi_types.UUID(ids.NewV7())),
+	})
+	if other.Meeting != nil {
+		t.Errorf("a meeting they do not attend leaked: %+v", other.Meeting)
+	}
+
+	// An absent participant list is not evidence that they attend, so it is
+	// treated as no.
+	unknown := foldedWithMeeting(&crmcontracts.Person360NextMeeting{
+		StartsAt: soon, Subject: strPtr("Unlisted"),
+	})
+	if unknown.Meeting != nil {
+		t.Errorf("a meeting with no attendee list should not be assumed theirs: %+v", unknown.Meeting)
+	}
+}
+
+// A meeting already past is not a next meeting, and referring to it as upcoming
+// is wrong in the way a reader notices immediately.
+func TestAPastMeetingIsNotTheNextOne(t *testing.T) {
+	past := foldedWithMeeting(&crmcontracts.Person360NextMeeting{
+		StartsAt:     draftedAt.Add(-48 * time.Hour),
+		Subject:      strPtr("Last week's call"),
+		Participants: participants(recipientID),
+	})
+	if past.Meeting != nil {
+		t.Errorf("a past meeting should not be carried as the next one: %+v", past.Meeting)
+	}
+}
+
+var recipientID = openapi_types.UUID(ids.NewV7())
+
+func strPtr(s string) *string { return &s }
+
+func participants(ids ...openapi_types.UUID) *[]struct {
+	FullName string             `json:"full_name"`
+	PersonId openapi_types.UUID `json:"person_id"`
+} {
+	out := make([]struct {
+		FullName string             `json:"full_name"`
+		PersonId openapi_types.UUID `json:"person_id"`
+	}, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, struct {
+			FullName string             `json:"full_name"`
+			PersonId openapi_types.UUID `json:"person_id"`
+		}{FullName: "Somebody", PersonId: id})
+	}
+	return &out
+}
+
+func foldedWithMeeting(meeting *crmcontracts.Person360NextMeeting) Input {
+	view := crmcontracts.Person360{NextMeeting: meeting}
+	view.Person.Id = recipientID
+	in := Input{Envelope: envelopeAt(textlang.German, convstate.BandFresh)}
+	foldMeeting(&in, view, draftedAt)
+	return in
+}
