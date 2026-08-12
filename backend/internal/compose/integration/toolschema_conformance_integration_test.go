@@ -30,8 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -91,7 +89,7 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 	// The brief is a persisted read-model, so the lane assembles one for this
 	// rep before reading it: read_brief never ranks, and an unassembled brief
 	// answers not-found rather than an empty queue.
-	snapshotBriefRun(ctx, t, e.Pool)
+	snapshotBriefRun(ctx, t, e)
 
 	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
@@ -309,9 +307,9 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 // read_brief re-reads a persisted run and never ranks — that is the contract's
 // own rule, not a limitation of this lane — so without a run the sweep would be
 // certifying a not-found instead of an answer.
-func snapshotBriefRun(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+func snapshotBriefRun(ctx context.Context, t *testing.T, e *Env) {
 	t.Helper()
-	engine := briefs.NewBriefEngine(pool, people.NewStore(pool))
+	engine := briefs.NewBriefEngine(e.Pool, people.NewStore(e.DB()))
 	// A fixed instant. The run only has to EXIST for read_brief to have
 	// something to re-read, and ranking against the wall clock would make what
 	// this lane certifies depend on the day it ran.

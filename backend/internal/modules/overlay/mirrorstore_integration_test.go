@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // getRaw itself (and its backing SQL) now lives in mirrorstore.go: it has
@@ -31,8 +32,8 @@ import (
 // visibility rows, so a visibility-joined read would find nothing for
 // reasons unrelated to what this test is proving.
 func TestIngestHonorsStalenessAndTombstone(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	const objectClass = "contact"
 	const externalID = "100214862042"
 

@@ -250,7 +250,7 @@ func newAnchorEnv(t *testing.T) *anchorEnv {
 		t.Fatalf("seeding the anchor company: %v", err)
 	}
 	return &anchorEnv{
-		ctx: ctx, pool: base.store.pool, store: base.store,
+		ctx: ctx, pool: base.store.db.Pool(), store: base.store,
 		anchorID: company.OrganizationID,
 	}
 }

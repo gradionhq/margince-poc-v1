@@ -60,7 +60,7 @@ func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 
 	m := modelCostRefresh{
 		rates:   rates,
-		svc:     approvals.NewService(e.Pool),
+		svc:     approvals.NewService(e.DB()),
 		fetcher: fakeFetcher{text: "some pricing page text"},
 		brain:   fakeBrain{text: extraction},
 		sources: []pricingSource{{Provider: "anthropic", URL: "https://prices.test/pricing"}},
@@ -104,7 +104,7 @@ func runModelRefresh(t *testing.T, e *integration.Env, extraction string) {
 	t.Helper()
 	m := modelCostRefresh{
 		rates:   ai.NewRateStore(e.DB()),
-		svc:     approvals.NewService(e.Pool),
+		svc:     approvals.NewService(e.DB()),
 		fetcher: fakeFetcher{text: "pricing page text"},
 		brain:   fakeBrain{text: extraction},
 		sources: []pricingSource{{Provider: "acme", URL: "https://prices.test/pricing"}},

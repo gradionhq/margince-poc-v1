@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -151,12 +152,17 @@ func parkDueDeliveryIn(t *testing.T, we *webhookEnv, owner *pgx.Conn, ws ids.UUI
 func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := integration.OwnerConn(t)
-	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
 
 	rcv := newReceiver(t, http.StatusInternalServerError) // endpoint is down
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 	parkOneDelivery(t, we, deliverer, rcv)
+	// The second tenant arrives only AFTER the harness has used the HTTP
+	// surface, and that order is load-bearing: a request path resolves the
+	// installation's one workspace (ADR-0061/A107) and refuses outright once
+	// there are two. A sweep is the opposite kind of caller — it is handed the
+	// tenant it runs for — so the fan-out this suite is about still reads both.
+	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
 	// The healthy tenant gets real due work of its own, so its sweep below
 	// actually scans and re-attempts. Without a row it would read nothing, and
 	// an assertion about a scan that never ran proves nothing about isolation.
@@ -188,7 +194,12 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	// with the policy still armed, the healthy tenant scans its own due row and
 	// re-attempts it. The receiver hit is the load-bearing half — a pass that
 	// returned nil without delivering would have scanned nothing.
-	if err := deliverer.SweepOnce(webhookSweepCtx(healthy)); err != nil {
+	// A deliverer of the healthy tenant's own: the workspace a sweep runs for
+	// is a property of the handle it was built on, not of the ctx it is called
+	// with, so reusing the victim's deliverer here would sweep the victim again
+	// and read as the fault leaking across tenants.
+	if err := newTestDelivererOn(we, we.DBFor(healthy), &now, rcv.server.Client()).
+		SweepOnce(webhookSweepCtx(healthy)); err != nil {
 		t.Fatalf("the healthy tenant's sweep, while the victim's is faulted: %v", err)
 	}
 	if got := rcv.count.Load(); got != 3 {
@@ -204,13 +215,16 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := integration.OwnerConn(t)
-	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
-	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
 
 	rcv := newReceiver(t, http.StatusInternalServerError)
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 	parkOneDelivery(t, we, deliverer, rcv)
+	// Seeded after the HTTP subscription above, and for the same reason: the
+	// request path resolves the installation's one workspace and refuses when a
+	// second exists, while the fan-out under test is handed its tenant.
+	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
+	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
 	// Past the parked delivery's backoff, so the victim's sweep has something
 	// due to scan for: a tenant with nothing due never reads a row and so never
 	// meets the fault.
@@ -225,7 +239,15 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: time.Hour, Deliverer: deliverer,
+			Interval: time.Hour,
+			// The fan-out builds one deliverer per workspace it sweeps, and the
+			// factory honours that: each tenant's worker gets a deliverer over
+			// the handle it was given. A factory that answered with one shared
+			// deliverer would sweep a single tenant twice and report the fan-out
+			// as working.
+			Deliverer: func(db *database.DB) *webhooks.Deliverer {
+				return newTestDelivererOn(we, db, &now, rcv.server.Client())
+			},
 		},
 	})
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -276,7 +298,7 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: jobtest.DispatchInterval, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
+			Interval: jobtest.DispatchInterval, Deliverer: func(*database.DB) *webhooks.Deliverer { return newTestDeliverer(we, &now, rcv.server.Client()) },
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -308,7 +330,7 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
-		WebhookRetry:      compose.WebhookRetryConfig{Interval: 0, Deliverer: deliverer},
+		WebhookRetry:      compose.WebhookRetryConfig{Interval: 0, Deliverer: func(*database.DB) *webhooks.Deliverer { return deliverer }},
 	})
 	if err := runner.Enqueue(context.Background(),
 		compose.WebhookRetryWorkspaceArgs{Workspace: we.wsID}, nil); err != nil {

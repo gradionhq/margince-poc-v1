@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -41,7 +40,7 @@ const RedemptionWindow = redemptionTTL
 // transaction that actually mutates. Callers that can hold one transaction
 // should use RedeemAndApply instead and have no window at all.
 func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash string) (version int64, pinned bool, err error) {
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var rerr error
 		version, pinned, rerr = s.RedeemInTx(ctx, tx, id, tool, diffHash)
 		return rerr
@@ -53,7 +52,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash 
 // same transaction. Effects that can expose a half-applied state use this
 // path: a failed domain write leaves the approval unconsumed and retryable.
 func (s *Service) RedeemAndApply(ctx context.Context, id ids.ApprovalID, tool, diffHash string, apply func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, _, err := s.RedeemInTx(ctx, tx, id, tool, diffHash); err != nil {
 			return err
 		}

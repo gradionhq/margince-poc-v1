@@ -73,7 +73,7 @@ func (s followUpStager) StageFollowUp(ctx context.Context, dealID ids.UUID, summ
 // NewFollowUpReconciler assembles the nightly follow-up reconciler for
 // the worker process role.
 func NewFollowUpReconciler(pool *pgxpool.Pool, log *slog.Logger) *deals.FollowUpReconciler {
-	return deals.NewFollowUpReconciler(pool, followUpStager{svc: approvals.NewService(pool)}, log)
+	return deals.NewFollowUpReconciler(InstallationDB(pool), followUpStager{svc: approvals.NewService(InstallationDB(pool))}, log)
 }
 
 // followUpConfirmEffect executes an approved follow-up: redeem-then-

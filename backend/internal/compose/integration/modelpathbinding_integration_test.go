@@ -81,7 +81,7 @@ func TestNewModelPathSeedsBindingMarkerOnEmptyStore(t *testing.T) {
 		t.Fatalf("NewModelPath: %v", err)
 	}
 
-	store := search.NewStore(e.Pool)
+	store := search.NewStore(e.DB())
 	populated, status, _, err := store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
@@ -100,7 +100,7 @@ func TestNewModelPathSeedsBindingMarkerOnEmptyStore(t *testing.T) {
 
 func TestNewModelPathLogsLoudlyOnChangedBinding(t *testing.T) {
 	e := Setup(t)
-	store := search.NewStore(e.Pool)
+	store := search.NewStore(e.DB())
 	const priorIdentity = "fake/fake-embed-old@2048"
 	if err := store.SeedBinding(context.Background(), priorIdentity); err != nil {
 		t.Fatalf("seeding the prior binding: %v", err)
@@ -155,7 +155,7 @@ func TestNewModelPathUnboundEmbedLaneSkipsSeed(t *testing.T) {
 		t.Fatalf("NewModelPath must not fail on an unbound embed lane: %v", err)
 	}
 
-	store := search.NewStore(e.Pool)
+	store := search.NewStore(e.DB())
 	// The marker row must be genuinely ABSENT — assert the specific
 	// no-row error, so a schema/permission fault can't masquerade as
 	// "correctly skipped the seed".

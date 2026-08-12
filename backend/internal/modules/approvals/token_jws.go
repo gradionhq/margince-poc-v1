@@ -23,7 +23,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -60,7 +59,7 @@ func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.Approval
 		return "", errors.New("crmapprovals: minting outside workspace context")
 	}
 	var token string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		a, err := get(ctx, tx, approvalID)
 		if err != nil {
 			return err
@@ -116,7 +115,7 @@ func (s *Service) VerifyApprovalToken(ctx context.Context, token string) (Approv
 	}
 
 	var publicKey []byte
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT public_key FROM workspace_signing_key WHERE kid = $1 AND retired_at IS NULL`,
 			header.Kid).Scan(&publicKey)

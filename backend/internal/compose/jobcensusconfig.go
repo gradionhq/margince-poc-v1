@@ -24,6 +24,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -82,7 +83,7 @@ func censusJobConfig() JobRunnerConfig {
 		VoiceBrain:        seam,
 		Embedder:          seam,
 		AgentScheduler:    AgentSchedulerConfig{Interval: censusInterval, Service: &RunnerService{}},
-		WebhookRetry:      WebhookRetryConfig{Interval: censusInterval, Deliverer: &webhooks.Deliverer{}},
+		WebhookRetry:      WebhookRetryConfig{Interval: censusInterval, Deliverer: func(*database.DB) *webhooks.Deliverer { return &webhooks.Deliverer{} }},
 		PrivacyRetention:  PrivacyRetentionConfig{Interval: censusInterval},
 		CloseDateInterval: censusInterval,
 		ReconcileInterval: censusInterval,

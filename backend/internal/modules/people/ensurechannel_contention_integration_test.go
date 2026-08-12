@@ -112,7 +112,7 @@ func TestTwoConcurrentFirstChannelMessagesConvergeOnOnePerson(t *testing.T) {
 // long as the holder lives, and a call that never takes it never waits at all.
 // The bound is a failure guard, not a race — the holding transaction stays open
 // across the whole call below.
-func lockWaitBoundedStore(t *testing.T) *Store {
+func lockWaitBoundedStore(t *testing.T, ws ids.UUID) *Store {
 	t.Helper()
 	cfg, err := pgxpool.ParseConfig(os.Getenv("MARGINCE_TEST_APP_DSN"))
 	if err != nil {
@@ -128,7 +128,7 @@ func lockWaitBoundedStore(t *testing.T) *Store {
 		t.Fatalf("opening the lock-bounded pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	return NewStore(pool)
+	return NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 }
 
 // An Art. 17 erasure holds the subject's account lock from its purge until its
@@ -162,9 +162,9 @@ func TestEnsureRefusesToCreateARivalDuringErasure(t *testing.T) {
 	}
 
 	in := e.channelEnsureInput(ctx, t, ci, subjectName)
-	bounded := lockWaitBoundedStore(t)
+	bounded := lockWaitBoundedStore(t, e.ws)
 	var ensureErr error
-	if err := database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
 			{Provider: ci.Provider, ChannelUserID: ci.ChannelUserID},
 		}); err != nil {
@@ -261,7 +261,7 @@ func (e *dedupeEnv) handleUpdatedEventCount(ctx context.Context, t *testing.T, p
 // guess about timing.
 func (e *dedupeEnv) beginBlockingRefresh(ctx context.Context, t *testing.T, ci connector.ChannelIdentity) (pgx.Tx, int) {
 	t.Helper()
-	tx, err := e.store.pool.Begin(ctx)
+	tx, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the blocking transaction: %v", err)
 	}
@@ -647,7 +647,7 @@ func TestAFinishedRacerIsNotReportedAsAMissAtTheBudgetBoundary(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 
-	probe, err := e.store.pool.Begin(ctx)
+	probe, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the probe transaction: %v", err)
 	}

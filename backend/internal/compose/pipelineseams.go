@@ -31,7 +31,7 @@ import (
 // pipelineLister answers list_pipelines from the workspace's live pipeline
 // configuration.
 func pipelineLister(pool *pgxpool.Pool) agents.PipelineLister {
-	store := deals.NewStore(pool, DealsInstallation())
+	store := deals.NewStore(InstallationDB(pool), DealsInstallation())
 	return func(ctx context.Context) ([]agents.Pipeline, error) {
 		// Live only: this list is what a tool call picks a target stage
 		// from, and an archived pipeline is not one a deal may be moved to.

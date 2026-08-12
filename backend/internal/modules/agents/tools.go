@@ -91,9 +91,9 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 		OpenAPIOp: "search",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep every type this workspace serves, which is not always all of these"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
-			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
+			"cursor":{"type":"string","description":"Keyset cursor from the previous page, which a page reporting more always carries. A sweep of every type resumes by it too."}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[SearchRecordsResult](),
 	}
@@ -239,6 +239,61 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		return nil, err
 	}
 	return readBack(ctx, t.p, ref)
+}
+
+// RecordTypeOf lets the contract's per-record-type tier floor see which record
+// this call creates (tierfloor.go).
+func (createRecord) RecordTypeOf(args json.RawMessage) string { return recordTypeArg(args) }
+
+// ServesRecordType reports the record types this verb can actually create — the
+// contract's own create bodies, which is the same vocabulary the schema
+// advertises. The floor reads it so a type this verb cannot create is never
+// tightened into an approval that could only ever fail.
+func (createRecord) ServesRecordType(recordType string) bool {
+	_, served := createShapes[datasource.EntityType(recordType)]
+	return served
+}
+
+// StageInfo puts a create the contract tightened to confirm-first in the inbox
+// instead of dead-ending it (#982).
+//
+// WHAT IT STAGES IS A CREATE, and the shape says so: the record type with no id
+// and no version pin, because the record does not exist yet and there is no row
+// an approval could bind to. That is the shape the REST door stages for the same
+// operation, whose route carries no `{id}` — one operation, one staged shape,
+// whichever door the agent came through.
+//
+// The checks run HERE as well as in Handle, and that is the point: the approved
+// retry re-enters through Handle, so a rule enforced only there is one a human's
+// yes is spent discovering.
+//
+// The record type is checked FIRST and by this verb's own served set, not by
+// rejectUnknownFields — which answers nil for a type it does not know, on the
+// deliberate ground that naming the served vocabulary is the provider's refusal
+// to make. That is right for a call about to reach the provider and wrong for one
+// about to reach a human: `create_record{record_type:"custom_field"}` would
+// otherwise stage cleanly, because the surface does not enforce schema enums, and
+// the approved retry would then die at the provider with the approval spent.
+func (t createRecord) StageInfo(_ context.Context, in json.RawMessage) (StageInfo, error) {
+	var args struct {
+		RecordType string          `json:"record_type"`
+		Fields     json.RawMessage `json:"fields"`
+	}
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	if !t.ServesRecordType(args.RecordType) {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
+			"this verb does not create %q records, so no approval of it could ever be carried out",
+			args.RecordType)}
+	}
+	if err := rejectUnknownFields(createShapes, args.RecordType, args.Fields); err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: args.RecordType,
+		Summary:    describeGenericWrite("Create", args.RecordType, args.Fields),
+	}, nil
 }
 
 // --- log_activity (🟢 write) ---

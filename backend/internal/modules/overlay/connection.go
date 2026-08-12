@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -128,7 +127,8 @@ type ConnectInput struct {
 // imports THIS package, so the reverse import would cycle). It is plural
 // because "activity" is backed by all five engagement classes at once.
 type Service struct {
-	pool               *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db                 *database.DB
 	vault              keyvault.Vault
 	ms                 *MirrorStore
 	meter              *overlaybudget.Meter
@@ -150,8 +150,8 @@ type Service struct {
 
 // NewService constructs a Service over pool, vault (the credential
 // custodian), and ms (the mirror store teardown purges).
-func NewService(pool *pgxpool.Pool, vault keyvault.Vault, ms *MirrorStore) *Service {
-	return &Service{pool: pool, vault: vault, ms: ms, log: slog.Default()}
+func NewService(db *database.DB, vault keyvault.Vault, ms *MirrorStore) *Service {
+	return &Service{db: db, vault: vault, ms: ms, log: slog.Default()}
 }
 
 // WithModeFlipObserver wires the committed-mode-flip observer (the
@@ -390,7 +390,7 @@ func incumbentConnectedPayload(incumbent, region string, scopes []string, status
 // the audit action is "create" and before is nil.
 func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var id ids.UUID
 		var connectedAt time.Time
 		// NULLIF($5,'') stores a blank account id (the portal fetch failed or the
@@ -465,7 +465,7 @@ func (s *Service) Get(ctx context.Context) (Connection, error) {
 	}
 	var out Connection
 	var connectedAt time.Time
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT incumbent, region, status, connected_at, scopes
 			FROM incumbent_connection

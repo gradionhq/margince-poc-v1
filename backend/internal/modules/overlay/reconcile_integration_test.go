@@ -26,6 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // sweptRecords is a minimal in-memory Incumbent exercising ONLY Modified
@@ -155,7 +156,7 @@ func setSyncState(ctx context.Context, pool *pgxpool.Pool, objectClass, external
 // watermark advances to the swept record's ModifiedAt.
 func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const objectClass = "organization"
 	const externalID = "61655665850"
@@ -227,8 +228,8 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-conflict-fence-secret"})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -274,7 +275,7 @@ func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) 
 // row the sweep never actually changed.
 func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const objectClass = "organization"
 	const externalID = "61655665851"

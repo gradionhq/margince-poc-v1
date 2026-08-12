@@ -152,12 +152,12 @@ afterEach(() => {
 const SETTLE_MS = 10_000;
 
 // The budget for a test that drives `renderReview`, and it must cover EVERY
-// waiter in there: three run in sequence, each bounded by SETTLE_MS. A test whose
+// waiter in there: four run in sequence, each bounded by SETTLE_MS. A test whose
 // own limit is smaller than the sum lets vitest fire while a waiter still has
 // budget, and what surfaces then is an opaque timeout rather than the assertion
 // the test was written to make. Vitest's per-test default is 5s, which is less
 // than one of these waiters alone.
-const TEST_MS = SETTLE_MS * 3;
+const TEST_MS = SETTLE_MS * 4;
 
 // The fixture's two selectable changes — the `new` and `machine_change` rows.
 // The human_conflict row is decided by radio and the unchanged row offers
@@ -176,6 +176,17 @@ async function renderReview() {
   const refresh = await screen.findByRole(
     "button",
     { name: "Refresh from website" },
+    { timeout: SETTLE_MS },
+  );
+  // The same wait `clickRefresh` below makes, and for the same reason: the
+  // button appears as soon as the profile lands, while the website the start
+  // sends comes from the form state seeded beside it. Clicking on the button's
+  // arrival alone races that seeding.
+  await waitFor(
+    () =>
+      expect(
+        screen.getByLabelText<HTMLInputElement>("Public company website").value,
+      ).toBe(COMPANY.website),
     { timeout: SETTLE_MS },
   );
   fireEvent.click(refresh);

@@ -56,14 +56,14 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// this registry, so a registry built without one would refuse REST calls on
 	// a counter it then never paid — the exact half-a-control this change exists
 	// to remove.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
+	registry := registryWithGate(InstallationDB(pool), gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
 		companyEnricher{}, srv.retrievalEmbedder, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
 	// human read shadows (overlayread.go) ride this same instance.
 	provider := srv.sorDispatch
-	staging := approvalsAdapter{svc: approvals.NewService(pool)}
+	staging := approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}
 	// Wrap order: the generated router applies the slice left-to-right
 	// around the handler, so the LAST entry is outermost — idempotency
 	// must sit outside the agent gate so a staged-approval refusal is

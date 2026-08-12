@@ -6,7 +6,8 @@ package storekit
 // Binding a caller's `name=value` filters onto a store's list input.
 //
 // A record list is narrowed by a handful of typed fields, and every store
-// spells the same three operand kinds — an id, a closed word, a flag. Spelling
+// spells the same four operand kinds — an id, a closed word, a flag, a whole
+// number. Spelling
 // the binding once here is what keeps the two halves of a filter inseparable:
 // the NAME a surface may advertise and the FIELD that name narrows come out of
 // one declaration, so a filter cannot be published by one half and dropped by
@@ -22,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -108,6 +110,30 @@ func FilterFlag[I any](set func(*I, *bool)) FilterBinding[I] {
 		}
 		flag := value == jsonTrue
 		set(in, &flag)
+		return nil
+	}
+}
+
+// FilterNumber binds a whole-number operand — a threshold like a score floor,
+// not a count of rows, which is what limit is for.
+//
+// The value must be spelled the way JSON spells an integer, and the round trip
+// is what enforces it: `strconv.Atoi` also takes `+5` and `007`, which would
+// make this accept a vocabulary the surface publishes nothing about. That is
+// the same rule FilterFlag applies for the same reason — a caller who found
+// that `007` works has learned something no schema told them.
+//
+// The MAGNITUDE is not validated here, exactly as FilterWord does not validate
+// a word: a threshold outside the range a store's rows can reach selects
+// nothing, which is the honest answer to a filter nothing matches, and the
+// surface that published the bound is the one that refuses a value outside it.
+func FilterNumber[I any](set func(*I, *int)) FilterBinding[I] {
+	return func(in *I, value string) error {
+		n, err := strconv.Atoi(value)
+		if err != nil || strconv.Itoa(n) != value {
+			return operandShape("a whole number, spelled as JSON spells one")
+		}
+		set(in, &n)
 		return nil
 	}
 }

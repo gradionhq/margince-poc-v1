@@ -49,9 +49,9 @@ func newRefetchFixture(t *testing.T) refetchFixture {
 	t.Helper()
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -119,7 +119,7 @@ func seededPortal() *fake.Adapter {
 // report a failure River would retry.
 func TestOverlayRefetchWorkerStopsCleanlyWhenTheWorkspaceDisconnected(t *testing.T) {
 	f := newRefetchFixture(t)
-	if err := overlay.NewService(f.e.Pool, f.vault, f.ms).
+	if err := overlay.NewService(f.e.DB(), f.vault, f.ms).
 		Disconnect(overlayAdminCtx(f.e.WS, f.e.Rep1)); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}

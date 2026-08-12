@@ -23,7 +23,7 @@ import (
 func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 

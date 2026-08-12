@@ -14,8 +14,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // revalidateEmailMapping re-verifies every email-sourced mirror_user_map
@@ -134,7 +132,7 @@ func (s *MirrorStore) RevalidateEmailMappings(ctx context.Context, emails OwnerE
 // bounded population RevalidateEmailMappings re-checks each pass.
 func (s *MirrorStore) listEmailSourcedOwners(ctx context.Context) ([]string, error) {
 	var owners []string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, distinctEmailSourcedOwnersSQL)
 		if err != nil {
 			return fmt.Errorf("overlay: listing email-sourced owners to revalidate: %w", err)
@@ -157,7 +155,7 @@ func (s *MirrorStore) listEmailSourcedOwners(ctx context.Context) ([]string, err
 // fenced visibility mutator takes) then revalidateEmailMapping's own
 // delete-if-stale-then-recompute.
 func (s *MirrorStore) revalidateOneOwner(ctx context.Context, emails OwnerEmailResolver, owner string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}

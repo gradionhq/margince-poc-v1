@@ -61,7 +61,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.DB())
 	ctx := e.AsFullUser()
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	activityStore := activities.NewStore(e.Pool)
 
 	// A working lead: decision-maker title (+15) from a high-intent source

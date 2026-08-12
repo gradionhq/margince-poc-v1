@@ -196,7 +196,7 @@ func connectOverlayToTheFakeIncumbent(t *testing.T, e *apptest.AppEnv) (adminID,
 // admin's, the actor every mirror-backed read below runs as.
 func backfillOneMirroredContact(t *testing.T, pool *pgxpool.Pool, wsID, adminID ids.UUID) context.Context {
 	t.Helper()
-	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID)), stubOwnerEmails{})
 	adminCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -24,19 +23,29 @@ import (
 // happen inside the tools it calls, which carry the full audit+outbox
 // write shape already.
 type Store struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db  *database.DB
+	now func() time.Time
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, now: time.Now}
+// ForWorkspace is this store re-bound to one tenant of the fleet fan-out. The
+// scheduler is one long-lived service ticking every workspace in turn, and the
+// workspace a row lands in is the handle's, not the ctx's.
+func (s *Store) ForWorkspace(ws ids.WorkspaceID) *Store {
+	return &Store{db: s.db.ForWorkspace(ws), now: s.now}
+}
+
+// NewStore opens the runner's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db, now: time.Now}
 }
 
 // StartRun records a run for one trigger occurrence. created=false
 // means this occurrence already ran (or is running) — the §6
 // idempotency rule; the caller must not start a second loop.
 func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string, passportID ids.PassportID) (runID ids.UUID, created bool, err error) {
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO agent_run (workspace_id, agent_spec, goal, trigger_ref, passport_id)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
@@ -85,7 +94,7 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 	if status == "" {
 		return fmt.Errorf("runner: unknown outcome %q", res.Outcome)
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_run SET
 			  status = $2,
@@ -114,7 +123,7 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 // MarkFailed closes a run that crashed outside the loop's own degrade
 // path (e.g. the brain adapter failed to construct).
 func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE agent_run SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			WHERE id = $1`, runID, reason)
@@ -150,7 +159,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason s
 		return nil, fmt.Errorf("runner: stuck-run grace must be at least a microsecond, got %s", grace)
 	}
 	var swept []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			UPDATE agent_run
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
@@ -205,7 +214,7 @@ func (s *Store) ClaimSuspendedByApproval(ctx context.Context, approvalID ids.App
 	var run SuspendedRun
 	var pendingJSON []byte
 	found := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			UPDATE agent_run SET status = 'running', updated_at = now()
 			WHERE approval_id = $1 AND status = 'awaiting_approval'
@@ -236,7 +245,7 @@ type QueuedJob struct {
 
 // EnqueueJob seeds one trigger occurrence; re-seeding is a no-op.
 func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, passportID *ids.PassportID, dueAt time.Time) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO runner_job (workspace_id, agent_spec, trigger_ref, passport_id, due_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
@@ -254,7 +263,7 @@ func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, pas
 // double-claiming without serializing on each other.
 func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]QueuedJob, error) {
 	var jobs []QueuedJob
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			UPDATE runner_job SET status = 'running', attempts = attempts + 1
 			WHERE id IN (
@@ -290,7 +299,7 @@ func (s *Store) FinishJob(ctx context.Context, jobID ids.UUID, runID *ids.UUID, 
 	if failReason != "" {
 		status = "failed"
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE runner_job SET status = $2, last_error = NULLIF($3, ''), agent_run_id = $4
 			WHERE id = $1`, jobID, status, failReason, runID)

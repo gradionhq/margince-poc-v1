@@ -29,7 +29,7 @@ import (
 // own user id and requires deal-read, so no scoping is added or re-decided
 // here.
 func briefReader(pool *pgxpool.Pool) agents.BriefReader {
-	engine := briefs.NewBriefEngine(pool, people.NewStore(pool))
+	engine := briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))
 	return func(ctx context.Context) (agents.ReadBriefResult, error) {
 		// The instant is the read's own, exactly as the HTTP handler passes it:
 		// LatestRun resolves snoozes against it, so a run read now is what the

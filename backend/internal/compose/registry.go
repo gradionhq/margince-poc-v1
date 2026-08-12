@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,7 +34,17 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{}, nil)
+	return NewRegistryFor(InstallationDB(pool), send)
+}
+
+// NewRegistryFor is NewRegistry over a handle whose workspace is already
+// decided. A server resolves the installation's singleton, which is what
+// NewRegistry does for it; a harness that seeds a second workspace on purpose
+// has no singleton to resolve and names the one it means instead. Same wiring,
+// same gate — only where the tenant comes from differs (ADR-0091 §9 step 3).
+func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
+	pool := db.Pool()
+	return registryWithGate(db, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{}, nil)
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -41,14 +52,14 @@ func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
+		return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
 }
 
 // registryWithGate composes the tool surface. The quota charger arrives as
@@ -65,7 +76,7 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 // model path has none, and the offline fake binds no embeddings model — and
 // every path that can lose the vector lane says so on the wire rather than
 // serving a lexically-ranked page under a semantic label.
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, opts ...agents.RegistryOption) *agents.Registry {
+func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -80,8 +91,9 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// metered force-fresh path lands for a tool, this becomes a Redis-backed
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
-	native := NewProvider(pool)
-	provider := NewDispatcher(native, NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
+	pool := db.Pool()
+	native := NewProviderFor(db)
+	provider := NewDispatcher(native, NewOverlayProviderFor(db, failClosedOverlayMeter(), resolveIncumbent), pool)
 	// Retry safety, wired for EVERY role that composes this surface rather than
 	// arriving as the API server's option the way the read charger does. The
 	// difference is who the promise is made to: the read bound governs agent
@@ -93,8 +105,14 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// The replay reader is the composite provider this registry is already
 	// composed over, so a recorded result's records are re-checked through the
 	// same door — mirror included — that a live read of them would take.
-	opts = append(opts, agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
+	// The contract's per-record-type tier floor, on EVERY role that composes this
+	// surface. A verb's own tier cannot express "confirm-first for a project and
+	// auto-execute for a person", so without this the tool door admits at a tier
+	// the contract tightened and the REST door refuses (#982) — one credential,
+	// two answers, which is what ADR-0055 exists to prevent.
+	opts = append(opts, withContractTierFloor(),
+		agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
@@ -152,7 +170,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 		mode: sorMode,
 		inner: riskAwareRetriever{
 			pool:  pool,
-			inner: search.NewRetriever(search.NewStore(pool), embedder),
+			inner: search.NewRetriever(search.NewStore(InstallationDB(pool)), embedder),
 		},
 	}
 	agents.RegisterIntentTools(registry, retriever)

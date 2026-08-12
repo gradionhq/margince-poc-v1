@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -84,7 +83,7 @@ func sweepBackoffDelay(consecutiveFailures int) time.Duration {
 // sweep is due immediately and the failure ladder is cleared. One clean
 // sweep heals a backed-off connection.
 func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}
@@ -109,7 +108,7 @@ func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) err
 // only the worker role holds. Clearing the ladder is deliberate — an operator
 // asking for a sweep is overriding the backoff the last failure imposed.
 func (s *MirrorStore) RequestSweep(ctx context.Context) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}
@@ -134,7 +133,7 @@ func (s *MirrorStore) RequestSweep(ctx context.Context) error {
 // detail is logged to system_log; the sidecar row carries only the class.
 func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error, now time.Time) error {
 	class := classifySweepError(sweepErr)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}

@@ -65,7 +65,7 @@ func setupDedupe(t *testing.T) *dedupeEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(pool)
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
 	return e
 }
 

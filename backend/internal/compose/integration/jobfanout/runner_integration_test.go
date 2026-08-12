@@ -131,7 +131,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 		pool:   pool,
 		svc: compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, nil, logger, nil,
 			compose.SendPath{}, compose.WithSpecResolver(stagingSpec)),
-		store:      runner.NewStore(pool),
+		store:      runner.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID))),
 		brain:      brain,
 		wsID:       wsID,
 		wsCtx:      principal.WithWorkspaceID(context.Background(), wsID),

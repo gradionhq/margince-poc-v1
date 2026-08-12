@@ -52,7 +52,7 @@ func everyGrantAllScope(objects ...string) principal.Permissions {
 // instead of waiting for the list to be extended.
 func TestNoStagedApprovalIsDecidableAgainstATargetThatIsNotThere(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	classified := approvals.ClassifiedTargetTypes()
 	if len(classified) == 0 {
@@ -105,7 +105,7 @@ func TestNoStagedApprovalIsDecidableAgainstATargetThatIsNotThere(t *testing.T) {
 // workflow.
 func TestAStagedApprovalStopsBeingDecidableOnceItsTargetIsArchived(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	pipeline, open, _ := DealFixture(t, e)
 
 	deal := e.SeedDeal(t, "Renewal", pipeline, open, &e.Rep1)

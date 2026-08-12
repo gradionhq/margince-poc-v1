@@ -3575,8 +3575,6 @@ export const en = {
   "settings.companyViewSource": "View source",
   "settings.companySave": "Save company context",
   "settings.companySaved": "Saved",
-  "settings.companyRefreshUnavailable":
-    "This website refresh is no longer available.",
   "settings.companyRefreshUnreadable":
     "We lost track of this website read. Start the refresh again.",
   "settings.companyRefreshStale":

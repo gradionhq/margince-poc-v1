@@ -24,7 +24,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -85,7 +84,7 @@ func (s *Service) DecideBundle(ctx context.Context, bundleID ids.UUID, approve b
 	}
 	p, _ := principal.Actor(ctx)
 	var members []BundleMember
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		members, err = s.decideBundleInTx(ctx, tx, p, bundleID, approve, reason)
 		return err

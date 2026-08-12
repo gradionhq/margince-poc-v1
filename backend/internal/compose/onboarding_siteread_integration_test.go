@@ -114,7 +114,7 @@ func TestOnboardingSiteReadTransportStartsPollsAndConfirmsTheDraft(t *testing.T)
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 	inserter := &fakeInserter{}
 	engine := newDeepReadTestEngine(e, inserter)
-	engine.approvals = approvals.NewService(e.Pool)
+	engine.approvals = approvals.NewService(e.DB())
 
 	start := onboardingPOST(human, t, "/v1/company/site-reads",
 		crmcontracts.StartCompanySiteReadRequest{Url: "  " + seedURL + "  "})
@@ -309,7 +309,7 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 		t.Fatal("the operational onboarding draft wrote company domain truth before confirmation")
 	}
 
-	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.DB())}
 	offer, editedICP, website := "Employee onboarding software", "B2B RevOps teams with 50–500 employees", seedURL
 	company, _, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
@@ -377,7 +377,7 @@ func TestCorrectingAFactAtColdStartStoresItAsTheHumansOwnAssertion(t *testing.T)
 	e := integration.Setup(t)
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 	ready := onboardingDraft(t, e)
-	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.DB())}
 
 	accepted, wrong := ready.Facts[0], ready.Facts[1]
 	corrected := "ClickHouse — data platform"
@@ -445,7 +445,7 @@ func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t
 		t.Fatalf("seed human company: %v", err)
 	}
 	ready := onboardingDraft(t, e)
-	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.DB())}
 
 	_, comparisons, err := e.People.GetCompanySiteRead(human, ready.ID)
 	if err != nil {
@@ -619,7 +619,7 @@ func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.DB())}
 	website := seedURL
 	company, _, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,

@@ -46,7 +46,7 @@ func tagPerms(g principal.ObjectGrant) principal.Permissions {
 
 func TestAStagedTagArchiveNeedsTagReadAndNotOnlyTagDelete(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	tags := collections.NewStore(e.DB())
 
 	author := e.As(e.Rep1, []ids.UUID{e.Team1},

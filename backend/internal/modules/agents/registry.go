@@ -63,6 +63,9 @@ type Registry struct {
 	// granting human's authority live per call. A nil gate fails closed
 	// for agent principals (Gate.Admit owns that rule).
 	gate *auth.Gate
+	// tierFloor carries the contract's per-record-type tier declarations, which
+	// a verb's own tier cannot express (tierfloor.go, #982).
+	tierFloor TierFloor
 	// quota is the MCP-SESS-* meter this surface CHARGES. The gate holds the
 	// same meter and does the refusing; the split is deliberate — a bound is
 	// enforced where admission is decided and paid where records and effects
@@ -141,6 +144,11 @@ func (r *Registry) InvokeServing(ctx context.Context, name string, in json.RawMe
 		return nil, 0, err
 	}
 	args := res.Args
+
+	// The contract may tighten this verb's tier for the record type this call
+	// names, and only the call can say which type that is (tierfloor.go).
+	// Applied before Admit, because the tier is what Admit decides on.
+	spec = r.tightened(t, spec, args)
 
 	admitted, err := r.gate.Admit(ctx, spec, r.tierResolverFor(ctx, t, name, args))
 	// Static-tier tools, whose resolver Admit never runs. After authority and
@@ -341,6 +349,51 @@ func (r *Registry) stageRefusedCall(ctx context.Context, t mcp.Tool, tool string
 		return err
 	}
 	return &workflow.StagedApprovalError{ApprovalID: id}
+}
+
+// Stageable reports whether a refused 🟡 call on this verb has somewhere to
+// land. Exported for the composition root's gate: a tier the contract tightens
+// onto a verb that cannot stage turns an approval question into a dead end, so
+// the gate has to be able to ask this rather than assume it.
+func (r *Registry) Stageable(name string) bool {
+	r.mu.RLock()
+	t, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	_, stageable := t.(stageableTool)
+	return stageable
+}
+
+// NamesRecordType reports whether this verb can say which record type a given
+// call acts on, which is the only way the contract's per-record-type floor is
+// ever consulted for it (tierfloor.go). Exported for the same gate as Stageable:
+// a floor declared for a verb that cannot answer binds nothing, and reads green.
+func (r *Registry) NamesRecordType(name string) bool {
+	r.mu.RLock()
+	t, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	_, typed := t.(recordTypedTool)
+	return typed
+}
+
+// Performs reports whether this verb can carry out its effect for this record
+// type. The composition root derives the tier floor from it: tightening a pair
+// the verb cannot serve would turn an instant refusal into an approval a human
+// spends on a call that dies at the provider.
+func (r *Registry) Performs(name, recordType string) bool {
+	r.mu.RLock()
+	t, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	typed, isTyped := t.(recordTypedTool)
+	return isTyped && typed.ServesRecordType(recordType)
 }
 
 // Spec returns the registered spec for name — the REST admission path

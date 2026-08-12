@@ -65,8 +65,8 @@ func (l *countingLane) Complete(context.Context, model.Request) (model.Response,
 }
 
 func briefService(e *Env, lane orgbrief.Completer, routingVersion string) *orgbrief.Service {
-	store := people.NewStore(e.Pool)
-	view := org360.NewService(e.Pool, store, approvals.NewService(e.Pool),
+	store := people.NewStore(e.DB())
+	view := org360.NewService(e.Pool, store, approvals.NewService(e.DB()),
 		func() time.Time { return briefClock })
 	// The same store serves both halves of the brief: the 360 for how the
 	// account stands with us, its profile fields for what the company is.

@@ -22,7 +22,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -64,7 +63,7 @@ type ResolveDomainTriageResult struct {
 // converges rather than duplicating.
 func (s *Store) ResolveDomainTriage(ctx context.Context, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
 	var res ResolveDomainTriageResult
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		res, err = s.resolveDomainTriageTx(ctx, tx, in)
 		return err
@@ -86,7 +85,7 @@ func (s *Store) ResolveDomainTriage(ctx context.Context, in ResolveDomainTriageI
 // site is down must not lose its record over an outage.
 func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
 	var res ResolveDomainTriageResult
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		persons, err := PersonsOnDomain(ctx, tx, in.Domain)
 		if err != nil {
 			return err

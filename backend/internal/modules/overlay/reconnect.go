@@ -23,7 +23,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -43,7 +42,7 @@ import (
 func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
 	var supersededRef string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var id ids.UUID
 		var previousIncumbent, previousRegion string
 		// The pre-read is FOR UPDATE so a concurrent reconnect serializes behind
@@ -125,7 +124,7 @@ func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
 // Disconnect leaves so a stray in-flight sweep cannot resurrect a purged row —
 // is what a reconnect revives.
 func (s *Service) existingConnectionStatus(ctx context.Context) (status string, found bool, err error) {
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		scanErr := tx.QueryRow(ctx, `
 			SELECT status FROM incumbent_connection
 			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).Scan(&status)

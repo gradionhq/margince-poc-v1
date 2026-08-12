@@ -19,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -210,7 +209,7 @@ func (e *QueryExecutor) answerRows(ctx context.Context, plan ValidatedPlan, bind
 		return nil, err
 	}
 	var rows []QueryRow
-	err = database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	err = e.store.db.Tx(ctx, func(tx pgx.Tx) error {
 		queried, err := tx.Query(ctx, sql, compiler.args...)
 		if err != nil {
 			return fmt.Errorf("search: running the query plan: %w", err)

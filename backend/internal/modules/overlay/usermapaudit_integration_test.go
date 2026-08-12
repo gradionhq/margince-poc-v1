@@ -50,7 +50,7 @@ func countAutoMapBlockAudits(ctx context.Context, t *testing.T, pool *pgxpool.Po
 // has no answer at all once a disconnect purges the block's own blocked_by.
 func TestBlockingAnAlreadyUnmappedUserIsAudited(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -72,7 +72,7 @@ func TestBlockingAnAlreadyUnmappedUserIsAudited(t *testing.T) {
 // would record a decision the admin took once as one they took twice.
 func TestRepeatingTheBlockWritesNoSecondAudit(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -92,7 +92,7 @@ func TestRepeatingTheBlockWritesNoSecondAudit(t *testing.T) {
 // never be mapped again.
 func TestUnmappingAMappedUserAuditsBothTheRemovalAndTheBlock(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -113,7 +113,7 @@ func TestUnmappingAMappedUserAuditsBothTheRemovalAndTheBlock(t *testing.T) {
 
 func TestFirstMappingWritesACreateAudit(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -130,7 +130,7 @@ func TestFirstMappingWritesACreateAudit(t *testing.T) {
 // readable evidence.
 func TestIdempotentReseedWritesNoAudit(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -152,7 +152,7 @@ func TestIdempotentReseedWritesNoAudit(t *testing.T) {
 // change predicate that compares only the owner id would silently miss it.
 func TestMatchSourceFlipAloneWritesAnUpdateAudit(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -173,7 +173,7 @@ func TestMatchSourceFlipAloneWritesAnUpdateAudit(t *testing.T) {
 func TestRevalidationRevokeIsAudited(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	emails := stubOwnerEmails{"owner-1": "rep@acme.test"}
-	store := NewMirrorStore(pool, emails)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), emails)
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -197,7 +197,7 @@ func TestRevalidationRevokeIsAudited(t *testing.T) {
 // That revoke is audited for the same reason.
 func TestAmbiguityRevokeIsAudited(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 

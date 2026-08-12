@@ -365,13 +365,12 @@ function ShareScreenBody({
     setReason("");
   }
 
+  // The picked subject arrives as the mutation's variable, not through this
+  // closure: react-query re-arms a mutation's options in a passive effect, so a
+  // submit landing between the commit that enables the button and that effect
+  // runs the previous render's function — where nothing had been picked yet.
   const grant = useMutation({
-    mutationFn: async () => {
-      if (!subject) {
-        // The submit button is disabled until a subject is picked — this
-        // guard only protects a stale closure, never a real path.
-        throw new Error("no subject selected");
-      }
+    mutationFn: async (subject: RosterSubject) => {
       const body: CreateRecordGrantRequest = {
         record_type: recordType,
         record_id: recordId,
@@ -568,7 +567,7 @@ function ShareScreenBody({
           <Button
             variant="primary"
             disabled={!subject || grant.isPending}
-            onClick={() => grant.mutate()}
+            onClick={() => subject && grant.mutate(subject)}
             data-testid="share-grant-submit"
           >
             {t("share.grant")}

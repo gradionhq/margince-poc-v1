@@ -3586,8 +3586,6 @@ export const de = {
   "settings.companyViewSource": "Quelle ansehen",
   "settings.companySave": "Firmenkontext speichern",
   "settings.companySaved": "Gespeichert",
-  "settings.companyRefreshUnavailable":
-    "Diese Website-Aktualisierung ist nicht mehr verfügbar.",
   "settings.companyRefreshUnreadable":
     "Wir haben den Stand dieses Website-Lesevorgangs verloren. Starte die Aktualisierung erneut.",
   "settings.companyRefreshStale":

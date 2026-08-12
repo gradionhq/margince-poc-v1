@@ -87,7 +87,7 @@ func TestTheConsumerFoldsAnActivityEventAndIgnoresWhatIsNotItsBusiness(t *testin
 	person := seedGraphPerson(t, e, "Consumed Contact")
 	activityID := seedExchange(t, e, person)
 
-	gen := search.NewGraphEdgeGen(search.NewStore(e.Pool))
+	gen := search.NewGraphEdgeGen(search.NewStore(e.DB()))
 	ctx := context.Background()
 
 	// An event for an entity this projection does not care about must answer
@@ -125,7 +125,7 @@ func TestRetentionAppliedReachesTheConsumer(t *testing.T) {
 	person := seedGraphPerson(t, e, "Retained Contact")
 	activityID := seedExchange(t, e, person)
 
-	gen := search.NewGraphEdgeGen(search.NewStore(e.Pool))
+	gen := search.NewGraphEdgeGen(search.NewStore(e.DB()))
 	ctx := context.Background()
 	if err := gen.HandleEvent(ctx, envelopeFor(e.WS, "activity.captured", "activity", activityID)); err != nil {
 		t.Fatalf("folding: %v", err)

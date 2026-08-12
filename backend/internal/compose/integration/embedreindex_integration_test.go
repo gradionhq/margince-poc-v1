@@ -142,7 +142,7 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *apptest.AppEnv {
 	e.Slug = "embed-reindex-e2e" // slugify("Embed Reindex E2E")
 
 	identity, _ := router.EmbedIdentity()
-	if err := search.NewStore(e.Pool).SeedBinding(ctx, identity); err != nil {
+	if err := search.NewStore(e.DB()).SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	return e

@@ -26,7 +26,7 @@ import (
 
 // entityResolver adapts the people store's batch resolve to the tool seam.
 func entityResolver(pool *pgxpool.Pool) agents.EntityResolver {
-	store := people.NewStore(pool)
+	store := people.NewStore(InstallationDB(pool))
 	return func(ctx context.Context, in []agents.ResolveCandidate) ([]agents.ResolveOutcome, error) {
 		candidates := make([]people.ResolveCandidate, 0, len(in))
 		for _, c := range in {

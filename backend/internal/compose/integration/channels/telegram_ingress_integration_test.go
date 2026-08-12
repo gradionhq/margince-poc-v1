@@ -172,7 +172,7 @@ func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPerson
 	reader := c.strangerRepCtx(t, map[string]principal.ObjectGrant{
 		"person": {Read: true}, "activity": {Read: true},
 	})
-	store := people.NewStore(c.Pool)
+	store := people.NewStore(c.DB())
 
 	shared, err := ids.ParseAs[ids.PersonKind](personID)
 	if err != nil {

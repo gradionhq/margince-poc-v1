@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -32,7 +31,7 @@ func (s *MirrorStore) FlipCounts(ctx context.Context) (map[string]int, error) {
 		return nil, err
 	}
 	counts := map[string]int{}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT object_class, count(*) FROM overlay_mirror GROUP BY object_class`)
 		if err != nil {
 			return fmt.Errorf("overlay: counting the mirror estate for the flip: %w", err)
@@ -62,7 +61,7 @@ func (s *MirrorStore) FlipRows(ctx context.Context, objectClass string, offset, 
 		return nil, err
 	}
 	var out []Row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT object_class, external_id, fields, updated_at_baseline,
 			       coalesce(owner_external_id, ''), sync_state, last_synced_at
@@ -97,7 +96,7 @@ func (s *MirrorStore) FlipAssociations(ctx context.Context) ([]Assoc, error) {
 		return nil, err
 	}
 	var out []Assoc
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT from_type, from_id, to_type, to_id, type_id, category, coalesce(label, ''), direction
 			FROM overlay_association
@@ -135,7 +134,7 @@ func (s *MirrorStore) ResolveMirrorOwner(ctx context.Context, incumbentUserID st
 	}
 	var id ids.UUID
 	found := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
 			`SELECT app_user_id FROM mirror_user_map WHERE incumbent_user_id = $1`, incumbentUserID,
 		).Scan(&id)

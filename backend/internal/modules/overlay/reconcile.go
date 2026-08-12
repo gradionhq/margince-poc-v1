@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -294,7 +293,7 @@ func emitMirrorConflict(ctx context.Context, ms *MirrorStore, rec Record, prior 
 		"prior_updated_at":     prior.UpdatedAtBaseline,
 		"incumbent_updated_at": rec.ModifiedAt,
 	}
-	err = database.WithWorkspaceTx(ctx, ms.pool, func(tx pgx.Tx) error {
+	err = ms.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Fenced the same way every other sweep write is: a disconnect (or
 		// disconnect+reconnect) landing between reconcileOne's ingest commit
 		// and this call must not let a stray system_log/event_outbox row

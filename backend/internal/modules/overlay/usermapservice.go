@@ -238,7 +238,7 @@ func (s *Service) ownerDirectory(ctx context.Context, incumbent string) (OwnerDi
 	if s.incumbent == nil || s.vault == nil {
 		return OwnerDirectory{}, fmt.Errorf("overlay: no incumbent adapter is wired for this role; the %s owners directory cannot be read", incumbent)
 	}
-	conn, err := ActiveConnection(ctx, s.pool)
+	conn, err := ActiveConnection(ctx, s.db.Pool())
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			// The mode gate passed and the connection is already gone: a

@@ -31,7 +31,7 @@ func TestSearchFoldsAccentsAndStemsByLanguage(t *testing.T) {
 	}
 
 	// Accent folding: the unaccented spelling must find the umlaut row.
-	searchStore := search.NewStore(e.Pool)
+	searchStore := search.NewStore(e.DB())
 	page, err := searchStore.Search(admin, search.Input{Query: "Muller", Types: []string{"person"}})
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -85,7 +85,7 @@ func TestSearchFoldsApostrophesInNames(t *testing.T) {
 
 	// Global search: the collapsed spelling, the apostrophe spelling,
 	// and the bare surname must all find the row.
-	searchStore := search.NewStore(e.Pool)
+	searchStore := search.NewStore(e.DB())
 	for _, q := range []string{"oreilly", "o'reilly", "o’reilly", "reilly"} {
 		page, err := searchStore.Search(admin, search.Input{Query: q, Types: []string{"person"}})
 		if err != nil {

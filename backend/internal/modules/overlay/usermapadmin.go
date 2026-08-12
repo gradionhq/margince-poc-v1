@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -175,7 +174,7 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 	}
 
 	var entries []UserMapEntry
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, listUserMapSQL, incumbent, afterID, limit)
 		if err != nil {
 			return fmt.Errorf("overlay: listing the user map for %s: %w", incumbent, err)
@@ -263,7 +262,7 @@ func automapTargetIsGrantable(ctx context.Context, tx pgx.Tx, appUser ids.UserID
 // in the SAME transaction as the write (upsertUserMapTx), so the seat cannot
 // change state between the decision and the row it authorizes.
 func (s *MirrorStore) SetManualUserMap(ctx context.Context, appUser ids.UserID, incumbent, incumbentUserID string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		grantable, err := resolveUserMapTarget(ctx, tx, appUser)
 		if err != nil {
 			return err
@@ -300,7 +299,7 @@ func (s *MirrorStore) BlockAutoMap(ctx context.Context, appUser ids.UserID, incu
 	if !ok {
 		return errors.New("overlay: no principal bound to context")
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Fence before the visibility lock — the order every other visibility
 		// mutator takes (UpsertUserMap, ingestTx, RecomputeForOwner), so no two
 		// fenced writers can deadlock by acquiring the two in opposite orders

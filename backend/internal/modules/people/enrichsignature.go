@@ -19,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -56,7 +55,7 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 		return res, nil
 	}
 	sourceRef := "activity:" + sourceActivity.String()
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var appliedFields []string
 		for _, f := range fields {
 			applied, err := s.applySignatureField(ctx, tx, personID, sourceRef, f)
@@ -179,7 +178,7 @@ func revokeSignatureEvidence(ctx context.Context, tx pgx.Tx, personID ids.Person
 // repeated read whose evidence rows are all first-verdict-wins inserts, so the
 // repeat changes nothing.
 func (s *Store) MarkSignatureRead(ctx context.Context, personID ids.PersonID, activityID ids.UUID) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// occurred_at is read from the activity rather than taken from the
 		// caller: the watermark and the candidate query must compare the same
 		// number, and only one of them can be the row itself.
@@ -240,7 +239,7 @@ type SignatureCandidate struct {
 // archived, and the query would then pay to re-read an OLDER signature.
 func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]SignatureCandidate, error) {
 	var out []SignatureCandidate
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT p.id, p.full_name, coalesce(pe.email, ''), a.id, coalesce(a.body, '')
 			FROM person p

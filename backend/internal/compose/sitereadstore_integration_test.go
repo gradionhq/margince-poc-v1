@@ -38,7 +38,7 @@ func siteReadWorkerCtx(e *integration.Env) context.Context {
 
 func TestSiteReadStartCreatesAQueuedDossierAndAReClickJoinsIt(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
 
@@ -77,7 +77,7 @@ func TestSiteReadStartCreatesAQueuedDossierAndAReClickJoinsIt(t *testing.T) {
 
 func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 	worker := siteReadWorkerCtx(e)
 	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
@@ -161,7 +161,7 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 
 func TestSiteReadBudgetDeferralKeepsProgressAndJoinsUntilDue(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 	worker := siteReadWorkerCtx(e)
 	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
@@ -222,7 +222,7 @@ func TestSiteReadBudgetDeferralKeepsProgressAndJoinsUntilDue(t *testing.T) {
 
 func TestSiteReadWorkerReclaimsAStaleRunningDossier(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 	worker := siteReadWorkerCtx(e)
 	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
@@ -261,7 +261,7 @@ func TestSiteReadWorkerReclaimsAStaleRunningDossier(t *testing.T) {
 
 func TestSiteReadIsScopedToTheOrganizationTheCallerCanSee(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	admin := e.As(e.Rep1, nil, integration.AdminPerms)
 	orgA := siteReadOrg(e.SeedOrg(t, "Org A", &e.Rep1))
 	orgB := siteReadOrg(e.SeedOrg(t, "Org B", &e.Rep1))

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // pagingCompanies is a minimal in-memory overlay.Incumbent used only by
@@ -133,8 +134,8 @@ func countMirrorRows(ctx context.Context, pool *pgxpool.Pool, objectClass string
 // converges in overlay_mirror itself, with no duplicate rows, after a
 // mid-page crash.
 func TestBackfillCursorPersistsAcrossRestartInPostgres(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const n = 250
 	records := make([]Record, n)

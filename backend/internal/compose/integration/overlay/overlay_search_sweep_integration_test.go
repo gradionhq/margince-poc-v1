@@ -108,7 +108,7 @@ func TestTheSearchRecordsToolSweepsWithoutARecordTypeInOverlayMode(t *testing.T)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtxWith(ws, actorID, nativeToolReaderPerms())
 
-	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to the incumbent owner: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestTheSearchRecordsToolSweepsWithoutARecordTypeInOverlayMode(t *testing.T)
 		t.Fatalf("seeding the mirrored person: %v", err)
 	}
 
-	out, err := compose.NewRegistry(e.Pool, compose.SendPath{}).
+	out, err := compose.NewRegistryFor(e.DBFor(ws), compose.SendPath{}).
 		Invoke(ctx, "search_records", json.RawMessage(`{"q":"Unrestricted"}`))
 	if err != nil {
 		t.Fatalf("search_records with no record_type in overlay mode: %v — the schema says omitting it sweeps "+

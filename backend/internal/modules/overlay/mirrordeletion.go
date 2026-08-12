@@ -19,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
@@ -54,7 +53,7 @@ func mirrorDeletedPayload(objectClass, externalID string, deletedAt time.Time) c
 // which owns its own suppression path.
 func (s *MirrorStore) PurgeRecord(ctx context.Context, del Deletion) (bool, error) {
 	var existed bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		existed, err = s.purgeRecordTx(ctx, tx, del)
 		return err

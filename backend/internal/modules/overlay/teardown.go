@@ -39,7 +39,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -70,7 +69,7 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	}
 
 	var ref string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// A flip RUN in flight is the one thing disconnect must not race:
 		// tearing the mirror down mid-import would migrate a vanishing
 		// estate. A merely SEALED snapshot is NOT enough to refuse on —

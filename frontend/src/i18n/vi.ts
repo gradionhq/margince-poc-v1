@@ -3578,8 +3578,6 @@ export const vi = {
   "settings.companyViewSource": "Xem nguồn",
   "settings.companySave": "Lưu bối cảnh công ty",
   "settings.companySaved": "Đã lưu",
-  "settings.companyRefreshUnavailable":
-    "Lần làm mới từ website này không còn nữa.",
   "settings.companyRefreshUnreadable":
     "Chúng tôi đã mất dấu lượt đọc website này. Hãy bắt đầu làm mới lại.",
   "settings.companyRefreshStale":

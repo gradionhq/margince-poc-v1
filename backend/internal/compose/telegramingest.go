@@ -91,7 +91,7 @@ type telegramIngestWorker struct {
 // seam because this IS the composition layer people.Store already reaches
 // into for that ensurer.
 func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Logger) *telegramIngestWorker {
-	return &telegramIngestWorker{pool: pool, sink: newCaptureSink(pool, cfg), people: people.NewStore(pool), log: log}
+	return &telegramIngestWorker{pool: pool, sink: newCaptureSink(pool, cfg), people: people.NewStore(InstallationDB(pool)), log: log}
 }
 
 // Work re-establishes the workspace context from job.Args (never inherited

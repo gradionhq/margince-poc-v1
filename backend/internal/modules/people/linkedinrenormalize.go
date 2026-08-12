@@ -30,7 +30,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -78,7 +77,7 @@ func matchRank(status string) int {
 // a derived column rather than a read of anybody's records.
 func (s *Store) RenormalizeLinkedInCompanyKeys(ctx context.Context) (LinkedInRenormalizeResult, error) {
 	var out LinkedInRenormalizeResult
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = renormalizeGhostKeysTx(ctx, tx, ids.Nil)
 		return err

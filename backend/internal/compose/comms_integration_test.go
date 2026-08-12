@@ -21,10 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose/integration"
-
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -176,7 +175,7 @@ func assertModelAndFallbackDrafts(ctx context.Context, t *testing.T, adapter com
 func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 	e := integration.Setup(t)
 	target := e.SeedPerson(t, "Briefing Target", &e.Rep1)
-	retriever := search.NewRetriever(search.NewStore(e.Pool), nil)
+	retriever := search.NewRetriever(search.NewStore(e.DB()), nil)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	assembled, err := retriever.AssembleContext(ctx,

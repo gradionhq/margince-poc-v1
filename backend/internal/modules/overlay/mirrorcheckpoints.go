@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // upsertBackfillCursorSQL checkpoints the backfill cursor design.md §4.4
@@ -76,7 +74,7 @@ type BackfillProgress struct {
 // must still be the ACTIVE connection's identity (assertOwnConnection), not
 // just an active row.
 func (s *MirrorStore) SaveBackfillCursor(ctx context.Context, objectClass, cursor string, progress BackfillProgress, connectedAt time.Time) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if s.fenced {
 			if err := assertOwnConnection(ctx, tx, connectedAt); err != nil {
 				return err
@@ -95,7 +93,7 @@ func (s *MirrorStore) SaveBackfillCursor(ctx context.Context, objectClass, curso
 func (s *MirrorStore) LoadBackfillCursor(ctx context.Context, objectClass string) (string, bool, error) {
 	var cursor string
 	var done bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		scanErr := tx.QueryRow(
 			ctx,
 			`SELECT cursor, done FROM overlay_backfill_cursor WHERE object_class = $1`,
@@ -140,7 +138,7 @@ ON CONFLICT (workspace_id, object_class) DO UPDATE
 // just an active row — see SaveBackfillCursor's doc for why this checkpoint
 // specifically needs identity, not just status.
 func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass string, watermark, connectedAt time.Time) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if s.fenced {
 			if err := assertOwnConnection(ctx, tx, connectedAt); err != nil {
 				return err
@@ -160,7 +158,7 @@ func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass st
 // time to the incumbent seam.
 func (s *MirrorStore) LoadReconcileWatermark(ctx context.Context, objectClass string) (time.Time, error) {
 	var watermark time.Time
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		scanErr := tx.QueryRow(
 			ctx,
 			`SELECT watermark FROM overlay_reconcile_watermark WHERE object_class = $1`,

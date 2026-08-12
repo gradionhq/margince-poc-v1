@@ -95,7 +95,7 @@ func startInlineWebhookDelivery(ctx context.Context, relay *sync.WaitGroup, rdb 
 		}
 	}
 	relay.Go(func() {
-		sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, deliverer.HandleEvent), logger)
+		sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, compose.WebhookEventHandler(pool, deliverer)), logger)
 		if err := sub.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("subscriber cg:webhooks", "err", err)
 		}

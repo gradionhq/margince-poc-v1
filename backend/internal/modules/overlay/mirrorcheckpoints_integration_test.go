@@ -14,6 +14,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // TestSaveReconcileWatermarkOnlyAdvances proves the watermark never moves
@@ -22,8 +23,8 @@ import (
 // which would re-sweep the window between and risk re-ingesting records the
 // newer pass already saw.
 func TestSaveReconcileWatermarkOnlyAdvances(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	newer := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 	older := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -63,8 +64,8 @@ func TestSaveReconcileWatermarkOnlyAdvances(t *testing.T) {
 // done=false (a slower concurrent pass) must not re-open it, which would
 // re-list the whole incumbent.
 func TestSaveBackfillCursorDoneIsSticky(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	connectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	if err := store.SaveBackfillCursor(ctx, "contacts", "", BackfillProgress{Done: true}, connectedAt); err != nil {
@@ -93,10 +94,10 @@ func TestSaveBackfillCursorDoneIsSticky(t *testing.T) {
 // writes (Ingest, UpsertAssoc, ...) must still reject a checkpoint write
 // carrying a stale connection identity.
 func TestSaveBackfillCursorEnforcesIdentityEvenOnAPlainFenceStore(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 
 	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-identity-secret"})
 	if err != nil {
