@@ -15,15 +15,22 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// foreignWorkspaceCtx seeds a second, unrelated workspace and returns a
-// context bound to it — no actor needed, since none of the methods this
-// test drives from it (Load/RecordSent/Park/RecordFailure) require one.
-func (e *storeEnv) foreignWorkspaceCtx(t *testing.T) context.Context {
+// foreignWorkspace seeds a second, unrelated workspace and returns a store
+// bound to it beside a context naming it — no actor needed, since none of the
+// methods this test drives from it (Load/RecordSent/Park/RecordFailure)
+// require one.
+//
+// The store as well as the ctx, because the workspace a statement runs in is
+// the handle's: asking THIS tenant's store with the other tenant's ctx would
+// read this tenant's own rows, and every assertion below would hold for the
+// wrong reason.
+func (e *storeEnv) foreignWorkspace(t *testing.T) (*Store, context.Context) {
 	t.Helper()
 	other := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
@@ -31,30 +38,31 @@ func (e *storeEnv) foreignWorkspaceCtx(t *testing.T) context.Context {
 		other, "comms-other-"+other.String()); err != nil {
 		t.Fatal(err)
 	}
-	return principal.WithWorkspaceID(context.Background(), other)
+	return NewStore(database.BindTo(e.store.db.Pool(), ids.From[ids.WorkspaceKind](other)), e.store.now, nil),
+		principal.WithWorkspaceID(context.Background(), other)
 }
 
 func TestDeliveryIsInvisibleAndUnmutableFromAnotherWorkspace(t *testing.T) {
 	e := setupStore(t)
 	id := e.stage(t, e.baseInput(e.activity, "msg-cross-workspace@example.com"))
-	other := e.foreignWorkspaceCtx(t)
+	foreign, other := e.foreignWorkspace(t)
 
-	if _, err := e.store.Load(other, id); err != ErrTerminal {
+	if _, err := foreign.Load(other, id); err != ErrTerminal {
 		t.Fatalf("Load from another workspace: got %v, want ErrTerminal (RLS must hide the row entirely)", err)
 	}
-	if err := e.store.RecordSent(other, id, connector.SendReceipt{ProviderMessageID: "stolen-receipt"}); err != ErrTerminal {
+	if err := foreign.RecordSent(other, id, connector.SendReceipt{ProviderMessageID: "stolen-receipt"}); err != ErrTerminal {
 		t.Fatalf("RecordSent from another workspace: got %v, want ErrTerminal", err)
 	}
-	if err := e.store.Park(other, id, "stolen-park"); err != ErrTerminal {
+	if err := foreign.Park(other, id, "stolen-park"); err != ErrTerminal {
 		t.Fatalf("Park from another workspace: got %v, want ErrTerminal", err)
 	}
-	if err := e.store.RecordFailure(other, id, "stolen-failure"); err != ErrTerminal {
+	if err := foreign.RecordFailure(other, id, "stolen-failure"); err != ErrTerminal {
 		t.Fatalf("RecordFailure from another workspace: got %v, want ErrTerminal", err)
 	}
 	// The deferral is the one transition that also moves the attempt counter,
 	// so a cross-workspace call reaching it would not merely write a foreign
 	// row — it would hand another tenant's delivery a free rung of its ladder.
-	if err := e.store.RecordDeferral(other, id, "stolen-deferral"); err != ErrTerminal {
+	if err := foreign.RecordDeferral(other, id, "stolen-deferral"); err != ErrTerminal {
 		t.Fatalf("RecordDeferral from another workspace: got %v, want ErrTerminal", err)
 	}
 

@@ -59,5 +59,5 @@ func NewTimeScanner(db *database.DB, log *slog.Logger) *automation.TimeScanner {
 // days" against seeded timestamps, never the wall clock.
 func NewTimeScannerWithClock(db *database.DB, now func() time.Time, log *slog.Logger) *automation.TimeScanner {
 	engine := NewWorkflowEngine(db)
-	return automation.NewTimeScannerWithClock(engine, activityScanAdapter{store: activities.NewStore(db.Pool())}, now, log)
+	return automation.NewTimeScannerWithClock(engine, activityScanAdapter{store: activities.NewStore(db)}, now, log)
 }

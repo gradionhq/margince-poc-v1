@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // LabeledCaptureCountSince counts the activity rows the classify worker has
@@ -21,7 +19,7 @@ import (
 // totals into a per-message cost. RLS-scoped to the current workspace.
 func (s *Store) LabeledCaptureCountSince(ctx context.Context, since time.Time) (int64, error) {
 	var count int64
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM activity WHERE capture_labeled_at >= $1`, since,
 		).Scan(&count)

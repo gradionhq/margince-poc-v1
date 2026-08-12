@@ -12,9 +12,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -27,8 +26,9 @@ type Handlers struct {
 // NewHandlers wires the transport over the store. strength is the §4
 // relationship-strength seam (implemented by the people module, injected
 // by the composition layer — never a sibling import).
-func NewHandlers(pool *pgxpool.Pool, strength StrengthSource) Handlers {
-	return Handlers{store: NewStore(pool, strength)}
+// NewHandlers builds the module's HTTP surface over a workspace-bound handle.
+func NewHandlers(db *database.DB, strength StrengthSource) Handlers {
+	return Handlers{store: NewStore(db, strength)}
 }
 
 func (h Handlers) ListSignals(w http.ResponseWriter, r *http.Request, params crmcontracts.ListSignalsParams) {

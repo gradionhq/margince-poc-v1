@@ -46,7 +46,7 @@ func seedDocument(
 
 func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	pipeline, stage, _ := DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
@@ -82,7 +82,7 @@ func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 
 func TestOrganizationDocumentsPutPinnedFirstAndFilterByCategory(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 
@@ -113,7 +113,7 @@ func TestOrganizationDocumentsPutPinnedFirstAndFilterByCategory(t *testing.T) {
 // loop forever on it.
 func TestAttachmentMetadataRefusesASupersedesCycle(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docWritePerms)
 
@@ -154,7 +154,7 @@ var docWritePerms = principal.Permissions{
 // view while every gate stays green.
 func TestAnUploadedDocumentReachesTheAccountLibrary(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool).WithBlobstore(blobstore.NewMemory())
+	store := activities.NewStore(e.DB()).WithBlobstore(blobstore.NewMemory())
 	pipeline, stage, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	deal := e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
@@ -210,7 +210,7 @@ var docUploadPerms = principal.Permissions{
 // boundary, which is exactly what the parent gate exists to stop.
 func TestAttachmentMetadataRefusesASupersedesTargetTheCallerCannotSee(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	pipeline, stage, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
@@ -238,7 +238,7 @@ func TestAttachmentMetadataRefusesASupersedesTargetTheCallerCannotSee(t *testing
 // every later page — the documents are not late, they are unreachable.
 func TestTheAccountLibraryPagesPastThePinnedGroup(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 
@@ -293,7 +293,7 @@ func TestTheAccountLibraryPagesPastThePinnedGroup(t *testing.T) {
 // cannot.
 func TestAnActivityBorneFileReachesTheLibraryAndStaysGated(t *testing.T) {
 	e := Setup(t)
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	pipeline, stage, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedDeal(t, "My deal", pipeline, stage, &e.Rep1)
@@ -347,7 +347,7 @@ func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 // vanished.
 func TestAnOrganizationMergeCarriesTheDocumentsAcross(t *testing.T) {
 	e := Setup(t)
-	files := activities.NewStore(e.Pool)
+	files := activities.NewStore(e.DB())
 	orgs := people.NewStore(e.DB())
 	survivor := e.SeedOrg(t, "Acme", &e.Rep1)
 	dissolved := e.SeedOrg(t, "Acme Holdings", &e.Rep1)

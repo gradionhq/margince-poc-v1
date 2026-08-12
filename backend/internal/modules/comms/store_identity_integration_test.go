@@ -19,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -39,7 +38,7 @@ func TestStageTxStampsUserIDFromTheAuthenticatedPrincipalNeverFromInput(t *testi
 
 	id1 := e.stage(t, e.baseInput(e.activity, "msg-actor-1@example.com"))
 	var id2 ids.UUID
-	err := database.WithWorkspaceTx(ctx2, e.store.pool, func(tx pgx.Tx) error {
+	err := e.store.db.Tx(ctx2, func(tx pgx.Tx) error {
 		var err error
 		id2, err = e.store.StageTx(ctx2, tx, e.baseInput(e.activity, "msg-actor-2@example.com"))
 		return err
@@ -70,7 +69,7 @@ func TestStageTxFailsClosedWithoutAnAuthenticatedActor(t *testing.T) {
 	e := setupStore(t)
 	noActor := principal.WithWorkspaceID(context.Background(), e.ws)
 	in := e.baseInput(e.activity, "msg-no-actor@example.com")
-	err := database.WithWorkspaceTx(noActor, e.store.pool, func(tx pgx.Tx) error {
+	err := e.store.db.Tx(noActor, func(tx pgx.Tx) error {
 		_, err := e.store.StageTx(noActor, tx, in)
 		return err
 	})
@@ -100,7 +99,7 @@ func TestStageTxRefusesASystemPrincipalWithNoAppUserIdentity(t *testing.T) {
 	e := setupStore(t)
 	systemCtx := principal.WithWorkspaceID(context.Background(), e.ws)
 	systemCtx = principal.WithActor(systemCtx, principal.Principal{Type: principal.PrincipalSystem})
-	err := database.WithWorkspaceTx(systemCtx, e.store.pool, func(tx pgx.Tx) error {
+	err := e.store.db.Tx(systemCtx, func(tx pgx.Tx) error {
 		_, err := e.store.StageTx(systemCtx, tx, e.baseInput(e.activity, "msg-system@example.com"))
 		return err
 	})

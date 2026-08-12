@@ -38,7 +38,7 @@ import (
 // a 501 — once the attachment clears the scan gate.
 func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Extraction NoOp", &e.Rep1)
 	att := uploadScanTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
@@ -70,7 +70,7 @@ func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
 // two grounded fields with their evidence, one honestly omitted.
 func TestGetAttachmentExtractionPartitionsFixtureEvidence(t *testing.T) {
 	e := Setup(t)
-	base := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	base := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Fixture Deal", pipeline, open, &e.Rep1)
@@ -115,7 +115,7 @@ func TestGetAttachmentExtractionPartitionsFixtureEvidence(t *testing.T) {
 // not reading the staged extraction.
 func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	org := e.SeedOrg(t, "Non-Deal Parent", &e.Rep1)
 	att := uploadScanTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
@@ -137,7 +137,7 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 // real extractor reads unvetted content.
 func TestGetAttachmentExtractionRefusesWhileScanning(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Extraction Scan Gate", &e.Rep1)
 	att := uploadScanTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
@@ -161,7 +161,7 @@ func TestGetAttachmentExtractionRefusesWhileScanning(t *testing.T) {
 // for a quarantined verdict — terminal, never read.
 func TestGetAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Extraction Blocked Gate", &e.Rep1)
 	att := uploadScanTestAttachment(ctx, t, h, person, "malware.bin", []byte("EVIL"))
@@ -189,7 +189,7 @@ func TestGetAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
 // attachment op.
 func TestGetAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Extraction Target", &e.Rep1)
 	att := uploadScanTestAttachment(adminCtx, t, h, person, "secret.pdf", []byte("secret"))
@@ -216,7 +216,7 @@ func TestGetAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 // linked back to the parent deal, and answers {requested:true}.
 func TestRequestAttachmentAccessAuditsANoteAndReturnsRequested(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Access Request Deal", pipeline, open, &e.Rep1)
@@ -254,7 +254,7 @@ func TestRequestAttachmentAccessAuditsANoteAndReturnsRequested(t *testing.T) {
 // locked-row placeholder.
 func TestRequestAttachmentAccessHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Access Target", &e.Rep1)
 	att := uploadScanTestAttachment(adminCtx, t, h, person, "hidden.pdf", []byte("hidden"))

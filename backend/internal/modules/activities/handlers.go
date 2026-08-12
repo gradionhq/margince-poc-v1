@@ -12,9 +12,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -52,8 +51,9 @@ type EmailDrafter interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+// NewHandlers builds the module's HTTP surface over a workspace-bound handle.
+func NewHandlers(db *database.DB) Handlers {
+	return Handlers{store: NewStore(db)}
 }
 
 func pageInfo(p storekit.Page) crmcontracts.PageInfo {

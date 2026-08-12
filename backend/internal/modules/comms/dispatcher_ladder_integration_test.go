@@ -47,7 +47,7 @@ import (
 func (e *storeEnv) deliveryRow(t *testing.T, id ids.UUID) (status string, attempts int, reason string) {
 	t.Helper()
 	var note *string
-	if err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(e.ctx, e.store.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT status, attempts, reason FROM comms_outbound WHERE id = $1`, id).
 			Scan(&status, &attempts, &note)

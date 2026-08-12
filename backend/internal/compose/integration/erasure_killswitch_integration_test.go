@@ -77,7 +77,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	// name the same delivery id — so what stops the send is the ROW, and only
 	// the row.
 	dispatcher := comms.NewDispatcher(
-		comms.NewStore(e.Pool, time.Now, activities.NewStore(e.Pool)),
+		comms.NewStore(e.DB(), time.Now, activities.NewStore(e.DB())),
 		refusingMailbox{t: t},
 		nil,
 		// The erasure kill-switch refuses before any gate reads a file, so the

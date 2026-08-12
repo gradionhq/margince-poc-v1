@@ -97,7 +97,7 @@ func (e *estEnv) newEstimator(ws ids.UUID) *Estimator {
 		ai.NewCallReadStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))),
 		ai.NewRateStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))),
 		e.router,
-		activities.NewStore(e.pool),
+		activities.NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws))),
 		capture.NewRegistry(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws)), nil, nil, nil),
 		clockAt,
 	)

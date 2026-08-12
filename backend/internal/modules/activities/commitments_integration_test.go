@@ -166,7 +166,7 @@ func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 	e := setupPromises(t)
 	taskID, hiddenDealID := e.seedSplitTask(t)
 
-	tasks, _, err := NewStore(e.pool).ListOpenTasks(e.as(), ListOpenTasksInput{})
+	tasks, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{})
 	if err != nil {
 		t.Fatalf("listing open tasks: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 		VALUES ($1, $2, $3, 'project', $4)`, ids.NewV7(), e.ws, taskID, hiddenProjectID)
 
 	projectType := "project"
-	_, _, err := NewStore(e.pool).ListOpenTasks(e.as(), ListOpenTasksInput{
+	_, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{
 		EntityType: &projectType, EntityID: &hiddenProjectID,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {

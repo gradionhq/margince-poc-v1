@@ -100,7 +100,7 @@ func participantUsers(t *testing.T, e *integration.Env, activityID ids.UUID) []i
 // that selects unattributable rows would produce.
 func runBackfill(t *testing.T, e *integration.Env) int {
 	t.Helper()
-	store := activities.NewStore(e.Pool)
+	store := activities.NewStore(e.DB())
 	total := 0
 	for pass := 0; ; pass++ {
 		if pass > 20 {

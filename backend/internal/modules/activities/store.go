@@ -8,8 +8,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -21,7 +19,8 @@ import (
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// blob backs the attachment endpoints; nil in a role that stores no
 	// objects, in which case the attachment handlers answer 501 rather than
 	// nil-deref (WithBlobstore is how a role opts in).
@@ -58,8 +57,10 @@ type Store struct {
 	recipients RecipientDirectory
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db}
 }
 
 // WithBlobstore returns a store that backs the attachment endpoints with the
@@ -71,7 +72,7 @@ func (s *Store) WithBlobstore(blob blobstore.Store) *Store {
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // sprintf keeps SQL assembly lines readable; arguments are always

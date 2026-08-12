@@ -15,14 +15,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // Store reads the finance mirror under the caller's own gates.
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// now is injected so a summary's staleness and its trailing window are
 	// testable without waiting for the clock to move.
 	now func() time.Time
@@ -40,8 +40,10 @@ type Store struct {
 type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
 
 // NewStore binds the store to the pool every tenant read runs through.
-func NewStore(pool *pgxpool.Pool, baseCurrency BaseCurrencyFunc) *Store {
-	return &Store{pool: pool, now: time.Now, baseCurrency: baseCurrency}
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB, baseCurrency BaseCurrencyFunc) *Store {
+	return &Store{db: db, now: time.Now, baseCurrency: baseCurrency}
 }
 
 // WithClock replaces the store's clock. Tests only: a summary that reads
@@ -53,7 +55,7 @@ func (s *Store) WithClock(now func() time.Time) *Store {
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // staleAfter is how long a successful sync stays current.

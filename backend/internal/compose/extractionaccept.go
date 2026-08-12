@@ -85,7 +85,7 @@ func NewExtractionAccept(pool *pgxpool.Pool, extractor extraction.Extractor) *Ex
 	}
 	return &ExtractionAccept{
 		pool:        pool,
-		attachments: activities.NewStore(pool),
+		attachments: activities.NewStore(InstallationDB(pool)),
 		deals:       deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		extractor:   extractor,
 	}

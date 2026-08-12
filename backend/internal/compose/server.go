@@ -373,8 +373,8 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
-		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(InstallationDB(pool))}),
+		financeHandlers:    finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
+		signalsHandlers:    signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
 		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
 		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
 		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),

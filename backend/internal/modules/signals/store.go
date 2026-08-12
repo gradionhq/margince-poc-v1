@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,16 +32,19 @@ type StrengthSource interface {
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
-	pool     *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db       *database.DB
 	strength StrengthSource
 }
 
-func NewStore(pool *pgxpool.Pool, strength StrengthSource) *Store {
-	return &Store{pool: pool, strength: strength}
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB, strength StrengthSource) *Store {
+	return &Store{db: db, strength: strength}
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // RequiredFieldError maps to 422 on both surfaces.

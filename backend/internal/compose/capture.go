@@ -162,7 +162,7 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// the attachment table. Built here, from the store, so every role that
 		// composes a sink gets the same one — the worker runs mail capture and
 		// never sees the api's options.
-		WithFileKeeper(capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(cfg.Blob)}).
+		WithFileKeeper(capturedFileKeeper{store: activities.NewStore(InstallationDB(pool)).WithBlobstore(cfg.Blob)}).
 		WithStager(mergeStager{svc: approvals.NewService(InstallationDB(pool))}).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
