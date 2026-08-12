@@ -263,3 +263,61 @@ func TestUpsertPartnerResidueStagesTheOrganizationNotPartner(t *testing.T) {
 			"directly", staging.last.TargetType, staging.last.TargetID, orgID)
 	}
 }
+
+// A residue staged under an Idempotency-Key must be redeemable by the retry
+// the staging note actually instructs.
+//
+// This is the whole of the defect. The auto-execute half of a mixed patch
+// answers 2xx under the caller's key, and only a 2xx settles an idempotency
+// claim — so that key is spent, permanently. The retry the note asks for
+// ("repeat this request with ONLY those fields and the X-Approval-Token
+// header") therefore cannot present it: re-using it never even reaches the
+// gate, because the idempotency middleware sits outside it and answers the
+// residue body as a digest mismatch. Hashing the key into the residue's
+// identity made the only retry that CAN arrive unable to match, so the human's
+// approval was void and the withheld field could never be written.
+//
+// Asserted as the redemption side computes it, not as a property of the
+// canonicalization alone: redeemIfPresented hashes the retry with
+// keyBindsTheRetry — it cannot know which kind of approval it is about to
+// redeem — so what has to agree is the STAGED hash and the hash of a keyless
+// retry carrying the same residue.
+func TestAResidueStagedUnderAnIdempotencyKeyIsRedeemableByItsRetry(t *testing.T) {
+	orgID := ids.NewV7()
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "upsertPartner", Access: accessTool, Tool: "update_record", RecordType: recordTypePartner}
+	body := []byte(`{"cert_status":"certified","margin_tier":"tier1_15"}`)
+	req := operandRequest(http.MethodPut, "/v1/organizations", orgID.String(), "", "", body)
+	req.Header.Set(idempotencyKeyHeader, "01J0-agent-retry-key")
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"organization_id":"` + orgID.String() + `","margin_tier":"tier1_15","version":3}`))
+	})
+
+	admitAgentCall(httptest.NewRecorder(), req, next, admissionOutcome{
+		staging: staging, ownership: mixedHumanOwned{conflict: "cert_status"},
+		commands: restCommandDeps{records: seamRecord{}}, pol: pol, body: body,
+		registry: agents.NewRegistry(nil, auth.NewGate(fullSeat{})),
+	})
+	if staging.last.DiffHash == "" {
+		t.Fatal("nothing was staged, so there is no residue identity to redeem")
+	}
+
+	// The retry the staging note instructs: the withheld fields alone, the
+	// approval token, and NO idempotency key — the original is settled and a
+	// fresh one would be a different call.
+	retry := operandRequest(http.MethodPut, "/v1/organizations", orgID.String(), "", "",
+		[]byte(staging.last.ProposedChange))
+	_, retryHash, err := canonicalRESTCall(pol.Op, retry.URL.Path, retry.Header,
+		[]byte(`{"cert_status":"certified"}`), keyBindsTheRetry)
+	if err != nil {
+		t.Fatalf("canonicalizing the retry answered %v", err)
+	}
+
+	if retryHash != staging.last.DiffHash {
+		t.Errorf("the approved retry hashes to %s but the residue was staged as %s — the human's approval "+
+			"is unredeemable and the withheld field can never be written",
+			retryHash, staging.last.DiffHash)
+	}
+}

@@ -23,10 +23,49 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
+// idempotencyKeyBinding says whether the caller's Idempotency-Key joins the
+// identity of the call being staged.
+//
+// It is a PARAMETER rather than a second canonicalization function because
+// two spellings of "the identity a staged approval binds to" is the disease
+// this seam exists to remove: staging and redemption hash through one code
+// path or they are free to drift, and a narrow fix that forked the path
+// would reintroduce exactly that. What varies is one member; the answer to
+// why it varies is below.
+type idempotencyKeyBinding bool
+
+const (
+	// keyBindsTheRetry is every ordinary staging (stageRefusal,
+	// agentgatestaging.go). The whole request is the staged change, so the
+	// approved retry IS this exact request again — key included. The refused
+	// attempt performed nothing, and only a 2xx settles a claim
+	// (idempotency.go), so the key is still the caller's to present.
+	keyBindsTheRetry idempotencyKeyBinding = true
+
+	// keySettledByThisCall is the field-ownership split's residue
+	// (applyAutoExecuteAndStageResidue, agentsplit.go), and the name is the
+	// reason: the auto-execute half of this same request ALREADY answered
+	// 2xx under the caller's key, which settles that claim for good.
+	//
+	// The approved retry therefore cannot present the key again. Re-using it
+	// never reaches the gate at all — the idempotency middleware sits
+	// outside it (routes.go) and answers the retry's residue body as a
+	// digest mismatch, 409. Presenting no key, which is what the staging
+	// note instructs, is then the only retry that can arrive; hashing a key
+	// it cannot carry would make the human's approval permanently
+	// unredeemable and the withheld field permanently unwritable.
+	//
+	// This is the same judgment canonicalHeaders already makes for If-Match
+	// below — a member that makes the retry impossible protects nothing —
+	// applied to the one path where it is the key that becomes impossible.
+	keySettledByThisCall idempotencyKeyBinding = false
+)
+
 // canonicalHeaders is the one REQUEST header that changes what a staged call
 // executes without the gate itself already deciding it: Idempotency-Key says
 // whether a retry is a fresh effect, a replay or a conflict, and it reaches
-// the handler exactly as the caller sent it.
+// the handler exactly as the caller sent it — on every path where the retry
+// can still present it (idempotencyKeyBinding, above).
 //
 // If-Match is deliberately NOT here, though it is also execution-relevant.
 // On the redemption path the gate OVERWRITES the caller's If-Match with the
@@ -42,9 +81,9 @@ import (
 // excluded for the same reason it always was: hashing one would make an
 // approval unredeemable from a different client, which is a worse bug than
 // the one this guards against.
-func canonicalHeaders(h http.Header) map[string]string {
+func canonicalHeaders(h http.Header, keys idempotencyKeyBinding) map[string]string {
 	out := map[string]string{}
-	if v := h.Get(idempotencyKeyHeader); v != "" {
+	if v := h.Get(idempotencyKeyHeader); v != "" && keys == keyBindsTheRetry {
 		out[idempotencyKeyHeader] = v
 	}
 	return out
@@ -67,6 +106,16 @@ func canonicalHeaders(h http.Header) map[string]string {
 // redeemable. Adding the empty member unconditionally would have changed
 // the hash of every call, headered or not.
 //
+// That same absence is what lets ONE function serve both bindings.
+// Redemption cannot know which kind of approval it is about to redeem — it
+// computes a hash before it has read the row — so it always canonicalizes
+// with keyBindsTheRetry. A residue retry arrives carrying no key (its own
+// binding's doc says why it can carry no other), canonicalizes with no
+// `headers` member, and matches the residue staged without one; a
+// full-request retry arrives carrying the key it always could and matches
+// the staging that hashed it. The two agree without redemption having to
+// ask which it is looking at.
+//
 // UTF-8 is checked on both sides of the decode, matching the tool door's
 // two-halved check (modules/agents/reserved.go): utf8.Valid on the raw
 // bytes catches malformed encoding BEFORE the decode destroys the evidence
@@ -75,7 +124,7 @@ func canonicalHeaders(h http.Header) map[string]string {
 // canonical form catches an escaped unpaired surrogate (`"\udcff"`), which
 // is valid UTF-8 on the wire and still decodes to U+FFFD, so the byte check
 // cannot see it.
-func canonicalRESTCall(op, path string, headers http.Header, body []byte) (json.RawMessage, string, error) {
+func canonicalRESTCall(op, path string, headers http.Header, body []byte, keys idempotencyKeyBinding) (json.RawMessage, string, error) {
 	if !utf8.Valid(body) {
 		return nil, "", httperr.Validation("body", "invalid_utf8", "request body must be valid UTF-8")
 	}
@@ -86,7 +135,7 @@ func canonicalRESTCall(op, path string, headers http.Header, body []byte) (json.
 		}
 	}
 	fields := map[string]any{"operation": op, "path": path, "body": payload}
-	if hdrs := canonicalHeaders(headers); len(hdrs) > 0 {
+	if hdrs := canonicalHeaders(headers, keys); len(hdrs) > 0 {
 		fields["headers"] = hdrs
 	}
 	canonical, err := json.Marshal(fields)

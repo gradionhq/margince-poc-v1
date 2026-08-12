@@ -147,23 +147,23 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 // The redemption key is content, not serialization: key order and
 // whitespace hash equal; a changed value, path, or operation does not.
 func TestCanonicalRESTCallHashesContent(t *testing.T) {
-	_, h1, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"b":2,"a":1}`))
+	_, h1, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"b":2,"a":1}`), keyBindsTheRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, h2, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(` {"a": 1, "b": 2} `))
+	_, h2, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(` {"a": 1, "b": 2} `), keyBindsTheRetry)
 	if h1 != h2 {
 		t.Fatal("equivalent bodies must hash equal — redemption would refuse the identical call")
 	}
-	_, h3, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":3}`))
-	_, h4, _ := canonicalRESTCall("updatePerson", "/v1/people/y", http.Header{}, []byte(`{"a":1,"b":2}`))
+	_, h3, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":3}`), keyBindsTheRetry)
+	_, h4, _ := canonicalRESTCall("updatePerson", "/v1/people/y", http.Header{}, []byte(`{"a":1,"b":2}`), keyBindsTheRetry)
 	if h1 == h3 || h1 == h4 {
 		t.Fatal("a different body or target must not ride the staged approval")
 	}
-	if _, _, err := canonicalRESTCall("op", "/p", http.Header{}, []byte(`{broken`)); err == nil {
+	if _, _, err := canonicalRESTCall("op", "/p", http.Header{}, []byte(`{broken`), keyBindsTheRetry); err == nil {
 		t.Fatal("malformed JSON must be refused, not hashed")
 	}
-	_, hEmpty, err := canonicalRESTCall("archivePerson", "/v1/people/x", http.Header{}, nil)
+	_, hEmpty, err := canonicalRESTCall("archivePerson", "/v1/people/x", http.Header{}, nil, keyBindsTheRetry)
 	if err != nil || hEmpty == "" {
 		t.Fatalf("bodyless mutations (DELETE) must canonicalize: %v", err)
 	}
@@ -183,11 +183,11 @@ func TestTheCanonicalCallBindsIdempotencyKey(t *testing.T) {
 	body := []byte(`{"to_stage_id":"a"}`)
 	withKey := http.Header{}
 	withKey.Set("Idempotency-Key", "k")
-	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body)
+	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body, keyBindsTheRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", withKey, body)
+	other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", withKey, body, keyBindsTheRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestTheCanonicalCallBindsIdempotencyKey(t *testing.T) {
 // header creeping into the digest by sitting next to one that belongs there.
 func TestTheCanonicalCallIgnoresHeadersThatDoNotChangeExecution(t *testing.T) {
 	body := []byte(`{"to_stage_id":"a"}`)
-	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body)
+	base, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", http.Header{}, body, keyBindsTheRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestTheCanonicalCallIgnoresHeadersThatDoNotChangeExecution(t *testing.T) {
 		{"Authorization": []string{"Bearer secret"}},
 		{"User-Agent": []string{"some-agent/1.0"}},
 	} {
-		other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", h, body)
+		other, _, err := canonicalRESTCall("advanceDeal", "/v1/deals/d/advance", h, body, keyBindsTheRetry)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,7 +231,7 @@ func TestTheCanonicalCallIgnoresHeadersThatDoNotChangeExecution(t *testing.T) {
 func TestTheCanonicalCallIsByteCompatibleWithoutAHashedHeader(t *testing.T) {
 	const wantCanonical = `{"body":{"a":1,"b":2},"operation":"updatePerson","path":"/v1/people/x"}`
 	const wantHash = "8924889e55733baa0964dc3aa1929f9af6f315b49ed82d4c11e8c2c1190bba84"
-	canonical, hash, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":2}`))
+	canonical, hash, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":2}`), keyBindsTheRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestTheCanonicalCallIsByteCompatibleWithoutAHashedHeader(t *testing.T) {
 // one string and would redeem each other's approval. The tool door rejects this before
 // decoding (reserved.go); this door did not.
 func TestTheCanonicalCallRefusesInvalidUTF8(t *testing.T) {
-	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte("{\"a\":\"\xff\"}")); err == nil {
+	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte("{\"a\":\"\xff\"}"), keyBindsTheRetry); err == nil {
 		t.Error("a body carrying invalid UTF-8 canonicalized cleanly")
 	}
 }
@@ -255,7 +255,7 @@ func TestTheCanonicalCallRefusesInvalidUTF8(t *testing.T) {
 // An escaped unpaired surrogate is valid UTF-8 on the wire and still decodes to U+FFFD,
 // so the byte check above cannot see it. reserved.go checks both halves; so must this.
 func TestTheCanonicalCallRefusesAnEscapedUnpairedSurrogate(t *testing.T) {
-	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"a":"\udcff"}`)); err == nil {
+	if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(`{"a":"\udcff"}`), keyBindsTheRetry); err == nil {
 		t.Error("an escaped unpaired surrogate canonicalized cleanly")
 	}
 }
@@ -268,7 +268,7 @@ func TestTheCanonicalCallRefusesAnEscapedUnpairedSurrogate(t *testing.T) {
 // and modules/agents/badargs.go draw elsewhere in this tree.
 func TestTheCanonicalCallRefusesTrailingContentAfterTheJSONValue(t *testing.T) {
 	for _, body := range []string{`{"a":1} garbage`, `{"a":1}{"b":2}`} {
-		if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(body)); err == nil {
+		if _, _, err := canonicalRESTCall("x", "/v1/x", http.Header{}, []byte(body), keyBindsTheRetry); err == nil {
 			t.Errorf("body %q canonicalized cleanly despite trailing content after the JSON value", body)
 		}
 	}
