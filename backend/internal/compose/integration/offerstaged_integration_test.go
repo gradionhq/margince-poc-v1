@@ -327,18 +327,6 @@ func TestAddStagedOfferLinesRejectsANonDraftOffer(t *testing.T) {
 	}
 }
 
-func TestAddStagedOfferLinesCrossTenantOfferIsNotFound(t *testing.T) {
-	e := Setup(t)
-	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDeskPerms)
-	// A real offer — just seeded in an entirely separate workspace — must
-	// answer the same existence-hiding 404 an unknown id would.
-	owner := OwnerConn(t)
-	otherOfferID := seedOfferRenderWorkspaceB(t, e, owner)
-	if _, err := e.Deals.AddStagedOfferLines(ctx, otherOfferID, groundedStagedLines()); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("add staged lines on a cross-tenant offer = %v, want ErrNotFound", err)
-	}
-}
-
 func TestAddStagedOfferLinesAuditCarriesTheAgentProvenance(t *testing.T) {
 	e := Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDeskPerms)

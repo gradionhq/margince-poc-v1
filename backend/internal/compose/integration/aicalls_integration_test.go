@@ -7,7 +7,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"testing"
@@ -16,10 +15,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type seededAiCalls struct {
@@ -147,36 +143,6 @@ func TestAiCallDetailCarriesLadderAndPayload(t *testing.T) {
 	}
 	if older.PayloadCaptured || older.Payload != nil {
 		t.Fatalf("older payload = %+v, want absent", older.Payload)
-	}
-}
-
-func TestAiCallIsInvisibleAcrossTenants(t *testing.T) {
-	e := apptest.SetupApp(t)
-	e.BootstrapWorkspace(t)
-	seeded := seedAiCallTrace(t, e)
-
-	workspaceB := ids.NewV7()
-	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, 'ai-two')`,
-		workspaceB); err != nil {
-		t.Fatalf("seed second workspace: %v", err)
-	}
-	actorID := ids.NewV7()
-	ctx := principal.WithCorrelationID(
-		principal.WithWorkspaceID(context.Background(), workspaceB), ids.NewV7(),
-	)
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + actorID.String(), UserID: actorID,
-		Permissions: principal.Permissions{
-			RoleKeys: []string{"admin"},
-			Objects: map[string]principal.ObjectGrant{
-				"automation": {Read: true, Update: true},
-			},
-			RowScope: principal.RowScopeAll,
-		},
-	})
-	if _, err := ai.NewCallReadStore(e.DBFor(workspaceB)).GetCall(ctx, seeded.newest); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("cross-tenant detail err = %v, want ErrNotFound", err)
 	}
 }
 

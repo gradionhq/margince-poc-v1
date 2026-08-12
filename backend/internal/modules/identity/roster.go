@@ -83,6 +83,7 @@ const listUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
+	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
@@ -91,6 +92,7 @@ const listUsersFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
+	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND (display_name ILIKE $2 OR email ILIKE $2)
 	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
@@ -187,6 +189,7 @@ const teamFromJoin = `
 const listTeamsQuery = `
 	SELECT ` + teamColumns + teamFromJoin + `
 	WHERE t.archived_at IS NULL
+	  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($1::timestamptz IS NULL OR (t.created_at, t.id) > ($1, $2))
 	GROUP BY t.id
 	ORDER BY t.created_at, t.id

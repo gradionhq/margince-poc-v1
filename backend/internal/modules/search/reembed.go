@@ -149,7 +149,14 @@ type liveEntity struct {
 func (s *Store) liveEntitiesOf(ctx context.Context, entityType string, src pendingSource) ([]liveEntity, error) {
 	var items []liveEntity
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		sql := fmt.Sprintf(`SELECT t.id, %s FROM %s t WHERE t.archived_at IS NULL`, src.text, src.table)
+		// Scoped by the query itself: tenant isolation used to bound this scan
+		// to one workspace, so a re-embed pass now has to say so or it rebuilds
+		// the whole installation's index under every workspace it is given
+		// (ADR-0091 §8 phase A).
+		sql := fmt.Sprintf(`SELECT t.id, %s FROM %s t
+			 WHERE t.archived_at IS NULL
+			   AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			src.text, src.table)
 		rows, err := tx.Query(ctx, sql)
 		if err != nil {
 			return fmt.Errorf("search: selecting live %s rows: %w", entityType, err)

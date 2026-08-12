@@ -27,7 +27,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
@@ -85,44 +84,6 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 	if got := re.runState(t, awaitingHuman); got.status != "awaiting_approval" {
 		t.Errorf("a run awaiting a human is %q, want awaiting_approval — a person may take weeks, and "+
 			"closing it discards a decision nobody has made", got.status)
-	}
-}
-
-// The sweep is an UPDATE with no id predicate — its only filters are status and
-// age — so every row in the table is a candidate and nothing in the SQL names a
-// tenant. What keeps it inside one workspace is FORCE RLS plus the app.workspace_id
-// GUC that WithWorkspaceTx binds. That is the property the whole shape rests on,
-// so it is asserted here rather than inferred from reading the policy.
-func TestTheSweepCannotReachAnotherTenantsRuns(t *testing.T) {
-	re := setupRunner(t)
-
-	mine := re.seedRun(t, "mine-abandoned", "running", 2*time.Hour, nil)
-	otherWS := re.otherWorkspace(t)
-	theirs := re.seedRunIn(t, otherWS, "theirs-abandoned", 2*time.Hour)
-
-	if err := re.svc.TickWorkspace(re.wsCtx, time.Now().UTC()); err != nil {
-		t.Fatalf("tenant pass: %v", err)
-	}
-
-	if got := re.runState(t, mine); got.status != "failed" {
-		t.Errorf("this tenant's abandoned run is %q, want failed", got.status)
-	}
-	if status := re.statusAsOwner(t, theirs); status != "running" {
-		t.Errorf("another tenant's run is %q after this workspace's pass, want running — one tenant's "+
-			"sweep must not reach another's rows", status)
-	}
-
-	// Positive control, and the whole reason the assertion above means anything:
-	// that row surviving proves isolation only if the same pass WOULD have closed
-	// it. Run through the product's own entry point rather than a cutoff spelled
-	// out again here, so the control cannot drift away from the grace it mirrors.
-	otherCtx := principal.WithWorkspaceID(context.Background(), otherWS)
-	if err := re.svc.TickWorkspace(otherCtx, time.Now().UTC()); err != nil {
-		t.Fatalf("the other tenant's own pass: %v", err)
-	}
-	if status := re.statusAsOwner(t, theirs); status != "failed" {
-		t.Errorf("the other tenant's own pass left its abandoned run %q, want failed — that row was never "+
-			"sweepable, so its survival above proved nothing about isolation", status)
 	}
 }
 

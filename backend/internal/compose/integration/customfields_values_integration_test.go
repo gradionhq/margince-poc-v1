@@ -422,54 +422,6 @@ func TestCustomFieldValues_RetiredFieldHiddenButPreserved(t *testing.T) {
 	}
 }
 
-// TestCustomFieldValues_WorkspaceIsolation: the physical cf_ column is
-// shared across tenants, but the catalog is workspace-scoped — a
-// workspace that never defined the field neither writes nor reads it.
-func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
-	f := setupCFV(t)
-	col := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Tier", Type: customfields.TypeText, Source: "ui"})
-
-	inA, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
-		FullName: "Tenant A Person", Source: "ui",
-		CustomFields: map[string]any{col: "gold"},
-	})
-	if err != nil {
-		t.Fatalf("CreatePerson (tenant A): %v", err)
-	}
-	assertCF(t, inA.AdditionalProperties, col, "gold")
-
-	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
-	inB, err := f.storeFor(wsB).CreatePerson(ctxB, people.CreatePersonInput{
-		FullName: "Tenant B Person", Source: "ui",
-		CustomFields: map[string]any{col: "gold"},
-	})
-	if err != nil {
-		t.Fatalf("CreatePerson (tenant B): %v", err)
-	}
-	assertNoCF(t, inB.AdditionalProperties, col)
-
-	// The dropped write really never landed: B's row holds NULL in the
-	// shared physical column.
-	var stored *string
-	err = database.WithWorkspaceTx(ctxB, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctxB,
-			`SELECT `+col+` FROM person WHERE id = $1`, ids.UUID(inB.Id)).Scan(&stored)
-	})
-	if err != nil {
-		t.Fatalf("reading tenant B's column directly: %v", err)
-	}
-	if stored != nil {
-		t.Fatalf("tenant B's %s = %q, want NULL (write must be dropped)", col, *stored)
-	}
-
-	// Tenant A still reads its value.
-	gotA, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(inA.Id)), storekit.LiveOnly)
-	if err != nil {
-		t.Fatalf("GetPerson (tenant A): %v", err)
-	}
-	assertCF(t, gotA.AdditionalProperties, col, "gold")
-}
-
 // TestCustomFieldValues_UpdateAuditCarriesDiff: cf_ updates ride the
 // same storekit.Patch as core fields, so the audit row's before/after
 // carries the change with no extra bookkeeping.

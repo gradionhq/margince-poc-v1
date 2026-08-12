@@ -341,33 +341,6 @@ func TestSecretsDeleteDestroysTheMaterial(t *testing.T) {
 	}
 }
 
-// TestSecretsAreWorkspaceScoped: the same unit, in another tenant, is
-// another namespace.
-//
-// The port-level assertion alone would be worthless here: keyvault refuses a
-// ref presented under the wrong workspace all by itself (Ref.scopedTo), so
-// Get would answer ErrSecretNotFound even with the tenant predicate AND the
-// RLS policy both removed — it would be testing keyvault, not this store and
-// not the database. So the database layer is pinned first and directly: the
-// mapping row must be invisible to a session bound to the other tenant.
-func TestSecretsAreWorkspaceScoped(t *testing.T) {
-	e := setup(t)
-	s := extsecrets.For("notes", e.pool, e.vault)
-
-	if err := s.Put(e.ctxFor(e.ws), "signing", []byte("tenant-a")); err != nil {
-		t.Fatal(err)
-	}
-	if n := e.rowsVisibleFrom(t, e.ws, "notes", "signing"); n != 1 {
-		t.Fatalf("the owning workspace sees %d mapping rows, want 1 — the fixture is not proving anything", n)
-	}
-	if n := e.rowsVisibleFrom(t, e.otherWS, "notes", "signing"); n != 0 {
-		t.Fatalf("a session bound to another workspace sees %d of this one's mapping rows, want 0", n)
-	}
-	if _, err := s.Get(e.ctxFor(e.otherWS), "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
-		t.Fatalf("another workspace read this one's secret: err=%v", err)
-	}
-}
-
 // TestSecretsRefuseUnusableInput: the failures a caller can fix, named.
 func TestSecretsRefuseUnusableInput(t *testing.T) {
 	e := setup(t)

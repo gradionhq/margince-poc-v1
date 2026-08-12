@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -66,8 +67,32 @@ func setupIdentityDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	if identityDB.err != nil {
 		t.Fatal(identityDB.err)
 	}
+	// Every test in this package bootstraps its own installation into ONE
+	// shared connection, and what used to keep their rows apart was
+	// deny-on-unset RLS. With tenant isolation retired (ADR-0091 §8 phase A)
+	// the separation has to be real: reset before seeding, as
+	// compose/integration's harness does. Once per TEST, not per call — a test
+	// that seeds a second workspace on purpose must not lose its first.
+	identityResetMu.Lock()
+	defer identityResetMu.Unlock()
+	if !identityResetFor[t.Name()] {
+		if err := testdb.Reset(context.Background(), identityDB.owner); err != nil {
+			t.Fatal(err)
+		}
+		identityResetFor[t.Name()] = true
+		t.Cleanup(func() {
+			identityResetMu.Lock()
+			defer identityResetMu.Unlock()
+			delete(identityResetFor, t.Name())
+		})
+	}
 	return identityDB.owner, identityDB.pool
 }
+
+var (
+	identityResetMu  sync.Mutex
+	identityResetFor = map[string]bool{}
+)
 
 // revocationEnv is one bootstrapped workspace: an admin (with session)
 // plus a plain second user with a known password.

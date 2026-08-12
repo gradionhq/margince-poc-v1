@@ -289,29 +289,3 @@ func TestCustomFieldRBAC_ReadGrantCannotChangeSchema(t *testing.T) {
 		t.Fatalf("the read grant lists the catalog: %v / %d rows", err, len(fields))
 	}
 }
-
-func TestCustomFieldRLS_IsolatesCatalogsAcrossWorkspaces(t *testing.T) {
-	e := integration.Setup(t)
-	owner := integration.OwnerConn(t)
-	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-
-	created, err := svc.Create(e.As(e.Rep1, nil, integration.CustomFieldAdminPerms), dateSpec("Renewal date"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
-
-	fields, _, err := svc.List(ctxB, customfieldsmod.ListInput{Object: "deal"})
-	if err != nil {
-		t.Fatalf("List in workspace B: %v", err)
-	}
-	if len(fields) != 0 {
-		t.Fatalf("workspace B must see nothing of A's catalog, got %d rows", len(fields))
-	}
-	if _, err := svc.Rename(ctxB, ids.UUID(created.Id), "Hijack", nil); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("A's row must read as nonexistent from B, got %v", err)
-	}
-	if _, err := svc.SetOptions(ctxB, ids.UUID(created.Id), []string{"a"}); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("A's row must be untouchable from B's options path, got %v", err)
-	}
-}

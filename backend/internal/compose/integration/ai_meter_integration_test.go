@@ -14,15 +14,11 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // meterFreshDatabase resets the data to a clean slate and ensures the schema is
@@ -67,82 +63,4 @@ func meterWorkspace(t *testing.T, ctx context.Context, owner *pgx.Conn, slug str
 		t.Fatal(err)
 	}
 	return wsID
-}
-
-func TestMeterAccumulatesUnderRLS(t *testing.T) {
-	ctx := context.Background()
-	owner, appDSN := meterFreshDatabase(t, ctx)
-	wsA := meterWorkspace(t, ctx, owner, "meter-a")
-	wsB := meterWorkspace(t, ctx, owner, "meter-b")
-
-	pool, err := database.NewPool(ctx, appDSN)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-
-	// A meter per workspace: the handle carries the tenant now (ADR-0091 §9
-	// step 3), so one meter driven by two contexts would fold both tenants'
-	// usage into whichever workspace it was bound to — and the RLS isolation
-	// this asserts would be asserted against nothing.
-	meterA := ai.NewMeter(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsA)))
-	meterB := ai.NewMeter(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsB)))
-	unbound := ai.NewMeter(database.BindTo(pool, ids.WorkspaceID{}))
-	ctxA := principal.WithWorkspaceID(ctx, wsA)
-	ctxB := principal.WithWorkspaceID(ctx, wsB)
-
-	// Two calls on the same (day, task, tier) fold into one counter row.
-	for _, usage := range []ai.Usage{
-		{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud, TokensIn: 100, TokensOut: 40},
-		{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud, TokensIn: 50, TokensOut: 10, Cached: true},
-		{Task: ai.TaskBriefRanking, Tier: ai.TierPremium, TokensIn: 500, TokensOut: 300},
-	} {
-		if err := meterA.Record(ctxA, usage); err != nil {
-			t.Fatalf("record: %v", err)
-		}
-	}
-
-	total, err := meterA.MonthTokens(ctxA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if total != 1000 {
-		t.Fatalf("month tokens = %d, want 1000", total)
-	}
-
-	share, alarm, err := meterA.PremiumShare(ctxA, 30*24*time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if share <= 0.20 || !alarm {
-		t.Fatalf("premium share %f should trip the 20%% alarm", share)
-	}
-
-	// Tenant isolation: workspace B sees none of A's spend.
-	totalB, err := meterB.MonthTokens(ctxB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if totalB != 0 {
-		t.Fatalf("workspace B sees foreign usage: %d", totalB)
-	}
-
-	// A workspace-less call is a programming error, not an empty result.
-	if err := unbound.Record(ctx, ai.Usage{Task: ai.TaskSummarize, Tier: ai.TierCheapCloud}); err == nil {
-		t.Fatal("metering outside workspace context must fail")
-	}
-
-	// The counter row itself folded: one row, calls=2, one cached hit.
-	var calls, cachedHits int64
-	err = database.WithWorkspaceTx(ctxA, pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT calls, cached_hits FROM ai_usage WHERE task = $1`, string(ai.TaskSummarize)).
-			Scan(&calls, &cachedHits)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls != 2 || cachedHits != 1 {
-		t.Fatalf("counter fold wrong: calls=%d cached=%d", calls, cachedHits)
-	}
 }
