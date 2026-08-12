@@ -56,11 +56,19 @@ type Signal = components["schemas"]["Signal"];
 export function CompanyRail({
   orgId,
   view,
+  loading,
   withPeople,
   composerOpen,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
+  // The composite read `view` comes off is still in flight. Threaded to the
+  // sections that read `view` straight (Health, People, Tags) so their
+  // `sectionState` calls can tell "still loading" apart from "the read
+  // failed" — both hand a section an undefined `view`, and without this flag
+  // every one of them reads the failed state for as long as the read runs,
+  // flashing "could not be loaded" on every ordinary page open.
+  loading: boolean;
   // False where the page's own body is already the roster in full.
   withPeople: boolean;
   // A composer drawer is open in this column. The rail stands down entirely
@@ -81,10 +89,10 @@ export function CompanyRail({
         <PanelBody>
           <DetailsGrid organization={view?.organization} />
         </PanelBody>
-        <HealthSection view={view} orgId={orgId} />
-        {withPeople && <PeopleSection view={view} />}
+        <HealthSection view={view} orgId={orgId} loading={loading} />
+        {withPeople && <PeopleSection view={view} loading={loading} />}
         <SignalsSection orgId={orgId} />
-        <TagsSection view={view} orgId={orgId} />
+        <TagsSection view={view} orgId={orgId} loading={loading} />
       </Panel>
     </div>
   );
@@ -113,7 +121,8 @@ const HEALTH_BADGE_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
 function HealthSection({
   view,
   orgId,
-}: Readonly<{ view?: Organization360; orgId?: string }>) {
+  loading,
+}: Readonly<{ view?: Organization360; orgId?: string; loading: boolean }>) {
   const t = useT();
   const health = view?.health;
   const payment = usePaymentHealth(orgId);
@@ -150,6 +159,7 @@ function HealthSection({
     "health",
     Boolean(health),
     lines.length + rated,
+    loading,
   );
   const dimensions = [
     ["relationship", health?.relationship],
@@ -218,7 +228,10 @@ function HealthSection({
  * contact with them. The set-role and route-in verbs stay on the People tab's
  * own roster rather than being rebuilt here a second time.
  */
-function PeopleSection({ view }: Readonly<{ view?: Organization360 }>) {
+function PeopleSection({
+  view,
+  loading,
+}: Readonly<{ view?: Organization360; loading: boolean }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
   const state = sectionState(
@@ -226,6 +239,7 @@ function PeopleSection({ view }: Readonly<{ view?: Organization360 }>) {
     "people",
     Boolean(view?.people),
     contacts.length,
+    loading,
   );
   return (
     <Disclosure

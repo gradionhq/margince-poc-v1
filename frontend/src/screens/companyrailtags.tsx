@@ -34,7 +34,8 @@ type Organization = components["schemas"]["Organization"];
 export function TagsSection({
   view,
   orgId,
-}: Readonly<{ view?: Organization360; orgId: string }>) {
+  loading,
+}: Readonly<{ view?: Organization360; orgId: string; loading: boolean }>) {
   const t = useT();
   const tags = view?.tags ?? [];
   const lists = view?.list_memberships ?? [];
@@ -43,8 +44,15 @@ export function TagsSection({
     "list_memberships",
     Boolean(view?.list_memberships),
     lists.length,
+    loading,
   );
-  const tagState = sectionState(view, "tags", Boolean(view?.tags), tags.length);
+  const tagState = sectionState(
+    view,
+    "tags",
+    Boolean(view?.tags),
+    tags.length,
+    loading,
+  );
   const listsAnswered = sectionAnswered(listState);
   const tagsAnswered = sectionAnswered(tagState);
   // Absent, not zero, until at least one half has actually answered: two
