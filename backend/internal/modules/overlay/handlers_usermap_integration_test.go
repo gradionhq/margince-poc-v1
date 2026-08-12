@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -45,7 +46,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, want int, out any)
 // directory, pin a user to an owner from it, read the page back, then unmap.
 func TestUserMapHandlersServeTheAdminRoundTrip(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		owners: []OwnerRef{{ExternalID: "owner-1", Email: "ada@acme.test", Name: "Ada Lovelace"}},
 	})
 	h := NewHandlers(svc)
@@ -119,8 +120,9 @@ func TestUserMapHandlersServeTheAdminRoundTrip(t *testing.T) {
 // mode_not_overlay 404 rather than an empty page a card would render as
 // "nobody to map".
 func TestListOverlayUserMapIs404InNativeMode(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	h := NewHandlers(NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})))
+	ctx, pool, ws := testWorkspaceCtx(t)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	h := NewHandlers(NewService(db, keyvault.NewMemory(), NewMirrorStore(db, noOwnerEmails{})))
 
 	rec := httptest.NewRecorder()
 	h.ListOverlayUserMap(rec,
@@ -141,8 +143,8 @@ func TestListOverlayUserMapIs404InNativeMode(t *testing.T) {
 // fix exists to correct, so it is pinned at the transport, not just at the
 // decoder.
 func TestListOverlayUserMapAnswers422ForAMalformedCursor(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	h := NewHandlers(connectedUserMapService(ctx, t, pool, &directoryIncumbent{}))
+	ctx, pool, ws := testWorkspaceCtx(t)
+	h := NewHandlers(connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{}))
 	garbage := "not valid base64!!"
 
 	rec := httptest.NewRecorder()

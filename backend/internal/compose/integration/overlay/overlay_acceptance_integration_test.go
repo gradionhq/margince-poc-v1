@@ -48,6 +48,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -69,7 +70,7 @@ func seedMirroredPersonFixture(t *testing.T, e *integration.Env) (context.Contex
 	t.Helper()
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
-	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(overlayWS), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -312,7 +313,7 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -429,7 +430,7 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.DBFor(ws), stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -482,7 +483,11 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 
 	t.Run("an unmapped user sees zero rows through the composed dispatcher (existence-hiding)", func(t *testing.T) {
 		unmappedCtx := overlayActorCtx(ws, seedUnmappedAppUser(t, ws))
-		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
+		// Bound to ws, the workspace the mirror fixture above wrote: a provider
+		// bound to any other one answers not-found for every id, and this arm
+		// asserts not-found — it would pass without ever reaching the rows whose
+		// hiding it exists to prove.
+		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProviderFor(e.DBFor(ws), overlaybudget.New(nil, nil), nil), e.Pool)
 		if _, err := d.Search(unmappedCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10}); !errors.Is(err, apperrors.ErrNotFound) {
 			t.Fatalf("dispatched Search for an unmapped user = %v, want apperrors.ErrNotFound (existence-hiding, zero rows)", err)
 		}
@@ -545,7 +550,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	pool := openAppPool(t)
-	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID)), stubOwnerEmails{})
 	adminCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)

@@ -43,9 +43,9 @@ import (
 func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -124,9 +124,9 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 func TestReconcileConnectionStopsCleanlyWhenReconnectedMidSweep(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -239,8 +239,8 @@ func (r *revokeOnOwnersIncumbent) Owners(ctx context.Context) ([]overlay.OwnerRe
 func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	if _, err := overlay.NewService(e.Pool, vault, ms).
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.DB(), vault, ms).
 		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -248,9 +248,8 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 	fakeInc.SeedOwner("owner-1", "a@authz.test") // matches Rep1, so SeedUserMap reaches a fenced UpsertUserMap
 
 	w := &overlayReconcileWorkspaceWorker{
-		pool: e.Pool, vault: vault, ms: ms,
-		meter: workerBudgetMeter(t),
-		log:   slog.New(slog.DiscardHandler),
+		pool: e.Pool, vault: vault, meter: workerBudgetMeter(t),
+		log: slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent {
 			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
 		},
@@ -304,8 +303,8 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
-	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	svc := overlay.NewService(e.Pool, vault, ms)
+	ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
+	svc := overlay.NewService(e.DB(), vault, ms)
 	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
 
 	if _, err := svc.Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {

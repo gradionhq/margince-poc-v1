@@ -49,7 +49,7 @@ func queryRowWS(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sql strin
 func TestActiveConnectionReadsThisWorkspacesConnection(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := ActiveConnection(ctx, pool); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("ActiveConnection with no connection = %v, want ErrNotFound", err)
@@ -77,7 +77,7 @@ func TestActiveConnectionReadsThisWorkspacesConnection(t *testing.T) {
 func TestConnectSealsTheTokenAndFlipsTheWorkspaceToOverlay(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	const token = "pat-super-secret-hubspot-token"
 	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: token})
@@ -143,9 +143,9 @@ func TestConnectSealsTheTokenAndFlipsTheWorkspaceToOverlay(t *testing.T) {
 }
 
 func TestConnectTwiceAnswersAlreadyConnected(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "us1", Token: "first-token"}); err != nil {
 		t.Fatalf("first Connect: %v", err)
@@ -160,9 +160,9 @@ func TestConnectTwiceAnswersAlreadyConnected(t *testing.T) {
 }
 
 func TestGetAnswersNotFoundBeforeConnectAndTheConnectionAfter(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := svc.Get(ctx); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("Get before Connect = %v, want apperrors.ErrNotFound", err)
@@ -193,7 +193,7 @@ func TestConnectionLifecycleObjectRBACDeniesMemberAllowsAdmin(t *testing.T) {
 	_, memberUserID := testWorkspaceCtxAsUser(t, ws, "member@overlay.test")
 	memberCtx := testMemberCtx(ws, memberUserID)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	// A member (read-only on overlay_connection) is denied Connect...
 	if _, err := svc.Connect(memberCtx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "member-attempt"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -234,9 +234,9 @@ func TestConnectionLifecycleObjectRBACDeniesMemberAllowsAdmin(t *testing.T) {
 // place, the teardown tombstones that would suppress re-mirroring are gone,
 // and the workspace is back in overlay mode.
 func TestConnectAfterDisconnectRevivesTheConnection(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	first, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestConnectAfterDisconnectRevivesTheConnection(t *testing.T) {
 func TestReconnectAuditsThePreviousRegion(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"}); err != nil {
 		t.Fatalf("first Connect: %v", err)
@@ -327,9 +327,9 @@ func TestReconnectAuditsThePreviousRegion(t *testing.T) {
 
 // An ACTIVE connection still refuses a second connect — only a revoked one reconnects.
 func TestConnectRefusesASecondActiveConnection(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"}); err != nil {
 		t.Fatalf("first Connect: %v", err)

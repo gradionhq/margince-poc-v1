@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -53,7 +52,8 @@ type Row struct {
 // concern, not an audit-log concern; only genuine domain events
 // (mirror.conflict, mirror.budget_degraded) go through storekit.Emit.
 type MirrorStore struct {
-	pool   *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db     *database.DB
 	emails OwnerEmailResolver
 	// fenced opts this store into the disconnect-race fence
 	// (disconnectfence.go): every mutation that could resurrect
@@ -84,8 +84,8 @@ type MirrorStore struct {
 // UpsertUserMap's and Ingest's owner-email-change re-validation
 // (visibility.go, design.md §4.6 rules 3/5) verify a mirror_user_map row
 // against.
-func NewMirrorStore(pool *pgxpool.Pool, emails OwnerEmailResolver) *MirrorStore {
-	return &MirrorStore{pool: pool, emails: emails}
+func NewMirrorStore(db *database.DB, emails OwnerEmailResolver) *MirrorStore {
+	return &MirrorStore{db: db, emails: emails}
 }
 
 // WithResolver returns a MirrorStore identical to s but resolving owner
@@ -169,7 +169,7 @@ func (s *MirrorStore) Ingest(ctx context.Context, rec Record) error {
 // what the mirror held, and only a landed row can have.
 func (s *MirrorStore) ingestReporting(ctx context.Context, rec Record) (bool, error) {
 	var landed bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		landed, err = s.ingestTx(ctx, tx, rec)
 		return err
@@ -304,7 +304,7 @@ func (s *MirrorStore) UpsertAssoc(ctx context.Context, a Assoc) error {
 	if a.Label != "" {
 		label = a.Label
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ WHERE object_class = $1 AND external_id = $2`
 
 func (s *MirrorStore) getRaw(ctx context.Context, objectClass, externalID string) (Row, error) {
 	var row Row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, selectRawMirrorRowSQL, objectClass, externalID).Scan(
 			&row.ObjectClass, &row.ExternalID, &row.Fields, &row.UpdatedAtBaseline,
 			&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt,
@@ -369,7 +369,7 @@ WHERE m.object_class = $2 AND m.external_id = $3`
 // before the query ever runs — zero rows, existence-hiding, never a 403.
 func (s *MirrorStore) Get(ctx context.Context, objectClass, externalID string) (Row, error) {
 	var row Row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		mirrorUserID, err := resolveActingMirrorUserID(ctx, tx)
 		if err != nil {
 			return err
@@ -434,7 +434,7 @@ func (s *MirrorStore) List(ctx context.Context, objectClass, cursor string, limi
 	limit = clampListLimit(limit)
 
 	var rows []Row
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		mirrorUserID, err := resolveActingMirrorUserID(ctx, tx)
 		if err != nil {
 			return err

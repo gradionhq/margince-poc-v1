@@ -50,9 +50,9 @@ func (d *directoryIncumbent) Owners(context.Context) ([]OwnerRef, error) {
 // and connects it to inc — the state every user-map operation requires, since
 // all four are refused outright in native mode. The vault round-trip the
 // connect sets up is the path ownerDirectory actually takes to reach inc.
-func connectedUserMapService(ctx context.Context, t *testing.T, pool *pgxpool.Pool, inc *directoryIncumbent) *Service {
+func connectedUserMapService(ctx context.Context, t *testing.T, db *database.DB, inc *directoryIncumbent) *Service {
 	t.Helper()
-	svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})).
+	svc := NewService(db, keyvault.NewMemory(), NewMirrorStore(db, noOwnerEmails{})).
 		WithIncumbentFactory(func(string, string) Incumbent { return inc })
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-user-map"}); err != nil {
 		t.Fatalf("connecting the fixture incumbent: %v", err)
@@ -64,8 +64,9 @@ func connectedUserMapService(ctx context.Context, t *testing.T, pool *pgxpool.Po
 // /overlay cluster's own convention is a mode_not_overlay 404, never an
 // empty page that would read as "this workspace has no users to map".
 func TestUserMapSurfaceIs404InNativeMode(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})).
+	ctx, pool, ws := testWorkspaceCtx(t)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	svc := NewService(db, keyvault.NewMemory(), NewMirrorStore(db, noOwnerEmails{})).
 		WithIncumbentFactory(func(string, string) Incumbent { return &directoryIncumbent{} })
 	someUser := ids.New[ids.UserKind]()
 
@@ -113,7 +114,7 @@ func disconnectUnderARequestHoldingAStaleMode(ctx context.Context, t *testing.T,
 // and revoked its connection.
 func TestSetUserMapRacingADisconnectIsRefused(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		owners: []OwnerRef{{ExternalID: "owner-1", Email: "rep@acme.test"}},
 	})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
@@ -134,7 +135,7 @@ func TestSetUserMapRacingADisconnectIsRefused(t *testing.T) {
 // auto-map block nobody in that connection's lifetime ever set.
 func TestUnmapUserRacingADisconnectIsRefused(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		owners: []OwnerRef{{ExternalID: "owner-1", Email: "rep@acme.test"}},
 	})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
@@ -162,7 +163,7 @@ func TestUnmapUserRacingADisconnectIsRefused(t *testing.T) {
 // closes, not a replacement for it.
 func TestUserMapSurfaceIs404AfterDisconnect(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{})
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -183,7 +184,7 @@ func TestUserMapSurfaceIs404AfterDisconnect(t *testing.T) {
 // directory — the two halves the settings card is built on.
 func TestSetUserMapPinsAManualOverrideThePageReadsBack(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		owners: []OwnerRef{{ExternalID: "owner-1", Email: "ada@acme.test", Name: "Ada Lovelace"}},
 	})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
@@ -221,7 +222,7 @@ func TestSetUserMapPinsAManualOverrideThePageReadsBack(t *testing.T) {
 // for every other caller.
 func TestSetUserMapRefusesABlankIncumbentUserIDAndWritesNothing(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{})
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -238,7 +239,7 @@ func TestSetUserMapRefusesABlankIncumbentUserIDAndWritesNothing(t *testing.T) {
 // a fabricated diagnosis from a directory it could not read.
 func TestUserMapDegradesHonestlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		err: fmt.Errorf("test: the owners directory is unreachable"),
 	})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
@@ -285,7 +286,7 @@ func TestUserMapDegradesHonestlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 // this installation no longer mirrors.
 func TestUserMapAnswers404WhenTheConnectionVanishesBeforeTheDirectoryRead(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{
 		owners: []OwnerRef{{ExternalID: "owner-1", Email: "rep@acme.test"}},
 	})
 	testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
@@ -310,7 +311,7 @@ func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T)
 			Email:      fmt.Sprintf("owner-%d@acme.test", i),
 		})
 	}
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{owners: oversized})
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{owners: oversized})
 	_, unmatchedRaw := testWorkspaceCtxAsUser(t, ws, "unmatched@acme.test")
 	unmatched := ids.From[ids.UserKind](unmatchedRaw)
 	_, pinnedRaw := testWorkspaceCtxAsUser(t, ws, "pinned@acme.test")
@@ -362,7 +363,7 @@ func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T)
 // the response — and a capped list that did not say so would read as the
 // incumbent's complete directory.
 func TestOwnersCapsTheDirectoryAndReportsTheTruncation(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	oversized := make([]OwnerRef, 0, ownerDirectoryCap+1)
 	for i := range ownerDirectoryCap + 1 {
 		oversized = append(oversized, OwnerRef{
@@ -370,7 +371,7 @@ func TestOwnersCapsTheDirectoryAndReportsTheTruncation(t *testing.T) {
 			Email:      fmt.Sprintf("owner-%d@acme.test", i),
 		})
 	}
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{owners: oversized})
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{owners: oversized})
 
 	dir, err := svc.Owners(ctx)
 	if err != nil {
@@ -396,7 +397,7 @@ func TestOwnersCapsTheDirectoryAndReportsTheTruncation(t *testing.T) {
 // it would keep passing against a fixture that had drifted from the policy.
 func TestUserMapRefusesAMemberAgainstTheRealWorkspace(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{})
+	svc := connectedUserMapService(ctx, t, database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), &directoryIncumbent{})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	memberCtx := testMemberCtx(ws, repRaw)
 

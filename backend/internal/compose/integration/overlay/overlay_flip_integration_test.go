@@ -172,7 +172,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	}
 
 	pool := openAppPool(t)
-	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](wsID)), stubOwnerEmails{})
 	adminCtx := flipAdminCtx(wsID, adminID)
 
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {

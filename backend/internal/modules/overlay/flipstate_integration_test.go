@@ -103,8 +103,8 @@ func markBackfillDone(ctx context.Context, t *testing.T, pool *pgxpool.Pool, inc
 
 // flipService builds the Service under test with the hubspot
 // canonical→incumbent translation the backfill-completeness check needs.
-func flipService(pool *pgxpool.Pool) *Service {
-	svc := NewService(pool, nil, NewMirrorStore(pool, nil))
+func flipService(db *database.DB) *Service {
+	svc := NewService(db, nil, NewMirrorStore(db, nil))
 	return svc.WithIncumbentClassesTranslator(func(canonical string) ([]string, bool) {
 		switch canonical {
 		case "person":
@@ -118,9 +118,9 @@ func flipService(pool *pgxpool.Pool) *Service {
 }
 
 func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)
-	svc := flipService(pool)
+	svc := flipService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	// Fresh overlay, one converged person row.
 	seedMirrorPerson(ctx, t, pool, "p-1", "fresh")
@@ -161,9 +161,9 @@ func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 }
 
 func TestFlipChecksRequireBackfillConvergence(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)
-	svc := flipService(pool)
+	svc := flipService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	seedMirrorPerson(ctx, t, pool, "p-1", "fresh")
 	recordSweepSuccess(ctx, t, pool)
@@ -178,10 +178,10 @@ func TestFlipChecksRequireBackfillConvergence(t *testing.T) {
 }
 
 func TestSealUnsealLifecycleAndFreezeFence(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)
-	svc := flipService(pool)
-	ms := NewMirrorStore(pool, nil)
+	svc := flipService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), nil)
 
 	snap, err := svc.SealFlipSnapshot(ctx)
 	if err != nil {
@@ -235,7 +235,7 @@ func TestSealUnsealLifecycleAndFreezeFence(t *testing.T) {
 func TestCompleteFlipFlipsModeOnceAndKeepsConnection(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)
-	svc := flipService(pool)
+	svc := flipService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 	var flipped []ids.UUID
 	svc = svc.WithModeFlipObserver(func(id ids.UUID) { flipped = append(flipped, id) })
 
@@ -288,9 +288,9 @@ func TestCompleteFlipFlipsModeOnceAndKeepsConnection(t *testing.T) {
 }
 
 func TestDisconnectRefusesARunningImportButNeverALatchedFreeze(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)
-	svc := flipService(pool)
+	svc := flipService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)))
 
 	// A RUNNING flip import is the one thing disconnect refuses: tearing
 	// the mirror down mid-import would migrate a vanishing estate.

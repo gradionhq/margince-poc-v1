@@ -20,13 +20,14 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestSourceLagByClassReportsTheOldestWatermarkPerClass(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	ms := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, ms)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, ms)
 
 	// Flip this workspace into overlay mode — SourceLagByClass's own
 	// fleet query filters on x_sor_mode='overlay', the same condition
@@ -95,8 +96,8 @@ func TestSourceLagByClassReportsTheOldestWatermarkPerClass(t *testing.T) {
 // mode-related — the mode boundary here is SourceLagByClass's own
 // workspace enumeration, not Ingest).
 func TestSourceLagByClassIgnoresNativeModeWorkspaces(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t) // testWorkspaceCtx's own fixture never flips to overlay mode
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t) // testWorkspaceCtx's own fixture never flips to overlay mode
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	if err := ms.Ingest(ctx, Record{
 		ObjectClass: "native_probe", ExternalID: "99", Fields: map[string]any{}, ModifiedAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 	}); err != nil {

@@ -451,7 +451,7 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The gate and the registry take the SAME meter pointer: one refuses on the
 	// bound, the other pays into it, and a surface where those were two
 	// counters would step an agent up against a number nothing was charging.
-	s.toolRegistry = registryWithGate(pool,
+	s.toolRegistry = registryWithGate(InstallationDB(pool),
 		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
 		s.retrievalEmbedder,

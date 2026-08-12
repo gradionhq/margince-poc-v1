@@ -32,7 +32,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -92,7 +91,7 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 		return FlipChecks{}, err
 	}
 	checks := FlipChecks{Incumbent: incumbent}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `SELECT status FROM incumbent_connection`).Scan(&checks.ConnectionStatus); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Overlay mode with no connection row cannot arise through
@@ -186,7 +185,7 @@ func (s *Service) SealFlipSnapshot(ctx context.Context) (FlipSnapshot, error) {
 	// resume path keys a checkpoint on it — a stale checkpoint matched
 	// against a DIFFERENT freeze would skip rows it never imported.
 	candidate := "snap-" + time.Now().UTC().Format("2006-01-02T15:04:05Z") + "-" + ids.NewV7().String()
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, flip_snapshot_id, mirror_frozen_at, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), $1, now(), now())
@@ -247,7 +246,7 @@ func (s *Service) UnsealFlipSnapshot(ctx context.Context) error {
 	if err := s.requireOverlayMode(ctx); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// RETURNING the OLD values: the SET list has already replaced
 		// them in the returned row, so the prior state is read from the
 		// pre-update snapshot the CTE holds.
@@ -286,7 +285,7 @@ func (s *Service) FlipSnapshot(ctx context.Context) (FlipSnapshot, error) {
 		return FlipSnapshot{}, err
 	}
 	var snap FlipSnapshot
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var id *string
 		var frozenAt *time.Time
 		err := tx.QueryRow(ctx, `SELECT flip_snapshot_id, mirror_frozen_at FROM overlay_sync_state`).Scan(&id, &frozenAt)
@@ -327,7 +326,7 @@ func (s *Service) CompleteFlip(ctx context.Context, runID ids.UUID, mode string)
 	if !ok {
 		return errors.New("overlay: flip completion called outside a workspace context")
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE workspace SET x_sor_mode = 'native', x_incumbent = NULL
 			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid

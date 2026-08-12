@@ -25,6 +25,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -85,9 +86,9 @@ func OverlayBudgetConfig(cfg deployconfig.OverlayBudget) overlaybudget.Config {
 // (jobs_overlay.go's overlayReconcileWorker), which builds its own
 // incumbent adapter from the same overlayIncumbentFactory.
 func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlaybudget.Meter, log *slog.Logger, backfillLimit int, onModeFlip func(workspaceID ids.UUID)) overlay.Handlers {
-	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(InstallationDB(pool), unresolvedOwnerEmails{})
 	incumbent := overlayIncumbentFactory(backfillLimit)
-	svc := overlay.NewService(pool, vault, ms).
+	svc := overlay.NewService(InstallationDB(pool), vault, ms).
 		WithBudgetMeter(meter).
 		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
@@ -126,7 +127,15 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 // force-fresh to the mirror honestly (freshness.go's own doc) — never a
 // faked authority claim.
 func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
-	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	return NewOverlayProviderFor(InstallationDB(pool), meter, resolveIncumbent)
+}
+
+// NewOverlayProviderFor is NewOverlayProvider over a handle whose workspace is
+// already decided — the harness half of the same wiring. A server resolves the
+// installation's singleton; a suite that seeds a second workspace to prove one
+// tenant cannot read another names the one it means (ADR-0091 §9 step 3).
+func NewOverlayProviderFor(db *database.DB, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
+	ms := overlay.NewMirrorStore(db, unresolvedOwnerEmails{})
 	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
 	p := overlay.NewProvider(ms, ff)
 	// Wire the write-back path's incumbent resolver too — NewProvider stores
@@ -137,7 +146,7 @@ func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveI
 	p.SetFreshnessIncumbentResolver(resolveIncumbent)
 	// Wire the echo-suppression ledger's producer half (OVA-DDL-6): each
 	// write-back opens ledger entries so the webhook receiver can drop its echo.
-	p.SetWriteLedger(overlay.NewWriteLedger(pool), slog.Default())
+	p.SetWriteLedger(overlay.NewWriteLedger(db), slog.Default())
 	return p
 }
 
