@@ -130,6 +130,39 @@ func (s *Store) activeColumnsFor(ctx context.Context, object string) ([]fieldcat
 	return s.catalog.ActiveColumns(ctx, object)
 }
 
+// CustomColumns is the catalog's answer, carried from a caller that had to
+// fetch it before it opened its transaction to the seam that runs inside that
+// transaction.
+//
+// The columns are unexported deliberately. They become quoted identifiers in a
+// SELECT list and in an UPDATE's SET clause (storekit's customcolumns
+// helpers), so a caller able to name its own would be able to widen a read to
+// any column of the same table, or to write a core column past the typed input
+// this store validates — `fx_rate_to_base` reached through the custom-field
+// patch would bypass every money invariant beside it. Only this package can
+// populate one, so that is unrepresentable rather than forbidden by comment.
+// The zero value is the honest empty answer: core columns only.
+type CustomColumns struct {
+	cols []fieldcatalog.Column
+}
+
+// ActiveDealColumns is the caller-side half of UpdateDealTx: a caller that
+// opens the transaction itself does this read BEFORE opening it, then threads
+// the answer in. That is the same order every store-opened entry point uses;
+// it is exported only because the caller of a tx-accepting seam is outside
+// this package.
+//
+// Unlike people's twin it takes no grant of its own: its one caller is the
+// extraction accept-write, which has already taken deal:update before it
+// reaches the write phase, and deal:read is not what that seat holds this for.
+func (s *Store) ActiveDealColumns(ctx context.Context) (CustomColumns, error) {
+	cols, err := s.activeColumns(ctx)
+	if err != nil {
+		return CustomColumns{}, err
+	}
+	return CustomColumns{cols: cols}, nil
+}
+
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	return s.db.Tx(ctx, fn)
 }

@@ -399,10 +399,15 @@ func TestExtractionAcceptDealUpdateAndNotesShareOneTransaction(t *testing.T) {
 	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, AdminPerms)
 
 	forced := errors.New("forced rollback to prove the shared transaction")
-	err := database.WithWorkspaceTx(ctx, a.Pool, func(tx pgx.Tx) error {
+	// The catalog read belongs above the transaction, as it does in Accept().
+	active, err := a.Deals.ActiveDealColumns(ctx)
+	if err != nil {
+		t.Fatalf("reading the deal's active custom columns: %v", err)
+	}
+	err = database.WithWorkspaceTx(ctx, a.Pool, func(tx pgx.Tx) error {
 		if _, err := a.Deals.UpdateDealTx(ctx, tx, ids.From[ids.DealKind](a.deal), deals.UpdateDealInput{
 			Name: strPtr("Rolled Back Name"),
-		}); err != nil {
+		}, active); err != nil {
 			return err
 		}
 		if _, _, err := a.Activities.LogActivityTx(ctx, tx, activities.LogActivityInput{

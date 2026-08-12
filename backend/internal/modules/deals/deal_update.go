@@ -72,23 +72,18 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInpu
 // failure rolls the deal update back too, instead of UpdateDeal opening
 // (and committing) a second transaction of its own.
 //
-// activeColumns runs here BEFORE touching tx, per its own documented rule
-// (never nested inside an open transaction — a second pool acquire while
-// the caller's tx holds one connection is a deadlock shape under load).
-// This holds only because every UpdateDealTx caller today builds its
-// Store with NewStore (no WithFieldCatalog), so activeColumns
-// short-circuits to (nil, nil) with no pool access; a future caller that
-// wires a catalog here must fetch active columns itself, before opening
-// its tx, and thread them through — exactly as UpdateDeal does.
-func (s *Store) UpdateDealTx(ctx context.Context, tx pgx.Tx, id ids.DealID, in UpdateDealInput) (crmcontracts.Deal, error) {
+// active is the caller's to fetch, with ActiveDealColumns, before it opens
+// that transaction: the catalog read runs a transaction of its own, and a
+// second connection taken from inside the caller's would commit separately and
+// block undetectably against a lock the caller already holds. Passing it in is
+// what makes that unrepresentable rather than merely discouraged.
+func (s *Store) UpdateDealTx(ctx context.Context, tx pgx.Tx, id ids.DealID,
+	in UpdateDealInput, active CustomColumns,
+) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	active, err := s.activeColumns(ctx)
-	if err != nil {
-		return crmcontracts.Deal{}, err
-	}
-	return s.updateDealInTx(ctx, tx, id, in, active)
+	return s.updateDealInTx(ctx, tx, id, in, active.cols)
 }
 
 // updateDealInTx is UpdateDeal's transactional body, shared by the

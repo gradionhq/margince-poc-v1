@@ -157,18 +157,21 @@ func (s *Store) GetPerson(ctx context.Context, id ids.PersonID, archived storeki
 // the composite record read, which must see every one of its sections at the
 // same instant and cannot afford a second connection per section. Same gates
 // in the same order; only the transaction is borrowed.
-func (s *Store) GetPersonTx(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
+//
+// active is the caller's to fetch, with ActivePersonColumns, before it opens
+// that transaction: the catalog read runs a transaction of its own, and a
+// second connection taken from inside the caller's would commit separately and
+// block undetectably against a lock the caller already holds.
+func (s *Store) GetPersonTx(ctx context.Context, tx pgx.Tx, id ids.PersonID,
+	archived storekit.ArchivedFilter, active CustomColumns,
+) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
-		return crmcontracts.Person{}, err
-	}
-	active, err := s.activeColumns(ctx, "person")
-	if err != nil {
 		return crmcontracts.Person{}, err
 	}
 	if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 		return crmcontracts.Person{}, err
 	}
-	return readPerson(ctx, tx, id, archived, active)
+	return readPerson(ctx, tx, id, archived, active.cols)
 }
 
 type UpdatePersonInput struct {

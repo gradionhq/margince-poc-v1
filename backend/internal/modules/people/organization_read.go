@@ -51,15 +51,18 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 // transaction — the composite record read, which must see every one of its
 // sections at the same instant and cannot afford a second connection per
 // section. Same gates in the same order; only the transaction is borrowed.
-func (s *Store) GetOrganizationTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
+//
+// active is the caller's to fetch, with ActiveOrganizationColumns, before it
+// opens that transaction: the catalog read runs a transaction of its own, and a
+// second connection taken from inside the caller's would commit separately and
+// block undetectably against a lock the caller already holds.
+func (s *Store) GetOrganizationTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
+	archived storekit.ArchivedFilter, active CustomColumns,
+) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
-	active, err := s.activeColumns(ctx, "organization")
-	if err != nil {
-		return crmcontracts.Organization{}, err
-	}
-	return getOrganizationInTx(ctx, tx, id, archived, active)
+	return getOrganizationInTx(ctx, tx, id, archived, active.cols)
 }
 
 // getOrganizationInTx is the shared body of the store-opened and

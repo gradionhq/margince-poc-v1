@@ -68,8 +68,15 @@ func NewService(pool *pgxpool.Pool, peopleStore *people.Store, approvalsSvc *app
 func (s *Service) Assemble(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.Organization360, error) {
 	now := s.now().UTC()
 	out := crmcontracts.Organization360{AsOf: now, SectionsOmitted: []crmcontracts.Organization360SectionsOmitted{}}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		org, err := s.people.GetOrganizationTx(ctx, tx, orgID, storekit.LiveOnly)
+	// The custom-field catalog is read above the transaction, not inside it:
+	// it opens one of its own, and this page holds the only connection its
+	// sections have for as long as it runs.
+	active, err := s.people.ActiveOrganizationColumns(ctx)
+	if err != nil {
+		return crmcontracts.Organization360{}, err
+	}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		org, err := s.people.GetOrganizationTx(ctx, tx, orgID, storekit.LiveOnly, active)
 		if err != nil {
 			return err
 		}
