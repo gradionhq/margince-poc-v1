@@ -148,7 +148,7 @@ func TestModelRateCrossWorkspaceIsolation(t *testing.T) {
 	if _, err := store.SetModelRate(e.Admin(), ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: time.Now().UTC()}); err != nil {
 		t.Fatalf("set in workspace A: %v", err)
 	}
-	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t))
+	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
 	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
 	var n int
 	if err := database.WithWorkspaceTx(ctxB, e.Pool, func(tx pgx.Tx) error {

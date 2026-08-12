@@ -133,8 +133,9 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "enterprise")
 
-	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t))
-	ctxB = withPerms(ctxB, t, wsB, dealCFVPerms)
+	// The deal grants, not the catalog ones: this arm creates a DEAL in tenant B,
+	// so the perms it needs are the ones the write goes through.
+	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t), dealCFVPerms)
 	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
 	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
@@ -167,21 +168,6 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	assertCF(t, gotA.AdditionalProperties, col, "enterprise")
 }
 
-// withPerms rebinds a second-tenant context under the given permission
-// set (SeedSecondWorkspace fixes catalog-admin perms; the deal suites
-// need the deal + pipeline grants too).
-func withPerms(ctx context.Context, t *testing.T, ws ids.UUID, perms principal.Permissions) context.Context {
-	t.Helper()
-	rebound := principal.WithWorkspaceID(context.Background(), ws)
-	rebound = principal.WithCorrelationID(rebound, ids.NewV7())
-	actor, ok := principal.Actor(ctx)
-	if !ok {
-		t.Fatal("withPerms: no actor on the source context")
-	}
-	actor.Permissions = perms
-	return principal.WithActor(rebound, actor)
-}
-
 // seedDealFixtureIn provisions the default pipeline in the context's
 // workspace and returns its pipeline id plus the first open stage.
 func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (ids.PipelineID, ids.StageID) {
@@ -202,5 +188,5 @@ func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (i
 	return ids.PipelineID{}, ids.StageID{}
 }
 
-// dealIDOf mirrors PersonIDOf/OrgIDOf for the deal suites.
+// dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.
 func dealIDOf(u ids.UUID) ids.DealID { return ids.From[ids.DealKind](u) }

@@ -393,7 +393,7 @@ func assertListFiltering(t *testing.T, e *apptest.AppEnv) {
 	}
 
 	// A DIFFERENT valid target object, not just any string: the object parameter
-	// is membership-checked against customfieldsmod.FieldObjects, so a non-target
+	// is membership-checked against the modules/customfields FieldObjects list, so a non-target
 	// (`activity`, `relationship`) answers 422 and would prove nothing about
 	// filtering.
 	var otherObject customFieldListWire

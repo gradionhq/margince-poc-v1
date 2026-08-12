@@ -18,21 +18,23 @@
 //
 // # Where the boundary fell, which is not where the names suggest
 //
-// The custom-field suites divide by FIXTURE, not by topic, and the two halves
-// barely touch:
+// The split is by WHAT DRIVES THE WRITE, and the fixtures follow from that:
 //
-//   - Here: the catalog and the HTTP surface, which share createCustomField, the
-//     RFC 7807 problem shape, and the schema-wired environment.
-//   - In the parent: the value-preservation and vocabulary suites, which share
-//     setupCFV, assertCF and the cfvFixture type.
+//   - Here: the suites that drive the customfields Service or its HTTP surface.
+//     They carry two fixture families — Setup + SchemaPool + integration
+//     .CustomFieldAdminPerms for the service suites, and schemaWiredEnv +
+//     createCustomField + the RFC 7807 problem shape for the wire ones.
+//   - In the parent: the suites that drive a RECORD store — people, deals — whose
+//     rows happen to carry cf_ values. They share setupCFV, assertCF and the
+//     cfvFixture type, none of which is reachable from here.
 //
-// So customfields_values_http lives HERE while customfields_values does not —
-// the HTTP one creates fields through the endpoint and the store one seeds them
-// through the fixture. Reading the file names alone, that looks backwards.
+// So customfields_values_http lives HERE while customfields_values does not: the
+// first is a wire suite, the second seeds values through a record store. Reading
+// the file names alone, that looks backwards.
 //
-// privacy_customfields also stayed, and deliberately: it is a GDPR suite (Art. 17
-// erasure and Art. 15 SAR must reach cf_ columns like core columns), it is built
-// on the parent's erasure fixtures, and its subject is privacy rather than field
-// configuration. Moving it would have meant dragging the erasure subject seeder
-// across the boundary for one caller.
+// privacy_customfields stayed for the same rule rather than as an exception to it:
+// it is built on setupCFV, cfvFixture and assertCF, which are the parent's. (It is
+// also a GDPR suite — Art. 17 erasure and Art. 15 SAR must reach cf_ columns like
+// core columns — and it needs the parent's erasure subject seeder, which lives in
+// a _test.go file and so is unreachable from any subpackage.)
 package customfields

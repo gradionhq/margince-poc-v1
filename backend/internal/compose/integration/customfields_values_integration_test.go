@@ -11,7 +11,8 @@ package integration
 // and get/list reads like core fields. Store-level suites prove the
 // value semantics (six-type round trip, drop-on-mismatch, unknown-key
 // drop, retired-field hiding, workspace isolation, the audit diff); the
-// HTTP suite proves the wire flatten — cf_ keys ride the payload
+// HTTP suite — customfields_values_http_integration_test.go, which moved to
+// integration/customfields — proves the wire flatten — cf_ keys ride the payload
 // TOP-LEVEL through the generated types' additionalProperties — plus
 // the picklist CHECK → 422 mapping over the real compose wiring.
 
@@ -31,7 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// cfvPerms is CFAdminPerms plus the organization grants this suite's
+// cfvPerms is CustomFieldAdminPerms plus the organization grants this suite's
 // org round trip needs.
 var cfvPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
@@ -150,13 +151,13 @@ func TestCustomFieldValues_OrganizationRoundTrip(t *testing.T) {
 	}
 	assertCF(t, created.AdditionalProperties, col, "emea")
 
-	got, err := f.store.GetOrganization(f.ctx, OrgIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetOrganization(f.ctx, orgIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetOrganization: %v", err)
 	}
 	assertCF(t, got.AdditionalProperties, col, "emea")
 
-	updated, err := f.store.UpdateOrganization(f.ctx, OrgIDOf(ids.UUID(created.Id)), people.UpdateOrganizationInput{
+	updated, err := f.store.UpdateOrganization(f.ctx, orgIDOf(ids.UUID(created.Id)), people.UpdateOrganizationInput{
 		CustomFields: map[string]any{col: "apac"},
 	})
 	if err != nil {
@@ -429,7 +430,7 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "gold")
 
-	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t))
+	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
 	inB, err := f.store.CreatePerson(ctxB, people.CreatePersonInput{
 		FullName: "Tenant B Person", Source: "ui",
 		CustomFields: map[string]any{col: "gold"},

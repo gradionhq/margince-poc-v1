@@ -34,13 +34,13 @@ func TestCustomFieldValues_LeadRoundTrip(t *testing.T) {
 	}
 	assertCF(t, created.AdditionalProperties, col, true)
 
-	got, err := f.store.GetLead(f.ctx, LeadIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetLead(f.ctx, leadIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetLead: %v", err)
 	}
 	assertCF(t, got.AdditionalProperties, col, true)
 
-	updated, err := f.store.UpdateLead(f.ctx, LeadIDOf(ids.UUID(created.Id)), people.UpdateLeadInput{
+	updated, err := f.store.UpdateLead(f.ctx, leadIDOf(ids.UUID(created.Id)), people.UpdateLeadInput{
 		CustomFields: map[string]any{col: false},
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestCustomFieldValues_LeadDisqualifyPreservesCustomFields(t *testing.T) {
 		t.Fatalf("CreateLead: %v", err)
 	}
 
-	disqualified, err := f.store.DisqualifyLead(f.ctx, LeadIDOf(ids.UUID(created.Id)))
+	disqualified, err := f.store.DisqualifyLead(f.ctx, leadIDOf(ids.UUID(created.Id)))
 	if err != nil {
 		t.Fatalf("DisqualifyLead: %v", err)
 	}

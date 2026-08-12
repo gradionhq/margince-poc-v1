@@ -6,7 +6,8 @@
 package customfields
 
 // The HTTP half of the sort/filter vocabulary coverage (the store-level
-// semantics live in customfields_vocab_integration_test.go): the sort
+// semantics live in customfields_vocab_integration_test.go, in the parent package
+// integration): the sort
 // and cf_* filter query parameters travel the real compose stack, a
 // cf_-sorted page comes back ordered, and the vocabulary refusals reach
 // the wire as the contract's 422 codes.

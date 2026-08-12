@@ -313,17 +313,18 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 // harness keeps its fixture ids untyped so every module's suite can share them,
 // and each suite widens at the call it makes.
 //
-// Three of the four are exported because suite packages split out of this one
-// widen the same fixture ids; projectIDOf has no caller outside this package.
+// Only PersonIDOf is exported, because integration/channels widens person ids from
+// outside this package. The other three have no caller beyond it, and a suite
+// package that later needs one exports it then.
 
 // PersonIDOf widens a harness fixture id to a person id.
 func PersonIDOf(u ids.UUID) ids.PersonID { return ids.From[ids.PersonKind](u) }
 
-// OrgIDOf widens a harness fixture id to an organization id.
-func OrgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
+// orgIDOf widens a harness fixture id to an organization id.
+func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
 
-// LeadIDOf widens a harness fixture id to a lead id.
-func LeadIDOf(u ids.UUID) ids.LeadID       { return ids.From[ids.LeadKind](u) }
+// leadIDOf widens a harness fixture id to a lead id.
+func leadIDOf(u ids.UUID) ids.LeadID       { return ids.From[ids.LeadKind](u) }
 func projectIDOf(u ids.UUID) ids.ProjectID { return ids.From[ids.ProjectKind](u) }
 
 // userIDPtr types an optional harness user id (Env keeps its fixture ids

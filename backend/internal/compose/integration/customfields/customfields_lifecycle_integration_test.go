@@ -8,8 +8,9 @@ package customfields
 // The customfields catalog-lifecycle suite: rename/retire (app-pool,
 // catalog-only), the picklist CHECK regeneration, the admin list, and
 // the RBAC/RLS boundaries. The schema-pool tx dance itself is proven in
-// customfields_integration_test.go, which also owns the shared fixtures
-// (integration.CFAdminPerms, columnOnTable, integration.SeedSecondWorkspace, ...).
+// customfields_integration_test.go here, and the fixtures they share come from
+// two places: columnOnTable is this package's, while CustomFieldAdminPerms and
+// SeedSecondWorkspace are the parent's (integration/suitefixtures.go).
 
 import (
 	"errors"
@@ -24,7 +25,7 @@ import (
 func TestCustomFieldRename_LabelOnly_ColumnIdentityStable(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	created, err := svc.Create(ctx, dateSpec("Renewal date"))
 	if err != nil {
@@ -63,7 +64,7 @@ func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	created, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Preferred greeting", Type: customfieldsmod.TypeText, Source: "ui",
@@ -116,7 +117,7 @@ func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
 func TestCustomFieldSetOptions_RegeneratesTheCheck(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	created, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Procurement route", Type: customfieldsmod.TypePicklist,
@@ -152,7 +153,7 @@ func TestCustomFieldSetOptions_RegeneratesTheCheck(t *testing.T) {
 func TestCustomFieldSetOptions_Refusals(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	picklist, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Procurement route", Type: customfieldsmod.TypePicklist,
@@ -201,7 +202,7 @@ func TestCustomFieldSetOptions_Refusals(t *testing.T) {
 func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	var created []ids.UUID
 	for _, label := range []string{"Alpha", "Beta", "Gamma"} {
@@ -263,7 +264,7 @@ func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 func TestCustomFieldRBAC_ReadGrantCannotChangeSchema(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	admin := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	admin := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 	reader := e.As(e.Rep2, nil, cfReadPerms)
 	ungranted := e.As(e.Rep3, nil, integration.RepPerms) // no custom_field object at all
 
@@ -294,11 +295,11 @@ func TestCustomFieldRLS_IsolatesCatalogsAcrossWorkspaces(t *testing.T) {
 	owner := integration.OwnerConn(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
 
-	created, err := svc.Create(e.As(e.Rep1, nil, integration.CFAdminPerms), dateSpec("Renewal date"))
+	created, err := svc.Create(e.As(e.Rep1, nil, integration.CustomFieldAdminPerms), dateSpec("Renewal date"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, ctxB := integration.SeedSecondWorkspace(t, owner)
+	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
 
 	fields, _, err := svc.List(ctxB, customfieldsmod.ListInput{Object: "deal"})
 	if err != nil {

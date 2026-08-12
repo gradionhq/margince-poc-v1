@@ -151,7 +151,7 @@ var computedFieldNoGrantPerms = principal.Permissions{
 // computedFieldWorkspaceBPerms grants workspace B's synthetic admin
 // exactly what this suite's cross-tenant scenario needs — organization
 // and deal writes plus computed_field:read — narrower than
-// AdminPerms/CFAdminPerms because neither existing fixture carries the
+// AdminPerms/CustomFieldAdminPerms because neither existing fixture carries the
 // organization+deal+computed_field combination this suite exercises.
 var computedFieldWorkspaceBPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
@@ -163,34 +163,6 @@ var computedFieldWorkspaceBPerms = principal.Permissions{
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
-}
-
-// seedComputedFieldsWorkspaceB provisions a second tenant (own workspace
-// + one user) and returns an admin-shaped context scoped to it — the
-// shared integration.SeedSecondWorkspace grants only
-// custom_field+person, which doesn't cover this suite's organization/
-// deal/computed_field needs, so this is its own local variant rather
-// than a shared-fixture edit that would ripple into that suite.
-func seedComputedFieldsWorkspaceB(t *testing.T, owner *pgx.Conn) (ws ids.UUID, ctx context.Context) {
-	t.Helper()
-	ws, user := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "computed-b-"+ws.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
-		user, ws, "b@computed-b.test"); err != nil {
-		t.Fatal(err)
-	}
-	ctx = principal.WithWorkspaceID(context.Background(), ws)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user, Permissions: computedFieldWorkspaceBPerms,
-	})
-	return ws, ctx
 }
 
 // TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead is
@@ -206,14 +178,14 @@ func TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead(t *tes
 
 	d1, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "D1", AmountMinor: int64Ptr(100000), Currency: strPtr("EUR"),
-		PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(OrgIDOf(orgID)), Source: "manual",
+		PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(orgIDOf(orgID)), Source: "manual",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	d2, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "D2", AmountMinor: int64Ptr(250000), Currency: strPtr("EUR"),
-		PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(OrgIDOf(orgID)), Source: "manual",
+		PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(orgIDOf(orgID)), Source: "manual",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +198,7 @@ func TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead(t *tes
 		t.Fatalf("test fixture: direct view read = %v/%d/%v, want 350000/2/true", wantMinor, wantCount, found)
 	}
 
-	org, err := e.People.GetOrganization(e.Admin(), OrgIDOf(orgID), storekit.IncludeArchived)
+	org, err := e.People.GetOrganization(e.Admin(), orgIDOf(orgID), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +234,7 @@ func TestOrganizationComputed_NoOpenDeals_FloorsToZero(t *testing.T) {
 		t.Fatal("test fixture: expected NO view row for an org with no open deals")
 	}
 
-	org, err := e.People.GetOrganization(e.Admin(), OrgIDOf(orgID), storekit.IncludeArchived)
+	org, err := e.People.GetOrganization(e.Admin(), orgIDOf(orgID), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +268,7 @@ func TestOrganizationComputed_OpenDealsWithoutFrozenFX_AwaitingFX(t *testing.T) 
 	for _, amount := range []int64{75000, 125000} {
 		if _, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 			Name: "Unpriced deal", AmountMinor: int64Ptr(amount), Currency: strPtr("EUR"),
-			PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(OrgIDOf(orgID)), Source: "manual",
+			PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(orgIDOf(orgID)), Source: "manual",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -313,7 +285,7 @@ func TestOrganizationComputed_OpenDealsWithoutFrozenFX_AwaitingFX(t *testing.T) 
 		t.Fatalf("test fixture: open_deal_count = %d, want 2", count)
 	}
 
-	org, err := e.People.GetOrganization(e.Admin(), OrgIDOf(orgID), storekit.IncludeArchived)
+	org, err := e.People.GetOrganization(e.Admin(), orgIDOf(orgID), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +338,7 @@ func TestOrganizationComputed_UngatedPrincipal_ComputedFieldsKeyAbsentFromWire(t
 	orgID := e.SeedOrg(t, "Gated Org", nil)
 	ctx := e.As(e.Rep1, nil, computedFieldNoGrantPerms)
 
-	org, err := e.People.GetOrganization(ctx, OrgIDOf(orgID), storekit.IncludeArchived)
+	org, err := e.People.GetOrganization(ctx, orgIDOf(orgID), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,19 +378,19 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 	orgA := e.SeedOrg(t, "Acme", nil)
 	dealA, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "A deal", AmountMinor: int64Ptr(500000), Currency: strPtr("EUR"),
-		PipelineID: pipelineA, StageID: openA, OrganizationID: orgIDPtr(OrgIDOf(orgA)), Source: "manual",
+		PipelineID: pipelineA, StageID: openA, OrganizationID: orgIDPtr(orgIDOf(orgA)), Source: "manual",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	freezeDealFX(t, owner, ids.UUID(dealA.Id))
 
-	_, ctxB := seedComputedFieldsWorkspaceB(t, owner)
+	_, ctxB := SeedSecondWorkspace(t, owner, computedFieldWorkspaceBPerms)
 	pipelineB, openB := pipelineFixtureFor(ctxB, t, e)
 	orgB := e.SeedOrgAs(ctxB, t, "Acme")
 	dealB, err := e.Deals.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "B deal", AmountMinor: int64Ptr(999000), Currency: strPtr("EUR"),
-		PipelineID: pipelineB, StageID: openB, OrganizationID: orgIDPtr(OrgIDOf(orgB)), Source: "manual",
+		PipelineID: pipelineB, StageID: openB, OrganizationID: orgIDPtr(orgIDOf(orgB)), Source: "manual",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -434,11 +406,11 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 		t.Fatal("workspace B's context found a view row for workspace A's organization — RLS leak")
 	}
 
-	orgAGet, err := e.People.GetOrganization(e.Admin(), OrgIDOf(orgA), storekit.IncludeArchived)
+	orgAGet, err := e.People.GetOrganization(e.Admin(), orgIDOf(orgA), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}
-	orgBGet, err := e.People.GetOrganization(ctxB, OrgIDOf(orgB), storekit.IncludeArchived)
+	orgBGet, err := e.People.GetOrganization(ctxB, orgIDOf(orgB), storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}

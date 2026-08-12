@@ -42,7 +42,7 @@ func columnNames(cols []fieldcatalog.Column) []string {
 func TestActiveColumns_ActiveOnly_ExcludesRetired(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	stayer, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Preferred greeting", Type: customfieldsmod.TypeText, Source: "ui",
@@ -78,7 +78,7 @@ func TestActiveColumns_ActiveOnly_ExcludesRetired(t *testing.T) {
 func TestActiveColumns_PerObject_DoesNotLeakAcrossObjects(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	personField, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Person only", Type: customfieldsmod.TypeBoolean, Source: "ui",
@@ -112,7 +112,7 @@ func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctxA := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctxA := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	if _, err := svc.Create(ctxA, customfieldsmod.FieldSpec{
 		Object: "person", Label: "Tenant A field", Type: customfieldsmod.TypeText, Source: "ui",
@@ -120,7 +120,7 @@ func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, ctxB := integration.SeedSecondWorkspace(t, owner)
+	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
 	colsB, err := svc.ActiveColumns(ctxB, "person")
 	if err != nil {
 		t.Fatalf("ActiveColumns as tenant B: %v", err)
@@ -143,7 +143,7 @@ func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
 func TestActiveColumns_NoActiveFields_ReturnsEmptyNotError(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	cols, err := svc.ActiveColumns(ctx, "activity")
 	if err != nil {

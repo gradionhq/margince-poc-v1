@@ -93,7 +93,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	}
 
 	// Org roll-up: max over current employees — here, the one person.
-	orgStrength, err := store.OrganizationStrength(ctx, OrgIDOf(org), now)
+	orgStrength, err := store.OrganizationStrength(ctx, orgIDOf(org), now)
 	if err != nil {
 		t.Fatal(err)
 	}

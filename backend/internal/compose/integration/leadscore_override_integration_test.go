@@ -71,7 +71,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
 	// (1) A human score with no reason is rejected (AC-S1).
-	if _, err := store.UpdateLead(ctx, LeadIDOf(leadID), people.UpdateLeadInput{Score: intp(90)}); err == nil {
+	if _, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{Score: intp(90)}); err == nil {
 		t.Fatal("score without a reason was accepted; want ScoreOverrideReasonRequiredError")
 	} else {
 		var want *people.ScoreOverrideReasonRequiredError
@@ -82,7 +82,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 
 	// (2) A human score WITH a reason persists both and retains the prior
 	// machine value (0) in score_computed.
-	overridden, err := store.UpdateLead(ctx, LeadIDOf(leadID), people.UpdateLeadInput{
+	overridden, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{
 		Score: intp(90), ScoreOverrideReason: strp("strategic account — board-level sponsor"),
 	})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	// A subsequent activity-driven recompute must NOT move the sticky score;
 	// it updates the retained machine value only (fit 23 + fresh reply 25 = 48).
 	dispatchActivityCaptured(t, engine, e.WS, ids.NewV7(), logInboundReply(t, ctx, activityStore, leadID))
-	afterEvent, err := store.GetLead(ctx, LeadIDOf(leadID), storekit.LiveOnly)
+	afterEvent, err := store.GetLead(ctx, leadIDOf(leadID), storekit.LiveOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	// (3) Clearing the override (an explicit null on the wire) resumes
 	// recompute: score tracks the machine value and both override
 	// columns go null.
-	cleared, err := store.UpdateLead(ctx, LeadIDOf(leadID), people.UpdateLeadInput{ClearScoreOverride: true})
+	cleared, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{ClearScoreOverride: true})
 	if err != nil {
 		t.Fatalf("clearing the override: %v", err)
 	}

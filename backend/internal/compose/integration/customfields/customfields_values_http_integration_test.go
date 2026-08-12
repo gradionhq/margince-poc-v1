@@ -6,7 +6,8 @@
 package customfields
 
 // The HTTP half of the custom-field VALUES coverage (the store-level
-// semantics live in customfields_values_integration_test.go): proves
+// semantics live in customfields_values_integration_test.go, in the parent package
+// integration): proves
 // the wire flatten over the real compose stack — cf_ keys travel
 // TOP-LEVEL in request and response bodies through the generated types'
 // additionalProperties — and that a picklist CHECK violation answers

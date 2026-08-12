@@ -139,7 +139,7 @@ func TestMergeOrganization_hierarchyReparenting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	srcID, tgtID := OrgIDOf(ids.UUID(source.Id)), OrgIDOf(ids.UUID(target.Id))
+	srcID, tgtID := orgIDOf(ids.UUID(source.Id)), orgIDOf(ids.UUID(target.Id))
 	// A child sits under the source.
 	child, err := e.People.CreateOrganization(admin, people.CreateOrganizationInput{
 		DisplayName: "Acme Child", ParentOrgID: &srcID, Source: "manual",
@@ -153,11 +153,11 @@ func TestMergeOrganization_hierarchyReparenting(t *testing.T) {
 	}
 
 	// The child is re-homed under the survivor.
-	got, err := e.People.GetOrganization(admin, OrgIDOf(ids.UUID(child.Id)), storekit.LiveOnly)
+	got, err := e.People.GetOrganization(admin, orgIDOf(ids.UUID(child.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("read child: %v", err)
 	}
-	if got.ParentOrgId == nil || OrgIDOf(ids.UUID(*got.ParentOrgId)) != tgtID {
+	if got.ParentOrgId == nil || orgIDOf(ids.UUID(*got.ParentOrgId)) != tgtID {
 		t.Errorf("child parent = %v, want the survivor %s", got.ParentOrgId, tgtID)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM organization WHERE parent_org_id = $1`, srcID); n != 0 {
@@ -177,7 +177,7 @@ func TestMergeOrganization_partnerExtensionMovesIntoVacancy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	srcID, tgtID := OrgIDOf(ids.UUID(source.Id)), OrgIDOf(ids.UUID(target.Id))
+	srcID, tgtID := orgIDOf(ids.UUID(source.Id)), orgIDOf(ids.UUID(target.Id))
 	// The source carries the partner program; the target has none.
 	e.WsExec(t, `INSERT INTO partner (workspace_id, organization_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:test')`, e.WS, srcID)
 	e.WsExec(t, `INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)

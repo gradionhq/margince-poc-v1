@@ -36,12 +36,13 @@ import (
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
 
-// CraftCursor encodes a keyset cursor the way the wire does, so a suite can hand
-// a list endpoint a cursor it never issued.
+// CraftCursor forges the opaque page token a hostile client could send: the Cursor
+// JSON shape, base64url-encoded — bypassing the store's own minting so the sort key
+// can carry arbitrary text.
 //
-// Crafting it rather than replaying one the API returned is the point: the
-// pagination contract has to hold for a cursor pointing at a row that has since
-// moved or gone, and only a hand-made one can name that position.
+// Every caller uses it to prove a malformed cursor answers 422 rather than 500, so
+// replaying a cursor the API actually issued would remove the untrusted input the
+// assertion is about.
 func CraftCursor(t *testing.T, c storekit.Cursor) string {
 	t.Helper()
 	raw, err := json.Marshal(c)
@@ -51,11 +52,17 @@ func CraftCursor(t *testing.T, c storekit.Cursor) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// CFAdminPerms is the admin RBAC posture narrowed to full custom_field config
-// authority plus the person grants the value-preservation assertions need. It is
-// narrower than AdminPerms on purpose: a suite proving a custom-field refusal
-// must not be holding grants the refusal could be mistaken for.
-var CFAdminPerms = principal.Permissions{
+// CustomFieldAdminPerms is full custom_field config authority plus the person
+// grants the value-preservation assertions need.
+//
+// It is not AdminPerms narrowed — AdminPerms carries no custom_field grant at all,
+// so neither contains the other. It exists because AdminPerms cannot drive the
+// catalog, and the custom_field grant here is load-bearing in the direction that
+// reads backwards: the cross-tenant suites assert that tenant B's identical query
+// returns ZERO rows, and that is evidence of RLS only because B is permitted to
+// ask. Take the grant away and the empty answer becomes an RBAC refusal wearing
+// the same shape.
+var CustomFieldAdminPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
 		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
@@ -64,14 +71,14 @@ var CFAdminPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
-// SeedSecondWorkspace inserts a second tenant with its own admin user and returns
-// an admin-shaped context bound to it, for the cross-tenant suites.
+// SeedSecondWorkspace inserts a second tenant with its own user and returns a
+// context bound to it, carrying perms, for the cross-tenant suites.
 //
-// It carries CFAdminPerms rather than AdminPerms, which is not incidental: the
-// suites that read this context assert what a caller in ANOTHER workspace cannot
-// see, and widening the grants would let a passing assertion mean less than it
-// says.
-func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn) (ids.UUID, context.Context) {
+// perms is a parameter rather than a fixed posture because the grants decide what
+// a cross-tenant assertion can mean: a suite proving RLS hides tenant A's rows
+// needs tenant B permitted to ask for them, while a suite proving an RBAC refusal
+// needs the opposite. Each caller states which it is proving.
+func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn, perms principal.Permissions) (ids.UUID, context.Context) {
 	t.Helper()
 	ws, user := ids.NewV7(), ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
@@ -88,7 +95,7 @@ func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn) (ids.UUID, context.Conte
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user, Permissions: CFAdminPerms,
+		UserID: user, Permissions: perms,
 	})
 	return ws, ctx
 }
