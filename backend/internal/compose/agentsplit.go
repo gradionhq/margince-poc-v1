@@ -25,6 +25,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// opRenameCustomField is the one patch operation both this file and
+// agentcommand.go's restCommands table name: the sole action-shaped op
+// (comment below) that is ALSO a whole-record field patch the governance seam
+// stages, so it is the one place those two lists have to agree on the same
+// operationId spelled the same way.
+const opRenameCustomField = "renameCustomField"
+
 // actionShapedUpdateOps are the update_record twins whose body is a
 // membership/apply request naming ANOTHER record, or a mutation of a
 // CHILD record (an offer's line items), not a field patch on the routed
@@ -45,7 +52,7 @@ var actionShapedUpdateOps = map[string]bool{
 	"addOfferLineItem":    true,
 	"updateOfferLineItem": true,
 	"removeOfferLineItem": true,
-	"renameCustomField":   true,
+	opRenameCustomField:   true,
 }
 
 // splitOrRedeemUpdate is the per-field human-edit-precedence split

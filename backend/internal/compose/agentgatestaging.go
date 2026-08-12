@@ -125,7 +125,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
 		return
 	}
-	target, ok := stagedTarget(w, r, commands, pol)
+	target, ok := stagedTarget(w, r, commands, pol, body)
 	if !ok {
 		return
 	}
@@ -175,8 +175,8 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 //
 // It writes the refusal itself and reports ok=false, so a caller that cannot
 // name a target stages nothing.
-func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy) (agents.StageInfo, bool) {
-	info, ok := resolveOrWalk(w, r, commands, pol)
+func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy, body []byte) (agents.StageInfo, bool) {
+	info, ok := resolveOrWalk(w, r, commands, pol, body)
 	if !ok {
 		return agents.StageInfo{}, false
 	}
@@ -202,12 +202,18 @@ func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDe
 
 // resolveOrWalk answers the staged target from the operation's own resolver
 // where it has one, and from the route where it does not.
-func resolveOrWalk(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy) (agents.StageInfo, bool) {
+//
+// body is the same buffered copy stageRefusal already hashed into
+// canonicalRESTCall — passed through rather than re-read off r.Body, so a
+// decoder that needs the request payload (create, patch) is a pure function
+// of values the gate already proved readable, with no second reader of a
+// stream nothing guarantees stays replayable.
+func resolveOrWalk(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy, body []byte) (agents.StageInfo, bool) {
 	decode, described := restCommands[pol.Op]
 	if !described {
 		return stagedTargetByRoute(w, r, pol)
 	}
-	call, err := decode(pol, commands, r)
+	call, err := decode(pol, commands, r, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return agents.StageInfo{}, false

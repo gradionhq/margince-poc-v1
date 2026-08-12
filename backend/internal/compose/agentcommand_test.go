@@ -88,12 +88,23 @@ func TestEveryAgentReachableArchiveOperationDecodesIntoACommand(t *testing.T) {
 		t.Errorf("the policy table carries %d agent-reachable archive operations, want 12 — if the contract "+
 			"gained or lost one, this seam's coverage moved with it", checked)
 	}
-	// The other direction, which the walk above cannot see: a decoder left
-	// behind for an operation the contract retired would sit in the table
-	// answering for a route nothing routes.
-	if len(restCommands) != checked {
-		t.Errorf("restCommands holds %d decoders for %d agent-reachable operations — one of them decodes an "+
-			"operation the contract no longer serves", len(restCommands), checked)
+}
+
+// The other direction, which no single family's walk above can see on its
+// own now that restCommands holds three of them: a decoder left behind for an
+// operation the contract retired would sit in the table answering for a route
+// nothing routes. Checked once, across every family, rather than each
+// family's own test re-deriving "restCommands holds exactly what I counted" —
+// which stopped being true the moment a second family shared the map.
+func TestEveryRegisteredCommandDecodesAnOperationTheContractStillDeclares(t *testing.T) {
+	known := make(map[string]bool, len(agentPolicies))
+	for _, pol := range agentPolicies {
+		known[pol.Op] = true
+	}
+	for op := range restCommands {
+		if !known[op] {
+			t.Errorf("restCommands[%q] decodes an operation the policy table no longer declares", op)
+		}
 	}
 }
 
@@ -194,7 +205,7 @@ func TestArchiveCommandRefusesAMalformedIDAsAMiss(t *testing.T) {
 	rctx.URLParams.Add("id", "not-a-uuid")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-	_, err := archiveCommand(agentPolicy{Op: "archiveTag", RecordType: recordTypeTag}, restCommandDeps{records: seamRecord{}}, req)
+	_, err := archiveCommand(agentPolicy{Op: "archiveTag", RecordType: recordTypeTag}, restCommandDeps{records: seamRecord{}}, req, nil)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("decoding a malformed id answered %v, want the not-found sentinel", err)
 	}
