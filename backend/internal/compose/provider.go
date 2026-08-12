@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -38,11 +39,21 @@ type Provider struct {
 }
 
 func NewProvider(pool *pgxpool.Pool) *Provider {
+	return NewProviderFor(InstallationDB(pool))
+}
+
+// NewProviderFor is NewProvider over a handle whose workspace is already
+// decided. A server resolves the installation's singleton, which is what
+// NewProvider does for it; a suite that seeds a second workspace on purpose has
+// no singleton to resolve and names the one it means instead (ADR-0091 §9
+// step 3).
+func NewProviderFor(db *database.DB) *Provider {
+	pool := db.Pool()
 	return &Provider{
 		// The fieldcatalog seam mirrors the HTTP wiring (server.go): the
 		// MCP surface's record verbs carry cf_* values too.
-		people:     people.NewProvider(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil)),
-		deals:      deals.NewProvider(InstallationDB(pool), DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil)),
+		people:     people.NewProvider(db).WithFieldCatalog(customfields.NewService(pool, nil)),
+		deals:      deals.NewProvider(db, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil)),
 		activities: activities.NewProvider(pool),
 		reports:    newReportEngine(pool),
 	}

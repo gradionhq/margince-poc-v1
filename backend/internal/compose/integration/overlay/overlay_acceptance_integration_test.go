@@ -153,7 +153,7 @@ func assertEverySeamVerbIsClassifiedExactlyOnce(t *testing.T) {
 func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 	e := integration.Setup(t)
 	personID := e.SeedPerson(t, "Ada Native", nil)
-	native := compose.NewProvider(e.Pool)
+	native := compose.NewProviderFor(e.DB())
 	personRef := datasource.EntityRef{Type: datasource.EntityPerson, ID: personID}
 
 	ctx, overlayProvider, overlayRef := seedMirroredPersonFixture(t, e)

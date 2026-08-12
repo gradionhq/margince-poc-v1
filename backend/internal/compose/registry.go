@@ -92,7 +92,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
 	pool := db.Pool()
-	native := NewProvider(pool)
+	native := NewProviderFor(db)
 	provider := NewDispatcher(native, NewOverlayProviderFor(db, failClosedOverlayMeter(), resolveIncumbent), pool)
 	// Retry safety, wired for EVERY role that composes this surface rather than
 	// arriving as the API server's option the way the read charger does. The

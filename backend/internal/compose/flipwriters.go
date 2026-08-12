@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
@@ -88,11 +89,16 @@ func (w *flipWriters) WithOwnerMap(m map[string]ids.UUID) *flipWriters {
 	return w
 }
 
-func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent string) *flipWriters {
+// newFlipWriters builds the estate writers for ONE workspace: db is bound to
+// the tenant the estate lands in. That is the caller's, not the installation's
+// — a reconstruction rebuilds into the workspace whose operator ordered it,
+// which on a clean instance is not the one the server resolved at boot.
+func newFlipWriters(db *database.DB, ms *overlay.MirrorStore, incumbent string) *flipWriters {
+	pool := db.Pool()
 	return &flipWriters{
 		pool:       pool,
-		people:     people.NewStore(InstallationDB(pool)),
-		deals:      deals.NewStore(InstallationDB(pool), DealsInstallation()),
+		people:     people.NewStore(db),
+		deals:      deals.NewStore(db, DealsInstallation()),
 		activities: activities.NewStore(pool),
 		ms:         ms,
 		identities: migration.NewRunStore(pool),
