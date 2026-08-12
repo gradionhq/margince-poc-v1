@@ -124,44 +124,102 @@ func TestAnEditMayNotRepointTheRecordNamedInARestPath(t *testing.T) {
 		return json.RawMessage(`{"operation":"advanceDeal","path":"/v1/deals/` + id.String() +
 			`/advance","body":{"to_stage_id":"` + toStageID + `"}}`)
 	}
-	if err := assertSameCallIdentity(rest(staged), rest(other)); err == nil {
-		t.Fatal("an edit that moved the call from one deal to another was accepted; the approving " +
+	retargeted := requireRetargeted(t, assertSameCallIdentity(rest(staged), rest(other)),
+		"an edit that moved the call from one deal to another was accepted; the approving "+
 			"human judged the first record and the effect would land on the second")
+	if strings.Join(retargeted.Paths, ",") != "/path" {
+		t.Errorf("refused paths = %v, want [/path]", retargeted.Paths)
 	}
 }
 
-// Content stays editable — that is what ADR-0036 §4 is for. A staging whose body
-// changes while its call identity holds is exactly the correction a human is
-// invited to make.
-func TestAnEditMayStillCorrectTheBodyOfARestStagedCall(t *testing.T) {
-	deal, path := ids.NewV7(), "/v1/deals/"
-	before := json.RawMessage(`{"operation":"advanceDeal","path":"` + path + deal.String() +
-		`/advance","body":{"note":"as discussed"}}`)
-	after := json.RawMessage(`{"operation":"advanceDeal","path":"` + path + deal.String() +
-		`/advance","body":{"note":"as agreed on the call"}}`)
-	if err := assertSameCallIdentity(before, after); err != nil {
-		t.Errorf("a body correction was refused as a retarget: %v", err)
+// requireRetargeted fails the test with msg if err is not a *RetargetedEditError,
+// and returns it otherwise — shared by every call-identity case below that also
+// needs to inspect WHICH member the refusal names.
+func requireRetargeted(t *testing.T, err error, msg string) *RetargetedEditError {
+	t.Helper()
+	var retargeted *RetargetedEditError
+	if !errors.As(err, &retargeted) {
+		t.Fatalf("%s (err = %v)", msg, err)
 	}
+	return retargeted
 }
 
-// A tool staging carries neither member. It must pass rather than fail closed here,
-// or every MCP-staged approval becomes uneditable.
-func TestAToolStagingHasNoCallIdentityToPin(t *testing.T) {
-	before := json.RawMessage(`{"deal_id":"` + ids.NewV7().String() + `","note":"a"}`)
-	after := json.RawMessage(`{"deal_id":"` + ids.NewV7().String() + `","note":"b"}`)
-	if err := assertSameCallIdentity(before, after); err != nil {
-		t.Errorf("a tool staging with no operation or path was treated as retargeted: %v", err)
-	}
-}
+// The call-identity rule as a table: an edit may rewrite `body`, never any
+// other top-level member of a REST staging — pinned by EXCLUDING body rather
+// than by naming "operation" and "path", so a member the canonical call adds
+// tomorrow (an If-Match or Idempotency-Key header, sibling of body) is pinned
+// by construction rather than by someone remembering to list it.
+func TestAssertSameCallIdentityPinsEveryMemberOfTheStagedCallExceptBody(t *testing.T) {
+	const dealPath = `/v1/deals/11111111-1111-4111-8111-111111111111/advance`
 
-// Dropping the member is a change, not an absence: an edit that deletes `path`
-// leaves a payload the redemption re-derives its own path for, which is the same
-// re-aiming by another route.
-func TestDroppingTheCallIdentityIsARetarget(t *testing.T) {
-	before := json.RawMessage(`{"operation":"advanceDeal","path":"/v1/deals/x/advance","body":{}}`)
-	after := json.RawMessage(`{"operation":"advanceDeal","body":{}}`)
-	if err := assertSameCallIdentity(before, after); err == nil {
-		t.Error("an edit that removed the staged path was accepted")
+	tests := []struct {
+		name        string
+		original    string
+		edited      string
+		wantChanged []string
+	}{
+		{
+			name:     "content stays editable — that is what ADR-0036 §4 is for",
+			original: `{"operation":"advance_deal","path":"` + dealPath + `","body":{"note":"as discussed"}}`,
+			edited:   `{"operation":"advance_deal","path":"` + dealPath + `","body":{"note":"as agreed on the call"}}`,
+		},
+		{
+			// A tool staging carries neither operation nor path. It must pass
+			// rather than fail closed here, or every MCP-staged approval
+			// becomes uneditable — entityRefs governs its content instead.
+			name:     "a tool staging (no operation or path) has no call identity to pin",
+			original: `{"deal_id":"11111111-1111-4111-8111-111111111111","note":"a"}`,
+			edited:   `{"deal_id":"11111111-1111-4111-8111-111111111111","note":"b"}`,
+		},
+		{
+			name:        "repointing path is refused",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","body":{}}`,
+			edited:      `{"operation":"advance_deal","path":"/v1/deals/other/advance","body":{}}`,
+			wantChanged: []string{"/path"},
+		},
+		{
+			// operation names the call as much as path names the record — a
+			// staging table-driven only on path would leave this arm of the
+			// same guard unexercised.
+			name:        "repointing operation alone is refused",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","body":{}}`,
+			edited:      `{"operation":"disqualify_lead","path":"` + dealPath + `","body":{}}`,
+			wantChanged: []string{"/operation"},
+		},
+		{
+			// Dropping a member is a change, not an absence: an edit that
+			// deletes `path` leaves a payload the redemption re-derives its
+			// own path for, which is the same re-aiming by another route.
+			name:        "dropping path is a retarget, not an absence",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","body":{}}`,
+			edited:      `{"operation":"advance_deal","body":{}}`,
+			wantChanged: []string{"/path"},
+		},
+		{
+			// A member the canonical call does not carry TODAY (If-Match is
+			// the next task's addition) is still pinned: deny-by-default
+			// means this needs no update when that member is added.
+			name:        "an unrecognized top-level member is pinned exactly like operation and path",
+			original:    `{"operation":"advance_deal","path":"` + dealPath + `","if_match":"7","body":{}}`,
+			edited:      `{"operation":"advance_deal","path":"` + dealPath + `","if_match":"9","body":{}}`,
+			wantChanged: []string{"/if_match"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := assertSameCallIdentity(json.RawMessage(tc.original), json.RawMessage(tc.edited))
+			if len(tc.wantChanged) == 0 {
+				if err != nil {
+					t.Fatalf("edit refused: %v — a human must stay free to correct the action's content", err)
+				}
+				return
+			}
+			retargeted := requireRetargeted(t, err, "edit accepted, want RetargetedEditError naming "+strings.Join(tc.wantChanged, ","))
+			if strings.Join(retargeted.Paths, ",") != strings.Join(tc.wantChanged, ",") {
+				t.Errorf("refused paths = %v, want %v", retargeted.Paths, tc.wantChanged)
+			}
+		})
 	}
 }
 

@@ -21,11 +21,14 @@ import (
 )
 
 // TestDecideRefusesAnEditThatRepointsARestStagedCall stages a REST-shaped
-// approval (operation + path + body, exactly what compose.canonicalRESTCall
-// produces) against one organization, then asks Decide to release an edit
-// whose PATH names a different organization while its body is untouched. The
-// content stayed identical — only the record moved — which is exactly the
-// shape entityRefs cannot see and assertSameCallIdentity exists to catch.
+// approval — an operation/path/body object, the shape compose.canonicalRESTCall
+// writes (this package cannot import compose to call it directly: compose sits
+// above modules in the dependency graph, so the literal below is hand-built
+// rather than bound to the producer) — against one organization, then asks
+// Decide to release an edit whose PATH names a different organization while
+// its body is untouched. The content stayed identical — only the record
+// moved — which is exactly the shape entityRefs cannot see and
+// assertSameCallIdentity exists to catch.
 func TestDecideRefusesAnEditThatRepointsARestStagedCall(t *testing.T) {
 	e := setupStaging(t)
 	org := e.organization(t)
