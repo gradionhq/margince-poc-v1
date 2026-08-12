@@ -285,6 +285,72 @@ func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
 	}
 }
 
+// The mapper assembles an address and resolves an owner into the mirror, and
+// both were picked up by nothing — the value existed and the slot a client
+// reads stayed empty. Asserting on the marshalled body rather than the Go
+// struct is what makes "pointer left nil" and "slot never filled"
+// distinguishable, which is the shape of the defect.
+func TestOverlayWirePersonPublishesAddressAndOwner(t *testing.T) {
+	owner := ids.NewV7()
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"owner_id":  owner.String(),
+		"address": map[string]any{
+			"line1": "Hauptstrasse 1", "city": "Munich",
+			"postal_code": "80331", "country": "DE",
+		},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Address == nil {
+		t.Fatal("Address is nil; the mapper's address_json assembly must reach the contract's structured slot")
+	}
+	if person.Address.City == nil || *person.Address.City != "Munich" {
+		t.Errorf("Address.City = %v, want Munich", person.Address.City)
+	}
+	if person.Address.Line1 == nil || *person.Address.Line1 != "Hauptstrasse 1" {
+		t.Errorf("Address.Line1 = %v, want the mirrored street", person.Address.Line1)
+	}
+	if person.OwnerId == nil || *person.OwnerId != openapi_types.UUID(owner) {
+		t.Errorf("OwnerId = %v, want the app_user the mapping resolved through mirror_user_map", person.OwnerId)
+	}
+}
+
+// A contact the incumbent holds no address for must read as absent, not as
+// an address whose every member is empty.
+func TestOverlayWirePersonOmitsAnEmptyAddress(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"address":   map[string]any{"city": "  "},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.Address != nil {
+		t.Errorf("Address = %+v, want nil when no member carries a value", person.Address)
+	}
+}
+
+// An owner the mapping could not resolve stays absent: the raw incumbent
+// owner id is not an app_user id, and publishing it in a uuid slot would
+// name a user that does not exist.
+func TestOverlayWirePersonOmitsAnUnresolvedOwner(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "Ada Overlay",
+		"owner_id":  "1197833249",
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	if person.OwnerId != nil {
+		t.Errorf("OwnerId = %v, want nil when the value is an unresolved incumbent owner id", person.OwnerId)
+	}
+}
+
 func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	for _, tc := range []struct {
 		et     datasource.EntityType
