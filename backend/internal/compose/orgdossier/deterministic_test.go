@@ -174,3 +174,50 @@ func TestNoFloorSentenceSpellsAnIDAtTheReader(t *testing.T) {
 		}
 	}
 }
+
+// A field with no mapped label writes no sentence — display_name in
+// particular, since the organization's name is already the page's own
+// heading, and a "display name: Acme." line under a label nobody wrote would
+// only restate it under the raw column name.
+func TestAFieldWithNoMappedLabelWritesNoSentence(t *testing.T) {
+	in := Input{
+		OrganizationID: ids.NewV7().String(),
+		ProfileFields:  []crmcontracts.CompanyProfileField{field("display_name", "Acme GmbH", rowID())},
+	}
+	if sections := Deterministic(in); len(sections) != 0 {
+		t.Errorf("sections = %+v, want none — display_name has no mapped label", sections)
+	}
+}
+
+// A value that already ends its own sentence keeps its own terminator; the
+// floor does not spell a second one after it.
+func TestAFieldValueEndingItsOwnSentenceIsNotGivenASecondFullStop(t *testing.T) {
+	in := Input{
+		OrganizationID: ids.NewV7().String(),
+		ProfileFields: []crmcontracts.CompanyProfileField{
+			field("legal_name", "Voltaq Systems GmbH.", rowID()),
+		},
+	}
+	sections := Deterministic(in)
+	if len(sections) != 1 || len(sections[0].Sentences) != 1 {
+		t.Fatalf("sections = %+v, want exactly one sentence", sections)
+	}
+	const want = "Legal name: Voltaq Systems GmbH."
+	if got := sections[0].Sentences[0].Text; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+}
+
+// A value that is nothing but punctuation normalizes to nothing, and the
+// floor skips it rather than citing a sentence that reads "Legal name: ".
+func TestAFieldValueThatIsPunctuationOnlyWritesNoSentence(t *testing.T) {
+	in := Input{
+		OrganizationID: ids.NewV7().String(),
+		ProfileFields: []crmcontracts.CompanyProfileField{
+			field("legal_name", "; : ,", rowID()),
+		},
+	}
+	if sections := Deterministic(in); len(sections) != 0 {
+		t.Errorf("sections = %+v, want none — a punctuation-only value normalizes to empty", sections)
+	}
+}

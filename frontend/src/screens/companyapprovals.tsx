@@ -56,8 +56,11 @@ export function DecisionsChip({
   if (count === 0) {
     return null;
   }
+  // A way in, not a verb. Drawn at the weight of the page's primary action it
+  // outranked the verbs beside it in the header while doing less than any of
+  // them: this opens a queue, it does not decide anything.
   return (
-    <Button small variant="primary" onClick={onOpen}>
+    <Button small variant="ghost" onClick={onOpen}>
       {t("co.decisions.open", { count })}
     </Button>
   );

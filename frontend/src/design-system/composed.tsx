@@ -347,15 +347,110 @@ const TIMELINE_ICON = {
   change: PencilLine,
 } as const;
 
+// Where a record's verbs land. Three places can hold them — beside the
+// standing column, on the identity's own row, or in a band under the header —
+// and the choice is made once here rather than restated as a condition at
+// each of the three, where a reader had to hold all three at once to know
+// which one wins.
+function actionsPlacement(
+  actions: ReactNode,
+  inline: boolean | undefined,
+  controls: ReactNode,
+): "none" | "inline" | "controls" | "below" {
+  if (!actions) {
+    return "none";
+  }
+  if (inline) {
+    return "inline";
+  }
+  return controls ? "controls" : "below";
+}
+
+// The identity block: who this record is, and the verbs and standing that
+// belong beside the name rather than under it. Split from RecordView because
+// the two answer different questions — this one what the record IS, the other
+// how its columns are laid out — and reading either meant holding both.
+function RecordHead({
+  name,
+  avatarSrc,
+  nameBadge,
+  subtitle,
+  pulse,
+  badges,
+  controls,
+  actions,
+  actionsAt,
+  wide,
+}: Readonly<{
+  name: string;
+  avatarSrc?: string | null;
+  nameBadge?: ReactNode;
+  subtitle?: ReactNode;
+  pulse?: ReactNode;
+  badges?: ReactNode;
+  controls?: ReactNode;
+  actions?: ReactNode;
+  actionsAt: "none" | "inline" | "controls" | "below";
+  wide: boolean;
+}>) {
+  return (
+    <header className={wide ? "record-head record-head-wide" : "record-head"}>
+      <Avatar name={name} src={avatarSrc} size="lg" />
+      <div className="record-id">
+        {/* The record page's name, and the one badge that belongs on ITS
+            OWN line — a record's standing, read immediately after what it
+            is named, not one fact among the others under it. A div, not a
+            p, for the same reason as record-sub below: a caller passing
+            structure there must not land inside a paragraph the browser
+            silently un-nests. */}
+        <div className="record-name-row">
+          {/* The shell's page head yields to it on a record route — it
+              prints the trail that leads here and nothing at heading
+              level, so this stays the page's one h1. */}
+          <h1>{name}</h1>
+          {nameBadge}
+        </div>
+        {/* A div, not a p: a caller passing structure — the company page's
+            description line plus its chip row — would otherwise nest block
+            elements inside a paragraph, which the browser silently un-nests,
+            leaving the chips outside the header they belong to. */}
+        {subtitle && <div className="record-sub">{subtitle}</div>}
+        {pulse && <div className="record-pulse">{pulse}</div>}
+      </div>
+      {badges && <div className="record-badges">{badges}</div>}
+      {/* The record's standing and its verbs, stacked at the top right. Only a
+          caller that passes `controls` gets this column: every other record
+          keeps the action row under the header, which is where its own layout
+          puts it. */}
+      {controls && (
+        <div className="record-controls">
+          {controls}
+          {actionsAt === "controls" && (
+            <div className="record-actions">{actions}</div>
+          )}
+        </div>
+      )}
+      {actionsAt === "inline" && (
+        <div className="record-actions record-actions-inline">{actions}</div>
+      )}
+    </header>
+  );
+}
+
 export function RecordView({
   name,
   avatarSrc,
+  nameBadge,
   subtitle,
   badges,
   pulse,
   actions,
   controls,
+  wide,
+  actionsInline,
+  band,
   rail,
+  railLabel,
   aside,
   asideLabel,
   timeline,
@@ -372,6 +467,10 @@ export function RecordView({
   // Null or absent renders the deterministic monogram, which is the floor for
   // every record type that has no image at all.
   avatarSrc?: string | null;
+  // The record's standing, read on the SAME line as its name rather than as
+  // one more fact under it — the company page's editable lifecycle badge.
+  // Absent on every record that has no such single, always-shown value.
+  nameBadge?: ReactNode;
   // A string for the records whose subtitle IS one line of joined facts, or a
   // node for a record that needs structure under its name — the company page's
   // editable description plus its row of attribute chips.
@@ -388,11 +487,30 @@ export function RecordView({
   // which is the company page's layout; a record that passes none keeps the
   // action row under the header.
   controls?: ReactNode;
+  // Forces the record-head-wide sizing (34px h1, 76px avatar, wrapping
+  // identity block) independent of `controls`. For a record whose standing
+  // lives inside `pulse` itself rather than in a stacked controls column —
+  // the company page's shape — and still wants the same scale.
+  wide?: boolean;
+  // Puts `actions` on the SAME row as the identity block, right-aligned,
+  // instead of the default full-width row underneath the header (or the
+  // stacked column `controls` produces). An explicit opt-in: every other
+  // record keeps its actions where its own layout already puts them.
+  actionsInline?: boolean;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
   // to the single column every existing caller already renders.
+  // Full-width content between the identity and the columns: the account's
+  // readings and its tab bar. Absent on a record that has neither.
+  band?: ReactNode;
   rail?: ReactNode;
+  // What the rail column IS, on the same rule as asideLabel below: it defaults
+  // to the record's profile because that is what a rail usually holds, and a
+  // page whose rail holds something else names it. A record page that also has
+  // a Profile TAB is exactly that case — two regions called "Profile", one of
+  // them wrong, is a dead end for anyone navigating by landmark.
+  railLabel?: string;
   aside?: ReactNode;
   // What the aside column IS, for a reader navigating by landmark. Defaults to
   // the record's context; a page whose aside holds something else names it,
@@ -427,40 +545,39 @@ export function RecordView({
   // it reserves the space and leaves the story narrower than the rail
   // beside it.
   const zones = zoneClass(Boolean(rail), Boolean(aside));
+  // Also when the verbs sit on the identity's own row: that record's block is
+  // a name over a description, a chip row and a meta line, and centring the
+  // mark against a stack that tall floats it to the middle of the chips
+  // instead of beside the name it belongs to.
+  const headerWide = Boolean(controls) || Boolean(actionsInline) || wide;
+  const actionsAt = actionsPlacement(actions, actionsInline, controls);
   return (
     <div>
-      <header
-        className={controls ? "record-head record-head-wide" : "record-head"}
-      >
-        <Avatar name={name} src={avatarSrc} size="lg" />
-        <div className="record-id">
-          {/* The record page's name. The shell's page head yields to it on a
-              record route — it prints the trail that leads here and nothing at
-              heading level, so this stays the page's one h1. */}
-          <h1>{name}</h1>
-          {/* A div, not a p: a caller passing structure — the company page's
-              description line plus its chip row — would otherwise nest block
-              elements inside a paragraph, which the browser silently
-              un-nests, leaving the chips outside the header they belong to. */}
-          {subtitle && <div className="record-sub">{subtitle}</div>}
-          {pulse && <div className="record-pulse">{pulse}</div>}
-        </div>
-        {badges && <div className="record-badges">{badges}</div>}
-        {/* The record's standing and its verbs, stacked at the top right. Only
-            a caller that passes `controls` gets this column: every other
-            record keeps the action row under the header, which is where its
-            own layout puts it. */}
-        {controls && (
-          <div className="record-controls">
-            {controls}
-            {actions && <div className="record-actions">{actions}</div>}
-          </div>
-        )}
-      </header>
-      {actions && !controls && <div className="record-actions">{actions}</div>}
+      <RecordHead
+        name={name}
+        avatarSrc={avatarSrc}
+        nameBadge={nameBadge}
+        subtitle={subtitle}
+        pulse={pulse}
+        badges={badges}
+        controls={controls}
+        actions={actions}
+        actionsAt={actionsAt}
+        wide={Boolean(headerWide)}
+      />
+      {actionsAt === "below" && <div className="record-actions">{actions}</div>}
+      {/* The band runs the full width of the record, between the identity and
+          the columns. What describes the WHOLE account — its readings, the bar
+          that chooses which part of it to read — belongs here rather than in
+          the work column, where it would sit beside the rail as though it were
+          one more thing to read rather than the frame around all of them. */}
+      {band && <div className="record-band">{band}</div>}
       <div className={zones}>
         {rail && (
-          <aside className="record-rail" aria-label={t("record.profile")}>
+          <aside
+            className="record-rail"
+            aria-label={railLabel ?? t("record.profile")}
+          >
             {rail}
           </aside>
         )}

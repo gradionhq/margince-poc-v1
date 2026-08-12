@@ -3,11 +3,12 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { QueryStates, throwProblem } from "./common";
-import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
+import { throwProblem } from "./common";
+import { RECORD_ZONE, SectionPart, type SectionState } from "./company360";
 
 // The account's documents: the contracts, offers and legal files a rep goes
 // looking for before a call.
@@ -65,7 +66,7 @@ function documentsState(
     return "loading";
   }
   if (failed) {
-    return "unavailable";
+    return "failed";
   }
   if (count === 0 && !filtered) {
     return "empty";
@@ -94,72 +95,84 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
     },
   });
   const documents = query.data ?? [];
+  // Its own endpoint, so its own state — not a 360 section, and
+  // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
+  // an empty one is EMPTY: "this account has no contracts" and "we could not
+  // find out" are different sentences and only one is about the account.
+  const state = documentsState(
+    query.isPending,
+    query.isError,
+    documents.length,
+    category !== "",
+  );
+  const present = state === "ready" || state === "empty";
 
   return (
-    <SectionCard
-      title={t("docs.title")}
-      // Its own endpoint, so its own state — not a 360 section, and
-      // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
-      // an empty one is EMPTY: "this account has no contracts" and "we could not
-      // find out" are different sentences and only one is about the account.
-      state={documentsState(
-        query.isPending,
-        query.isError,
-        documents.length,
-        category !== "",
-      )}
-      emptyLabel={t("docs.empty")}
-    >
-      <div className="docs-filters">
-        <Button small onClick={() => setCategory("")}>
-          {t("docs.category.all")}
-        </Button>
-        {(Object.keys(CATEGORY_LABELS) as Category[]).map((key) => (
-          <Button
-            key={key}
-            small
-            aria-pressed={category === key}
-            onClick={() => setCategory(category === key ? "" : key)}
-          >
-            {t(CATEGORY_LABELS[key])}
+    <Panel title={t("docs.title")}>
+      {present && (
+        <PanelBody className="docs-filters">
+          <Button small onClick={() => setCategory("")}>
+            {t("docs.category.all")}
           </Button>
-        ))}
-      </div>
-      <QueryStates query={query}>
-        {documents.length === 0 ? (
-          // The filter found nothing, which is different from the account having
-          // no documents at all — and only one of those is worth clearing a
-          // filter over.
-          <EmptyState>
-            {t(category ? "docs.noneInCategory" : "docs.empty")}
-          </EmptyState>
+          {(Object.keys(CATEGORY_LABELS) as Category[]).map((key) => (
+            <Button
+              key={key}
+              small
+              aria-pressed={category === key}
+              onClick={() => setCategory(category === key ? "" : key)}
+            >
+              {t(CATEGORY_LABELS[key])}
+            </Button>
+          ))}
+        </PanelBody>
+      )}
+      {present ? (
+        documents.length === 0 ? (
+          // The filter found nothing, which is different from the account
+          // having no documents at all — and only one of those is worth
+          // clearing a filter over.
+          <PanelBody>
+            <EmptyState>
+              {t(category ? "docs.noneInCategory" : "docs.empty")}
+            </EmptyState>
+          </PanelBody>
         ) : (
-          <ul className="docs-list">
-            {documents.map((doc) => (
-              <li key={doc.id} className="docs-row">
-                {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
-                {/* The title if somebody gave it one, else the filename. A
-                    display name is what a reader looks for; the filename is
-                    what arrived. */}
-                <span className="docs-name">{doc.title || doc.filename}</span>
-                {doc.category && (
-                  <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
-                )}
-                {doc.doc_state && (
-                  <Badge tone={STATE_TONE[doc.doc_state]}>
-                    {t(STATE_LABELS[doc.doc_state])}
-                  </Badge>
-                )}
-                <span className="t-caption">
-                  {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
-                </span>
-                <DownloadState doc={doc} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </QueryStates>
-    </SectionCard>
+          documents.map((doc) => (
+            <PanelRow key={doc.id} className="docs-row">
+              {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
+              {/* The title if somebody gave it one, else the filename. A
+                  display name is what a reader looks for; the filename is
+                  what arrived. */}
+              <span className="docs-name">{doc.title || doc.filename}</span>
+              {doc.category && (
+                <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
+              )}
+              {doc.doc_state && (
+                <Badge tone={STATE_TONE[doc.doc_state]}>
+                  {t(STATE_LABELS[doc.doc_state])}
+                </Badge>
+              )}
+              <span className="t-caption">
+                {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
+              </span>
+              <DownloadState doc={doc} />
+            </PanelRow>
+          ))
+        )
+      ) : (
+        <PanelBody>
+          <SectionPart
+            state={state}
+            emptyLabel={t("docs.empty")}
+            detail={
+              state === "failed" ? { onRetry: () => void query.refetch() } : {}
+            }
+          >
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Panel>
   );
 }
 

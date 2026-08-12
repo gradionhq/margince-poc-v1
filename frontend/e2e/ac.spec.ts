@@ -816,6 +816,37 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
       ).toEqual([]);
     });
   }
+
+  // The company record route (#/companies/<id>) is not one of CORE_SCREENS —
+  // it takes an id rather than a bare nav destination, and CORE_SCREENS names
+  // the fixed nav surface — so it gets its own test rather than reshaping that
+  // list for one parameterised route.
+  //
+  // This mock harness has no /organizations/{id}/360 route, so the read the
+  // record depends on for its strip, tabs bodies and rail 404s and the page
+  // renders in its own honest failure state throughout — the header, the tab
+  // strip and every section's "could not be loaded" wording, never a blank or
+  // a spinner stuck mid-load. That is still real chrome worth a sweep: this
+  // covers the shell around the record, not the loaded content a live run
+  // would need to reach.
+  test("no AA violations on #/companies/<id>", async ({ page }) => {
+    await page.goto("/#/companies/o-brandt");
+    await page.waitForLoadState("networkidle");
+    // The sweep is only meaningful once the record chrome is on screen: axe
+    // finds nothing to complain about in an empty shell.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await animationsSettled(page);
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) => `${violation.id}: ${node.target.join(" ")}`,
+        ),
+      ),
+    ).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

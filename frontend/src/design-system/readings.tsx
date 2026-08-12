@@ -15,6 +15,7 @@ export function Meter({
   max,
   label,
   tone,
+  flat,
 }: Readonly<{
   value: number;
   max: number;
@@ -22,6 +23,10 @@ export function Meter({
   // The bar carries the accent gradient by default. "warn"/"danger" are for a
   // reading whose LOW end is the bad one — coverage, payment behaviour.
   tone?: "warn" | "danger";
+  // The gradient's second colour (`--away`) reads as a warning creeping in at
+  // the high end, which is wrong for a reading with no low-is-bad meaning.
+  // `flat` keeps the accent solid instead of fading toward it.
+  flat?: boolean;
 }>) {
   const filled = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   // Not a native <meter>: its children are fallback content that a supporting
@@ -32,7 +37,13 @@ export function Meter({
   return (
     // biome-ignore lint/a11y/useSemanticElements: <meter> discards the token-drawn fill and draws its own untokenised bar
     <div
-      className={tone ? `meterbar meterbar-${tone}` : "meterbar"}
+      className={
+        tone
+          ? `meterbar meterbar-${tone}`
+          : flat
+            ? "meterbar meterbar-flat"
+            : "meterbar"
+      }
       role="meter"
       aria-label={label}
       aria-valuenow={value}

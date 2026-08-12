@@ -248,7 +248,10 @@ export function LogActivityAction({
       )}
       <Modal open={open} onClose={close} labelledBy={titleId}>
         <h2 id={titleId} className="t-h2 modal-title">
-          {t("log.title")}
+          {/* The heading answers the verb that opened it. Titled "log an
+              activity" regardless, a reader who pressed "Add task" was shown
+              a different form's name and read it as the wrong dialog. */}
+          {t(triggerLabel ?? "log.title")}
         </h2>
         <LogActivityForm
           entityType={entityType}

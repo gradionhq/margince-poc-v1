@@ -1,16 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
-import type { ReactElement } from "react";
+import { Fragment, type ReactElement } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
-import { InlineChoice, InlineText } from "../design-system/inlinechoice";
-import { Chip } from "../design-system/readings";
+import { InlineChoice } from "../design-system/inlinechoice";
 import { ProvenanceTag } from "../design-system/trust";
-import { formatDateTime } from "../format/format";
+import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { provenanceOf, throwProblem, useSorMode, useViewerId } from "./common";
@@ -35,13 +33,15 @@ import {
 import { ShareAction } from "./share";
 
 // The account header: the verbs a rep reaches for, the two values they change
-// in place, and the line of facts that says where the relationship stands.
+// in place, and the lines of facts that say who the account is and where the
+// relationship stands.
 //
-// Lifecycle and owner sit in their OWN block at the top right rather than in
-// the pulse line (mockup State D). They are the two things a reader SETS about
-// an account; the pulse states what happened to it. Mixed into one line the
-// two controls read as more facts, and the reader has no cue that they can be
-// changed.
+// Lifecycle reads beside the account's NAME — the target header's own
+// arrangement — rather than in the meta line below with everything else the
+// account carries: it is the one value a reader looks for first, and both it
+// and owner stay editable in place (InlineChoice) rather than moving into an
+// edit modal, which is what buried them behind a form the last time this
+// header changed shape.
 //
 // Split out of organizations.tsx because that file had grown past 2,700 lines
 // carrying the list screen, the enrichment tools, the evidence cards and this
@@ -157,7 +157,13 @@ async function patchCompanyField(
 // record, the list it appears in and the 360 that summarizes it all read the
 // value being changed, so all three are refetched rather than left showing the
 // old one until something else happens to invalidate them.
-function useCompanyFieldPatch(org: Organization) {
+//
+// Exported so the rail's own Details grid (companyrail.tsx) wires its inline
+// edits to the SAME PATCH shape and the SAME three-key invalidation rather
+// than keeping a second copy: one inline organization edit and another that
+// silently invalidates a different set of caches is the drift this file
+// already exists to prevent within its own component.
+export function useCompanyFieldPatch(org: Organization) {
   const queryClient = useQueryClient();
   return async (body: UpdateOrganizationRequest) => {
     await patchCompanyField(org, body);
@@ -178,7 +184,14 @@ function useCompanyFieldPatch(org: Organization) {
 // companyReadOnlyReason says why this record cannot be edited, when there is
 // something worth saying. Archived first: it is the one a reader can act on
 // (restore it), where the overlay case is a property of the installation.
-function useCompanyReadOnlyReason(org: Organization): string | undefined {
+//
+// Exported for the same reason as useCompanyFieldPatch above: the rail's
+// Details grid gates its own edit affordances on `writable`, and the reason
+// an archived or overlay-mirrored account is read-only is a fact about the
+// RECORD, not about which component happens to be drawing it.
+export function useCompanyReadOnlyReason(
+  org: Organization,
+): string | undefined {
   const t = useT();
   const overlay = useSorMode() === "overlay";
   if (org.archived_at) {
@@ -190,7 +203,16 @@ function useCompanyReadOnlyReason(org: Organization): string | undefined {
   return undefined;
 }
 
-function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
+// Exported for its two mount points: the header passes it into RecordView's
+// `nameBadge` slot, where the record's standing belongs on the name's own
+// line, and the rail's Details grid mounts the SAME control rather than a
+// second InlineChoice with its own PATCH. One implementation of how lifecycle
+// is written, two places it is drawn, so the two cannot disagree about what
+// they last wrote. `hideLabel` is unconditional: both callers name the field
+// themselves, the badge beside the name and the grid's own label column.
+export function CompanyLifecycleControl({
+  org,
+}: Readonly<{ org: Organization }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
@@ -198,6 +220,12 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("org.lifecycle")}
+      // The badge already reads as the account's standing beside its name —
+      // a "Lifecycle: " prefix in front of it would be the one value on the
+      // line saying its own name twice. `label` still drives the accessible
+      // name (aria-label, sr-only form label), so a screen reader hears
+      // "Lifecycle" regardless.
+      hideLabel
       value={org.lifecycle ?? "unknown"}
       options={LIFECYCLE_OPTIONS.map((value) => ({
         value,
@@ -205,10 +233,9 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
       }))}
       canEdit={canUpdate && !readOnlyReason}
       readOnlyReason={readOnlyReason}
-      // The account's standing is the one value in this block a reader looks
-      // for first, and both mockups draw it as the header's prominent
-      // control. An accent badge is that weight; the grey one beside Owner
-      // read as another piece of metadata.
+      // The account's standing is the one value beside its name a reader
+      // looks for first. Tinted rather than filled: it marks the one value
+      // here a reader can set, without reading as the page's primary action.
       render={(value) => (
         <Badge tone="accent">{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
       )}
@@ -223,7 +250,17 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
   );
 }
 
-function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
+// Exported for the same reason as useCompanyFieldPatch/useCompanyReadOnlyReason
+// above: the rail's Details grid edits the SAME field through the SAME
+// roster read, the SAME not-in-roster fallback and the SAME
+// unowned-only-while-unowned rule, rather than a second picker that could
+// silently diverge from any of the three. `hideLabel` lets the rail's own
+// FieldRow label column say "Owner" once instead of this control saying it
+// again — the header call site omits it and keeps its current prose.
+export function CompanyOwnerControl({
+  org,
+  hideLabel,
+}: Readonly<{ org: Organization; hideLabel?: boolean }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
@@ -254,6 +291,10 @@ function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("co.pulse.owner")}
+      // The caller names the field: the header's meta line prints "Owner"
+      // immediately before this control, and the grid has its own label
+      // column. `label` still drives the accessible name either way.
+      hideLabel={hideLabel}
       value={org.owner_id ?? ""}
       options={options}
       canEdit={canUpdate && !readOnlyReason}
@@ -348,12 +389,16 @@ function CompanyEditAction({
 
 export function CompanyActionBadges({
   org,
+  view,
   onOpenHistory,
   onSetUpPartner,
+  onOpenDecisions,
 }: Readonly<{
   org: Organization;
+  view?: Organization360View;
   onOpenHistory: () => void;
   onSetUpPartner: () => void;
+  onOpenDecisions?: () => void;
 }>) {
   const t = useT();
   const overlay = useSorMode() === "overlay";
@@ -466,124 +511,47 @@ export function CompanyActionBadges({
               {t("record.fullHistory")}
             </Button>
           )}
+          {/* The account's own waiting decisions. It reads as a count in the
+              header, which is a state, and this is the verb that answers it —
+              so it sits with the other rare verbs rather than as a chip beside
+              the account's name. Absent when nothing waits. */}
+          {onOpenDecisions && (
+            <DecisionsChip view={view} onOpen={onOpenDecisions} />
+          )}
         </OverflowMenu>
       )}
     </>
   );
 }
 
-// CompanyDescription is the one-line "what this company does" under the title,
-// editable where it is read (plan §4.1). Absent, it is still pressable — an
-// unwritten description is the case a rep most wants to fix, and a line that
-// only appears once it exists can never be started.
+// CompanyDescription is the one-line "what this company does" under the
+// title — READ-ONLY here (plan §4.1's editable line moved to the rail's
+// Details grid, companyraildetails.tsx's DescriptionRow, which is where a
+// reader goes to fill fields in). A second editable control on the same
+// field, wired to a second PATCH, is the duplicate-control defect the
+// lifecycle row was fixed for; this is the same fix one field over. Absent
+// entirely rather than shown empty: an unwritten description with no
+// pressable to start it here would be a dead end pointing nowhere at the
+// field that actually writes it.
 export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
-  const t = useT();
-  const canUpdate = useCan("organization", "update");
-  const readOnlyReason = useCompanyReadOnlyReason(org);
-  const patch = useCompanyFieldPatch(org);
   const value = org.description ?? "";
-  // Nothing written and nothing the reader could write: the line is not
-  // rendered at all rather than as an empty row with a placeholder they
-  // cannot act on.
-  if (!value && (!canUpdate || readOnlyReason)) {
+  // The line is drawn only when it says something the chips below it do not.
+  // Nothing written earns no line: the details grid is where that gets
+  // filled in now. A description that merely repeats the industry earns no
+  // line either — a reader who sees the same words twice reads the second
+  // copy as a different fact and looks for the difference. Enrichment writes
+  // this field from the same source the industry comes from, so the two
+  // matching is the common case, not a freak one.
+  const industry = org.industry?.trim().toLowerCase() ?? "";
+  if (!value || value.trim().toLowerCase() === industry) {
     return null;
   }
-  return (
-    <p className="co-description">
-      {/* Keyed by the record, so navigating to another company while the line
-          is open REMOUNTS the control rather than re-pointing it. Without the
-          key the draft typed for company A survives, and pressing Save then
-          writes it to company B with nothing on screen saying so — the same
-          trap the composer is keyed against. */}
-      <InlineText
-        key={org.id}
-        label={t("co.description.label")}
-        value={value}
-        placeholder={t("co.description.placeholder")}
-        maxLength={COMPANY_DESCRIPTION_MAX}
-        canEdit={canUpdate && !readOnlyReason}
-        readOnlyReason={readOnlyReason}
-        onSave={(next) => patch({ description: next || null })}
-      />
-    </p>
-  );
-}
-
-// The column's own CHECK bound (core 0203). Stated here so the field stops the
-// reader at the limit rather than letting the server refuse the save.
-const COMPANY_DESCRIPTION_MAX = 500;
-
-// CompanyChips is the header's row of facts: where the company is on the web,
-// where it is on the map, what it does and how big it is (plan §4.1). It
-// replaces the joined subtitle string it grew out of — five values crushed
-// into one dot-separated line, where the two that are links did not read as
-// links and none of them said which was which.
-export function CompanyChips({ org }: Readonly<{ org: Organization }>) {
-  const t = useT();
-  // `website_url` is derived server-side from the primary domain row, and an
-  // overlay-mirrored company carries the domain without it. Falling back to
-  // the row keeps the chip on those records rather than silently dropping the
-  // one identifying fact the reader had before.
-  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
-  const website =
-    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined);
-  const location = [org.address?.city, org.address?.country]
-    .filter(Boolean)
-    .join(", ");
-  const chips: ReactElement[] = [];
-  if (website) {
-    chips.push(
-      <Chip key="website" icon={Globe} href={website}>
-        {displayHost(website)}
-      </Chip>,
-    );
-  }
-  if (org.linkedin_url) {
-    chips.push(
-      <Chip key="linkedin" icon={Link2} href={org.linkedin_url}>
-        {t("co.chip.linkedin")}
-      </Chip>,
-    );
-  }
-  if (location) {
-    chips.push(
-      <Chip key="location" icon={MapPin}>
-        {location}
-      </Chip>,
-    );
-  }
-  if (org.industry) {
-    chips.push(
-      <Chip key="industry" icon={Tag}>
-        {org.industry}
-      </Chip>,
-    );
-  }
-  if (org.size_band) {
-    chips.push(
-      <Chip key="size" icon={Users}>
-        {t("co.chip.employees", { band: org.size_band })}
-      </Chip>,
-    );
-  }
-  if (chips.length === 0) {
-    return null;
-  }
-  return (
-    // A list, so the row announces how many facts it carries and a reader can
-    // step through them — a bare div with a label announces the label and then
-    // runs the five chips together as one string.
-    <ul className="co-chiprow" aria-label={t("co.chip.rowLabel")}>
-      {chips.map((chip) => (
-        <li key={chip.key}>{chip}</li>
-      ))}
-    </ul>
-  );
+  return <p className="co-description">{value}</p>;
 }
 
 // The scheme is noise in a chip: every one of these is https, and "https://"
-// costs eight characters of a row that has five things to fit. A URL we cannot
-// parse is shown whole rather than silently dropped.
+// costs eight characters of a row that has little space to fit it in. A URL
+// we cannot parse is shown whole rather than silently dropped.
 function displayHost(url: string): string {
   try {
     return new URL(url).host.replace(/^www\./, "");
@@ -592,135 +560,158 @@ function displayHost(url: string): string {
   }
 }
 
-// CompanyPulse is the one-line state of the relationship: how warm it is and
-// who carries it, when it was last touched, and who owns it. Each part is
-// omitted when the 360 could not answer it, so the line never implies a
-// number the reader was not allowed to see.
-// The account's standing: the two values a reader changes in place, stacked
-// at the top right of the header where the mockup puts them.
-export function CompanyStanding({
-  org,
-}: Readonly<{ org: Organization }>): ReactElement {
+// `website_url` is derived server-side from the primary domain row, and an
+// overlay-mirrored company carries the domain without it. Falling back to
+// the row keeps the domain on those records rather than silently dropping
+// the one identifying fact the reader had before. Shared by every reader of
+// the company's web presence, so the fallback lives in one place rather than
+// being re-derived per caller.
+function companyWebsite(org: Organization): string | undefined {
+  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
   return (
-    <div className="co-standing">
-      <CompanyLifecycleControl org={org} />
-      <CompanyOwnerControl org={org} />
-    </div>
+    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined)
   );
 }
 
-export function CompanyPulse({
+// CompanyIdentityLine is the header's two meta lines, under the name and its
+// lifecycle badge (which now sits on the name's own line — see RecordView's
+// `nameBadge`). The first names what the account is and who owns it — its
+// domain, its industry, its owner — as plain facts rather than pill chips;
+// the second, quieter, says when the record was made and when it was last
+// exchanged with. This replaces the four-row scatter the header used to draw
+// (name; a chip row; a "way in / they wrote / we wrote / agent: X" pulse
+// line; lifecycle and owner stranded in their own column at the top right),
+// which gave the reader four places to look for one fact each instead of two
+// lines to read in order: who this is, then when.
+//
+// Location and employee-band chips are dropped rather than moved: both
+// already have a home in the rail's Details grid (companyraildetails.tsx),
+// so drawing them here a second time would be the same fact stated twice
+// rather than a real loss.
+//
+// `agent: deepread`-style record provenance no longer renders here. It was
+// CompanyPulse's ProvenanceTag on `org.captured_by` — who/what wrote the
+// ORGANIZATION ROW itself, not a fact about any field on this line — and
+// nothing at this level of the mockup shows anything like it. There is
+// currently no rail section that owns record-level provenance to move it
+// to; removing it here is a real loss of that passive display (the fact
+// still lives in the record's full history), flagged rather than papered
+// over.
+//
+// The account's "way in" (the contact who carries the relationship,
+// previously StrengthPulse) is dropped for the same reason and the same
+// caveat: nothing in the identity line's mockup shape has room for it, and
+// no other surface on this page currently states it.
+export function CompanyIdentityLine({
   org,
   view,
-  onOpenDecisions,
+  loading,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
-  // The overview owns the decisions panel, so only it can offer the way in.
-  // The other tabs render the same pulse line without the chip rather than a
-  // button that has nothing to open.
-  onOpenDecisions?: () => void;
+  // Still fetching the composite read: the exchange date is withheld the
+  // same way it is when the section itself is withheld, so a page mid-load
+  // never reads as an account nobody has ever written to.
+  loading?: boolean;
 }>) {
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
-  const provenance = provenanceOf(org.captured_by, viewerId);
-  // The reader's own hand-typed entry: the one provenance that reports nothing
-  // they do not already know.
-  const selfTyped = provenance.kind === "human" && provenance.self;
-  const strength = view?.strength;
-  // Withheld or absent, the line says nothing at all: "never contacted" read
-  // off missing data is a business conclusion the page has no basis for, and
-  // it is the one a rep would act on.
+  // Withheld or still in flight, the line says nothing about it: naming no way
+  // in on an account that has one is worse than saying nothing.
+  const wayIn = loading ? undefined : view?.strength;
+  const when = (at: string) => formatDateAbbrev(at, locale, RECORD_ZONE);
+  // Withheld, absent, or still in flight, the line says nothing about it at
+  // all: "never contacted" read off data the page could not answer is a
+  // business conclusion it has no basis for, and it is the one a rep would
+  // act on.
   const touchKnown = Boolean(
-    view && !view.sections_omitted?.includes("last_touch"),
+    view && !loading && !view.sections_omitted?.includes("last_touch"),
   );
+  // The two directions folded into the later of the two, now that acting on
+  // WHICH side wrote last belongs to the daily brief rather than the header
+  // (the brief's own detail line still names direction). The header states
+  // only that the relationship is or is not live.
   const inbound = view?.last_inbound_at;
   const outbound = view?.last_outbound_at;
-  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
-  return (
-    <>
-      {strength && <StrengthPulse strength={strength} />}
-      {/* Both directions, side by side. Folding them into one "last touch"
-          hides the only distinction a reader acts on: an account we mailed a
-          fortnight ago with no reply and one that wrote to us this morning
-          have the same last-touch date and opposite meanings. */}
-      {touchKnown && !inbound && !outbound && (
-        <span>{t("co.pulse.neverTouched")}</span>
-      )}
-      {touchKnown && (inbound || outbound) && (
-        <>
-          <span>
-            {inbound
-              ? t("co.pulse.lastInbound", { when: when(inbound) })
-              : t("co.pulse.noInbound")}
-          </span>
-          <span>
-            {outbound
-              ? t("co.pulse.lastOutbound", { when: when(outbound) })
-              : t("co.pulse.noOutbound")}
-          </span>
-        </>
-      )}
-      {/* Where the RECORD came from — a different question from who owns it,
-          and the reason both carry a word saying which is which.
-
-          Not when the reader typed it THEMSELVES. "Typed by you" on your own
-          entry is the one case that tells nobody anything, and it rode the
-          pulse line of every hand-created account. An agent, a connector or an
-          unknown source all still say so: which of those wrote a record is the
-          governance reading this tag exists for. */}
-      {!selfTyped && (
-        <ProvenanceTag
-          provenance={provenance}
-          renderUser={(userId) => <EntityRef kind="user" id={userId} />}
-        />
-      )}
-      {/* What is waiting on a human decision here, and the way to make it.
-          The count was a badge that led nowhere: a reader told that 27
-          decisions are owed and given no way to pay them learns only that the
-          page keeps score. */}
-      {onOpenDecisions && (
-        <DecisionsChip view={view} onOpen={onOpenDecisions} />
-      )}
-    </>
-  );
-}
-
-// StrengthPulse names the contact who carries the relationship — the way in —
-// and no longer renders a 0-100 score (AC-company-2, ADR-0079 arc).
-//
-// The number was PO-F-3's MAX over the account's contacts, and PO-F-3 is a
-// decayed count of recent two-way messages. So one talkative contact spoke for
-// the whole account, a long low-volume relationship scored near zero, and the
-// header showed "Relationship 2/100" as though it were a verdict. The factors
-// are still computed and still shown in the relationship detail, where each is
-// traceable to the messages behind it; only the single number is withheld.
-//
-// The contributor's NAME is a live lookup, so the sentence is assembled from
-// two translated halves around it rather than interpolating an empty
-// placeholder and appending the name after the full stop — which broke word
-// order in English and worse in German.
-function StrengthPulse({
-  strength,
-}: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
-  const t = useT();
-  if (!strength.contributor_person_id) {
-    // A dormant account: no contact has ever interacted, so there is no
-    // relationship to attribute and no number worth leading with.
-    return <span>{t("co.pulse.noStrength")}</span>;
+  const lastExchange =
+    inbound && outbound
+      ? inbound > outbound
+        ? inbound
+        : outbound
+      : (inbound ?? outbound);
+  const website = companyWebsite(org);
+  // What the account IS and who owns it, as plain facts rather than pill
+  // chips — built as a list rather than three fixed slots because website
+  // and industry are each legitimately absent, and a fixed "· ·" either
+  // side of a missing fact would leave a stray separator.
+  const facts: ReactElement[] = [];
+  if (website) {
+    facts.push(
+      <a key="website" className="co-meta-link" href={website}>
+        {displayHost(website)}
+      </a>,
+    );
   }
+  if (org.industry) {
+    facts.push(<span key="industry">{org.industry}</span>);
+  }
+  // Owner always has a slot, even unowned — "Unassigned" is the honest
+  // current state, not an absence to omit the way a missing website is.
+  facts.push(
+    <span key="owner">
+      {t("co.pulse.owner")} <CompanyOwnerControl org={org} hideLabel />
+    </span>,
+  );
   return (
-    <span>
-      {t("co.pulse.strongestLead")}{" "}
-      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
-      {t(
-        strength.contact_count === 1
-          ? "co.pulse.strengthTail.one"
-          : "co.pulse.strengthTail.other",
-        { count: strength.contact_count },
-      )}
-    </span>
+    <div className="co-identity-meta">
+      <div className="co-meta-line">
+        {facts.map((fact, i) => (
+          <Fragment key={fact.key}>
+            {i > 0 && <span className="co-sep">·</span>}
+            {fact}
+          </Fragment>
+        ))}
+      </div>
+      <div className="co-meta-line co-meta-quiet">
+        <span>{t("co.pulse.created", { when: when(org.created_at) })}</span>
+        {/* WHO wrote the record, beside WHEN it was written: a mark about the
+            row itself rather than about any field on it, so it belongs with
+            the record's own dates and not on the line that says what the
+            account is. */}
+        <ProvenanceTag provenance={provenanceOf(org.captured_by, viewerId)} />
+        {/* The contact the relationship actually runs through, on the line of
+            the record's own facts. The NAME is a live lookup, so the sentence
+            is built from two translated halves around it rather than
+            interpolating a placeholder and appending the name after the full
+            stop — which breaks word order in English and worse in German. */}
+        {wayIn?.contributor_person_id && (
+          <>
+            <span className="co-sep">·</span>
+            <span>
+              {t("co.pulse.strongestLead")}{" "}
+              <EntityRef kind="person" id={wayIn.contributor_person_id} />{" "}
+              {t(
+                wayIn.contact_count === 1
+                  ? "co.pulse.strengthTail.one"
+                  : "co.pulse.strengthTail.other",
+                { count: wayIn.contact_count },
+              )}
+            </span>
+          </>
+        )}
+        {touchKnown && (
+          <>
+            <span className="co-sep">·</span>
+            <span>
+              {lastExchange
+                ? t("co.pulse.lastExchange", { when: when(lastExchange) })
+                : t("co.pulse.neverTouched")}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -47,6 +47,17 @@ describe("Meter draws a proportion a reader can also hear", () => {
         ?.classList.contains("meterbar-danger"),
     ).toBe(true);
   });
+
+  // No low-is-bad end: the bar stays a solid accent instead of fading toward
+  // a colour that would read as a warning creeping in.
+  it("draws a flat accent when the reading has no low-is-bad end", () => {
+    const { container } = render(
+      <Meter value={6} max={8} label="Growth fit" flat />,
+    );
+    expect(
+      container.querySelector(".meterbar")?.classList.contains("meterbar-flat"),
+    ).toBe(true);
+  });
 });
 
 describe("Sparkline is a glyph, not a chart", () => {

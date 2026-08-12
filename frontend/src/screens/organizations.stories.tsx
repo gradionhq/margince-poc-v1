@@ -25,6 +25,11 @@ const org = {
   captured_by: "human:u1",
   source: "manual",
   version: 1,
+  // The header states when the record was written, so the fixture carries the
+  // date the contract requires of every organization — omitted, the identity
+  // line formats an unreadable date and the whole page renders as nothing.
+  created_at: "2026-06-01T08:00:00Z",
+  updated_at: "2026-06-01T08:00:00Z",
 };
 
 const dormantStrength = {

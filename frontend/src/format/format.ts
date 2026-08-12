@@ -97,6 +97,26 @@ export function formatDate(
   }).format(new Date(utcIso));
 }
 
+// A date a reader SCANS rather than keys into a form — a record's header
+// meta line, never a table column someone might copy into a spreadsheet.
+// The abbreviated month (Intl's own locale name, so de/vi read correctly
+// with no lookup table of our own) is what tells the two apart from
+// `formatDate` above; callers that need the numeric, sortable form keep
+// using that one.
+export function formatDateAbbrev(
+  utcIso: string,
+  locale: Locale,
+  zone: string,
+): string {
+  assertIanaZone(zone);
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
+    timeZone: zone,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(utcIso));
+}
+
 export function formatDateTime(
   utcIso: string,
   locale: Locale,

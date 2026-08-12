@@ -1,0 +1,54 @@
+/* FieldGrid — a two-column label/value grid. The label column is a FIXED
+ * rung (112px, matched to the prototype), not `auto`: an auto column sizes to
+ * the longest label in the grid, so the values' left edge moves as fields
+ * arrive, and moves AGAIN per locale (German labels run longer than English).
+ * A fixed rung is what lets every value in the grid, on every record, in
+ * every language, start at the same x — that one shared edge is the entire
+ * point of a key/value grid. This tier is exempt from the raw-px spacing
+ * gate (it DEFINES the scale rather than consuming it), so the rung is a
+ * literal px measure, same as the prototype's. */
+.fieldgrid {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  /* A dense reference surface reads as a compact block, not a spaced-out
+     form — the row gap matches the prototype's tighter rhythm rather than
+     the wider `--space-2`/`--space-3` this grid used before it carried the
+     Details panel's full field set. */
+  gap: 6px var(--space-3);
+  font-size: var(--fs-sm);
+}
+.fieldgrid-label {
+  color: var(--textMeta);
+}
+.fieldgrid-value {
+  color: var(--textContent);
+  min-width: 0;
+}
+
+/* A VALUE reads as a value, not as a link. InlineText and InlineChoice make
+   their trigger a button so the whole value is pressable, and a button both
+   centres its own text and — as `.link-button` — paints it in the accent at
+   link weight. In a grid that turns every editable fact green and centred
+   while the read-only ones beside it sit black and left, so the two kinds of
+   row read as two kinds of fact rather than one column of values.
+   The pressable box stays; only its type goes back to the row's own. */
+.fieldgrid-value .inlinetext,
+.fieldgrid-value .inline-editable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  font-size: inherit;
+  font-weight: var(--fw-regular);
+  color: inherit;
+}
+/* The exception, and the reason the accent exists here at all: a field with
+   nothing in it offers to be filled. That IS an invitation, so it keeps the
+   accent — but only on the empty row, where there is no value for it to
+   misrepresent. */
+.fieldgrid-value .inlinetext[data-empty="true"],
+.fieldgrid-value .inline-editable[data-empty="true"] {
+  color: var(--accent);
+  font-weight: var(--fw-medium);
+}

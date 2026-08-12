@@ -15,9 +15,12 @@ import { LocaleProvider } from "../i18n";
 import { taskWriteKeys } from "./activitykeys";
 import {
   AccountBrief,
+  CommercialPanel,
   NextSteps,
   PeopleCard,
+  SentenceList,
   type SuggestionAction,
+  SuggestionsSection,
 } from "./company360";
 import { CompanyScreen } from "./organizations";
 import { TaskQuickActions, useTaskUpdate } from "./taskactions";
@@ -260,15 +263,28 @@ function NextStepsWithVerbs({
   );
 }
 
-function renderBrief(
-  three60: ReturnType<typeof view>,
-  onPerform: (action: SuggestionAction) => void = () => {},
-) {
+function renderBrief(three60: ReturnType<typeof view>) {
   render(
     <AccountBrief
       orgId="o-1"
       view={three60 as never}
       enabled
+      onOpenRecord={() => {}}
+    />,
+  );
+}
+
+// The lead panel, rendered on its own: it moved out of AccountBrief so the
+// stack could tint and box it separately, and the advice it carries is
+// exercised through it directly now.
+function renderSuggestions(
+  three60: ReturnType<typeof view>,
+  onPerform: (action: SuggestionAction) => void = () => {},
+) {
+  render(
+    <SuggestionsSection
+      orgId="o-1"
+      view={three60 as never}
       onOpenRecord={() => {}}
       onPerform={onPerform}
     />,
@@ -277,11 +293,14 @@ function renderBrief(
 
 describe("company view — withheld sections", () => {
   it("says a section is hidden rather than drawing it empty", async () => {
+    // Deals moved to their own tab: the card is no longer inside the
+    // Business grid, so the reader has to be on the Deals tab to see it.
     stub(view({ deals: undefined, sections_omitted: ["deals"] }));
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
-    const deals = within(card).getByText("Deals").closest("section");
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
+    const heading = await screen.findByRole("heading", { name: "Deals" });
+    const deals = heading.closest("section");
     if (!deals) {
       throw new Error("the deals card has no section wrapper");
     }
@@ -299,12 +318,17 @@ describe("company view — withheld sections", () => {
     stub(view());
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
+    const heading = await screen.findByRole("heading", { name: "Deals" });
+    const deals = heading.closest("section");
+    if (!deals) {
+      throw new Error("the deals card has no section wrapper");
+    }
     expect(
-      within(card).getByText("No open deal on this account."),
+      within(deals).getByText("No open deal on this account."),
     ).toBeTruthy();
     expect(
-      within(card).queryByText("Hidden — your role cannot read this"),
+      within(deals).queryByText("Hidden — your role cannot read this"),
     ).toBeNull();
   });
 
@@ -334,8 +358,76 @@ describe("company view — withheld sections", () => {
     );
     renderCompany();
 
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
     expect(screen.queryByText(/Nobody here is your/)).toBeNull();
+  });
+
+  it("says the KPI row is hidden rather than dropping it silently", async () => {
+    // The strip used to return null on ANY absent state_strip, which read the
+    // same on a caller with no grant on it as on a page still loading. A
+    // reader whose role withholds the row is told so instead of the row
+    // simply never appearing.
+    stub(view({ sections_omitted: ["state_strip"] }));
+    renderCompany();
+
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(
+      within(strip).getByText("Hidden — your role cannot read this"),
+    ).toBeTruthy();
+  });
+
+  it("says how it stands is hidden rather than drawing no card", async () => {
+    // Health drew nothing on a withheld section, on an account with nothing
+    // rated yet, and on one with nothing to report alike. The first two are
+    // facts about the READ; only the third is a fact about the account, and a
+    // reader who meets no card at all takes it for the third.
+    stub(view({ health: undefined, sections_omitted: ["health"] }));
+    renderCompany();
+
+    const rail = await screen.findByRole("complementary", { name: "Context" });
+    expect(
+      within(rail).getByText("Hidden — your role cannot read this"),
+    ).toBeTruthy();
+  });
+
+  it("says there is no health reading yet, distinct from hidden", async () => {
+    // `health` came back as an object with nothing rated — e.g. an account
+    // that has never exchanged mail — which must read as "there is none",
+    // never as the withheld notice above.
+    stub(view({ health: {} }));
+    renderCompany();
+
+    const rail = await screen.findByRole("complementary", { name: "Context" });
+    const health = within(rail).getByText("How it stands").closest("section");
+    if (!health) {
+      throw new Error("the health card has no section wrapper");
+    }
+    expect(
+      within(health).getByText("No health reading on this account yet."),
+    ).toBeTruthy();
+    expect(
+      within(health).queryByText("Hidden — your role cannot read this"),
+    ).toBeNull();
+  });
+
+  it("rates how it stands once a dimension has something to say", async () => {
+    stub(view({ health: { days_since_last_inbound: 3, active_contacts: 2 } }));
+    renderCompany();
+
+    const rail = await screen.findByRole("complementary", { name: "Context" });
+    const health = within(rail).getByText("How it stands").closest("section");
+    if (!health) {
+      throw new Error("the health card has no section wrapper");
+    }
+    expect(within(health).getByText("They last wrote 3 days ago")).toBeTruthy();
+    expect(
+      within(health).queryByText("No health reading on this account yet."),
+    ).toBeNull();
+    expect(
+      within(health).queryByText("Hidden — your role cannot read this"),
+    ).toBeNull();
   });
 });
 
@@ -346,14 +438,14 @@ describe("company view — the verbs that change a section", () => {
     stub(view());
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
     expect(
-      within(card).getByText("No open deal on this account."),
+      await screen.findByText("No open deal on this account."),
     ).toBeTruthy();
     // Awaited: the verb appears once the pipeline read resolves, because a
     // deal needs somewhere to land before the page offers to open one.
     expect(
-      await within(card).findByRole("button", { name: "New deal" }),
+      await screen.findByRole("button", { name: "New deal" }),
     ).toBeTruthy();
   });
 
@@ -365,9 +457,9 @@ describe("company view — the verbs that change a section", () => {
     );
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
     expect(
-      within(card).getByText("Hidden — your role cannot read this"),
+      await screen.findByText("Hidden — your role cannot read this"),
     ).toBeTruthy();
     // The absent button alone would prove nothing: the verb also renders null
     // while its pipeline read is in flight, so the assertion could pass on
@@ -379,7 +471,7 @@ describe("company view — the verbs that change a section", () => {
       expect(fetched.some((path) => path.endsWith("/360"))).toBe(true),
     );
     expect(fetched.some((path) => path.endsWith("/pipelines"))).toBe(false);
-    expect(within(card).queryByRole("button", { name: "New deal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New deal" })).toBeNull();
   });
 });
 
@@ -395,13 +487,11 @@ it("offers the tag verb but not the list verb when only lists are withheld", asy
   );
   renderCompany();
 
-  const card = await screen.findByRole("complementary", { name: "Business" });
-  expect(
-    await within(card).findByRole("button", { name: "Add tag" }),
-  ).toBeTruthy();
-  expect(
-    within(card).queryByRole("button", { name: "Add to list" }),
-  ).toBeNull();
+  // The verbs sit in the overview stack now — the rail (companyrail.tsx)
+  // shows the tags and lists themselves, and carries no write affordance of
+  // its own, so the action strip that changes them is unscoped here.
+  expect(await screen.findByRole("button", { name: "Add tag" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Add to list" })).toBeNull();
 });
 
 describe("company view — consent is per purpose", () => {
@@ -435,6 +525,11 @@ describe("company view — consent is per purpose", () => {
       }),
     );
     renderCompany();
+    // Consent is the roster's own detail, not the rail's glance: it lives on
+    // the People tab now, where ContactRow still draws the full chip set.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
     expect(screen.getByText("No consent on file")).toBeTruthy();
@@ -471,36 +566,35 @@ describe("company view — consent is per purpose", () => {
       }),
     );
     renderCompany();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await waitFor(() => expect(screen.getByText("May contact")).toBeTruthy());
   });
 });
 
 describe("company view — the context column belongs to the account, not to a tab", () => {
-  it("keeps the context column mounted when the reader switches tab", async () => {
+  it("keeps the relationship rail mounted when the reader switches tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
 
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
 
     // Partner and History used to render in a header-only frame, so the side
-    // column unmounted, the grid re-columned under the reader, and every query
-    // behind it refetched on the way back.
-    expect(
-      screen.getByRole("complementary", { name: "Business" }),
-    ).toBeTruthy();
-    // There is no second landmark to check any more: the profile, documents,
-    // facts and tools disclosures live INSIDE the Business column (plan §4 —
-    // one context column, not two), so they ride on its mount.
-    expect(screen.queryByRole("complementary", { name: "Profile" })).toBeNull();
+    // columns unmounted and every query behind them refetched on the way
+    // back. The LEFT rail — the account's relationship context — is passed
+    // once to RecordView and rides on the page's own mount, so it never
+    // unmounts across a tab switch.
+    expect(screen.getByRole("complementary", { name: "Context" })).toBeTruthy();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
     const fetched = stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
     const before = fetched.filter((path) => path.endsWith("/360")).length;
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
@@ -512,7 +606,7 @@ describe("company view — the context column belongs to the account, not to a t
   it("leaves the timeline to its own tab rather than repeating it under a form", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // The chronology moved off the overview when the page gained its own
     // History tab, so it is not under the partner form either.
@@ -543,11 +637,12 @@ describe("company view — overlay mode", () => {
     await waitFor(() =>
       expect(screen.getByText(/not assembled here/)).toBeTruthy(),
     );
-    // No half-page: the business rail is absent entirely rather than showing
-    // cards that would each read as an empty account.
+    // No half-page: the overview's own panels (the account, its worth, the
+    // pipeline, the money) are absent entirely rather than showing cards
+    // that would each read as an empty account.
     expect(
-      screen.queryByRole("complementary", { name: "Business" }),
-    ).toBeNull();
+      document.querySelector(".co-overview-stack")?.textContent,
+    ).toBeFalsy();
   });
 });
 
@@ -628,6 +723,55 @@ describe("company view — next steps", () => {
   });
 });
 
+describe("company view — a section still loading is not one that failed", () => {
+  // The composite read hands every section the SAME undefined `view` while
+  // it is still in flight and once it has actually failed — sectionState's
+  // whole job is telling those two apart, and this pins the distinction it
+  // is for: a read that has not answered yet draws a skeleton, and only a
+  // read that answered with an error draws "could not be loaded".
+  it("draws a skeleton while the composite read is still in flight, not a failure", async () => {
+    let resolve360: (() => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          // Hangs until the assertions below have looked at the still-loading
+          // page, then resolves so cleanup does not leave a dangling fetch.
+          await new Promise<void>((resolve) => {
+            resolve360 = resolve;
+          });
+          return jsonResponse(view());
+        }
+        if (pathname.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ allow: { organization: ["read"] } }));
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({ data: [], page: emptyPage });
+      }),
+    );
+    renderCompany();
+
+    await screen.findByText("Brandt Automotive GmbH");
+    const heading = screen.getByRole("heading", { name: "Commercial" });
+    const panel = heading.closest("section");
+    if (!panel) {
+      throw new Error("the Commercial panel has no section wrapper");
+    }
+    await waitFor(() => expect(panel.querySelector(".skeleton")).toBeTruthy());
+    expect(within(panel).queryByText(/Could not be loaded/)).toBeNull();
+
+    resolve360?.();
+    await waitFor(() => expect(panel.querySelector(".skeleton")).toBeNull());
+    expect(
+      within(panel).getByText("No open deal on this account."),
+    ).toBeTruthy();
+    expect(within(panel).queryByText(/Could not be loaded/)).toBeNull();
+  });
+});
+
 describe("company view — a failed read is not an empty account", () => {
   it("says the page is partial instead of drawing a bare account", async () => {
     stub({ title: "Internal", detail: "boom" }, 500);
@@ -639,7 +783,7 @@ describe("company view — a failed read is not an empty account", () => {
     // The business rail STAYS, with each card saying it could not be loaded.
     // Removing it would read as an account with no people and no deals,
     // which is the one thing this page does not know.
-    const card = screen.getByRole("complementary", { name: "Business" });
+    const card = screen.getByRole("complementary", { name: "Context" });
     expect(
       within(card).getAllByText(/Could not be loaded/).length,
     ).toBeGreaterThan(0);
@@ -658,8 +802,9 @@ describe("company view — a failed read is not an empty account", () => {
     stub(view({ deals: undefined }));
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
-    const deals = within(card).getByText("Deals").closest("section");
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
+    const heading = await screen.findByRole("heading", { name: "Deals" });
+    const deals = heading.closest("section");
     if (!deals) {
       throw new Error("the deals card has no section wrapper");
     }
@@ -686,7 +831,7 @@ describe("company view — one section never answers for another", () => {
     );
     renderCompany();
 
-    const rail = await screen.findByRole("complementary", { name: "Business" });
+    const rail = await screen.findByRole("complementary", { name: "Context" });
     // The refusal has to name WHICH half it is about: under a heading
     // covering both, an unattached "hidden from you" leaves the reader
     // unable to tell whether the lists or the tags were withheld.
@@ -713,8 +858,11 @@ describe("company view — one section never answers for another", () => {
     );
     renderCompany();
 
+    const rail = await screen.findByRole("complementary", { name: "Context" });
     // Losing one grant narrows the card; it does not blank it.
-    await waitFor(() => expect(screen.getByText("Key account")).toBeTruthy());
+    await waitFor(() =>
+      expect(within(rail).getByText("Key account")).toBeTruthy(),
+    );
   });
 });
 
@@ -732,14 +880,14 @@ describe("company view — figures that outlive the list they sit under", () => 
     );
     renderCompany();
 
-    const rail = await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(await screen.findByRole("button", { name: "Deals" }));
     // No OPEN deal is true and is said. The account still won €120,000 —
     // hiding that because today's pipeline is empty loses a real fact.
     expect(
-      within(rail).getByText("No open deal on this account."),
+      await screen.findByText("No open deal on this account."),
     ).toBeTruthy();
-    expect(within(rail).getByText(/120,000/)).toBeTruthy();
-    expect(within(rail).getByText("3 lost")).toBeTruthy();
+    expect(screen.getByText(/120,000/)).toBeTruthy();
+    expect(screen.getByText("3 lost")).toBeTruthy();
   });
 });
 
@@ -768,7 +916,7 @@ describe("company view — the citations under a finding", () => {
       ],
     });
     stub(three60);
-    renderBrief(three60);
+    renderSuggestions(three60);
     // Not "activityactivityactivity": one chip that says how many.
     await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
     expect(screen.queryAllByText("activity")).toHaveLength(0);
@@ -784,9 +932,72 @@ describe("company view — the citations under a finding", () => {
       ],
     });
     stub(three60);
-    renderBrief(three60);
+    renderSuggestions(three60);
     await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
     expect(screen.queryByText("2 activities")).toBeNull();
+  });
+
+  // The dossier's "collected" mode gathers every sentence's citations under
+  // one row, which is exactly where several profile fields — a kind with no
+  // name of its own beyond "profile field" — used to print as ten identical
+  // buttons in a row rather than as one counted one.
+  it("collapses several sources of one OPENABLE receipt kind into one counted chip", async () => {
+    const opened: unknown[] = [];
+    render(
+      <SentenceList
+        sentences={[
+          {
+            text: "The company operates from three regional offices.",
+            evidence: [
+              { entity_type: "profile_field", entity_id: "pf-1" },
+              { entity_type: "profile_field", entity_id: "pf-2" },
+              { entity_type: "profile_field", entity_id: "pf-3" },
+            ],
+          },
+        ]}
+        onOpenRecord={(...args) => opened.push(args)}
+        citations="collected"
+      />,
+    );
+    expect(screen.getByText("3 profile fields")).toBeTruthy();
+    expect(screen.queryAllByText("profile field")).toHaveLength(0);
+    // Opens the FIRST record, with every sibling so the drawer's own stepper
+    // reaches the other two — the count names them, the stepper reaches them.
+    await userEvent.click(screen.getByText("3 profile fields"));
+    expect(opened).toEqual([
+      [
+        "profile_field",
+        "pf-1",
+        [
+          { entityType: "profile_field", entityId: "pf-1" },
+          { entityType: "profile_field", entityId: "pf-2" },
+          { entityType: "profile_field", entityId: "pf-3" },
+        ],
+      ],
+    ]);
+  });
+
+  // deal/person each open their OWN screen rather than a shared stepper, so
+  // grouping them the same way would silently drop every record past the
+  // first — they stay one chip per record instead.
+  it("keeps a separate chip per record for a kind with its own screen", async () => {
+    render(
+      <SentenceList
+        sentences={[
+          {
+            text: "Two deals are open with this account.",
+            evidence: [
+              { entity_type: "deal", entity_id: "d-1" },
+              { entity_type: "deal", entity_id: "d-2" },
+            ],
+          },
+        ]}
+        onOpenRecord={() => {}}
+        citations="collected"
+      />,
+    );
+    expect(screen.getAllByText("deal")).toHaveLength(2);
+    expect(screen.queryByText("2 deals")).toBeNull();
   });
 });
 
@@ -821,6 +1032,10 @@ describe("company view — what is waiting on a decision", () => {
       }),
     );
     renderCompany();
+    // The way into the queue sits with the record's other rare verbs rather
+    // than beside the account's name: it opens a queue, it does not decide
+    // anything, and drawn in the header it outranked the verbs that do.
+    (await screen.findByRole("button", { name: "More actions" })).click();
     const open = await screen.findByRole("button", {
       name: "Review 2 waiting",
     });
@@ -836,6 +1051,7 @@ describe("company view — what is waiting on a decision", () => {
     stub(view());
     renderCompany();
     await screen.findByText("Brandt Automotive GmbH");
+    (await screen.findByRole("button", { name: "More actions" })).click();
     expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
   });
 });
@@ -874,6 +1090,61 @@ describe("company view — an open task can be acted on", () => {
       expect(screen.getByRole("button", { name: "Done" })).toBeTruthy(),
     );
     expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
+  });
+
+  it("draws no checkbox when the caller has no write path for it", async () => {
+    const three60 = view({ next_steps: { data: [step], page: emptyPage } });
+    stub(three60);
+    render(<NextSteps view={three60 as never} />);
+    await waitFor(() =>
+      expect(screen.getByText("Send the retrofit proposal")).toBeTruthy(),
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+});
+
+describe("CommercialPanel — a capped deals page says so", () => {
+  const openDeal = {
+    deal_id: "d-1",
+    name: "Pilot rollout",
+    status: "open" as const,
+    stalled: false,
+  };
+
+  it("names the truncation rather than reading as the whole pipeline", async () => {
+    const three60 = view({
+      deals: {
+        data: [openDeal],
+        page: { has_more: true, next_cursor: "c2" },
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    render(<CommercialPanel view={three60 as never} />);
+    await waitFor(() => expect(screen.getByText("Pilot rollout")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "This account has more open deals than fit here. Open All deals to see the rest.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("draws no truncation notice on a page that holds every open deal", async () => {
+    const three60 = view({
+      deals: {
+        data: [openDeal],
+        page: emptyPage,
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    render(<CommercialPanel view={three60 as never} />);
+    await waitFor(() => expect(screen.getByText("Pilot rollout")).toBeTruthy());
+    expect(
+      screen.queryByText(
+        "This account has more open deals than fit here. Open All deals to see the rest.",
+      ),
+    ).toBeNull();
   });
 });
 
@@ -916,6 +1187,11 @@ describe("company view — naming the buying committee", () => {
       }),
     );
     renderCompany();
+    // Set role stays on the People tab's own roster now: the rail's glance
+    // draws no write verbs.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     const set = await screen.findByRole("button", { name: "Set role" });
     await userEvent.click(set);
@@ -965,6 +1241,9 @@ describe("company view — naming the buying committee", () => {
       }),
     );
     renderCompany();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await screen.findByRole("button", { name: "Christian Hagemeyer" });
     expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
@@ -972,8 +1251,8 @@ describe("company view — naming the buying committee", () => {
 });
 
 // A role belongs to a deal, so the same person can be champion on one and
-// nobody on another. Rendering the role alone made two badges that read
-// identically — and React saw one key twice.
+// nobody on another. Rendering the role alone made two clauses that read
+// identically.
 describe("company view — a buying role names the deal it is on", () => {
   const contactOnTwoDeals = {
     person_id: "p-1",
@@ -1007,10 +1286,17 @@ describe("company view — a buying role names the deal it is on", () => {
       }),
     );
     renderCompany();
+    // The stakeholder-role badge is ContactRow's, drawn on the People tab's
+    // own roster; the rail's glance no longer carries it.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
-    expect(screen.getByText("champion · Renewal")).toBeTruthy();
-    expect(screen.getByText("champion · New business")).toBeTruthy();
+    // Both roles read as one quiet line under the name, not as two badges.
+    expect(
+      screen.getByText("champion · Renewal · champion · New business"),
+    ).toBeTruthy();
   });
 
   it("leaves the deal name off when there is only one deal to be on", async () => {
@@ -1032,6 +1318,9 @@ describe("company view — a buying role names the deal it is on", () => {
       }),
     );
     renderCompany();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
     expect(screen.getByText("champion")).toBeTruthy();
@@ -1066,6 +1355,9 @@ describe("company view — a recorded role reaches the screen", () => {
     // showing the state the rep just changed.
     const fetched = stub(withOneOpenDeal);
     renderCompany();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Set role" }),
@@ -1136,6 +1428,7 @@ it("does not offer a role the contact already holds on that deal", async () => {
     }),
   );
   renderCompany();
+  await userEvent.click(await screen.findByRole("button", { name: "People" }));
 
   await userEvent.click(
     await screen.findByRole("button", { name: "Set role" }),
@@ -1157,7 +1450,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("offers the account's own tabs but not Partner on an account with no programme", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // Overview, People and History belong to every account. Partner is a form
     // about a commercial arrangement almost none of them have.
@@ -1170,7 +1463,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("shows both tabs once the account has a programme", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
@@ -1179,7 +1472,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("keeps the setup form reachable, so a first partner row can still be made", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     await userEvent.click(screen.getByRole("button", { name: "More actions" }));
     await userEvent.click(
@@ -1198,7 +1491,7 @@ describe("company view — the visit baseline", () => {
     try {
       const fetched = stub(view());
       renderCompany();
-      await screen.findByRole("complementary", { name: "Business" });
+      await screen.findByRole("complementary", { name: "Context" });
       expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
 
       await vi.advanceTimersByTimeAsync(5_000);
@@ -1216,7 +1509,7 @@ describe("company view — the visit baseline", () => {
     try {
       const fetched = stub(view());
       const { unmount } = render(<CompanyScreen id="o-1" />);
-      await screen.findByRole("complementary", { name: "Business" });
+      await screen.findByRole("complementary", { name: "Context" });
       unmount();
 
       await vi.advanceTimersByTimeAsync(30_000);
@@ -1234,23 +1527,36 @@ describe("company view — where the account stands, and what it is to us", () =
   it("shows where the account stands and every relationship type, as separate things", async () => {
     // Not "partner": that type also raises the Partner tab, and the badge and
     // the tab would then share a label, which tells the test nothing.
-    stub(view(), 200, {
+    // The SAME override goes into both reads the page makes — the composite
+    // 360's own `organization` (what the rail's grid reads) and the standalone
+    // GET (what the header reads) — because now that both draw a lifecycle
+    // control, a fixture that only overrode one would fail for the same
+    // reason two real reads of one row never disagree: there is only one row.
+    const withLifecycle = {
       ...org,
       lifecycle: "former_customer",
       relationship_types: ["customer", "supplier"],
-    });
+    };
+    stub(view({ organization: withLifecycle }), 200, withLifecycle);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // The retired classification held ONE value, which is how an account whose
     // contract had ended still read as "Prospect" while it was also a partner.
     // Lifecycle is now the editable control; the types stay read-only badges.
-    // findBy, not getBy: the control appears only once /me answers with the
-    // viewer's grants, which resolves independently of the 360 awaited above.
-    expect(
-      await screen.findByRole("button", { name: "Change Account lifecycle" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Former customer")).toBeTruthy();
+    // findAllBy, not getBy: the controls appear only once /me answers with
+    // the viewer's grants, which resolves independently of the 360 awaited
+    // above. TWO controls, not one — the header's pulse line and the rail's
+    // Details grid both mount `CompanyLifecycleControl`, the SAME
+    // implementation reused rather than a second one, so both show the same
+    // value and either one writes through the same patch.
+    const controls = await screen.findAllByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.textContent).toContain("Former customer");
+    }
     expect(screen.getByText("Customer")).toBeTruthy();
     expect(screen.getByText("Supplier")).toBeTruthy();
   });
@@ -1258,18 +1564,83 @@ describe("company view — where the account stands, and what it is to us", () =
   it("offers the lifecycle control on an account nobody has assessed yet", async () => {
     stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // 'unknown' used to draw nothing, on the reasoning that a badge announcing
     // "nobody has assessed this" is noise. That holds for a badge and breaks
     // for a control: hiding it at 'unknown' takes the field away from exactly
     // the account that needs it set, and there is no other way in from here.
     // What it must NOT do is read as a verdict, which is why it carries the
-    // field name and 'Not assessed' never stands on its own.
-    const control = await screen.findByRole("button", {
+    // field name and 'Not assessed' never stands on its own. Both mount
+    // points (header, grid) show it, since both draw the same control.
+    const controls = await screen.findAllByRole("button", {
       name: "Change Account lifecycle",
     });
-    expect(control.textContent).toContain("Not assessed");
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.textContent).toContain("Not assessed");
+    }
+  });
+
+  it("writes lifecycle once and shows the new value on both mount points", async () => {
+    // The one thing "one implementation, two mount points" actually promises:
+    // a save through EITHER control reaches the server exactly once, and the
+    // OTHER control reflects the new value once the record refetches — not a
+    // second write, and not one control left showing the stale value.
+    let currentOrg = { ...org, lifecycle: "unknown" as const };
+    let patchCount = 0;
+    let lastIfMatch: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          return jsonResponse(view({ organization: currentOrg }));
+        }
+        if (pathname.endsWith("/v1/me")) {
+          return jsonResponse(
+            meFixture({ allow: { organization: ["read", "update"] } }),
+          );
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          if (request.method === "PATCH") {
+            patchCount += 1;
+            lastIfMatch = request.headers.get("if-match");
+            const body = (await request.json()) as { lifecycle?: string };
+            currentOrg = {
+              ...currentOrg,
+              lifecycle: (body.lifecycle ?? currentOrg.lifecycle) as "unknown",
+              version: currentOrg.version + 1,
+            };
+          }
+          return jsonResponse(currentOrg);
+        }
+        return jsonResponse({ data: [], page: emptyPage });
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Context" });
+
+    const [headerControl] = await screen.findAllByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    await userEvent.click(headerControl);
+    await userEvent.click(screen.getByRole("option", { name: "Prospect" }));
+
+    await waitFor(() => expect(patchCount).toBe(1));
+    expect(lastIfMatch).toBe("1");
+    // Both controls now read "Prospect" — the header's own and the grid's
+    // reused copy — because the single write invalidates the one query both
+    // read from, not because either wrote a second time.
+    await waitFor(async () => {
+      const updated = await screen.findAllByRole("button", {
+        name: "Change Account lifecycle",
+      });
+      expect(updated).toHaveLength(2);
+      for (const control of updated) {
+        expect(control.textContent).toContain("Prospect");
+      }
+    });
   });
 });
 
@@ -1492,7 +1863,12 @@ describe("company view — the KPI row never invents a figure", () => {
 });
 
 describe("company view — the state strip", () => {
-  it("leads with where the account stands, whose move it is, and what is open", async () => {
+  // Whose move it is and the worst open signal both moved to the daily
+  // brief (companytoday.tsx): the strip now carries the account's STANDING
+  // state only, and those two readings are DATED. Their own coverage lives
+  // in companytoday.test.tsx; this suite only has to prove the strip no
+  // longer draws them.
+  it("leads with where the account stands and what is open, not whose move it is", async () => {
     stub(
       view({
         state_strip: {
@@ -1522,16 +1898,14 @@ describe("company view — the state strip", () => {
       name: "Where this account stands",
     });
     expect(within(strip).getByText("Former customer")).toBeTruthy();
-    expect(within(strip).getByText("Waiting on them")).toBeTruthy();
     expect(within(strip).getByText("2 open")).toBeTruthy();
     expect(strip.textContent).toContain("1 stalled");
+    // Whose move it is reads the SAME `engagement` field, now in the daily
+    // brief rather than a second copy in the strip.
+    expect(within(strip).queryByText("Waiting on them")).toBeNull();
   });
 
-  // On a prospect: the customer row spends its six slots on money, and an
-  // open signal about a CUSTOMER is the rail's "Signals & risks" card. The
-  // invariant under test is the wording either way — the strip states what
-  // the conversation said rather than a rephrasing of it.
-  it("states the worst thing standing open, in the words its producer wrote", async () => {
+  it("does not draw the worst open signal a second time", async () => {
     stub(
       view({
         state_strip: {
@@ -1550,65 +1924,14 @@ describe("company view — the state strip", () => {
     const strip = await screen.findByRole("region", {
       name: "Where this account stands",
     });
-    expect(within(strip).getByText("Contract ending")).toBeTruthy();
-    // The producer's sentence, not a rephrasing of it: the strip states what
-    // the conversation said, and a reader checks it against the mail itself.
+    // The risk reads the same `state_strip.signal` field, now in the daily
+    // brief (companytoday.test.tsx carries the wording coverage).
+    expect(within(strip).queryByText("Contract ending")).toBeNull();
     expect(
-      within(strip).getByText("They wrote that the contract ends on 31 July."),
-    ).toBeTruthy();
-  });
-
-  it("says nothing about signals when nothing is open", async () => {
-    stub(
-      view({
-        state_strip: {
-          account: { lifecycle: "prospect", relationship_types: [] },
-          engagement: null,
-          commercial: null,
-          signal: null,
-        },
-      }),
-    );
-    renderCompany();
-    const strip = await screen.findByRole("region", {
-      name: "Where this account stands",
-    });
-    // Null covers both "nothing is open" and "you may not read signals", so
-    // the tile is ABSENT rather than reassuring. A strip that told someone who
-    // cannot look that nothing is wrong would be answering a question it has
-    // no standing to answer.
-    expect(within(strip).queryByText("Worth knowing")).toBeNull();
-  });
-
-  // On a prospect, where the engagement slot lives: a customer's six slots are
-  // money and health.
-  it("draws no engagement reading when the caller may not read the mail", async () => {
-    stub(
-      view({
-        state_strip: {
-          account: { lifecycle: "prospect", relationship_types: [] },
-          engagement: null,
-          commercial: null,
-        },
-      }),
-    );
-    renderCompany();
-    const strip = await screen.findByRole("region", {
-      name: "Where this account stands",
-    });
-
-    // Scoped to the strip: the header has its own last-touch line, and an
-    // unscoped query would pass on that instead of on what the strip drew.
-    //
-    // Inventing "never contacted" from data the caller was not allowed to see
-    // states a conclusion the page has no basis for — and it is the one a rep
-    // would act on.
-    expect(within(strip).queryByText("Whose move")).toBeNull();
-    expect(within(strip).queryByText("Never contacted")).toBeNull();
-    expect(within(strip).queryByText("Open work")).toBeNull();
-    // The standing slot still draws, so the absences above are the strip
-    // withholding a reading rather than the strip failing to render.
-    expect(within(strip).getByText("Prospect")).toBeTruthy();
+      within(strip).queryByText(
+        "They wrote that the contract ends on 31 July.",
+      ),
+    ).toBeNull();
   });
 });
 
@@ -1634,7 +1957,7 @@ describe("company view — advice you can act on", () => {
       suggestions_dropped: 0,
     });
     stub(three60);
-    renderBrief(three60);
+    renderSuggestions(three60);
     await screen.findByText(/nobody has come back/);
 
     expect(screen.getByRole("button", { name: "Draft a reply" })).toBeTruthy();
@@ -1643,6 +1966,41 @@ describe("company view — advice you can act on", () => {
     expect(
       screen.queryByRole("button", { name: "Add the next step" }),
     ).toBeNull();
+  });
+
+  // The lead panel's footer names what is owed, ported from the retired
+  // "Today" card's own commitment tile: a count off `data.length` is a claim
+  // about the PAGE, so past the 25-row cap the footer says "25+" rather than
+  // a number it cannot stand behind.
+  it("says how many are overdue at least, when the open-tasks page is capped", async () => {
+    const overdueStep = {
+      activity_id: "a-1",
+      subject: "Send the renewal paperwork",
+      due_at: "2026-05-01T09:00:00Z",
+      overdue: true,
+      linked_deal_id: null,
+      linked_person_id: null,
+      assignee_id: null,
+    };
+    const three60 = view({
+      suggestions: [
+        {
+          kind: "no_reply",
+          fingerprint: "f1",
+          reason: "You reached out 15 days ago and nobody has come back.",
+          evidence: [],
+          action: null,
+        },
+      ],
+      next_steps: {
+        data: [overdueStep],
+        page: { has_more: true, next_cursor: "c1" },
+      },
+    });
+    stub(three60);
+    renderSuggestions(three60);
+
+    await waitFor(() => expect(screen.getByText("1+ overdue")).toBeTruthy());
   });
 });
 
@@ -1682,7 +2040,7 @@ describe("company view — the account's own tabs", () => {
       }),
     );
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
     // ONCE. The tab is the roster in full, and the rail's summary of it stands
@@ -1694,7 +2052,7 @@ describe("company view — the account's own tabs", () => {
   it("offers the four tabs the record page has, in order", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // An account with no partner programme still gets all four: Partner is
     // the only conditional tab.
@@ -1707,7 +2065,7 @@ describe("company view — the account's own tabs", () => {
   it("gives Documents its own tab body", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     await userEvent.click(screen.getByRole("button", { name: "Documents" }));
     // The grid keeps a compact card for "is there paperwork at all"; the tab
@@ -1754,14 +2112,19 @@ describe("company view — the way in to one contact", () => {
   it("reads no graph until someone asks for a way in", async () => {
     const fetched = stub(withContact());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
     expect(fetched.filter((path) => path.endsWith("/graph"))).toEqual([]);
   });
 
   it("names who here already talks to that person", async () => {
     const fetched = stub(withContact());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
+    // Route in stays on the People tab's own roster; the rail's glance draws
+    // no way to ask who here already talks to a contact.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "People" }),
+    );
     await userEvent.click(
       screen.getAllByRole("button", { name: "Route in" })[0],
     );
@@ -1776,7 +2139,7 @@ describe("company view — the account's primary actions", () => {
   it("offers logging what happened and setting what happens next, as separate verbs", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // One button reading "Log activity", with the task hidden behind a type
     // picker inside it, is why accounts collect notes and no follow-ups. The
@@ -1792,7 +2155,7 @@ describe("company view — the account's primary actions", () => {
   it("offers neither on an archived company", async () => {
     stub(view(), 200, { ...org, archived_at: "2026-07-01T09:00:00Z" });
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "Context" });
 
     // The server refuses a write against a retired record, so the button would
     // only open a form that fails on save.
@@ -1801,8 +2164,10 @@ describe("company view — the account's primary actions", () => {
   });
 });
 
-// The three readings the six-slot row added: a lifetime total beside the
-// trailing one, what is overdue, and how late they usually pay.
+// The three money readings the customer row carries: a lifetime total beside
+// the trailing one, and what is overdue. Open balance and the payment-habit
+// median are Finance-tab readings now (companyfinance.test.tsx), not the
+// strip's — this suite pins the three that stayed.
 describe("a customer's KPI row reports what the account is worth", () => {
   const customer = {
     account: { lifecycle: "customer" as const, relationship_types: [] },
@@ -1837,13 +2202,16 @@ describe("a customer's KPI row reports what the account is worth", () => {
 
     expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
     expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
-    // Abbreviated: six slots share the strip's width, and a full euro amount
+    // Abbreviated: the strip's slots share its width, and a full euro amount
     // wraps mid-number there. The finance card renders the exact figure.
     expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
     expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
   });
 
-  it("gives what is overdue its own slot", async () => {
+  // Open balance moved to the Finance tab (a superset of overdue there,
+  // and already a headline card) — the strip keeps only the exception a
+  // rep needs to act on now.
+  it("gives what is overdue its own slot, without a separate open-balance one", async () => {
     stub(
       view({ state_strip: customer }),
       200,
@@ -1861,73 +2229,7 @@ describe("a customer's KPI row reports what the account is worth", () => {
 
     expect(within(region).getByText("Overdue")).toBeTruthy();
     expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
-    expect(within(region).getByText(/34(\.2)?K/i)).toBeTruthy();
-  });
-
-  // "-4 days after due" is a puzzle. Paying four days EARLY is the reading,
-  // and it is the opposite fact.
-  it("reads a negative median as paying early, never as a minus sign", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({ median_days_after_due: -4 }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    expect(within(region).getByText("Typically 4 days early")).toBeTruthy();
-    expect(region.textContent).not.toMatch(/-4/);
-  });
-
-  it("reads a positive median as paying late", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({ median_days_after_due: 12 }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    expect(
-      within(region).getByText("Typically 12 days after due"),
-    ).toBeTruthy();
-  });
-
-  // The sample floor is not "nothing invoiced". Saying so beside a lifetime
-  // total puts two slots of one row in contradiction, and the wrong one states
-  // a fact about the account.
-  it("says too few settled invoices rather than nothing invoiced", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({
-        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
-      }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    // Scoped to the median's own slot: the money slots beside it carry no
-    // figure either, and "Nothing invoiced yet" is the RIGHT reason for those.
-    // The defect this pins is the median borrowing their wording.
-    const slot = within(region)
-      .getByText("Median paid after due")
-      .closest("section");
-    expect(slot).not.toBeNull();
-    expect(slot?.textContent).toMatch(/Too few settled invoices to say/);
-    expect(slot?.textContent).not.toMatch(/Nothing invoiced yet/);
+    expect(within(region).queryByText("Open invoices")).toBeNull();
   });
 });
 
@@ -2082,5 +2384,142 @@ describe("the money slot says WHY it has no figure", () => {
     await strip();
     expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("datev")).length).toBeGreaterThan(0);
+  });
+});
+
+// The row's three money slots share one finance-summary read. When the
+// connection can answer none of them, the row says so once; when even one
+// of them DOES have a figure, it still asks each question on its own line.
+describe("the money row collapses only when every slot shares one cause", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  it("says it once when the connection cannot answer any of them", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() =>
+      expect(
+        within(region).getAllByText("Not matched to a customer yet").length,
+      ).toBe(1),
+    );
+
+    // The three individual questions are gone with it, not just deduplicated
+    // text — a reader sweeping the row sees one statement, not three blanks.
+    expect(within(region).queryByText("Net invoiced · lifetime")).toBeNull();
+    expect(within(region).queryByText("Net invoiced · 12 months")).toBeNull();
+    expect(within(region).queryByText("Overdue")).toBeNull();
+  });
+
+  // Pinning the collapse against the exact case that must NOT trigger it: one
+  // slot has a real figure, so the row's three money questions do not share a
+  // cause, even though the other two still refuse for the same reason.
+  it("keeps the slots separate when one of them has a real figure", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+      net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    // The one slot with an answer keeps its own label and figure.
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    // The other two still ask their own question, each carrying the shared
+    // reason on its own line rather than one line speaking for the row.
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(
+      within(region).getAllByText("Not matched to a customer yet").length,
+    ).toBe(2);
+  });
+
+  // The team lead's two mandated shapes: a customer whose finance connection
+  // cannot answer, and one whose connection can. Both must still carry the
+  // account's own standing (stage, pipeline, relationship, health) — the
+  // defect this whole suite exists for was the standing readings disappearing
+  // behind the money row, not the money row itself.
+  // A relationship dimension and a live reply balance are enough to draw
+  // both HealthStat ("Relationship") and HealthSummaryStat ("Health") — the
+  // two readings the defect report showed already surviving the collapse,
+  // pinned here beside the two that were missing (Stage, Open pipeline).
+  const withStanding = () =>
+    view({
+      state_strip: {
+        account: { lifecycle: "customer" as const, relationship_types: [] },
+        commercial: {
+          open_count: 2,
+          open_pipeline_minor_base: 500000,
+          base_currency: "EUR",
+          stalled_count: 0,
+        },
+      },
+      health: {
+        days_since_last_inbound: 5,
+        reply_balance: 0.5,
+        relationship: { rating: "strong", reason: "Active both ways" },
+      },
+    });
+
+  it("keeps the account's standing readings beside a collapsed Finance slot", async () => {
+    stub(withStanding(), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() =>
+      expect(
+        within(region).getAllByText("Not matched to a customer yet").length,
+      ).toBe(1),
+    );
+
+    expect(within(region).getByText("Stage")).toBeTruthy();
+    expect(within(region).getByText("Open pipeline")).toBeTruthy();
+    expect(within(region).getByText("Relationship")).toBeTruthy();
+    expect(within(region).getByText("Health")).toBeTruthy();
+    expect(within(region).getByText("Finance")).toBeTruthy();
+    // A prospect's question, not a customer's: there is already a money
+    // reading answering what is coming from them.
+    expect(within(region).queryByText("Expected close")).toBeNull();
+  });
+
+  it("expands to the real figures beside the same standing readings", async () => {
+    stub(withStanding(), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "datev",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+      net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      overdue: { amount_minor: 1243000, currency: "EUR" },
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Stage")).toBeTruthy();
+    expect(within(region).getByText("Open pipeline")).toBeTruthy();
+    expect(within(region).getByText("Relationship")).toBeTruthy();
+    expect(within(region).getByText("Health")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
+    // Collapsed to a single "Finance" slot only when nothing answers — not
+    // here, where every money question has a figure.
+    expect(within(region).queryByText("Finance")).toBeNull();
   });
 });

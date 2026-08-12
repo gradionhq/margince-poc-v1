@@ -41,6 +41,10 @@ export const Meters: Story = {
         <p className="t-caption">Nothing measured yet</p>
         <Meter value={0} max={0} label="Coverage" />
       </div>
+      <div>
+        <p className="t-caption">A reading with no low-is-bad end</p>
+        <Meter value={6} max={8} label="Growth fit" flat />
+      </div>
     </>
   ),
 };

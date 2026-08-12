@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -97,28 +98,54 @@ export function DossierPanel({
       ? written
       : undefined;
 
+  const footer = readable && (
+    <>
+      <WrittenBy by={readable.generated_by} />
+      {readable.needs_refresh && (
+        /* Said out loud BESIDE the content, never instead of it: a stale
+           dossier is more useful than none, and hiding it would leave the
+           reader with nothing rather than with something dated. */
+        <Badge tone="warn">{t("co.dossier.stale")}</Badge>
+      )}
+      <span className="t-small">
+        {t("co.brief.generatedAt", {
+          when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+        })}
+      </span>
+      <Button
+        small
+        onClick={() => rewrite.mutate()}
+        disabled={rewrite.isPending}
+      >
+        {rewrite.isPending
+          ? t("co.dossier.rewriting")
+          : t("co.dossier.rewrite")}
+      </Button>
+    </>
+  );
   return (
-    <section className="co-part co-dossier" aria-label={t("co.dossier.title")}>
-      <h2 className="co-part-label">{t("co.dossier.title")}</h2>
-      {dossier.isPending ? (
-        <Skeleton width="100%" height={64} />
-      ) : !readable ? (
-        <EmptyState>{t("co.dossier.unavailable")}</EmptyState>
-      ) : readable.sections.length === 0 ? (
-        <EmptyState>{t("co.dossier.empty")}</EmptyState>
-      ) : (
-        <>
-          {/* One reading, not five labelled ones. The mockup draws the dossier
-              as continuous prose with its sources underneath; a heading per
-              section turned three sentences about one company into a form with
-              five fields, and the headings said less than the sentences under
-              them. The sections still ORDER the prose — the server decides
-              what comes first — they just no longer announce themselves. */}
-          {/* ONE list over every section. Per-section lists would each collect
-              their own sources, so a one-sentence section still drew a chip
-              directly under its line — the wall of "fact" relocated rather
-              than removed. The sections still ORDER the prose; the receipts
-              gather once, under all of it. */}
+    <Panel title={t("co.dossier.title")} footer={footer}>
+      <PanelBody className="co-brief-body">
+        {dossier.isPending && <Skeleton width="100%" height={64} />}
+        {!dossier.isPending && !readable && (
+          <EmptyState>{t("co.dossier.unavailable")}</EmptyState>
+        )}
+        {readable?.sections.length === 0 && (
+          <EmptyState>{t("co.dossier.empty")}</EmptyState>
+        )}
+        {readable && readable.sections.length > 0 && (
+          // One reading, not five labelled ones. The mockup draws the dossier
+          // as continuous prose with its sources underneath; a heading per
+          // section turned three sentences about one company into a form with
+          // five fields, and the headings said less than the sentences under
+          // them. The sections still ORDER the prose — the server decides
+          // what comes first — they just no longer announce themselves.
+          //
+          // ONE list over every section. Per-section lists would each collect
+          // their own sources, so a one-sentence section still drew a chip
+          // directly under its line — the wall of "fact" relocated rather
+          // than removed. The sections still ORDER the prose; the receipts
+          // gather once, under all of it.
           <SentenceList
             sentences={readable.sections.flatMap(
               (section) => section.sentences,
@@ -126,35 +153,11 @@ export function DossierPanel({
             onOpenRecord={onOpenRecord}
             citations="collected"
           />
-          <p className="co-part-foot">
-            <WrittenBy by={readable.generated_by} />{" "}
-            {readable.needs_refresh && (
-              /* Said out loud BESIDE the content, never instead of it: a stale
-                 dossier is more useful than none, and hiding it would leave the
-                 reader with nothing rather than with something dated. */
-              <Badge tone="warn">{t("co.dossier.stale")}</Badge>
-            )}{" "}
-            {t("co.brief.generatedAt", {
-              when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
-            })}{" "}
-            <Button
-              variant="ghost"
-              small
-              onClick={() => rewrite.mutate()}
-              disabled={rewrite.isPending}
-            >
-              {rewrite.isPending
-                ? t("co.dossier.rewriting")
-                : t("co.dossier.rewrite")}
-            </Button>
-          </p>
-          {rewrite.error && (
-            <p className="co-part-error">
-              {problemMessageOf(rewrite.error, t)}
-            </p>
-          )}
-        </>
-      )}
-    </section>
+        )}
+        {rewrite.error && (
+          <p className="co-part-error">{problemMessageOf(rewrite.error, t)}</p>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }
