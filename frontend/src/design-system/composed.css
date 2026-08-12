@@ -198,9 +198,12 @@
 }
 /* The name and its one standing badge, on the SAME baseline — the badge
    reads as part of naming the record, not as one more fact under it. */
+/* Centred against the name, not sat on its baseline: the badge is a tag ON
+   the record rather than a word in the same sentence, and a baseline shared
+   with 22px display type drops it low enough to read as a footnote. */
 .record-name-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }

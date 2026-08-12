@@ -7,10 +7,11 @@ import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
 import { InlineChoice } from "../design-system/inlinechoice";
+import { ProvenanceTag } from "../design-system/trust";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
-import { throwProblem, useSorMode } from "./common";
+import { provenanceOf, throwProblem, useSorMode, useViewerId } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { DecisionsChip } from "./companyapprovals";
 import { ComposeModal } from "./compose";
@@ -32,13 +33,15 @@ import {
 import { ShareAction } from "./share";
 
 // The account header: the verbs a rep reaches for, the two values they change
-// in place, and the line of facts that says where the relationship stands.
+// in place, and the lines of facts that say who the account is and where the
+// relationship stands.
 //
-// Lifecycle and owner sit in their OWN block at the top right rather than in
-// the pulse line (mockup State D). They are the two things a reader SETS about
-// an account; the pulse states what happened to it. Mixed into one line the
-// two controls read as more facts, and the reader has no cue that they can be
-// changed.
+// Lifecycle reads beside the account's NAME — the target header's own
+// arrangement — rather than in the meta line below with everything else the
+// account carries: it is the one value a reader looks for first, and both it
+// and owner stay editable in place (InlineChoice) rather than moving into an
+// edit modal, which is what buried them behind a form the last time this
+// header changed shape.
 //
 // Split out of organizations.tsx because that file had grown past 2,700 lines
 // carrying the list screen, the enrichment tools, the evidence cards and this
@@ -601,6 +604,7 @@ export function CompanyIdentityLine({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  const viewerId = useViewerId();
   const when = (at: string) => formatDateAbbrev(at, locale, RECORD_ZONE);
   // Withheld, absent, or still in flight, the line says nothing about it at
   // all: "never contacted" read off data the page could not answer is a
@@ -656,6 +660,11 @@ export function CompanyIdentityLine({
       </div>
       <div className="co-meta-line co-meta-quiet">
         <span>{t("co.pulse.created", { when: when(org.created_at) })}</span>
+        {/* WHO wrote the record, beside WHEN it was written: a mark about the
+            row itself rather than about any field on it, so it belongs with
+            the record's own dates and not on the line that says what the
+            account is. */}
+        <ProvenanceTag provenance={provenanceOf(org.captured_by, viewerId)} />
         {touchKnown && (
           <>
             <span className="co-sep">·</span>
