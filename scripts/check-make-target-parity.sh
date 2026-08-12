@@ -35,7 +35,7 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 backend_makefile="$root_dir/backend/Makefile"
 
-if [ ! -f "$backend_makefile" ]; then
+if [[ ! -f "$backend_makefile" ]]; then
   echo "check-make-target-parity: $backend_makefile not found" >&2
   exit 1
 fi
@@ -55,7 +55,7 @@ root_targets="$(printf '%s\n' "$root_targets" |
 # Either list coming back empty would pass this gate while comparing nothing —
 # the failure a parity check is most likely to fail by.
 for pair in "advertised backend targets:$advertised" "root targets:$root_targets"; do
-  if [ -z "${pair#*:}" ]; then
+  if [[ -z "${pair#*:}" ]]; then
     echo "check-make-target-parity: extracted no ${pair%%:*} — the Makefile changed shape, so this gate was about to pass without comparing anything" >&2
     exit 1
   fi
@@ -63,7 +63,7 @@ done
 
 missing="$(comm -23 <(printf '%s\n' "$advertised") <(printf '%s\n' "$root_targets"))"
 
-if [ -n "$missing" ]; then
+if [[ -n "$missing" ]]; then
   while IFS= read -r target; do
     echo "UNREACHABLE FROM ROOT: \`make $target\` is advertised by \`make help\` but the root Makefile has no such target — add it to the delegation list in Makefile" >&2
   done <<<"$missing"
