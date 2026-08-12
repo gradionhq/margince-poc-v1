@@ -170,6 +170,20 @@ var momentLadder = []func(time.Time, *crmcontracts.Person360) (crmcontracts.Pers
 	thinRelationshipMoment, // 9. no captured interaction or network
 }
 
+// momentLadderNames names the rungs in momentLadder order, for tests that
+// report which rung they are talking about. A rung that does not fire returns
+// a zero PersonMoment whose Rule is empty, so the name cannot come from the
+// value — it has to be stated here.
+var momentLadderNames = []string{
+	"meeting_prep",
+	"re_engaged",
+	"overdue_promise",
+	"gone_quiet",
+	"role_change",
+	"missing_next_step",
+	"thin_relationship",
+}
+
 // meetingPrepMoment: a meeting is close enough that preparing for it is the
 // most valuable thing the reader could do.
 func meetingPrepMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
@@ -368,7 +382,7 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 // (GET /people/{id}/network); what is missing is a screen and a destination
 // value naming it.
 func askColleague() crmcontracts.PersonMomentAction {
-	reason := "Asking a colleague needs the network view, which is not built yet"
+	reason := "Margince cannot yet tell you which colleague knows this person"
 	return crmcontracts.PersonMomentAction{
 		Kind:          crmcontracts.PersonMomentActionKindAskColleague,
 		Label:         "Ask for context",
@@ -387,7 +401,7 @@ func askColleague() crmcontracts.PersonMomentAction {
 // page does not route to it and the destination vocabulary has no surface
 // naming it, so an available action here is a button that does nothing.
 func logInteraction() crmcontracts.PersonMomentAction {
-	reason := "Logging from here needs a route to the log-activity screen, which is not wired yet"
+	reason := "Logging an interaction from this card is not available yet"
 	return crmcontracts.PersonMomentAction{
 		Kind:          crmcontracts.PersonMomentActionKindLogActivity,
 		Label:         "Log an interaction",

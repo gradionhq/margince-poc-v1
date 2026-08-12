@@ -167,6 +167,22 @@ func TestEveryOfferedActionEitherGoesSomewhereOrSaysWhyItCannot(t *testing.T) {
 				DealId: openapi_types.UUID(ids.NewV7()), Title: "Dispatch integration",
 			}},
 		},
+		// Rung 2 wants inbound that arrived after a long silence of ours.
+		"re-engaged": {
+			LastOutboundAt: ptr(at(40)),
+			LastInboundAt:  ptr(at(3)),
+		},
+		// Rung 4 wants an open commitment OF OURS whose date has passed.
+		"overdue promise": {
+			Claims: &[]crmcontracts.ConversationClaim{{
+				Kind:             crmcontracts.CommitmentOurs,
+				Status:           crmcontracts.ConversationClaimStatusOpen,
+				Body:             "Send the revised dispatch quote",
+				SourceQuote:      "Ich schicke dir das Angebot bis Freitag.",
+				SourceActivityId: openapi_types.UUID(ids.NewV7()),
+				DueAt:            ptr(at(6)),
+			}},
+		},
 		"nothing needed": {},
 	}
 	for name, page := range pages {
@@ -175,18 +191,48 @@ func TestEveryOfferedActionEitherGoesSomewhereOrSaysWhyItCannot(t *testing.T) {
 		})
 	}
 
-	// And every rung directly, so a rule the pages above do not reach is still
-	// judged. A rung that does not fire for a given page contributes nothing,
-	// which is why the loop asks each one rather than asserting it fires.
+	// And every rung directly, because deriveMoment stops at the first rung that
+	// fires: a page reaching rung 1 says nothing about rung 9, and the first
+	// version of this test passed while three lower rungs offered dead buttons.
+	//
+	// Asking each rung is not enough on its own. A rung no page triggers returns
+	// ok=false every time and is judged by nothing, which reads as covered and
+	// is not — so a rung that never fires fails here rather than passing quietly.
 	t.Run("every rung", func(t *testing.T) {
+		fired := make(map[int]bool, len(momentLadder))
 		for _, page := range pages {
-			for _, rung := range momentLadder {
-				if moment, ok := rung(now, page); ok {
-					assertActionsAreHonest(t, moment)
+			for i, rung := range momentLadder {
+				moment, ok := rung(now, page)
+				if !ok {
+					continue
 				}
+				fired[i] = true
+				assertActionsAreHonest(t, moment)
+			}
+		}
+		for i, name := range momentLadderNames {
+			if !fired[i] {
+				t.Errorf("ladder rung %q fires for none of these pages, so its actions are judged by nothing — add a page that reaches it", name)
 			}
 		}
 	})
+}
+
+// dispatchedByThePersonPage is the set of destination surfaces the person page
+// actually opens — the `switch` in frontend/src/screens/personpage.tsx.
+//
+// The contract admits more surfaces than the page handles, and the ones it does
+// not handle fall to a `default` that deliberately does nothing. So a
+// contract-valid destination is not the bar: an action pointing at `task` is
+// enabled, pressed, and inert, which is the dead-button defect this test was
+// written for. This list is the bar, and it is a hand-kept mirror of that
+// switch — a surface added there belongs here, and until it is, offering it
+// fails rather than shipping another quiet nothing.
+var dispatchedByThePersonPage = map[crmcontracts.PersonMomentDestinationSurface]bool{
+	crmcontracts.PersonMomentDestinationSurfaceComposer:     true,
+	crmcontracts.PersonMomentDestinationSurfaceResearch:     true,
+	crmcontracts.PersonMomentDestinationSurfaceMeetingBrief: true,
+	crmcontracts.PersonMomentDestinationSurfaceRecord:       true,
 }
 
 // assertActionsAreHonest holds the rule for one moment: available means
@@ -208,6 +254,11 @@ func assertActionsAreHonest(t *testing.T, moment crmcontracts.PersonMoment) {
 		if action.Destination == nil {
 			t.Errorf("%s: %q is offered as %q with no destination, so pressing it does nothing",
 				moment.Rule, action.Label, action.State)
+			continue
+		}
+		if !dispatchedByThePersonPage[action.Destination.Surface] {
+			t.Errorf("%s: %q points at surface %q, which personpage.tsx does not open — pressing it does nothing",
+				moment.Rule, action.Label, action.Destination.Surface)
 			continue
 		}
 		// A record surface navigates on the entity id and on nothing else, so
