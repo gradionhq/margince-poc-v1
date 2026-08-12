@@ -209,11 +209,11 @@ describe("UsersAdminCard", () => {
     if (!(members instanceof HTMLElement)) {
       throw new Error("the roster is not a card of its own");
     }
-    // The count states what the roster holds, deactivated members included —
-    // the read opts into them, so a count that skipped them would disagree with
-    // the rows beneath it.
-    expect(within(members).getByText("3 members")).toBeTruthy();
-    expect(within(members).getAllByRole("listitem").length).toBe(3);
+    // The count states what the roster holds — the deactivated member and the
+    // workspace's own agent seat included, because the read opts into both and a
+    // count that skipped either would disagree with the rows beneath it.
+    expect(within(members).getByText("4 members")).toBeTruthy();
+    expect(within(members).getAllByRole("listitem").length).toBe(4);
     // And the invite fields are not in it: two cards, two surfaces.
     expect(
       within(members).queryByPlaceholderText("name@company.com"),
