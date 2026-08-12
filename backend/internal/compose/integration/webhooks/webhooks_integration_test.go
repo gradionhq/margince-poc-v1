@@ -163,6 +163,17 @@ func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webh
 	return newTestDelivererWithResolver(we, now, client, identity.NewService(we.pool))
 }
 
+// newTestDelivererOn builds a deliverer over a handle the CALLER bound. The
+// retry fan-out hands its worker one handle per workspace it sweeps, so a
+// fixture that reuses a single deliverer across tenants would sweep the first
+// one twice — and read as the fan-out working.
+func newTestDelivererOn(we *webhookEnv, db *database.DB, now *time.Time, client *http.Client) *webhooks.Deliverer {
+	store := webhooks.NewStore(db, we.cipher)
+	clock := func() time.Time { return *now }
+	return webhooks.NewDeliverer(store, client, clock, identity.NewService(we.pool),
+		slog.New(slog.NewTextHandler(os.Stderr, nil)))
+}
+
 func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
 	store := webhooks.NewStore(database.BindTo(we.pool, ids.From[ids.WorkspaceKind](we.wsID)), we.cipher)
 	clock := func() time.Time { return *now }
