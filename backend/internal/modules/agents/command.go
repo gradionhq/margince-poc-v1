@@ -247,17 +247,18 @@ func (createResolver) Guards(_ context.Context, cmd CreateCommand) error {
 }
 
 // PatchCommand is one whole-record field patch, whichever door asked for it.
+//
+// It carries no IfVersion: the tool door's own if_version argument has no
+// reader here to give it to. The pin an approval binds to is taken
+// server-side inside the staging transaction (Subject's own comment below),
+// so a caller-supplied version has nothing this command's Guards/Subject
+// would do with it — a field with no reader is exactly what a command
+// documents ITS OWN OBLIGATIONS by carrying, and this one has none to
+// document.
 type PatchCommand struct {
 	RecordType string
 	ID         ids.UUID
 	Fields     json.RawMessage
-	// IfVersion is the caller's own optimistic-concurrency guard. Neither
-	// Guards nor Subject below reads it — the version an approval pins is
-	// taken server-side inside the staging transaction (Subject's own
-	// comment) — it is part of the command because it is part of what the
-	// call ASKED for, the same reason a canonicalized REST body carries it
-	// into the diff_hash the redemption checks.
-	IfVersion *int64
 }
 
 // NewPatchCall binds one patch to the resolver that answers for it, reading

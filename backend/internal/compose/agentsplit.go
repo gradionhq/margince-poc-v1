@@ -102,6 +102,17 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
+		//
+		// stageRefusal resolves through the SAME command seam every other
+		// registered patch op does (agentcommand.go's patchCommand, now that
+		// all twelve whole-record patch routes are registered), which means
+		// this branch carries patchResolver.Guards too: a records.Read plus
+		// refuseStagingElsewhere the split path never ran on its own before
+		// that registration. That is deliberate, not a side effect nobody
+		// noticed — an approval staged here for a mirror-held
+		// (Authoritative:false) record could never be redeemed anyway, since
+		// redemption's version pin reads our own tables, so refusing now
+		// beats spending a human's yes on a call that cannot be released.
 		stageRefusal(w, r, staging, commands, pol, body)
 		return
 	}

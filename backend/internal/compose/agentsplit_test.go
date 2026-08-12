@@ -9,11 +9,14 @@ package compose
 // a client that cannot read its own error.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // bufferedFor builds a buffered response already holding a status and headers,
@@ -103,4 +106,54 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(digits)
+}
+
+// allHumanOwned answers the ownership probe by naming every field the patch
+// touches — the shape that leaves SplitHumanOwned's AutoExecute half empty,
+// so splitOrRedeemUpdate's terminal branch (agentsplit.go: "every touched
+// field is human-owned") is the one under test rather than the mixed one.
+type allHumanOwned struct{}
+
+func (allHumanOwned) HumanOwnedConflicts(_ context.Context, _ string, _ ids.UUID, patch json.RawMessage) ([]string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &fields); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// The split's all-human-owned branch resolves through the SAME command seam
+// every other registered patch does (agentsplit.go's own comment on this
+// branch states why), so it owes the record the same refusal
+// refuseStagingElsewhere gives every other stager: an approval against a
+// target whose authority lives elsewhere could never be redeemed, since
+// redemption's version pin reads our own tables. Before that registration
+// this branch ran no such check at all — an agent patching a mirrored deal
+// with every field human-owned got a staged approval instead.
+func TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord(t *testing.T) {
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "updatePerson", Access: accessTool, Tool: "update_record", RecordType: recordTypePerson}
+	personID := ids.NewV7()
+	body := []byte(`{"full_name":"Overwritten"}`)
+
+	req := patchRequest("/v1/people", personID, body)
+	rec := httptest.NewRecorder()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the handler ran — every field was human-owned, so nothing should have auto-executed")
+	})
+
+	splitOrRedeemUpdate(rec, req, next, staging, restCommandDeps{records: mirroredRecord{}}, allHumanOwned{}, pol, body)
+
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — "+
+			"nobody could ever release it", staging.last.Tool)
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("an externally-held target answered %d, want %d (unsupported_by_sor) — the refusal a "+
+			"caller gets must name why the patch cannot be governed here", rec.Code, http.StatusUnprocessableEntity)
+	}
 }

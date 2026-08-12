@@ -103,11 +103,13 @@ func (t updateRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	// This door's wire shape IS the command's field set (same reasoning as
-	// archiveRecord.StageInfo, command.go), so it converts rather than
-	// restating the fields: a field PatchCommand grows fails to compile here
-	// instead of quietly leaving it unset.
-	return StageSubject(ctx, NewPatchCall(t.p, PatchCommand(args)))
+	// Named field-by-field rather than a bare conversion: PatchCommand
+	// deliberately does not carry if_version (command.go's own doc comment
+	// says why), so its shape no longer matches updateRecordArgs' and a
+	// conversion would not compile.
+	return StageSubject(ctx, NewPatchCall(t.p, PatchCommand{
+		RecordType: args.RecordType, ID: args.ID, Fields: args.Fields,
+	}))
 }
 
 // Handle is the per-field human-edit-precedence split (interfaces.md
