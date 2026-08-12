@@ -115,14 +115,28 @@ function stub(overrides: Record<string, (req: Request) => Response> = {}) {
 describe("CompanyRail", () => {
   it("renders nothing while the composer holds the column", () => {
     stub();
-    render(<CompanyRail orgId="o-1" view={view()} withPeople loading={false} composerOpen />);
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen
+      />,
+    );
     expect(screen.queryByText("Details")).not.toBeInTheDocument();
   });
 
   it("draws the details grid from the fields the record actually carries", async () => {
     stub();
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople loading={false} composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     expect(screen.getByText("Brandt Automotive GmbH")).toBeInTheDocument();
     expect(screen.getByText("Automotive")).toBeInTheDocument();
@@ -289,7 +303,13 @@ describe("CompanyRail", () => {
         }),
     });
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople loading={false} composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     await waitFor(() =>
       expect(screen.getByText("No reply in three weeks.")).toBeInTheDocument(),
@@ -325,7 +345,13 @@ describe("CompanyRail", () => {
   it("offers the add-tag and add-to-list verbs once each half has answered, on a writable record", async () => {
     stub();
     render(
-      <CompanyRail orgId="o-1" view={view()} withPeople loading={false} composerOpen={false} />,
+      <CompanyRail
+        orgId="o-1"
+        view={view()}
+        withPeople
+        loading={false}
+        composerOpen={false}
+      />,
     );
     // Both halves answered `empty` (view()'s tags/list_memberships default to
     // []), so both verbs render beside the half they act on.
@@ -383,7 +409,9 @@ describe("CompanyRail", () => {
     );
     // The skeleton placeholder, not the "could not be loaded" sentence.
     expect(
-      screen.queryByText("Could not be loaded — this may not be the whole picture"),
+      screen.queryByText(
+        "Could not be loaded — this may not be the whole picture",
+      ),
     ).not.toBeInTheDocument();
   });
 
