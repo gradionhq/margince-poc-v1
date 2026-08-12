@@ -1210,3 +1210,10 @@
   gap: var(--space-1);
   padding: var(--space-4) var(--space-5);
 }
+
+/* The account's identity and its readings are two different statements — who
+   this is, then how it stands — so the row needs room to start rather than
+   sitting directly under the name it describes. */
+.record-head:has(.co-identity-meta) {
+  margin-bottom: var(--space-5);
+}
