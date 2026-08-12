@@ -693,23 +693,27 @@ function FulfilErasureModal({
   const queryClient = useQueryClient();
   const [typed, setTyped] = useState("");
 
+  // Both the staged request and the operator's resolution arrive as the
+  // mutation's variable rather than through this closure. react-query re-arms
+  // a mutation's options in a passive effect, so a confirm landing between the
+  // commit that stages a request and that effect runs the previous render's
+  // function. On the most destructive action in the product that matters twice
+  // over: read through a stale closure, `dsr` is null and the erasure refuses,
+  // and `resolution` is whatever the operator had typed one render ago.
   const patch = useMutation({
-    mutationFn: async () => {
-      if (!dsr) {
-        // The confirm button only exists while a request is staged in
-        // `dsr` — this guard only protects a stale closure, never a real path.
-        throw new Error("no request selected");
-      }
+    mutationFn: async (
+      fulfilment: Readonly<{ request: DataSubjectRequest; resolution: string }>,
+    ) => {
       const body: UpdateDataSubjectRequest = { status: "fulfilled" };
       // Same omit-if-blank rule as the row's own plain PATCH above: a blank
       // resolution key would still be a value the server writes over
       // whatever it already had stored, so it only rides along when there is
       // something to write.
-      if (resolution.trim()) {
-        body.resolution = resolution.trim();
+      if (fulfilment.resolution.trim()) {
+        body.resolution = fulfilment.resolution.trim();
       }
       const { data, error } = await api.PATCH("/data-subject-requests/{id}", {
-        params: { path: { id: dsr.id } },
+        params: { path: { id: fulfilment.request.id } },
         body,
       });
       if (error) {
@@ -769,7 +773,7 @@ function FulfilErasureModal({
       confirmDisabled={
         typed.trim().toUpperCase() !== "ERASE" || held || movedOn
       }
-      onConfirm={() => dsr && patch.mutate()}
+      onConfirm={() => dsr && patch.mutate({ request: dsr, resolution })}
       pending={patch.isPending}
       error={errorMessage}
     >
