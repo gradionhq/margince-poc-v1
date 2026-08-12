@@ -74,7 +74,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 	// a native close takes, FX freeze included.
 	if placement.closedStage != nil {
 		var lostReason *string
-		if placement.closedSemantic == "lost" {
+		if placement.closedSemantic == stageSemanticLost {
 			reason := "imported closed-lost from the incumbent estate"
 			lostReason = &reason
 		}

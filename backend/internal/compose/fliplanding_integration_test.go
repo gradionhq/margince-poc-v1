@@ -25,6 +25,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
@@ -49,11 +50,29 @@ func landingPerms() principal.Permissions {
 	return perms
 }
 
+// landingPermsWithoutDealUpdate is the landing seat minus deal:update, so a
+// closed estate deal lands and then fails to advance.
+func landingPermsWithoutDealUpdate() principal.Permissions {
+	perms := landingPerms()
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects))
+	for object, grant := range perms.Objects {
+		objects[object] = grant
+	}
+	deal := objects["deal"]
+	deal.Update = false
+	objects["deal"] = deal
+	perms.Objects = objects
+	return perms
+}
+
 // landingFixture is the flip writer under test, bound to a real import run.
 type landingFixture struct {
 	e   *integration.Env
 	w   *flipWriters
 	ctx context.Context
+	// noUpdateCtx may land a deal and not advance it — the seat that stops a
+	// landing exactly where a crash between the two transactions would.
+	noUpdateCtx context.Context
 }
 
 func setupLanding(t *testing.T) landingFixture {
@@ -72,7 +91,7 @@ func setupLanding(t *testing.T) landingFixture {
 	// consulting the mirror. A fixture that wired one would be claiming
 	// coverage of a resolution these suites do not exercise.
 	w := newFlipWriters(e.DB(), nil, "hubspot").forRun(run.ID, &operator)
-	return landingFixture{e: e, w: w, ctx: ctx}
+	return landingFixture{e: e, w: w, ctx: ctx, noUpdateCtx: e.As(e.Rep1, nil, landingPermsWithoutDealUpdate())}
 }
 
 // brokenRun answers a SEPARATE writer bound to a run id no workspace holds, so
@@ -330,8 +349,13 @@ func TestAFailedIdentityWriteLeavesNoDealBehind(t *testing.T) {
 	f := setupLanding(t)
 	integration.DealFixture(t, f.e)
 
-	if _, err := f.brokenRun().Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-2", map[string]any{"name": "Difference Engine order"})); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("err = %v, want the identity write's refusal", err)
+	// ErrNotFound alone would not be enough here: the deal create maps its own
+	// FK misses to the same sentinel, so an arm that accepted it could pass on
+	// a create that never reached the identity write. The identity write is the
+	// one that names the run it could not find.
+	_, err := f.brokenRun().Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-2", map[string]any{"name": "Difference Engine order"}))
+	if !errors.Is(err, apperrors.ErrNotFound) || !strings.Contains(err.Error(), "import run") {
+		t.Fatalf("err = %v, want the identity write's refusal naming the run", err)
 	}
 	if n := f.e.WsCount(t, `SELECT count(*) FROM deal WHERE name = 'Difference Engine order'`); n != 0 {
 		t.Errorf("deal rows = %d, want 0 — an orphan the resume cannot name", n)
@@ -393,34 +417,40 @@ func TestAClosedEstateDealLandsMappedAndThenReachesItsTerminalStage(t *testing.T
 	}
 }
 
-// The resume after a crash between the two: the deal is mapped and open, so
-// Ensure takes its already-landed branch and settleAdoptedDeal has to finish
-// the close rather than reporting the estate converged.
+// The resume after the landing committed and the advance did not.
+//
+// The state is built the way production reaches it, from the SAME frozen
+// estate row both times: the first pass runs under a seat that may create a
+// deal but not update one, so the landing commits and AdvanceDeal refuses,
+// leaving the deal mapped and open. The retry then has to settle it rather
+// than report the estate converged.
 func TestAMappedButOpenDealIsClosedOnTheNextPass(t *testing.T) {
 	f := setupLanding(t)
 	integration.DealFixture(t, f.e)
+	row := landingRow("hs-deal-resume", map[string]any{
+		"name": "Interrupted order", "stage_id": "closedwon",
+	})
 
-	// Land it with no resolvable stage, so it stays on the first open one —
-	// the state a crash between the landing and the advance leaves behind.
-	if _, err := f.w.Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-resume", map[string]any{
-		"name": "Interrupted order",
-	})); err != nil {
-		t.Fatalf("landing the open deal: %v", err)
+	if _, err := f.w.Ensure(f.noUpdateCtx, flipObjectDeal, row); err == nil {
+		t.Fatal("the first pass closed the deal, so there is no interrupted landing to recover from")
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM deal d JOIN import_record_map m ON m.native_id = d.id
+		WHERE m.external_id = 'hs-deal-resume' AND d.status = 'open'`); n != 1 {
+		t.Fatalf("mapped open deals after the interrupted pass = %d, want 1 — the state this test recovers from", n)
 	}
 
-	// The estate says it is won; the resumed pass finds the deal already
-	// mapped and has to settle it rather than report it converged.
-	res, err := f.freshWriter().Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-resume", map[string]any{
-		"name": "Interrupted order", "stage_id": "closedwon",
-	}))
+	res, err := f.freshWriter().Ensure(f.ctx, flipObjectDeal, row)
 	if err != nil {
 		t.Fatalf("the resumed pass: %v", err)
 	}
-	if res.Skipped {
-		t.Fatalf("result = %+v, want the pass to settle the deal rather than skip it", res)
+	if res.Created {
+		t.Fatalf("result = %+v, want the mapped deal settled rather than a second one landed", res)
 	}
 	if n := f.e.WsCount(t, `SELECT count(*) FROM deal d JOIN import_record_map m ON m.native_id = d.id
 		WHERE m.external_id = 'hs-deal-resume' AND d.status = 'won'`); n != 1 {
 		t.Errorf("closed deals = %d, want the mapped one settled — a deal parked open here is counted as converged and never closes", n)
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM deal WHERE name = 'Interrupted order'`); n != 1 {
+		t.Errorf("deal rows = %d, want exactly the one the interrupted pass landed", n)
 	}
 }
