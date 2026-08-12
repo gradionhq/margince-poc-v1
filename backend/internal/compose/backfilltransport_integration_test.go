@@ -210,7 +210,7 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 		t.Fatalf("NewLocalRouter: %v", err)
 	}
 	estimator := costestimate.NewEstimator(
-		ai.NewCallReadStore(e.Pool), ai.NewRateStore(e.Pool), router,
+		ai.NewCallReadStore(e.DB()), ai.NewRateStore(e.DB()), router,
 		activities.NewStore(e.Pool), registry, backfillFixedClock{},
 	)
 	return &backfillWireEnv{

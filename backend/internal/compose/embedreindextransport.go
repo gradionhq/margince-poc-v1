@@ -480,7 +480,7 @@ func WithEmbedReindex(router *ai.Router, inserter *jobs.Runner) Option {
 		}
 		store := search.NewStore(pool)
 		estimator := costestimate.NewEmbedReindexEstimator(
-			store, ai.NewRateStore(pool), router, NewSeatBudget(pool), ai.NewMeter(pool), systemClock{},
+			store, ai.NewRateStore(InstallationDB(pool)), router, NewSeatBudget(pool), ai.NewMeter(InstallationDB(pool)), systemClock{},
 		)
 		s.embedReindexHandlers = embedReindexHandlers{engine: &embedReindexEngine{
 			store:     store,

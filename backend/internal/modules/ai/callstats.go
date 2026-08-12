@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // ServedTaskTotal is one (task, tier, provider, model) slice of served
@@ -75,7 +73,7 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 	}
 
 	var totals []ServedTaskTotal
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, q, since, taskStrings)
 		if err != nil {
 			return err

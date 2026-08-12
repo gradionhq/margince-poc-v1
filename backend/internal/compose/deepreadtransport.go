@@ -234,7 +234,7 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		engine := &deepReadEngine{
 			people: people.NewStore(pool), approvals: approvals.NewService(pool),
-			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter, log: s.log,
+			runtime: ai.NewRunTransparency(InstallationDB(pool)), brain: brain, enqueue: inserter, log: s.log,
 			// Read here AND written by WithBlobstore, so neither option order
 			// leaves the onboarding confirmation unable to collect the mark its
 			// anchor declined — the two-way wiring WithDataReset carries too.
@@ -244,7 +244,7 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
 		s.assistant = &onboardingCompanyAssistant{
 			state: s.state, people: people.NewStore(pool),
-			brain: brain, runtime: ai.NewRunTransparency(pool),
+			brain: brain, runtime: ai.NewRunTransparency(InstallationDB(pool)),
 			rollout: &s.companyContextRollout,
 			voice:   ai.NewVoiceStore(pool),
 			company: people.NewStore(pool),

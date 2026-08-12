@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -22,10 +21,10 @@ import (
 
 // CallReadStore serves the admin-only AI trace without loading payload
 // content into list responses.
-type CallReadStore struct{ pool *pgxpool.Pool }
+type CallReadStore struct{ db *database.DB }
 
 // NewCallReadStore constructs the RLS-bound AI trace read store.
-func NewCallReadStore(pool *pgxpool.Pool) *CallReadStore { return &CallReadStore{pool: pool} }
+func NewCallReadStore(db *database.DB) *CallReadStore { return &CallReadStore{db: db} }
 
 // CallSummary is one terminal attempt in the newest-first trace list.
 type CallSummary struct {
@@ -153,7 +152,7 @@ func (s *CallReadStore) ListCalls(
 
 	items := make([]CallSummary, 0, n+1)
 	tasks := []string{}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM ai_call c WHERE %s ORDER BY c.occurred_at DESC, c.id DESC LIMIT %d`,
 			callSummaryColumns, where, n+1,
@@ -217,7 +216,7 @@ func (s *CallReadStore) GetCall(ctx context.Context, id ids.UUID) (CallDetail, e
 		return CallDetail{}, err
 	}
 	var detail CallDetail
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s, c.correlation_id, c.agent_run_id, c.served_identity_source,
 				c.config_hash, c.context_scopes, c.context_fingerprint, c.logical_call_id,
