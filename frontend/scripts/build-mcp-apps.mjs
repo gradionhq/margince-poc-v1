@@ -1,6 +1,6 @@
 // Builds each MCP App view into exactly one self-contained document.
 //
-// It runs AFTER `vite build` in the one `pnpm build` command, so Dockerfile.web
+// It runs AFTER `vite build` in the one `pnpm build` command, so the web image
 // ships the views with no edit and there is no second toolchain to keep in step.
 //
 // Vite emits an HTML entry at its SOURCE path — dist/.mcp-apps-staging/<view>/

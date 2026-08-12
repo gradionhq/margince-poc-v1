@@ -46,9 +46,15 @@ variable "CACHE" {
   default = ""
 }
 
+# Every role lives in the ONE root Dockerfile as a build target of the same
+# name; the shared Go builder base is spelled once there and built once per
+# bake. A deploy recipe building a role directly says
+# `docker build --target <role> .` (a d13 dockerBuild block: `dockerFile:
+# ./Dockerfile` + `target: <role>`).
 target "role" {
-  context   = "."
-  platforms = PLATFORMS == "" ? [] : split(",", PLATFORMS)
+  context    = "."
+  dockerfile = "Dockerfile"
+  platforms  = PLATFORMS == "" ? [] : split(",", PLATFORMS)
   args = {
     MARGINCE_BUILD_REVISION = MARGINCE_BUILD_REVISION
   }
@@ -56,7 +62,7 @@ target "role" {
 
 target "api" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.api"
+  target     = "api"
   tags       = ["${REPO}/api:${VERSION}"]
   cache-from = CACHE == "gha" ? ["type=gha,scope=margince-api"] : []
   cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-api,mode=max"] : []
@@ -64,7 +70,7 @@ target "api" {
 
 target "web" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.web"
+  target     = "web"
   tags       = ["${REPO}/web:${VERSION}"]
   cache-from = CACHE == "gha" ? ["type=gha,scope=margince-web"] : []
   cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-web,mode=max"] : []
@@ -72,7 +78,7 @@ target "web" {
 
 target "worker" {
   inherits   = ["role"]
-  dockerfile = "Dockerfile.worker"
+  target     = "worker"
   tags       = ["${REPO}/worker:${VERSION}"]
   cache-from = CACHE == "gha" ? ["type=gha,scope=margince-worker"] : []
   cache-to   = CACHE == "gha" ? ["type=gha,scope=margince-worker,mode=max"] : []

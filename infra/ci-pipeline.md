@@ -51,7 +51,7 @@ Consequences:
   pattern because the action ORs its patterns: a separate `!infra/**/*.md`
   entry would match every path outside `infra/` and fire the filter on
   everything.
-- A **Dockerfile-only PR** (root `Dockerfile.*`, `.dockerignore`,
+- A **Dockerfile-only PR** (the root `Dockerfile`, `.dockerignore`,
   `docker-bake.hcl`) also matches no scope. The role images are built, pushed
   and digest-pinned into the release by `release.yml` on every push to `main`
   — that build is the gate now, so an image break surfaces in the release run

@@ -442,7 +442,7 @@ have to regenerate the composition and run the gates:
    the api and worker against the composed `GOWORK`, and starts Vite with
    `MARGINCE_COMPOSITION_FRONTEND` pointing at the composed frontend registry — so a unit's routes,
    its agent tools *and* `#/ext/<name>` are all live on the one port `make dev` prints. (It did not
-   set that variable until Task 14's UAT found the gap: only `Dockerfile.web` did, so the SPA
+   set that variable until Task 14's UAT found the gap: only the web image build did, so the SPA
    resolved the empty-tree registry and every unit route answered "no extension named …" while the
    api served it perfectly.)
 
