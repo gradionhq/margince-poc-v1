@@ -86,11 +86,31 @@ func TestHubSpotContactMapping(t *testing.T) {
 		t.Errorf("address.city = %v, want Munich", got)
 	}
 
-	// mobilephone, createdate, and the null phone property have no
-	// declared target in the contacts subset — the design's "unmapped:
-	// flag" policy (never silently dropped, UC-E18-01 F3).
+	phones, ok := out["person_phone"].([]map[string]any)
+	if !ok {
+		t.Fatalf("person_phone = %#v, want a child collection", out["person_phone"])
+	}
+	// Both declared rows land: the contact's `phone` property is null, so its
+	// work row carries no number (the wire skips a valueless row rather than
+	// publishing a blank one), while mobilephone lands as its own mobile,
+	// non-primary row.
+	if len(phones) != 2 {
+		t.Fatalf("person_phone has %d rows, want the declared work and mobile rows", len(phones))
+	}
+	if phones[0]["phone_type"] != "work" || phones[0]["is_primary"] != true {
+		t.Errorf("person_phone[0] = %v, want the work/primary attributes the mapping declares", phones[0])
+	}
+	if got := phones[1]["phone"]; got != "49 176 10042069" {
+		t.Errorf("person_phone[1].phone = %v, want the mobilephone value", got)
+	}
+	if phones[1]["phone_type"] != "mobile" || phones[1]["is_primary"] != false {
+		t.Errorf("person_phone[1] = %v, want the mobile/non-primary attributes the mapping declares", phones[1])
+	}
+
+	// createdate has no declared target in the contacts subset — the design's
+	// "unmapped: flag" policy (never silently dropped, UC-E18-01 F3).
 	sort.Strings(unmapped)
-	want := []string{"createdate", "mobilephone", "phone"}
+	want := []string{"createdate"}
 	if len(unmapped) != len(want) {
 		t.Fatalf("unmapped = %v, want %v", unmapped, want)
 	}

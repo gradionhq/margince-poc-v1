@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
@@ -100,6 +102,98 @@ func overlayOrgDomainRow(fields map[string]any) (map[string]any, string) {
 func overlayOrgDomain(fields map[string]any) string {
 	_, domain := overlayOrgDomainRow(fields)
 	return domain
+}
+
+// overlayPersonEmails assembles the contract's email collection from the
+// mirrored child rows. A row whose address is missing or blank is skipped
+// rather than published as an empty address — the true payload survives in
+// `raw` either way. The type rides only when it lands on the contract's own
+// enum (the column is CHECK-constrained on the native side too); anything
+// else reads as the work address one mapped address means.
+func overlayPersonEmails(parent openapi_types.UUID, fields map[string]any) *[]crmcontracts.PersonEmail {
+	var out []crmcontracts.PersonEmail
+	for _, row := range overlayChildRows(fields, "person_email") {
+		address := strings.TrimSpace(fieldString(row, "email"))
+		if address == "" {
+			continue
+		}
+		emailType := crmcontracts.PersonEmailEmailType(strings.TrimSpace(fieldString(row, "email_type")))
+		if !emailType.Valid() {
+			emailType = crmcontracts.PersonEmailEmailTypeWork
+		}
+		out = append(out, crmcontracts.PersonEmail{
+			Id:         overlaySyntheticID(parent, address),
+			Email:      openapi_types.Email(address),
+			EmailType:  emailType,
+			IsPrimary:  childRowIsPrimary(row),
+			Position:   childRowPosition(row),
+			Source:     overlaySource,
+			CapturedBy: ptrString(overlayCapturedByValue),
+		})
+	}
+	if out == nil {
+		return nil
+	}
+	return &out
+}
+
+// overlayPersonPhones is overlayPersonEmails' counterpart for numbers: a
+// contact's work and mobile numbers are separate typed rows of one collection.
+func overlayPersonPhones(parent openapi_types.UUID, fields map[string]any) *[]crmcontracts.PersonPhone {
+	var out []crmcontracts.PersonPhone
+	for _, row := range overlayChildRows(fields, "person_phone") {
+		number := strings.TrimSpace(fieldString(row, "phone"))
+		if number == "" {
+			continue
+		}
+		phoneType := crmcontracts.PersonPhonePhoneType(strings.TrimSpace(fieldString(row, "phone_type")))
+		if !phoneType.Valid() {
+			phoneType = crmcontracts.PersonPhonePhoneTypeWork
+		}
+		out = append(out, crmcontracts.PersonPhone{
+			Id:         overlaySyntheticID(parent, number),
+			Phone:      number,
+			PhoneType:  phoneType,
+			IsPrimary:  childRowIsPrimary(row),
+			Position:   childRowPosition(row),
+			Source:     overlaySource,
+			CapturedBy: ptrString(overlayCapturedByValue),
+		})
+	}
+	if out == nil {
+		return nil
+	}
+	return &out
+}
+
+// childAttrPosition is the mapping-declared attribute carrying a child row's
+// place in its collection.
+const childAttrPosition = "position"
+
+// childRowIsPrimary reports whether a child row is its collection's primary.
+// A row that declares nothing is not the primary — the flag is the mapping's
+// to assert, never the reader's to assume.
+func childRowIsPrimary(row map[string]any) bool {
+	primary, _ := row[childAttrIsPrimary].(bool)
+	return primary
+}
+
+// childRowPosition answers a child row's declared place in its collection. It
+// decodes as float64 through the mirror's jsonb column and stays an int
+// in-process, so both are read; any other shape answers 0, the collection's
+// own first slot.
+func childRowPosition(row map[string]any) int {
+	switch value := row[childAttrPosition].(type) {
+	case float64:
+		if !isExactInt64(value) {
+			return 0
+		}
+		return int(value)
+	case int:
+		return value
+	default:
+		return 0
+	}
 }
 
 // overlayFirstChildRow answers the first row of a child collection holding a

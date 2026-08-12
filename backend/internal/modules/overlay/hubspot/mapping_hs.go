@@ -73,6 +73,11 @@ const (
 	// same word both sides of the mapping, named once so read and write
 	// select it rather than retype the literal.
 	industryField = "industry"
+	// attrIsPrimary is the ChildRow attribute naming the primary row of a
+	// child collection. Every mapped collection declares it, and the canonical
+	// payload carries that spelling to every consumer of the mirror, so it is
+	// named once rather than retyped per mapping.
+	attrIsPrimary = "is_primary"
 )
 
 // The five canonical activity kinds (OVA-MAP-1) — the Const value each
@@ -160,12 +165,15 @@ var ownerIDField = overlay.FieldMapping{
 // consumed by person_email.email — the assembler is an ADDITIONAL reader of
 // those keys, so it adds no unmapped entry.
 //
+// phone and mobilephone both land in the core person_phone collection, as two
+// separate typed rows: no incumbent property says which number is which, so
+// the phone_type and the primary flag each row publishes are the ChildRow's
+// declaration, and a contact reachable on both keeps both numbers.
+//
 // One §9 field remains a deliberate gap: social links (jsonb) has no
 // closed-registry transform yet, and its source properties are consumed by
 // no FieldMapping, so Apply's unmapped []string surfaces them — the "flag,
-// never silently drop" policy (design §4.8) holds. The phone/mobilephone
-// properties (design §9: "phone→no column (x_phone custom)") are the same
-// ordinary case: unmapped/flagged until the x_ custom column lands.
+// never silently drop" policy (design §4.8) holds.
 var contactsMapping = overlay.ObjectMapping{
 	Source:         objectClassContacts,
 	Target:         personTarget,
@@ -188,7 +196,15 @@ var contactsMapping = overlay.ObjectMapping{
 			To:        "person_email.email",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
-			Child:     &overlay.ChildRow{Attrs: map[string]any{"email_type": "work", "is_primary": true}, Position: 0},
+			Child:     &overlay.ChildRow{Attrs: map[string]any{"email_type": "work", attrIsPrimary: true}, Position: 0},
+		},
+		{
+			From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+			Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work", attrIsPrimary: true}, Position: 0},
+		},
+		{
+			From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+			Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile", attrIsPrimary: false}, Position: 1},
 		},
 		ownerIDField,
 		{
@@ -226,7 +242,7 @@ var companiesMapping = overlay.ObjectMapping{
 			To:        "organization_domain.domain",
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
-			Child:     &overlay.ChildRow{Attrs: map[string]any{"is_primary": true}, Position: 0},
+			Child:     &overlay.ChildRow{Attrs: map[string]any{attrIsPrimary: true}, Position: 0},
 		},
 		ownerIDField,
 		{
