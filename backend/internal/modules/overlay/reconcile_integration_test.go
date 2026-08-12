@@ -120,15 +120,14 @@ func (e *fixtureMethodError) Error() string {
 // TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded's own
 // query documents), so no workspace GUC is needed to read it, only to
 // filter by workspace in the query itself.
-func countMirrorConflictEvents(ctx context.Context, pool *pgxpool.Pool, ws, externalID string) (int, error) {
+func countMirrorConflictEvents(ctx context.Context, pool *pgxpool.Pool, externalID string) (int, error) {
 	var count int
 	err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM event_outbox
 		 WHERE envelope->>'type' = 'mirror.conflict'
-		   AND envelope->>'workspace_id' = $1
-		   AND envelope->'payload'->>'external_id' = $2`,
-		ws, externalID,
+		   AND envelope->'payload'->>'external_id' = $1`,
+		externalID,
 	).Scan(&count)
 	return count, err
 }
@@ -201,7 +200,7 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 		t.Fatalf("mirror row baseline = %v, want %v", row.UpdatedAtBaseline, newBaseline)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -250,7 +249,7 @@ func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) 
 		t.Fatalf("emitMirrorConflict after disconnect = %v, want ErrConnectionGone", err)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}
@@ -315,7 +314,7 @@ func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 		t.Fatalf("sync_state = %q, want %q (unchanged)", row.SyncState, syncStatePendingSync)
 	}
 
-	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	eventCount, err := countMirrorConflictEvents(ctx, pool, externalID)
 	if err != nil {
 		t.Fatalf("querying event_outbox: %v", err)
 	}

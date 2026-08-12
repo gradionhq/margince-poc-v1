@@ -113,7 +113,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 func dispatchActivityCaptured(t *testing.T, engine *automation.WorkflowEngine, ws ids.UUID, eventID, activityID ids.UUID) {
 	t.Helper()
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
-		EventID: eventID, Type: "activity.captured", WorkspaceID: ws,
+		EventID: eventID, Type: "activity.captured",
 		OccurredAt: time.Now().UTC(),
 		Entity:     kevents.EntityRef{Type: "activity", ID: activityID},
 	}); err != nil {

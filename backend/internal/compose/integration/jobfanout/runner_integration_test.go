@@ -366,11 +366,10 @@ func decidedEnvelope(wsID ids.UUID, approvalID, verdict string) kevents.Envelope
 	id, _ := ids.Parse(approvalID)
 	payload, _ := json.Marshal(map[string]string{"verdict": verdict})
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        "approval.decided",
-		WorkspaceID: wsID,
-		Entity:      kevents.EntityRef{Type: "approval", ID: id},
-		Payload:     payload,
+		EventID: ids.NewV7(),
+		Type:    "approval.decided",
+		Entity:  kevents.EntityRef{Type: "approval", ID: id},
+		Payload: payload,
 	}
 }
 

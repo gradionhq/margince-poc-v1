@@ -25,15 +25,14 @@ import (
 type Envelope struct {
 	// EventID is minted as UUIDv7 so it is time-ordered; it is the
 	// consumer-side idempotency key (§3 — dedupe on event_id).
-	EventID     ids.UUID        `json:"event_id"`
-	Type        string          `json:"type"`
-	Version     int             `json:"version"`
-	WorkspaceID ids.UUID        `json:"workspace_id"`
-	OccurredAt  time.Time       `json:"occurred_at"`
-	Actor       Actor           `json:"actor"`
-	Entity      EntityRef       `json:"entity"`
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	Trace       Trace           `json:"trace"`
+	EventID    ids.UUID        `json:"event_id"`
+	Type       string          `json:"type"`
+	Version    int             `json:"version"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	Actor      Actor           `json:"actor"`
+	Entity     EntityRef       `json:"entity"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	Trace      Trace           `json:"trace"`
 }
 
 // Actor answers "who did this, under whose authority" from the event
@@ -87,9 +86,6 @@ func (e Envelope) Validate() error {
 	}
 	if v := VersionOf(e.Type); e.Version != v {
 		return fmt.Errorf("events: %s is at version %d, envelope says %d", e.Type, v, e.Version)
-	}
-	if e.WorkspaceID.IsZero() {
-		return fmt.Errorf("events: %s envelope has no workspace_id (the bus analogue of RLS)", e.Type)
 	}
 	if e.OccurredAt.IsZero() {
 		return fmt.Errorf("events: %s envelope has no occurred_at", e.Type)

@@ -133,18 +133,16 @@ func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, a
 // wrong payload for an event type without failing to compile, the same
 // guarantee storekit.EmitEvent gives every other module.
 func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID ids.UUID, entityID ids.UUID, payload events.Payload) error {
-	wsID, _ := principal.WorkspaceID(ctx)
 	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no correlation id bound to context")
 	}
 	eventType := payload.EventType()
 	env := events.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     events.VersionOf(eventType),
-		WorkspaceID: wsID,
-		OccurredAt:  s.now().UTC(),
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    events.VersionOf(eventType),
+		OccurredAt: s.now().UTC(),
 		Actor: events.Actor{
 			Type: string(p.Type), ID: p.ID,
 			PassportID: nullUUID(p.PassportID), OnBehalfOf: nullUUID(p.OnBehalfOf),

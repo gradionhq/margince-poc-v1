@@ -206,8 +206,8 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 	if err := e.Pool.QueryRow(ctx, `
 		SELECT count(*) FROM event_outbox
 		WHERE envelope->>'type' = 'retention.applied'
-		  AND envelope->>'workspace_id' = $1
-		  AND envelope->'actor'->>'id' = 'system'`, e.WS).Scan(&emitted); err != nil {
+		  AND envelope->'entity'->>'id' = $1
+		  AND envelope->'actor'->>'id' = 'system'`, healthyLead).Scan(&emitted); err != nil {
 		t.Fatalf("reading the staged retention events: %v", err)
 	}
 	if emitted != 1 {

@@ -107,14 +107,13 @@ func testLogger() *slog.Logger {
 func (e *busEnv) stage(t *testing.T, eventType string, entityID ids.UUID) kevents.Envelope {
 	t.Helper()
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     1,
-		WorkspaceID: e.ws,
-		OccurredAt:  time.Now().UTC(),
-		Actor:       kevents.Actor{Type: "human", ID: "human:" + ids.NewV7().String()},
-		Entity:      kevents.EntityRef{Type: "person", ID: entityID},
-		Trace:       kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    1,
+		OccurredAt: time.Now().UTC(),
+		Actor:      kevents.Actor{Type: "human", ID: "human:" + ids.NewV7().String()},
+		Entity:     kevents.EntityRef{Type: "person", ID: entityID},
+		Trace:      kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 	if err := env.Validate(); err != nil {
 		t.Fatalf("fixture envelope: %v", err)
@@ -291,42 +290,30 @@ func consumeUntil(t *testing.T, s *Subscriber, deadline time.Duration, done func
 	}
 }
 
-func TestSubscriberDeliversAcksAndFiltersWorkspaces(t *testing.T) {
+func TestSubscriberDeliversEveryEntryAndAcksIt(t *testing.T) {
 	e := setup(t)
-	mine := e.stage(t, "person.created", ids.NewV7())
-
-	// A second tenant's event on the same stream (workspace is a field,
-	// not a stream — events.md §4.1).
-	otherWS := ids.NewV7()
-	foreign := mine
-	foreign.EventID = ids.NewV7()
-	foreign.WorkspaceID = otherWS
-	raw, _ := json.Marshal(foreign)
-	if _, err := e.pool.Exec(t.Context(),
-		`INSERT INTO event_outbox (stream, envelope) VALUES ('gw:events:crm:person', $1)`, raw); err != nil {
-		t.Fatal(err)
+	e.stage(t, "person.created", ids.NewV7())
+	// A second entry on the same stream. This used to be another tenant's, and
+	// the assertion used to be that a workspace-scoped handler never saw it —
+	// the bus carries no tenant any more (ADR-0091 §6), so what is left to hold
+	// is the property that outlived it: every entry reaches the handler exactly
+	// once, and every entry is acked.
+	second := e.stage(t, "person.created", ids.NewV7())
+	if second.EventID.IsZero() {
+		t.Fatal("the second staged envelope has no event id")
 	}
 	if _, err := e.relay(t).relayBatch(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
 	var seen atomic.Int32
-	var sawForeign atomic.Bool
 	group := kevents.Group{Name: "cg:read-model", Streams: []string{"gw:events:crm:person"}}
-	s := NewSubscriber(e.rdb, group, ForWorkspace(e.ws, func(_ context.Context, env kevents.Envelope) error {
-		if env.WorkspaceID != e.ws {
-			sawForeign.Store(true)
-		}
+	s := NewSubscriber(e.rdb, group, func(_ context.Context, _ kevents.Envelope) error {
 		seen.Add(1)
 		return nil
-	}), testLogger())
+	}, testLogger())
 	s.block = 100 * time.Millisecond
 
-	// Wait for what this test actually asserts: BOTH entries acked. Waiting on
-	// `seen >= 1` instead waits for the OWN event's handler, which says nothing
-	// about the foreign one — that is filtered and acked on its own schedule,
-	// so the pending read could land before it happened and fail a subscriber
-	// that was working correctly.
 	pendingCount := func(t *testing.T) int64 {
 		t.Helper()
 		pending, err := e.rdb.XPending(t.Context(), "gw:events:crm:person", group.Name).Result()
@@ -338,17 +325,13 @@ func TestSubscriberDeliversAcksAndFiltersWorkspaces(t *testing.T) {
 		}
 		return pending.Count
 	}
-	consumeUntil(t, s, 5*time.Second, func() bool { return seen.Load() >= 1 && pendingCount(t) == 0 })
+	consumeUntil(t, s, 5*time.Second, func() bool { return seen.Load() >= 2 && pendingCount(t) == 0 })
 
-	if sawForeign.Load() {
-		t.Fatal("a handler scoped to workspace A saw workspace B's event")
+	if got := seen.Load(); got != 2 {
+		t.Fatalf("handler ran %d times, want 2 — one per staged entry", got)
 	}
-	if seen.Load() != 1 {
-		t.Fatalf("handler ran %d times, want 1 (own event only)", seen.Load())
-	}
-	// Both entries must be acked — the foreign one is filtered, not stuck.
 	if n := pendingCount(t); n != 0 {
-		t.Fatalf("%d entries still pending; filtering must ack, not strand", n)
+		t.Fatalf("%d entries still pending; a delivered entry must be acked, not stranded", n)
 	}
 }
 

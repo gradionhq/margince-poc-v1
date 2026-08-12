@@ -125,11 +125,10 @@ func TestWorkflowTriggerToDispatchP95HoldsOnTheSeededDataset(t *testing.T) {
 // reused here rather than re-derived.
 func leadCreatedEnvelope(e *Env, leadID ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        leadCreatedEventType,
-		WorkspaceID: e.WS,
-		OccurredAt:  time.Now().UTC(),
-		Entity:      kevents.EntityRef{Type: "lead", ID: leadID},
+		EventID:    ids.NewV7(),
+		Type:       leadCreatedEventType,
+		OccurredAt: time.Now().UTC(),
+		Entity:     kevents.EntityRef{Type: "lead", ID: leadID},
 	}
 }
 

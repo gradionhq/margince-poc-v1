@@ -160,10 +160,15 @@ func TestABundleIsDecidedOnceAndRecordedPerMember(t *testing.T) {
 		WHERE workspace_id = $1 AND entity_type = 'approval' AND action = 'approve'`, e.ws); n != 3 {
 		t.Errorf("approve audit rows = %d, want one per member", n)
 	}
-	if n := e.count(t, `SELECT count(*) FROM event_outbox
-		WHERE envelope->>'type' = 'approval.decided'
-		  AND envelope->'workspace_id' IS NOT NULL AND envelope->>'workspace_id' = $1`, e.ws.String()); n != 3 {
-		t.Errorf("approval.decided events = %d, want one per member", n)
+	// Scoped by SUBJECT: the envelope carries no tenant (ADR-0091 §6), and this
+	// package's tests share one database, so counting the type alone would
+	// count every other bundle's decisions too.
+	for _, id := range []ids.ApprovalID{facts, first, second} {
+		if n := e.count(t, `SELECT count(*) FROM event_outbox
+			WHERE envelope->>'type' = 'approval.decided'
+			  AND envelope->'entity'->>'id' = $1`, id.String()); n != 1 {
+			t.Errorf("approval.decided events for member %s = %d, want exactly one", id, n)
+		}
 	}
 }
 

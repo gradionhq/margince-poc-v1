@@ -206,10 +206,9 @@ func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 
 	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Event Driven', 'manual', 'human:x')`)
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        "person.created",
-		WorkspaceID: e.WS,
-		Entity:      kevents.EntityRef{Type: "person", ID: personID},
+		EventID: ids.NewV7(),
+		Type:    "person.created",
+		Entity:  kevents.EntityRef{Type: "person", ID: personID},
 	}
 	if err := gen.HandleEvent(context.Background(), env); err != nil {
 		t.Fatal(err)
@@ -230,7 +229,7 @@ func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 	}
 
 	// A non-entity event is not ours.
-	if err := gen.HandleEvent(context.Background(), kevents.Envelope{Type: "approval.decided", WorkspaceID: e.WS, Entity: kevents.EntityRef{Type: "approval", ID: ids.NewV7()}}); err != nil {
+	if err := gen.HandleEvent(context.Background(), kevents.Envelope{Type: "approval.decided", Entity: kevents.EntityRef{Type: "approval", ID: ids.NewV7()}}); err != nil {
 		t.Fatalf("foreign event must be a no-op, got %v", err)
 	}
 }

@@ -55,11 +55,10 @@ var _ authz.Resolver = fixtureResolver{}
 // this suite's resolvers are built to grant or withhold.
 func gateTestEnvelope(ws ids.UUID) kevents.Envelope {
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: ws,
-		OccurredAt:  time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 }
 

@@ -14,7 +14,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // newWebhookHandlers builds the outbound-webhook transport (E10/S-E10.6,
@@ -89,13 +88,15 @@ func WithWebhookKey(key string) (Option, error) {
 }
 
 // WebhookEventHandler adapts the per-workspace deliverer factory to the bus
-// consumer's one-function shape: each envelope names the workspace it belongs
-// to, so the deliverer that handles it binds THAT one. A single deliverer
-// shared across the lane would carry one tenant's handle into every other
-// tenant's event (ADR-0091 §9 step 3).
+// consumer's one-function shape. The envelope no longer names a tenant
+// (ADR-0091 §6), so the handle is the installation's — the same one every
+// other request-path and bus consumer resolves. The factory shape is kept
+// because the RETRY fan-out still pins per tenant from its job args, and both
+// callers must build their deliverer the same way.
 func WebhookEventHandler(pool *pgxpool.Pool, deliverer func(*database.DB) *webhooks.Deliverer,
 ) func(context.Context, kevents.Envelope) error {
+	handler := deliverer(InstallationDB(pool))
 	return func(ctx context.Context, env kevents.Envelope) error {
-		return deliverer(database.BindTo(pool, ids.From[ids.WorkspaceKind](env.WorkspaceID))).HandleEvent(ctx, env)
+		return handler.HandleEvent(ctx, env)
 	}
 }

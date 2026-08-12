@@ -95,7 +95,7 @@ func TestIssuePasswordLinkWritesAnAuditRowAndAnEventCarryingNoToken(t *testing.T
 		t.Error("the audit image carries the raw token — it must never be written to a ledger")
 	}
 
-	envs := e.identityEvents(t, "user.password_link_issued")
+	envs := e.identityEvents(t, "user.password_link_issued", member.UUID)
 	if len(envs) != 1 {
 		t.Fatalf("user.password_link_issued staged %d times, want once", len(envs))
 	}

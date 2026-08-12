@@ -15,14 +15,13 @@ import (
 func validEnvelope(t *testing.T, eventType string) Envelope {
 	t.Helper()
 	return Envelope{
-		EventID:     ids.NewV7(),
-		Type:        eventType,
-		Version:     VersionOf(eventType),
-		WorkspaceID: ids.NewV7(),
-		OccurredAt:  time.Date(2026, 7, 16, 9, 38, 0, 0, time.UTC),
-		Actor:       Actor{Type: "connector", ID: "connector:gmail"},
-		Entity:      EntityRef{Type: "activity", ID: ids.NewV7()},
-		Trace:       Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       eventType,
+		Version:    VersionOf(eventType),
+		OccurredAt: time.Date(2026, 7, 16, 9, 38, 0, 0, time.UTC),
+		Actor:      Actor{Type: "connector", ID: "connector:gmail"},
+		Entity:     EntityRef{Type: "activity", ID: ids.NewV7()},
+		Trace:      Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 }
 

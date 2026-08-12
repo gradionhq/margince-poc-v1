@@ -48,11 +48,10 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 	}
 
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: fx.ws,
-		OccurredAt:  time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 	if err := engine.HandleEvent(context.Background(), env); err == nil {
 		t.Fatal("HandleEvent swallowed the handler failures — the dispatcher must still surface them")
@@ -94,11 +93,10 @@ func TestFailedRunReasonNeverLeaksRawProviderErrorInternals(t *testing.T) {
 	engine.RegisterWorkflow(h)
 
 	env := kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        scriptedTrigger,
-		WorkspaceID: fx.ws,
-		OccurredAt:  time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
-		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		EventID:    ids.NewV7(),
+		Type:       scriptedTrigger,
+		OccurredAt: time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		Entity:     kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
 	}
 	if err := engine.HandleEvent(context.Background(), env); err == nil {
 		t.Fatal("HandleEvent swallowed the apply failure")
@@ -196,11 +194,10 @@ func assertRejectionBlocksParkedRun(t *testing.T, fx *autoFixture, engine *Workf
 			t.Fatal(err)
 		}
 		return kevents.Envelope{
-			EventID:     ids.NewV7(),
-			Type:        "approval.decided",
-			WorkspaceID: fx.ws,
-			Entity:      kevents.EntityRef{Type: "approval", ID: stagedApproval.UUID},
-			Payload:     payload,
+			EventID: ids.NewV7(),
+			Type:    "approval.decided",
+			Entity:  kevents.EntityRef{Type: "approval", ID: stagedApproval.UUID},
+			Payload: payload,
 		}
 	}
 	if err := engine.HandleApprovalDecided(context.Background(), decided("approved")); err != nil {

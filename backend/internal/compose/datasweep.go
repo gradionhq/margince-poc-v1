@@ -113,12 +113,16 @@ func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []string) error {
 	return nil
 }
 
-// clearWorkspaceOutbox removes this workspace's staged events. event_outbox is
-// infra-owned and has no workspace_id column — tenancy lives in the envelope —
-// so the reset must not leave events that point at rows it just deleted.
+// clearWorkspaceOutbox removes the staged events, so the reset does not leave
+// events pointing at rows it just deleted.
+//
+// event_outbox is infra-owned and has no workspace_id column. Tenancy used to
+// live in the envelope, and the delete matched on it; the envelope carries no
+// tenant now (ADR-0091 §6), and under one installation there is no other
+// tenant's event to spare — every staged row belongs to the installation being
+// reset.
 func clearWorkspaceOutbox(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx,
-		`DELETE FROM event_outbox WHERE envelope->>'workspace_id' = current_setting('app.workspace_id')`)
+	_, err := tx.Exec(ctx, `DELETE FROM event_outbox`)
 	return err
 }
 

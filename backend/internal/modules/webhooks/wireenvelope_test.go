@@ -28,11 +28,10 @@ func fullInternalEnvelope(t *testing.T) kevents.Envelope {
 	onBehalfOf := ids.NewV7()
 	causationID := ids.NewV7()
 	return kevents.Envelope{
-		EventID:     ids.NewV7(),
-		Type:        "deal.created",
-		Version:     1,
-		WorkspaceID: ids.NewV7(),
-		OccurredAt:  time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC),
+		EventID:    ids.NewV7(),
+		Type:       "deal.created",
+		Version:    1,
+		OccurredAt: time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC),
 		Actor: kevents.Actor{
 			Type:       "human",
 			ID:         "human:abc",
