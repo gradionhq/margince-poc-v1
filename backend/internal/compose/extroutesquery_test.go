@@ -149,6 +149,12 @@ func TestTheQueryDecodeRefusesWhatNothingElseWouldCatch(t *testing.T) {
 		"a boolean spelled 1":   {"payload=p&exact=1", "invalid_type"},
 		"a boolean spelled yes": {"payload=p&exact=yes", "invalid_type"},
 		"a boolean cased True":  {"payload=p&exact=True", "invalid_type"},
+		// Bytes that are not text. json.Marshal does not refuse invalid UTF-8, it
+		// SUBSTITUTES U+FFFD — so this reached a handler as a string the caller never
+		// sent, and a handler signing or storing it would act on the repair. A
+		// contract's `string` means text.
+		"a string of invalid UTF-8": {"payload=%ff", "invalid_type"},
+		"invalid UTF-8 mid-string":  {"payload=ab%c3(cd", "invalid_type"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mux := echoArgs(t, queryVerb())

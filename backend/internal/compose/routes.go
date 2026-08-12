@@ -257,8 +257,19 @@ func WithMetricsToken(token string) Option {
 //
 // The fall-through is a "/" pattern on the extension mux, not a lookup-then-
 // dispatch: ServeMux already resolves longest-pattern-wins, so registering next
-// as the catch-all makes it decide, and a method mismatch on a declared route
-// still produces its own 405 instead of leaking into the core router as a 404.
+// as the catch-all makes it decide.
+//
+// A method mismatch on a declared route therefore answers 404, not 405, and that
+// is worth stating because the obvious reading is the other one: ServeMux only
+// synthesises a 405 when the path matches patterns that differ from the request
+// solely by method AND nothing else matches, and the "/" catch-all here always
+// matches — so a POST to a declared GET route reaches the core router and 404s
+// there. This was invisible while every extension operation was a POST; now that
+// the method is part of what a unit declares, it is a routine answer, and a
+// client generated from the merged contract will see 404 for a verb it did not
+// generate. Fixing it would mean this edge deciding for itself whether a path is
+// one of ours before delegating, which is the lookup-then-dispatch the line above
+// deliberately avoids.
 //
 // A boot with no declared operations (the vanilla tree) returns next
 // unchanged — no mux, no allocation, and no route that could shadow a core one.

@@ -53,9 +53,14 @@ import {
 // unprefixed and client.ts's baseUrl carries the /v1 mount, so an extension
 // route reads exactly like a core one at the call site.
 //
-// Every operation is a POST because a served extension operation IS a governed
-// tool invocation and its arguments are the request body — the seam admits no
-// GET or DELETE. "list", "add" and "remove" are three verbs, not three methods.
+// Each operation is called with the method its own fragment declares, and where
+// the arguments go follows from that: the reads are GETs sending nothing, `add`
+// POSTs a body, `signing-key` is a PUT because storing replaces, and `remove` is
+// a DELETE whose id rides `params.query` because a DELETE carries no body.
+//
+// `signature` is the one to look twice at — it is a read on a POST, on purpose,
+// because its payload has no business in a URL. See the fragment, which is where
+// that reasoning lives.
 
 /** The RBAC object the unit's record operations gate on. */
 const NOTE_OBJECT = "ext_notes_note";

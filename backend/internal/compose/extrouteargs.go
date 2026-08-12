@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -214,6 +215,19 @@ func (q queryArgs) decode(values url.Values) (json.RawMessage, error) {
 // encodeQueryValue turns one query value — always text — into the JSON type its
 // declaration promised a handler it would be.
 //
+// THE TYPE, AND NOTHING FINER, and a unit author has to know it. A parameter's
+// declared schema may carry `format`, `pattern`, `enum`, `minimum`, `maxLength`
+// and the rest; all of it is published to clients and the docs, and none of it is
+// enforced here — a `{type: integer, format: int32, maximum: 100}` admits any
+// int64 this function can parse. That is the same division the body path has
+// always had (a body is checked for well-formed JSON and handed on), and it
+// follows from the deliberate absence of a jsonschema dependency in this tree.
+//
+// So the rule for a handler is the rule it already had: the schema tells a
+// CLIENT what to send, and the handler enforces what it needs. notes does
+// exactly this — its remove operation re-checks the id's UUID shape in note.go
+// rather than trusting the `format: uuid` its own fragment publishes.
+//
 // The parsed value is re-marshalled rather than the raw text passed through.
 // Text that parses is not necessarily text JSON accepts in that position: a
 // declared integer given "007" or "+7" parses to 7, and emitting the original
@@ -222,6 +236,14 @@ func (q queryArgs) decode(values url.Values) (json.RawMessage, error) {
 func encodeQueryValue(declared, text string) (json.RawMessage, error) {
 	switch declared {
 	case "string":
+		// Checked, because json.Marshal does not refuse invalid UTF-8 — it SUBSTITUTES
+		// U+FFFD for each bad byte. So `?payload=%ff` would reach the handler as a
+		// string the caller never sent, silently, and a handler signing or storing it
+		// would be acting on this seam's repair rather than on the request. A
+		// contract's `string` means text, and bytes that are not text are refused.
+		if !utf8.ValidString(text) {
+			return nil, errors.New("expected text, and this value is not valid UTF-8")
+		}
 		return json.Marshal(text)
 	case "boolean":
 		// The JSON spellings only. The looser ones ("1", "yes", "on", "True") are
