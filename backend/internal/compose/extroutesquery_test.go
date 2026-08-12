@@ -200,14 +200,40 @@ func TestQueryArgumentsForRefusesADeclarationItCannotDescribe(t *testing.T) {
 	if _, err := queryArgumentsFor(malformed); err == nil {
 		t.Error("an input schema this route cannot read was accepted")
 	}
-	// And a body method gets no query description at all, which is the signal the
-	// handler branches on.
-	body := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeWrite)
-	args, err := queryArgumentsFor(body)
-	if err != nil {
-		t.Fatalf("a POST must resolve: %v", err)
+	// And the mount refuses such a declaration rather than serving it, which is
+	// the behaviour that matters: argumentReaderFor is what MountExtensionRoutes
+	// calls, and a route that quietly accepted no arguments would answer 200 to
+	// every call while doing the wrong thing.
+	if _, err := argumentReaderFor(unsatisfiable); err == nil {
+		t.Error("the mount accepted a declaration whose arguments cannot be described")
 	}
-	if args != nil {
-		t.Error("a body-carrying method was given a query description")
+}
+
+// TestABodyMethodReadsItsArgumentsFromTheBody: the reader a body-carrying method
+// gets is the body one, and it applies the empty-object default. Asserted through
+// argumentReaderFor rather than by inspecting a flag, because the reader IS the
+// choice — a route holds only the one its own declaration produced, so it cannot
+// read a body it has no schema for.
+func TestABodyMethodReadsItsArgumentsFromTheBody(t *testing.T) {
+	post := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeWrite)
+	read, err := argumentReaderFor(post)
+	if err != nil {
+		t.Fatalf("a POST must resolve a reader: %v", err)
+	}
+	got, err := read(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"k":1}`)))
+	if err != nil {
+		t.Fatalf("reading a body: %v", err)
+	}
+	if string(got) != `{"k":1}` {
+		t.Errorf("arguments = %s, want the body verbatim", got)
+	}
+	// An absent body is the empty object, not a refusal — and a query string is
+	// ignored, because this operation's arguments are not there.
+	got, err = read(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/x?k=2", nil))
+	if err != nil {
+		t.Fatalf("reading an absent body: %v", err)
+	}
+	if string(got) != `{}` {
+		t.Errorf("arguments = %s, want the empty-object default", got)
 	}
 }
