@@ -2065,34 +2065,30 @@ function CompanyPage({
         </>
       }
       zone={RECORD_ZONE}
-      badges={
-        <CompanyActionBadges
-          org={org}
-          onOpenHistory={() => setAuditOpen(true)}
-          onSetUpPartner={() => onTab("partner")}
-        />
-      }
-      pulse={
-        <CompanyIdentityLine
-          org={org}
-          view={view}
-          loading={loading}
-          // The chip opens the queue, so it appears only where the queue can:
-          // a count you cannot act on from here is a dead end.
-          onOpenDecisions={
-            tab === "overview" ? () => setDecisionsOpen(true) : undefined
-          }
-        />
-      }
+      pulse={<CompanyIdentityLine org={org} view={view} loading={loading} />}
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={
-        <CompanyPrimaryActions
-          org={org}
-          composerOpen={writingEmail}
-          onComposerOpen={setWritingEmail}
-        />
+        <>
+          <CompanyPrimaryActions
+            org={org}
+            composerOpen={writingEmail}
+            onComposerOpen={setWritingEmail}
+          />
+          {/* Last in the row, after the verbs it holds the remainder of: a
+              menu of everything-else read as the first thing to press when it
+              led them. */}
+          <CompanyActionBadges
+            org={org}
+            view={view}
+            onOpenHistory={() => setAuditOpen(true)}
+            onSetUpPartner={() => onTab("partner")}
+            onOpenDecisions={
+              tab === "overview" ? () => setDecisionsOpen(true) : undefined
+            }
+          />
+        </>
       }
       // Lifecycle and owner read as part of the account's own line rather than
       // as a column beside it, so they travel with the identity in `pulse`

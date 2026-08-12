@@ -529,7 +529,11 @@ export function RecordView({
   // it reserves the space and leaves the story narrower than the rail
   // beside it.
   const zones = zoneClass(Boolean(rail), Boolean(aside));
-  const headerWide = Boolean(controls) || wide;
+  // Also when the verbs sit on the identity's own row: that record's block is
+  // a name over a description, a chip row and a meta line, and centring the
+  // mark against a stack that tall floats it to the middle of the chips
+  // instead of beside the name it belongs to.
+  const headerWide = Boolean(controls) || Boolean(actionsInline) || wide;
   const actionsAt = actionsPlacement(actions, actionsInline, controls);
   return (
     <div>

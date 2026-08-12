@@ -599,9 +599,11 @@ export const en = {
   "co.chip.rowLabel": "Company details",
   "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 months",
-  "co.strip.openInvoices": "Open invoices",
   "co.strip.overdue": "Overdue",
-  "co.strip.paidAfterDue": "Median paid after due",
+  // The collapsed slot's label, shown once in place of the strip's money
+  // readings when the connection cannot answer any of them. Generic on
+  // purpose: it stands for all of them at once.
+  "co.strip.finance": "Finance",
   "co.strip.financeUnknown": "—",
   "co.strip.fin.noConnection": "Connect your accounting",
   "co.strip.fin.unmapped": "Not matched to a customer yet",
@@ -610,7 +612,6 @@ export const en = {
   "co.strip.fin.staleFigure": "Last synced a while ago — check the date",
   "co.strip.fin.errorFigure": "Last sync failed — this may not be current",
   "co.strip.fin.nothingBilled": "Nothing invoiced yet",
-  "co.strip.fin.tooFewSettled": "Too few settled invoices to say",
   "co.strip.fin.error": "Could not be read",
   "co.strip.fin.loading": "Loading…",
   "co.strip.unpriced": "No convertible amount on these deals",

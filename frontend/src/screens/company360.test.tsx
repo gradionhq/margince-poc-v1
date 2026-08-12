@@ -1033,6 +1033,10 @@ describe("company view — what is waiting on a decision", () => {
       }),
     );
     renderCompany();
+    // The way into the queue sits with the record's other rare verbs rather
+    // than beside the account's name: it opens a queue, it does not decide
+    // anything, and drawn in the header it outranked the verbs that do.
+    (await screen.findByRole("button", { name: "More actions" })).click();
     const open = await screen.findByRole("button", {
       name: "Review 2 waiting",
     });
@@ -1048,6 +1052,7 @@ describe("company view — what is waiting on a decision", () => {
     stub(view());
     renderCompany();
     await screen.findByText("Brandt Automotive GmbH");
+    (await screen.findByRole("button", { name: "More actions" })).click();
     expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
   });
 });
@@ -2082,8 +2087,10 @@ describe("company view — the account's primary actions", () => {
   });
 });
 
-// The three readings the six-slot row added: a lifetime total beside the
-// trailing one, what is overdue, and how late they usually pay.
+// The three money readings the customer row carries: a lifetime total beside
+// the trailing one, and what is overdue. Open balance and the payment-habit
+// median are Finance-tab readings now (companyfinance.test.tsx), not the
+// strip's — this suite pins the three that stayed.
 describe("a customer's KPI row reports what the account is worth", () => {
   const customer = {
     account: { lifecycle: "customer" as const, relationship_types: [] },
@@ -2118,13 +2125,16 @@ describe("a customer's KPI row reports what the account is worth", () => {
 
     expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
     expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
-    // Abbreviated: six slots share the strip's width, and a full euro amount
+    // Abbreviated: the strip's slots share its width, and a full euro amount
     // wraps mid-number there. The finance card renders the exact figure.
     expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
     expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
   });
 
-  it("gives what is overdue its own slot", async () => {
+  // Open balance moved to the Finance tab (a superset of overdue there,
+  // and already a headline card) — the strip keeps only the exception a
+  // rep needs to act on now.
+  it("gives what is overdue its own slot, without a separate open-balance one", async () => {
     stub(
       view({ state_strip: customer }),
       200,
@@ -2142,73 +2152,7 @@ describe("a customer's KPI row reports what the account is worth", () => {
 
     expect(within(region).getByText("Overdue")).toBeTruthy();
     expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
-    expect(within(region).getByText(/34(\.2)?K/i)).toBeTruthy();
-  });
-
-  // "-4 days after due" is a puzzle. Paying four days EARLY is the reading,
-  // and it is the opposite fact.
-  it("reads a negative median as paying early, never as a minus sign", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({ median_days_after_due: -4 }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    expect(within(region).getByText("Typically 4 days early")).toBeTruthy();
-    expect(region.textContent).not.toMatch(/-4/);
-  });
-
-  it("reads a positive median as paying late", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({ median_days_after_due: 12 }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    expect(
-      within(region).getByText("Typically 12 days after due"),
-    ).toBeTruthy();
-  });
-
-  // The sample floor is not "nothing invoiced". Saying so beside a lifetime
-  // total puts two slots of one row in contradiction, and the wrong one states
-  // a fact about the account.
-  it("says too few settled invoices rather than nothing invoiced", async () => {
-    stub(
-      view({ state_strip: customer }),
-      200,
-      org,
-      connected({
-        net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
-      }),
-    );
-    renderCompany();
-    const region = await strip();
-    // The finance summary is its own query: the slots render "Loading…" on the
-    // first pass, so the assertions below wait for the settled figure.
-    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
-
-    // Scoped to the median's own slot: the money slots beside it carry no
-    // figure either, and "Nothing invoiced yet" is the RIGHT reason for those.
-    // The defect this pins is the median borrowing their wording.
-    const slot = within(region)
-      .getByText("Median paid after due")
-      .closest("section");
-    expect(slot).not.toBeNull();
-    expect(slot?.textContent).toMatch(/Too few settled invoices to say/);
-    expect(slot?.textContent).not.toMatch(/Nothing invoiced yet/);
+    expect(within(region).queryByText("Open invoices")).toBeNull();
   });
 });
 
@@ -2363,5 +2307,142 @@ describe("the money slot says WHY it has no figure", () => {
     await strip();
     expect((await screen.findAllByText(/186,420/)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("datev")).length).toBeGreaterThan(0);
+  });
+});
+
+// The row's three money slots share one finance-summary read. When the
+// connection can answer none of them, the row says so once; when even one
+// of them DOES have a figure, it still asks each question on its own line.
+describe("the money row collapses only when every slot shares one cause", () => {
+  const customer = {
+    account: { lifecycle: "customer" as const, relationship_types: [] },
+  };
+  const strip = async () =>
+    await screen.findByRole("region", { name: "Where this account stands" });
+
+  it("says it once when the connection cannot answer any of them", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() =>
+      expect(
+        within(region).getAllByText("Not matched to a customer yet").length,
+      ).toBe(1),
+    );
+
+    // The three individual questions are gone with it, not just deduplicated
+    // text — a reader sweeping the row sees one statement, not three blanks.
+    expect(within(region).queryByText("Net invoiced · lifetime")).toBeNull();
+    expect(within(region).queryByText("Net invoiced · 12 months")).toBeNull();
+    expect(within(region).queryByText("Overdue")).toBeNull();
+  });
+
+  // Pinning the collapse against the exact case that must NOT trigger it: one
+  // slot has a real figure, so the row's three money questions do not share a
+  // cause, even though the other two still refuse for the same reason.
+  it("keeps the slots separate when one of them has a real figure", async () => {
+    stub(view({ state_strip: customer }), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+      net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    // The one slot with an answer keeps its own label and figure.
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    // The other two still ask their own question, each carrying the shared
+    // reason on its own line rather than one line speaking for the row.
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(
+      within(region).getAllByText("Not matched to a customer yet").length,
+    ).toBe(2);
+  });
+
+  // The team lead's two mandated shapes: a customer whose finance connection
+  // cannot answer, and one whose connection can. Both must still carry the
+  // account's own standing (stage, pipeline, relationship, health) — the
+  // defect this whole suite exists for was the standing readings disappearing
+  // behind the money row, not the money row itself.
+  // A relationship dimension and a live reply balance are enough to draw
+  // both HealthStat ("Relationship") and HealthSummaryStat ("Health") — the
+  // two readings the defect report showed already surviving the collapse,
+  // pinned here beside the two that were missing (Stage, Open pipeline).
+  const withStanding = () =>
+    view({
+      state_strip: {
+        account: { lifecycle: "customer" as const, relationship_types: [] },
+        commercial: {
+          open_count: 2,
+          open_pipeline_minor_base: 500000,
+          base_currency: "EUR",
+          stalled_count: 0,
+        },
+      },
+      health: {
+        days_since_last_inbound: 5,
+        reply_balance: 0.5,
+        relationship: { rating: "strong", reason: "Active both ways" },
+      },
+    });
+
+  it("keeps the account's standing readings beside a collapsed Finance slot", async () => {
+    stub(withStanding(), 200, org, {
+      organization_id: "o-1",
+      state: "unmapped",
+      provider: "offline_demo",
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() =>
+      expect(
+        within(region).getAllByText("Not matched to a customer yet").length,
+      ).toBe(1),
+    );
+
+    expect(within(region).getByText("Stage")).toBeTruthy();
+    expect(within(region).getByText("Open pipeline")).toBeTruthy();
+    expect(within(region).getByText("Relationship")).toBeTruthy();
+    expect(within(region).getByText("Health")).toBeTruthy();
+    expect(within(region).getByText("Finance")).toBeTruthy();
+    // A prospect's question, not a customer's: there is already a money
+    // reading answering what is coming from them.
+    expect(within(region).queryByText("Expected close")).toBeNull();
+  });
+
+  it("expands to the real figures beside the same standing readings", async () => {
+    stub(withStanding(), 200, org, {
+      organization_id: "o-1",
+      state: "connected",
+      provider: "datev",
+      net_invoiced: { amount_minor: 18642000, currency: "EUR" },
+      net_invoiced_lifetime: { amount_minor: 42800000, currency: "EUR" },
+      overdue: { amount_minor: 1243000, currency: "EUR" },
+    });
+    renderCompany();
+    const region = await strip();
+    await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
+
+    expect(within(region).getByText("Stage")).toBeTruthy();
+    expect(within(region).getByText("Open pipeline")).toBeTruthy();
+    expect(within(region).getByText("Relationship")).toBeTruthy();
+    expect(within(region).getByText("Health")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Overdue")).toBeTruthy();
+    expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
+    expect(within(region).getByText(/12(\.4)?K/i)).toBeTruthy();
+    // Collapsed to a single "Finance" slot only when nothing answers — not
+    // here, where every money question has a figure.
+    expect(within(region).queryByText("Finance")).toBeNull();
   });
 });

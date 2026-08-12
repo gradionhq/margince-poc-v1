@@ -366,12 +366,16 @@ function CompanyEditAction({
 
 export function CompanyActionBadges({
   org,
+  view,
   onOpenHistory,
   onSetUpPartner,
+  onOpenDecisions,
 }: Readonly<{
   org: Organization;
+  view?: Organization360View;
   onOpenHistory: () => void;
   onSetUpPartner: () => void;
+  onOpenDecisions?: () => void;
 }>) {
   const t = useT();
   const overlay = useSorMode() === "overlay";
@@ -483,6 +487,13 @@ export function CompanyActionBadges({
             >
               {t("record.fullHistory")}
             </Button>
+          )}
+          {/* The account's own waiting decisions. It reads as a count in the
+              header, which is a state, and this is the verb that answers it —
+              so it sits with the other rare verbs rather than as a chip beside
+              the account's name. Absent when nothing waits. */}
+          {onOpenDecisions && (
+            <DecisionsChip view={view} onOpen={onOpenDecisions} />
           )}
         </OverflowMenu>
       )}
@@ -621,7 +632,6 @@ export function CompanyIdentityLine({
   org,
   view,
   loading,
-  onOpenDecisions,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
@@ -629,10 +639,6 @@ export function CompanyIdentityLine({
   // same way it is when the section itself is withheld, so a page mid-load
   // never reads as an account nobody has ever written to.
   loading?: boolean;
-  // The overview owns the decisions panel, so only it can offer the way in.
-  // The other tabs render the same line without the chip rather than a
-  // button that has nothing to open.
-  onOpenDecisions?: () => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -671,12 +677,6 @@ export function CompanyIdentityLine({
               ? t("co.pulse.lastExchange", { when: when(lastExchange) })
               : t("co.pulse.neverTouched")}
           </span>
-        </>
-      )}
-      {onOpenDecisions && (
-        <>
-          <span className="co-sep">·</span>
-          <DecisionsChip view={view} onOpen={onOpenDecisions} />
         </>
       )}
     </div>

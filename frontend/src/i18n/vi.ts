@@ -592,9 +592,8 @@ export const vi = {
   "co.chip.rowLabel": "Thông tin công ty",
   "co.strip.netInvoicedLifetime": "Đã xuất hóa đơn ròng · trọn đời",
   "co.strip.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
-  "co.strip.openInvoices": "Hóa đơn chưa thanh toán",
   "co.strip.overdue": "Quá hạn",
-  "co.strip.paidAfterDue": "Trung vị sau hạn",
+  "co.strip.finance": "Tài chính",
   "co.strip.financeUnknown": "—",
   "co.strip.fin.noConnection": "Kết nối phần mềm kế toán",
   "co.strip.fin.unmapped": "Chưa khớp với khách hàng nào",
@@ -604,7 +603,6 @@ export const vi = {
   "co.strip.fin.errorFigure":
     "Đồng bộ gần nhất thất bại — có thể không còn đúng",
   "co.strip.fin.nothingBilled": "Chưa xuất hóa đơn nào",
-  "co.strip.fin.tooFewSettled": "Quá ít hóa đơn đã thanh toán để kết luận",
   "co.strip.fin.error": "Không đọc được",
   "co.strip.fin.loading": "Đang tải…",
   "co.strip.unpriced": "Không có giá trị quy đổi được",

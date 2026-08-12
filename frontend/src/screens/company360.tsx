@@ -2341,10 +2341,19 @@ export const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the KPI row directly under the header: SIX slots, and which
- * six depends on where the account stands. A customer is asked about money and
- * health; everyone else about pipeline, timing and engagement. Showing one set
- * to both makes half of them noise.
+ * StateStrip is the KPI row directly under the header. Every lifecycle draws
+ * the account's own standing — stage, open pipeline, relationship, health —
+ * because a customer needs those readings at least as much as a prospect
+ * does: being a customer is not a reason to stop reporting whether the
+ * relationship is healthy or what deals are open with them. A customer's row
+ * then adds what the finance connection can say, collapsed to one slot when
+ * it can say nothing.
+ *
+ * The standing readings come first, the money readings after: what is true of
+ * the account regardless of what it has paid is the frame the money sits in,
+ * not the other way round. A row that led with money would ask a reader to
+ * read the account's health off a number they have not been given the
+ * context for yet.
  *
  * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
@@ -2402,86 +2411,46 @@ export function StateStrip({
     <section
       className="co-strip"
       aria-label={t("co.strip.title")}
-      // The grid draws exactly the slots this account has. A customer's row is
-      // six; a non-customer with no open signal is five, and a template that
-      // reserved a sixth would leave a grey cell where a reading never was.
-      // Counted from the DOM rather than predicted: several slots return null
-      // on their own (engagement with no grant, pipeline with no deals), so an
-      // expression here would have to restate every one of their conditions and
-      // would drift the moment one changed.
+      // The grid draws exactly the slots this account has. Counted from the
+      // DOM rather than predicted: several slots return null on their own
+      // (pipeline with no deals, health with nothing rated, finance with
+      // nothing answered), so an expression here would have to restate every
+      // one of their conditions and would drift the moment one changed.
       ref={stripRef}
     >
-      {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
-          and how it is held: what they have ever been worth, what lately,
-          what is outstanding, what is late, how late they usually are, and
-          whether the relationship stays that way.
-
-          Where the account STANDS is not among them. The mockups put
-          lifecycle and owner in the header beside the name, and repeating it
-          here would spend a money slot on a value the reader has already
-          passed. On a non-customer there are no invoices to ask about, so the
-          account's own state leads and the row keeps its shape. */}
-      {customer ? (
-        <>
-          {/* Lifetime beside the trailing year, which is the comparison the
-              mockup draws: what this account has ever been worth, and what it
-              has been worth lately. Each refuses on its own — a widened window
-              can be unconvertible while the narrow one is not. */}
-          <FinanceStat
-            orgId={orgId}
-            reading="netInvoicedLifetime"
-            locale={locale}
-            t={t}
-          />
-          <FinanceStat
-            orgId={orgId}
-            reading="netInvoiced"
-            namesSource
-            locale={locale}
-            t={t}
-          />
-          <FinanceStat
-            orgId={orgId}
-            reading="openInvoices"
-            locale={locale}
-            t={t}
-          />
-          {/* What is late, then how late they usually are: the amount is the
-              exception standing open, the median is the habit behind it. */}
-          <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
-          <PaidAfterDueStat orgId={orgId} t={t} />
-          {/* Health closes the row, as the mockup draws it: the money above is
-              what the account IS worth, and this is whether it stays that way. */}
-          <HealthStat health={view?.health} t={t} />
-        </>
-      ) : (
-        <>
-          {/* No invoices to ask about, so the account's own standing leads and
-              the commercial readings follow it. */}
-          <StatCard
-            label={t("co.strip.account")}
-            value={lifecycleLabel(strip.account.lifecycle)}
-            detail={types.length > 0 ? relationshipLabels(types) : undefined}
-          />
-          <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
-          <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
-          <HealthStat health={view?.health} t={t} />
-          {/* Whose move it is and the worst open signal both moved to the
-              daily brief's context band (companytoday.tsx) — the brief reads
-              the same `engagement` and `signal` fields this strip used to,
-              so the strip carries the account's STANDING state and the brief
-              carries what is DATED. A reading in both places is one the
-              reader has to reconcile, which is what made this page a
-              mishmash in the first place. */}
-          <HealthSummaryStat health={view?.health} orgId={orgId} t={t} />
-        </>
+      {/* Stage, pipeline, relationship and health are the account's own
+          standing, and every lifecycle gets them — a customer is not asked
+          to give up knowing whether the relationship is healthy or what is
+          open with them just because it also has money to report. */}
+      <StatCard
+        label={t("co.strip.account")}
+        value={lifecycleLabel(strip.account.lifecycle)}
+        detail={types.length > 0 ? relationshipLabels(types) : undefined}
+      />
+      <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+      {/* Expected close is a prospect's question — how soon a deal not yet
+          won might land — and stays out of a customer's row, where a money
+          reading already answers what is coming from them. */}
+      {!customer && (
+        <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
       )}
+      <HealthStat health={view?.health} t={t} />
+      {/* Whose move it is and the worst open signal both moved to the daily
+          brief's context band (companytoday.tsx) — the brief reads the same
+          `engagement` and `signal` fields this strip used to, so the strip
+          carries the account's STANDING state and the brief carries what is
+          DATED. A reading in both places is one the reader has to reconcile,
+          which is what made this page a mishmash in the first place. */}
+      <HealthSummaryStat health={view?.health} orgId={orgId} t={t} />
+      {/* Money closes the row, and only for a customer: everyone else has no
+          invoices to ask about. */}
+      {customer && <FinanceRow orgId={orgId} locale={locale} t={t} />}
     </section>
   );
 }
 
 /**
- * The two finance slots a customer's KPI row carries, in the honest-unknown
+ * The finance slots a customer's KPI row carries, in the honest-unknown
  * state (mockup State B).
  *
  * No finance source is connected to this installation yet — the ingestion
@@ -2497,10 +2466,16 @@ export function StateStrip({
 // Which field of the summary each strip slot reads. A map rather than a chain
 // of ternaries so a new slot is one line and cannot silently fall through to
 // the wrong figure.
+//
+// Open balance and the payment-habit median are deliberately not here: both
+// are Finance-tab headline readings already (companyfinance.tsx), and the
+// strip is a glance rather than a second copy of that detail. Lifetime and
+// the trailing year stay because their side-by-side comparison is the one
+// figure the Finance tab does not carry at all, and overdue stays because it
+// is the one reading that says something needs acting on now.
 const FINANCE_READINGS = {
   netInvoicedLifetime: (data?: FinanceSummary) => data?.net_invoiced_lifetime,
   netInvoiced: (data?: FinanceSummary) => data?.net_invoiced,
-  openInvoices: (data?: FinanceSummary) => data?.open_balance,
   overdue: (data?: FinanceSummary) => data?.overdue,
 } as const;
 
@@ -2512,7 +2487,7 @@ function FinanceStat({
   t,
 }: Readonly<{
   orgId: string;
-  reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
+  reading: "netInvoicedLifetime" | "netInvoiced" | "overdue";
   // Whether this slot carries the provider badge. True on exactly one slot per
   // row; see the note beside `source` below.
   namesSource?: boolean;
@@ -2572,61 +2547,6 @@ function FinanceStat({
       // the date matters. `error` is the last good answer after an attempt
       // that failed. Calling either one the other is a wrong claim about
       // whether anything is broken.
-      detail={caveat && t(caveat)}
-    />
-  );
-}
-
-/**
- * How late this customer pays, as the strip's sixth slot (FIN-FORM-3).
- *
- * Not a FinanceStat: the value is a count of DAYS rather than money, and the
- * two directions read as opposite facts. A negative median means they pay
- * BEFORE the due date, so it is rendered as "typically N days early" — the
- * literal "-4 days after due" is a puzzle rather than a reading.
- *
- * A missing median has one reason the money slots do not share: the server
- * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
- * payment habit read off four invoices is an anecdote. That case says so.
- * Delegating it to the money slots' reason would put "Nothing invoiced yet"
- * beside a lifetime total of €186,420 — two slots on one row contradicting
- * each other, and the wrong one stating a fact about the account.
- */
-function PaidAfterDueStat({
-  orgId,
-  t,
-}: Readonly<{ orgId: string; t: ReturnType<typeof useT> }>) {
-  const { data, isPending, isError, error } = useFinanceSummary(orgId);
-  const withheld = isError && problemCodeOf(error) === "permission_denied";
-  const median = data?.median_days_after_due;
-  if (median == null) {
-    // A read that SUCCEEDED against a live connection and still carries no
-    // median is the sample floor. Every other reason — no source, unmapped,
-    // syncing, denied, failed — means the same for this slot as for the money
-    // beside it, so those keep the shared wording.
-    const settled = data?.state === "connected" || data?.state === "stale";
-    return (
-      <StatCard
-        label={t("co.strip.paidAfterDue")}
-        value={t("co.strip.financeUnknown")}
-        detail={t(
-          settled && !isPending && !isError
-            ? "co.strip.fin.tooFewSettled"
-            : financeDetailKey({
-                pending: isPending,
-                withheld,
-                failed: isError && !withheld,
-                state: data?.state,
-              }),
-        )}
-      />
-    );
-  }
-  const caveat = staleDetailKey(data?.state);
-  return (
-    <StatCard
-      label={t("co.strip.paidAfterDue")}
-      value={medianDaysLabel(median, t)}
       detail={caveat && t(caveat)}
     />
   );
@@ -2712,6 +2632,80 @@ function financeDetailKey({
       // no source to read, which is the one case the setup advice fits.
       return "co.strip.fin.noConnection";
   }
+}
+
+/**
+ * The customer row's three money slots, collapsed to one when the finance
+ * connection cannot answer any of them.
+ *
+ * All three read the SAME `useFinanceSummary` result, so "not matched to a
+ * customer yet" (or "connect your accounting", or a permission denial) is one
+ * fact about the connection, not three separate figures — repeating it three
+ * times buries the standing readings this row now carries beside it under a
+ * sentence a reader already read twice.
+ *
+ * Because the three share one query, they always share one cause when none of
+ * them has a figure — there is no second code path here that could disagree
+ * with `financeDetailKey` about why, unlike the median FinanceStat's siblings
+ * used to carry (FIN-PARAM-3's settled-invoice floor), which is why that
+ * reading moved out of the strip rather than into this collapse.
+ */
+function FinanceRow({
+  orgId,
+  locale,
+  t,
+}: Readonly<{
+  orgId: string;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const moneyUnavailable = (
+    ["netInvoicedLifetime", "netInvoiced", "overdue"] as const
+  ).every((reading) => {
+    const amount = FINANCE_READINGS[reading](data);
+    return !amount || amount.amount_minor == null || !amount.currency;
+  });
+  if (moneyUnavailable) {
+    return (
+      <StatCard
+        label={t("co.strip.finance")}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          financeDetailKey({
+            pending: isPending,
+            withheld,
+            failed: isError && !withheld,
+            state: data?.state,
+          }),
+        )}
+      />
+    );
+  }
+  return (
+    <>
+      {/* Lifetime beside the trailing year, which is the comparison the
+          mockup draws: what this account has ever been worth, and what it
+          has been worth lately. Each refuses on its own — a widened window
+          can be unconvertible while the narrow one is not. */}
+      <FinanceStat
+        orgId={orgId}
+        reading="netInvoicedLifetime"
+        locale={locale}
+        t={t}
+      />
+      <FinanceStat
+        orgId={orgId}
+        reading="netInvoiced"
+        namesSource
+        locale={locale}
+        t={t}
+      />
+      {/* What is late, closing the row: the exception a rep needs to act on. */}
+      <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
+    </>
+  );
 }
 
 type StripCommercial = NonNullable<
