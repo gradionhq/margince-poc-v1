@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package agents
+
+// The archive resolver is the seam both doors ask, so its answers are pinned
+// here rather than through either door: what it refuses, what it names, and
+// what it does when the record seam has never heard of the type — the case
+// only the REST door reaches, because the tool's schema cannot express it.
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+)
+
+// A target the caller cannot see is refused BEFORE anything is staged. The
+// archive itself would answer the same not-found once released, by which point
+// a human has spent a one-shot authority on a call that was never going to run.
+func TestArchiveGuardsRefuseATargetTheCallerCannotSee(t *testing.T) {
+	id := ids.NewV7()
+	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "person", ID: id})
+
+	if _, err := StageSubject(context.Background(), call); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("staging an unreadable person answered %v, want the row-scope miss — a staged approval "+
+			"for a record the caller cannot see is authority nobody asked for", err)
+	}
+}
+
+// A target whose authority lives in another system of record is refused for the
+// reason refuseStagingElsewhere states: the decidability probe and the version
+// pin both read OUR tables, so the approval could never be released.
+func TestArchiveGuardsRefuseATargetHeldElsewhere(t *testing.T) {
+	call := Bind(NewArchiveResolver(elsewhereProvider{}), ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
+
+	if _, err := StageSubject(context.Background(), call); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("staging a mirrored person answered %v, want the unsupported-by-SoR refusal", err)
+	}
+}
+
+// The staged subject is the record type and the id, and no version pin: the
+// pin is taken server-side inside the staging transaction, and one supplied
+// here would be discarded.
+func TestArchiveSubjectNamesTheRecordAndSuppliesNoPin(t *testing.T) {
+	id := ids.NewV7()
+	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityPerson, id, true)}
+	call := Bind(NewArchiveResolver(provider), ArchiveCommand{RecordType: "person", ID: id})
+
+	info, err := StageSubject(context.Background(), call)
+	if err != nil {
+		t.Fatalf("staging a readable person answered %v, want it staged", err)
+	}
+	if info.TargetType != "person" || info.TargetID != id {
+		t.Errorf("staged target = (%s,%s), want (person,%s) — the engine cannot pin or scope a target it was not given",
+			info.TargetType, info.TargetID, id)
+	}
+	if info.TargetVersion != nil {
+		t.Errorf("the resolver supplied target_version %d — the pin comes from the row inside the staging "+
+			"transaction, and one passed here is discarded", *info.TargetVersion)
+	}
+	// stagedRecord names itself "Acme"; the human reading the inbox is told
+	// which record disappears, not only which id.
+	if !strings.Contains(info.Summary, "Acme") {
+		t.Errorf("staged summary %q does not name the record — an id alone tells an approver nothing about "+
+			"what they are archiving", info.Summary)
+	}
+}
+
+// A type the record seam has never heard of still stages. Six of the twelve
+// archivable types are archived by their own module rather than through the
+// seam, and the seam's refusals do not describe them — asking it would answer
+// "not served here" and refuse an ordinary archive. The tool's schema is what
+// is narrow, not the operation.
+func TestArchiveStagesATypeTheRecordSeamDoesNotServe(t *testing.T) {
+	id := ids.NewV7()
+	// A provider that fails every read, so a resolver that consulted the seam
+	// for a tag would be caught here rather than passing on a lenient stub.
+	call := Bind(NewArchiveResolver(unreadableProvider{}), ArchiveCommand{RecordType: "tag", ID: id})
+
+	info, err := StageSubject(context.Background(), call)
+	if err != nil {
+		t.Fatalf("staging a tag archive answered %v, want it staged — DELETE /v1/tags/{id} is a governed "+
+			"operation whose target the seam simply does not serve", err)
+	}
+	if info.TargetType != "tag" || info.TargetID != id {
+		t.Errorf("staged target = (%s,%s), want (tag,%s)", info.TargetType, info.TargetID, id)
+	}
+	if !strings.Contains(info.Summary, id.String()) {
+		t.Errorf("staged summary %q names neither the type nor the id — it is all the inbox has for a "+
+			"target the seam cannot label", info.Summary)
+	}
+}

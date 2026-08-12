@@ -48,22 +48,16 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the archive command and
+// delegates: the refusals and the staged subject live in the resolver
+// (command.go), where the REST door reaches the same ones for the same
+// operation.
 func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args archiveArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: args.RecordType, TargetID: args.ID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Archive %s %s", args.RecordType, recordLabel(rec)),
-	}, nil
+	return StageSubject(ctx, Bind(NewArchiveResolver(t.p), ArchiveCommand{RecordType: args.RecordType, ID: args.ID}))
 }
 
 func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
