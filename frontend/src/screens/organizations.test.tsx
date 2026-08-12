@@ -1366,7 +1366,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
 });
 
 describe("CompanyScreen — the account pulse line (P-4)", () => {
-  it("names the way in and both directions, and shows no composite score", async () => {
+  it("names the way in and when they last spoke, and shows no composite score", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -1400,12 +1400,12 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The way in first, because that is what a rep acts on, then who wrote
-    // last in each direction.
+    // The way in, and that the relationship is live. WHICH side wrote last is
+    // the daily brief's to say — acting on whose move it is belongs with the
+    // moves, and the header states only that an exchange happened and when.
     await waitFor(() => expect(screen.getByText(/Way in/)).toBeTruthy());
     expect(screen.getByText(/of 3 contacts here/)).toBeTruthy();
-    expect(screen.getByText(/They wrote/)).toBeTruthy();
-    expect(screen.getByText(/We wrote/)).toBeTruthy();
+    expect(screen.getByText(/Last exchange/)).toBeTruthy();
     // The composite is gone: it was PO-F-3's MAX over contacts, so one
     // talkative contact spoke for the account and "41/100" read as a verdict.
     expect(screen.queryByText(/41\/100/)).toBeNull();

@@ -718,6 +718,9 @@ export const vi = {
   "co.pulse.lastExchange": "Trao đổi gần nhất {when}",
   "co.pulse.neverTouched": "Chưa từng liên hệ",
   "co.pulse.owner": "Người phụ trách",
+  "co.pulse.strongestLead": "Đường tiếp cận",
+  "co.pulse.strengthTail.one": "— contact duy nhất ở đây",
+  "co.pulse.strengthTail.other": "— trong {count} contact ở đây",
   "co.owner.notInRoster":
     "Người phụ trách hiện tại (không còn trong danh sách người dùng)",
   "co.pulse.unowned": "Chưa giao",

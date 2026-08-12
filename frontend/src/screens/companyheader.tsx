@@ -605,6 +605,9 @@ export function CompanyIdentityLine({
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  // Withheld or still in flight, the line says nothing about it: naming no way
+  // in on an account that has one is worse than saying nothing.
+  const wayIn = loading ? undefined : view?.strength;
   const when = (at: string) => formatDateAbbrev(at, locale, RECORD_ZONE);
   // Withheld, absent, or still in flight, the line says nothing about it at
   // all: "never contacted" read off data the page could not answer is a
@@ -665,6 +668,26 @@ export function CompanyIdentityLine({
             the record's own dates and not on the line that says what the
             account is. */}
         <ProvenanceTag provenance={provenanceOf(org.captured_by, viewerId)} />
+        {/* The contact the relationship actually runs through, on the line of
+            the record's own facts. The NAME is a live lookup, so the sentence
+            is built from two translated halves around it rather than
+            interpolating a placeholder and appending the name after the full
+            stop — which breaks word order in English and worse in German. */}
+        {wayIn?.contributor_person_id && (
+          <>
+            <span className="co-sep">·</span>
+            <span>
+              {t("co.pulse.strongestLead")}{" "}
+              <EntityRef kind="person" id={wayIn.contributor_person_id} />{" "}
+              {t(
+                wayIn.contact_count === 1
+                  ? "co.pulse.strengthTail.one"
+                  : "co.pulse.strengthTail.other",
+                { count: wayIn.contact_count },
+              )}
+            </span>
+          </>
+        )}
         {touchKnown && (
           <>
             <span className="co-sep">·</span>
