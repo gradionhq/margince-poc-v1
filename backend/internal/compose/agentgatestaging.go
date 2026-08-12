@@ -153,8 +153,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 	}
 	httperr.Write(w, r, fmt.Errorf(
 		"staged as approval %s — once a human approves it, repeat this exact request with the %s: %s header: %w",
-		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval,
-	))
+		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
 }
 
 // stagedTarget answers what the approval binds to: the record type and the id
@@ -213,8 +212,7 @@ func stagedTargetByRoute(w http.ResponseWriter, r *http.Request, pol agentPolicy
 	if targetID != (ids.UUID{}) && pol.RecordType == "" {
 		httperr.Write(w, r, fmt.Errorf(
 			"agent gate: %s stages against a concrete record but declares no record type: %w",
-			pol.Op, apperrors.ErrPermissionDenied,
-		))
+			pol.Op, apperrors.ErrPermissionDenied))
 		return agents.StageInfo{}, false
 	}
 	return agents.StageInfo{TargetType: string(pol.RecordType), TargetID: targetID}, true
