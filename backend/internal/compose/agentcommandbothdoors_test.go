@@ -18,11 +18,14 @@ package compose
 // a decoder, feed its output to the twin — would compare a decoder with itself
 // and pass for any pair of doors that agreed on nothing.
 //
-// The enrich verb is why the summary is compared and not only the target. Its
-// two operations are one verb at two DEPTHS against one organization, so a
-// swapped depth stages an identical target under a sentence describing the
-// other act: a human releasing a whole-site crawl on a line written for a
-// single page read.
+// The enrich verb is why the SUMMARY is compared and not only the target. Its
+// two operations are one verb at two depths against one organization, so a
+// swapped depth is invisible in every field a door writes: the target is the
+// same organization either way, and the line this door stages is its own
+// path-derived one (restSummary), which still names the route the caller took.
+// The resolver's sentence is the only place the erased command's depth surfaces
+// at all — so comparing it is how a page read that will execute as a whole-site
+// crawl is caught, and there is nothing else on this door to catch it with.
 
 import (
 	"bytes"
@@ -293,6 +296,7 @@ var outOfLaneVerbs = gatekit.Waive(map[string]string{
 
 func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
 	defer outOfLaneVerbs.AssertAllMatched(t)
+	defer dynamicTierVerbs.AssertAllMatched(t)
 	served := NewRegistry(nil, SendPath{})
 	twins := twinnedOperations(served)
 	if len(twins) == 0 {
@@ -316,14 +320,27 @@ func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
 	}
 }
 
-// assertVerbIsOutOfLane holds an unwritten fixture to its stated reason. A
-// dynamic-tier verb resolves its tier by READING the record, so whether it
-// stages at all is a fact about workspace state rather than about the call, and
-// there is no staged row for a fixture to compare; anything else must be a verb
-// this lane cannot build a tool for.
+// dynamicTierVerbs are the twinned verbs whose tier is resolved by READING the
+// record, so whether a given call stages at all is a fact about workspace state
+// rather than about the call — there is no staged row for a fixture to compare
+// against. Ratified rather than waved through in a bare branch: a second verb
+// turning dynamic would otherwise drop out of this gate in silence, and a verb
+// that stops being dynamic is reported stale.
+var dynamicTierVerbs = gatekit.Waive(map[string]string{
+	"advance_deal": "a deal move's tier is decided by reading both endpoints, so an open→open call executes " +
+		"where a close stages — its two doors' agreement is held by agentgatepin_test.go and " +
+		"dealmovepin_integration_test.go instead, which compare the version pin rather than the staged subject",
+})
+
+// assertVerbIsOutOfLane holds an unwritten fixture to a ratified reason: either
+// the verb's tier is resolved per call, or the lane cannot build its tool.
 func assertVerbIsOutOfLane(t *testing.T, served *agents.Registry, op, tool string) {
 	t.Helper()
 	if spec, _ := served.Spec(tool); spec.Tier == mcp.TierDynamic {
+		if !dynamicTierVerbs.Waived(t, tool) {
+			t.Errorf("%s is twinned by %s, whose tier is resolved per call, and no entry says where that "+
+				"operation's two doors are compared instead", op, tool)
+		}
 		return
 	}
 	if !outOfLaneVerbs.Waived(t, tool) {
@@ -375,8 +392,9 @@ func compareDoors(t *testing.T, op, tool string, fixture bothDoorsFixture) {
 			rest.TargetType, rest.TargetID, staging.last.TargetType, staging.last.TargetID)
 	}
 	if staging.last.Summary != rest.Summary {
-		t.Errorf("the doors describe one operation two ways:\n  REST: %q\n  tool: %q\nA human releasing one "+
-			"reads the other's act", rest.Summary, staging.last.Summary)
+		t.Errorf("the doors resolve one operation to two commands:\n  REST: %q\n  tool: %q\nThe sentence is "+
+			"the only place an erased command's own arguments show, so the two doors would perform different "+
+			"acts for one call", rest.Summary, staging.last.Summary)
 	}
 	if (staging.last.TargetVersion == nil) != (rest.TargetVersion == nil) {
 		t.Errorf("one door pins a version the other does not (REST %v, tool %v) — the same call would be held "+

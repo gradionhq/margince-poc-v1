@@ -23,8 +23,15 @@ package compose
 // target — and each says so where it stands.
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	chi "github.com/go-chi/chi/v5"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // agentReachableMutations is the subject set, derived: every route an agent
@@ -79,5 +86,48 @@ func TestEveryAgentReachableMutatingRouteDecodesIntoACommand(t *testing.T) {
 				"retired operationId or a route the contract no longer annotates for agents, and it will go "+
 				"on reading as coverage for as long as it sits there", op)
 		}
+	}
+}
+
+// The other half of the gate above: what the door does with an operation that
+// slipped past it anyway.
+//
+// The walk makes the branch statically unreachable for every route the contract
+// declares today, which is the defence that matters — but "unreachable" is a
+// claim about the table, and the behaviour behind it is what a future table
+// makes true or false. The old answer was a GUESS assembled from the route: the
+// {id} the router bound, paired with the policy's declared record type. It
+// staged for anything, which is precisely why a missing entry could go unnoticed
+// for two tasks.
+//
+// The request here carries a well-formed routed id on purpose. That is the input
+// the guess read, so a door that resolved targets that way would stage happily
+// and pass everything except this.
+func TestAnOperationWithNoCommandIsRefusedRatherThanGuessedAt(t *testing.T) {
+	person := ids.NewV7()
+	pol := agentPolicy{
+		Op: "archiveSomethingNoCommandDescribes", Access: accessTool, Tool: "archive_record",
+		RecordType: recordTypePerson, Tier: tierConfirmationRequired,
+	}
+	if _, described := restCommands[pol.Op]; described {
+		t.Fatalf("%s has a command after all, so this test proves nothing about the door's answer without one", pol.Op)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/people/"+person.String(), nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", person.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	staging := &capturingApprovals{}
+	rec := httptest.NewRecorder()
+
+	stageRefusal(rec, req, staging, restCommandDeps{records: seamRecord{}}, pol, nil)
+
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for an operation nothing can describe, binding %s %s — a target read "+
+			"off the route is a guess, and a human deciding from it is deciding about whatever the route "+
+			"happened to name", staging.last.TargetType, staging.last.TargetID)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("an operation with no governed call answered %d, want 403", rec.Code)
 	}
 }

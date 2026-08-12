@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	chi "github.com/go-chi/chi/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -39,16 +40,16 @@ var singlePurposeTools = []string{
 	"log_activity", "draft_email", "relink_activity", "run_report",
 }
 
-// contractBodies is each of the sixteen routes' own minimal request body, as
-// crm.yaml declares it — every required member present and nothing else.
+// contractBodies is each route's own minimal request body, as crm.yaml declares
+// it — every required member present and nothing else.
 //
 // They are real bodies rather than nil because the walk below asserts that a
 // decoder ACCEPTS the shape its route produces, and commandBody short-circuits
 // an empty body before it decodes anything at all: passing nil would exercise
-// that short-circuit sixteen times and prove nothing about the sixteen structs
-// underneath it. An operation absent from this map declares no body at all
-// (disqualifyLead is a bare DELETE; runReport's plan arguments are optional and
-// nothing here reads them).
+// that short-circuit for every route and prove nothing about the structs
+// underneath it. Which routes need an entry is read off the contract rather than
+// stated here — a route that declares a requestBody must have one, and one that
+// declares none must not.
 //
 // gatekit:fixture the request body crm.yaml declares for each route — expected input the walk decodes, not a waived cost
 var contractBodies = map[string]string{
@@ -66,6 +67,12 @@ var contractBodies = map[string]string{
 	"logActivity":         `{"kind":"note","body":"hi"}`,
 	"draftEmail":          `{"intent":"polite follow-up"}`,
 	"relinkActivity":      `{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000006"}`,
+	// Optional in the contract, and supplied all the same: `required: false`
+	// describes what a CALLER may omit, not what the decoder is entitled to be
+	// unproven against. runReportCommand reads the report key out of the path
+	// and nothing out of the body, which is exactly the claim a real plan
+	// travelling through it makes checkable.
+	"runReport": `{"filters":{"period":"last_quarter"},"group_by":["source"]}`,
 }
 
 // What a registration does not say: that the decoder bound to a route can
@@ -84,6 +91,7 @@ func TestEverySinglePurposeToolRouteDecodesTheBodyItsContractDeclares(t *testing
 	for _, tool := range singlePurposeTools {
 		verbs[tool] = true
 	}
+	declared := operationsDeclaringARequestBody(t)
 	checked := 0
 	for route, pol := range agentPolicies {
 		method, _, _ := strings.Cut(route, " ")
@@ -97,14 +105,19 @@ func TestEverySinglePurposeToolRouteDecodesTheBodyItsContractDeclares(t *testing
 			// only be a nil decoder to dereference.
 			continue
 		}
-		if _, declared := contractBodies[pol.Op]; !declared && !bodilessRoutes[pol.Op] {
-			t.Errorf("%s (%s) has no contract body here and is not one of the routes declared bodiless, so "+
-				"the decode below proves only that commandBody short-circuits an empty payload", route, pol.Op)
+		body, written := contractBodies[pol.Op]
+		if declaresBody := declared[pol.Op]; declaresBody != written {
+			if declaresBody {
+				t.Errorf("%s (%s) declares a requestBody in crm.yaml and carries none here, so the decode "+
+					"below proves only that commandBody short-circuits an empty payload", route, pol.Op)
+			} else {
+				t.Errorf("%s (%s) declares no requestBody in crm.yaml and carries one here, so the walk "+
+					"decodes a shape the route cannot produce", route, pol.Op)
+			}
 			continue
 		}
-		body := []byte(contractBodies[pol.Op])
 		call, err := decode(pol, restCommandDeps{records: seamRecord{}, channels: channelKinds{}},
-			syntheticOperandRequest(route, ids.NewV7()), body)
+			syntheticOperandRequest(route, ids.NewV7()), []byte(body))
 		if err != nil {
 			t.Errorf("%s (%s): decoding the body crm.yaml declares answered %v", route, pol.Op, err)
 			continue
@@ -116,21 +129,34 @@ func TestEverySinglePurposeToolRouteDecodesTheBodyItsContractDeclares(t *testing
 	if checked == 0 {
 		t.Fatal("none of these fourteen verbs reached a mutating route — this walk decoded nothing")
 	}
-	for op := range contractBodies {
-		if bodilessRoutes[op] {
-			t.Errorf("%s is declared bodiless and carries a contract body; one of the two is wrong about the "+
-				"operation, and the walk above trusts whichever it reads first", op)
-		}
-	}
 }
 
-// bodilessRoutes are the two routes of the fourteen that declare no request
-// body at all, named rather than counted: disqualifyLead is a bare DELETE, and
-// runReport's plan arguments are optional and read by nothing this walk
-// asserts. A route that quietly lost its body would otherwise be decoded from
-// nothing and pass — which is what a bare "sixteen routes, fourteen bodies"
-// subtraction could not tell apart from a body someone forgot to write.
-var bodilessRoutes = map[string]bool{"disqualifyLead": true, "runReport": true}
+// operationsDeclaringARequestBody reads, from crm.yaml itself, which operations
+// carry a request body — including the ones that declare it `required: false`,
+// since an optional body is still a shape a caller may send and a decoder must
+// therefore be proved against.
+//
+// Read from the contract rather than listed here: a hand-kept list of the
+// exceptions is a second statement about the contract, and it goes stale in the
+// direction that reads as success — a route that gains a body stays excused, and
+// its decoder goes on being proved against an empty payload alone.
+func operationsDeclaringARequestBody(t *testing.T) map[string]bool {
+	t.Helper()
+	doc, err := openapi3.NewLoader().LoadFromFile("../../api/crm.yaml")
+	if err != nil {
+		t.Fatalf("loading the contract: %v", err)
+	}
+	declaring := map[string]bool{}
+	for _, item := range doc.Paths.Map() {
+		for _, op := range item.Operations() {
+			declaring[op.OperationID] = op.RequestBody != nil
+		}
+	}
+	if len(declaring) == 0 {
+		t.Fatal("the contract declares no operations — every membership question below would answer false")
+	}
+	return declaring
+}
 
 // mergeRequest is a POST against a merge route, carrying the {id} chi would
 // have bound plus the body naming the survivor. body is the caller's own copy

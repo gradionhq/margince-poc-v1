@@ -20,6 +20,7 @@ package compose
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,12 +32,66 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// unrunnableCall is one call an operation's executor would refuse, and the
-// reason it would — stated so a reader can tell a fixture that exercises the
-// refusal from one that merely happens to fail.
+// unrunnableCall is one call an operation's executor would refuse, together with
+// the refusal the door owes for it.
+//
+// The refusal is a SHAPE rather than a sentence, and that is the difference
+// between a gate and a caption. stageRefusal has refusal points upstream of the
+// decoder — the canonical-call hash, the decision-grant check — so "some 4xx,
+// nothing staged" is satisfied by a fixture that has stopped exercising the
+// reason its own comment names, while the failure message goes on quoting that
+// reason. Naming the answer the reason implies is what makes the two disagree
+// loudly.
 type unrunnableCall struct {
-	refusedFor string
-	build      func() (*http.Request, []byte)
+	refusal refusal
+	build   func() (*http.Request, []byte)
+}
+
+// refusal is the problem body a call must be answered with: the status, the
+// contract's own problem code, and — for the two shapes that name what was
+// wrong — either the `details.errors` entry or the argument the detail must
+// name.
+//
+// why is the reason in prose, and it is not decoration: it is what a failure
+// reports, and every field beside it is that same reason made checkable.
+type refusal struct {
+	why    string
+	status int
+	code   string
+	// field and fieldCode are the details.errors entry a validation refusal
+	// renders (httperr.Validation). Empty when the refusal names no member.
+	field, fieldCode string
+	// names is a substring the problem detail must carry, for a refusal that
+	// answers with a message rather than a field list — an agents.BadArgsError
+	// classifies as validation_error and carries its reason in prose only, so
+	// the argument it names is the only checkable part of it.
+	names string
+}
+
+// hiddenRow is the existence-hiding answer a routed id gets: "that is not a
+// uuid" and "there is no such row" must read alike, or the shape of an id tells
+// a caller which rows exist.
+func hiddenRow(why string) refusal {
+	return refusal{why: why, status: http.StatusNotFound, code: "not_found"}
+}
+
+// namedMember is the 422 that names the member the caller got wrong, and the
+// contract's code for how — the shape a caller can act on without guessing.
+func namedMember(field, fieldCode, why string) refusal {
+	return refusal{
+		why: why, status: http.StatusUnprocessableEntity, code: "validation_error",
+		field: field, fieldCode: fieldCode,
+	}
+}
+
+// refusedArgument is the 422 whose reason travels as prose: the resolver
+// answered an agents.BadArgsError, which classifies as validation_error and
+// renders no field list. The argument it names is asserted instead, so a
+// fixture that starts failing for some other reason stops passing.
+func refusedArgument(names, why string) refusal {
+	return refusal{
+		why: why, status: http.StatusUnprocessableEntity, code: "validation_error", names: names,
+	}
 }
 
 // malformedRoutedID is the refusal every routed operation shares: the id in the
@@ -46,7 +101,7 @@ type unrunnableCall struct {
 // answers the same not-found for it.
 func malformedRoutedID(method, collection string) unrunnableCall {
 	return unrunnableCall{
-		refusedFor: "the routed id is not a uuid, so it names no record the handler could act on",
+		refusal: hiddenRow("the routed id is not a uuid, so it names no record the handler could act on"),
 		build: func() (*http.Request, []byte) {
 			return routedFixture(method, "/v1"+collection+"/not-a-uuid", "not-a-uuid", "")
 		},
@@ -66,9 +121,9 @@ func routedFixture(method, path, routedID, body string) (*http.Request, []byte) 
 
 // bodyFixture builds a request for a route that carries no {id}: the body is
 // the whole of what can be wrong.
-func bodyFixture(path, body string) unrunnableCall {
+func bodyFixture(path, body, member string) unrunnableCall {
 	return unrunnableCall{
-		refusedFor: "the body names a member the record type does not accept",
+		refusal: refusedArgument(member, "the body names a member the record type does not accept"),
 		build: func() (*http.Request, []byte) {
 			payload := []byte(body)
 			return httptest.NewRequest(http.MethodPost, path, bytes.NewReader(payload)), payload
@@ -108,30 +163,32 @@ var unrunnableCalls = map[string]unrunnableCall{
 	"mergeOrganization":         malformedRoutedID(http.MethodPost, "/organizations"),
 
 	"updateProject": {
-		refusedFor: "the patch names a member a project has no field for",
+		refusal: refusedArgument("nickname", "the patch names a member a project has no field for"),
 		build: func() (*http.Request, []byte) {
 			return routedFixture(http.MethodPatch, "/v1/projects/"+ids.NewV7().String(),
 				ids.NewV7().String(), `{"nickname":"typo"}`)
 		},
 	},
-	"createProject": bodyFixture("/v1/projects", `{"nickname":"typo"}`),
+	"createProject": bodyFixture("/v1/projects", `{"nickname":"typo"}`, "nickname"),
 
 	"advanceProjectPhase": {
-		refusedFor: "the phase named is outside the contract's ladder",
+		refusal: refusedArgument("vibing", "the phase named is outside the contract's ladder"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(http.MethodPost, "/v1/projects/"+id+"/advance", id, `{"to_phase":"vibing"}`)
 		},
 	},
 	"promoteLead": {
-		refusedFor: "the trigger named is outside the contract's enum, so no engagement justifies the promotion",
+		refusal: refusedArgument("trigger",
+			"the trigger named is outside the contract's enum, so no engagement justifies the promotion"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(http.MethodPost, "/v1/leads/"+id+"/promote", id, `{"trigger":"a hunch"}`)
 		},
 	},
 	"bookMeeting": {
-		refusedFor: "the meeting ends before it starts, which the store refuses after the approval is spent",
+		refusal: refusedArgument("end",
+			"the meeting ends before it starts, which the store refuses after the approval is spent"),
 		build: func() (*http.Request, []byte) {
 			body := []byte(`{"start":"2026-08-10T10:00:00Z","end":"2026-08-10T09:00:00Z",` +
 				`"links":[{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000021"}]}`)
@@ -139,7 +196,7 @@ var unrunnableCalls = map[string]unrunnableCall{
 		},
 	},
 	"sendEmail": {
-		refusedFor: "the send reaches nobody",
+		refusal: refusedArgument("to", "the send reaches nobody"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(http.MethodPost, "/v1/activities/"+id+"/send-email", id,
@@ -147,7 +204,7 @@ var unrunnableCalls = map[string]unrunnableCall{
 		},
 	},
 	"sendAccountEmail": {
-		refusedFor: "the send reaches nobody",
+		refusal: refusedArgument("to", "the send reaches nobody"),
 		build: func() (*http.Request, []byte) {
 			body := []byte(`{"to":[],"subject":"Q3","body":"hi","consent_purpose":"sales",` +
 				`"links":[{"entity_type":"organization","entity_id":"019ff000-0000-7000-8000-000000000022"}]}`)
@@ -155,7 +212,8 @@ var unrunnableCalls = map[string]unrunnableCall{
 		},
 	},
 	"sendMessage": {
-		refusedFor: "the anchor is not a channel conversation, so no reply can be transmitted through it",
+		refusal: refusedArgument("channel",
+			"the anchor is not a channel conversation, so no reply can be transmitted through it"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(http.MethodPost, "/v1/activities/"+id+"/send-message", id,
@@ -166,14 +224,15 @@ var unrunnableCalls = map[string]unrunnableCall{
 	// The operand family: the second path segment the router would have bound
 	// is absent, which is the shape a routing defect produces and the one thing
 	// these operations cannot run without.
-	"confirmOrganizationFact":         missingOperand(http.MethodPost, "/v1/organizations/%s/facts//confirm"),
-	"updateOrganizationFact":          missingOperand(http.MethodPatch, "/v1/organizations/%s/facts/"),
-	"confirmOrganizationProfileField": missingOperand(http.MethodPost, "/v1/organizations/%s/profile-fields//confirm"),
-	"updateOrganizationProfileField":  missingOperand(http.MethodPatch, "/v1/organizations/%s/profile-fields/"),
-	"removeProjectStakeholder":        missingOperand(http.MethodDelete, "/v1/projects/%s/stakeholders/"),
+	"confirmOrganizationFact":         missingOperand(http.MethodPost, "/v1/organizations/%s/facts//confirm", "factKey"),
+	"updateOrganizationFact":          missingOperand(http.MethodPatch, "/v1/organizations/%s/facts/", "factKey"),
+	"confirmOrganizationProfileField": missingOperand(http.MethodPost, "/v1/organizations/%s/profile-fields//confirm", "field"),
+	"updateOrganizationProfileField":  missingOperand(http.MethodPatch, "/v1/organizations/%s/profile-fields/", "field"),
+	"removeProjectStakeholder":        missingOperand(http.MethodDelete, "/v1/projects/%s/stakeholders/", "person_id"),
 
 	"setProjectStakeholder": {
-		refusedFor: "the person_id in the body is not a uuid, so the edge names no person",
+		refusal: namedMember("person_id", "invalid",
+			"the person_id in the body is not a uuid, so the edge names no person"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(http.MethodPut, "/v1/projects/"+id+"/stakeholders", id,
@@ -184,9 +243,10 @@ var unrunnableCalls = map[string]unrunnableCall{
 
 // missingOperand builds a request whose routed {id} is well formed and whose
 // SECOND path parameter was never bound.
-func missingOperand(method, path string) unrunnableCall {
+func missingOperand(method, path, operand string) unrunnableCall {
 	return unrunnableCall{
-		refusedFor: "the operand the route carries is absent, and the operation has nothing to act on without it",
+		refusal: namedMember(operand, "missing",
+			"the operand the route carries is absent, and the operation has nothing to act on without it"),
 		build: func() (*http.Request, []byte) {
 			id := ids.NewV7().String()
 			return routedFixture(method, strings.Replace(path, "%s", id, 1), id, "")
@@ -263,10 +323,57 @@ func assertRefusedBeforeStaging(t *testing.T, op string, fixture unrunnableCall)
 
 	if staging.last.Tool != "" {
 		t.Errorf("an approval was staged for a call refused because %s — the human's yes is spent reaching a "+
-			"refusal this door could have made first", fixture.refusedFor)
+			"refusal this door could have made first", fixture.refusal.why)
 	}
-	if rec.Code < http.StatusBadRequest || rec.Code >= http.StatusInternalServerError {
-		t.Errorf("a call refused because %s answered %d; the caller is owed a 4xx naming what to fix, not a "+
-			"server fault", fixture.refusedFor, rec.Code)
+	assertAnsweredAs(t, rec, fixture.refusal)
+}
+
+// assertAnsweredAs holds the answer to the refusal the fixture's reason implies.
+//
+// The status alone is not enough: stageRefusal refuses upstream of the decoder
+// too (a canonical call it cannot hash, a kind with no decision grants), and
+// both of those are 4xx with nothing staged. A fixture that stopped reaching its
+// own reason would pass on either of them while the message above still quoted
+// the reason.
+func assertAnsweredAs(t *testing.T, rec *httptest.ResponseRecorder, want refusal) {
+	t.Helper()
+	var problem struct {
+		Code    string `json:"code"`
+		Detail  string `json:"detail"`
+		Details struct {
+			Errors []struct {
+				Field string `json:"field"`
+				Code  string `json:"code"`
+			} `json:"errors"`
+		} `json:"details"`
 	}
+	if err := json.NewDecoder(rec.Body).Decode(&problem); err != nil {
+		t.Fatalf("the refusal for %s carried no problem body: %v", want.why, err)
+	}
+	if rec.Code != want.status || problem.Code != want.code {
+		t.Fatalf("a call refused because %s answered %d %q, want %d %q — the caller is owed the answer this "+
+			"refusal implies, not merely some refusal", want.why, rec.Code, problem.Code, want.status, want.code)
+	}
+	if want.field != "" && !namesMember(problem.Details.Errors, want.field, want.fieldCode) {
+		t.Errorf("a call refused because %s answered %+v, want the member %q with code %q — a 422 that names "+
+			"no member leaves the caller to guess which argument to fix",
+			want.why, problem.Details.Errors, want.field, want.fieldCode)
+	}
+	if want.names != "" && !strings.Contains(problem.Detail, want.names) {
+		t.Errorf("a call refused because %s answered %q, which does not name %q — the refusal a caller acts "+
+			"on is the one that says which argument was wrong", want.why, problem.Detail, want.names)
+	}
+}
+
+func namesMember(errs []struct {
+	Field string `json:"field"`
+	Code  string `json:"code"`
+}, field, code string,
+) bool {
+	for _, e := range errs {
+		if e.Field == field && e.Code == code {
+			return true
+		}
+	}
+	return false
 }
