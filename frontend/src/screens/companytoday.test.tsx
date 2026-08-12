@@ -126,6 +126,30 @@ describe("what needs a person on this account today", () => {
     expect(screen.queryByText("Last exchange")).toBeNull();
   });
 
+  // Whose move it is and the open-risk tile both read `state_strip`
+  // (whoseMove and openRisk). The KPI strip's own withheld rendering is
+  // tested elsewhere (company360.test.tsx), but that is the STRIP's read of
+  // the same fields — this brief reads them independently, off its own copy
+  // of the view, and had no coverage of its own withheld path until now.
+  it("names the signals when the reader may not see whose move it is or what is at risk", () => {
+    show({ ...BASE, sections_omitted: ["state_strip"] });
+
+    expect(screen.getByText(/Hidden from you/).textContent).toContain(
+      "the signals",
+    );
+  });
+
+  // The best-route tile reads `people`. A caller scoped away from the
+  // roster must be told the reading is missing, not shown a brief that
+  // silently never names a way in.
+  it("names the contacts when the reader may not see who is here", () => {
+    show({ ...BASE, sections_omitted: ["people"] });
+
+    expect(screen.getByText(/Hidden from you/).textContent).toContain(
+      "the contacts",
+    );
+  });
+
   it("distinguishes a failed read from a quiet account", () => {
     show(undefined, { failed: true });
     // "We could not assemble this" and "nothing needs you" are different
