@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package overlay_test
+package compose
 
 // An overlay-mode installation serves its reads from a mirror of the
 // customer's incumbent CRM, and every contract field that mirror cannot fill
@@ -10,9 +10,10 @@ package overlay_test
 // registry have an answer for each, so a field added to the core model
 // cannot pass unnoticed into a surface that silently drops it.
 //
-// Scope is the ARMED entities only. deal, lead and activity carry mappings
-// whose targets predate the registry; arming them is its own work, and this
-// gate names them so the remainder stays visible in code.
+// Scope is the ARMED entities only. The registry declares the rest as
+// unarmed entities carrying their own reason, and this run names them, so
+// what is still undecided stays visible in code rather than in a backlog
+// note.
 
 import (
 	"os"
@@ -27,7 +28,7 @@ import (
 
 // contractFile is the contract this gate derives its field lists from,
 // relative to this package's own directory.
-const contractFile = "../../../api/crm.yaml"
+const contractFile = "../../api/crm.yaml"
 
 // contractSchemaNameFor maps a canonical overlay entity to the contract
 // schema publishing its fields. Both spellings are load-bearing and differ
@@ -36,8 +37,7 @@ const contractFile = "../../../api/crm.yaml"
 // gatekit:fixture the contract schema name each overlay entity's fields are
 // read from — expected wiring, not a waived cost.
 var contractSchemaNameFor = map[string]string{
-	"person":       "Person",
-	"organization": "Organization",
+	"person": "Person",
 }
 
 func TestArmedOverlayEntitiesDispositionEveryContractField(t *testing.T) {
@@ -70,7 +70,8 @@ func checkEntityCoverage(t *testing.T, entity overlay.EntityBinding) {
 	}
 	properties := contractSchema(t, schemaName).Properties
 	if len(properties) == 0 {
-		t.Fatalf("api/crm.yaml declares no properties on %s; the field list this gate derives from has moved", schemaName)
+		t.Errorf("api/crm.yaml declares no properties on %s; the field list this gate derives from has moved", schemaName)
+		return
 	}
 
 	bound := make(map[string]bool, len(entity.Bindings))
@@ -99,8 +100,16 @@ func checkEntityCoverage(t *testing.T, entity overlay.EntityBinding) {
 }
 
 // contractSchemaFields is the slice of one components.schemas entry this gate
-// reads. Decoding a narrow struct rather than a free-form map keeps a
-// malformed contract a parse failure instead of a silently empty field list.
+// reads. Typing Properties as a mapping is what keeps a malformed contract a
+// parse failure instead of a silently empty field list: yaml.v3 skips keys the
+// struct does not name, but it errors when the node it is asked to decode as a
+// mapping is anything else.
+//
+// This reads the properties written inline under the named schema, so a schema
+// recomposed through $ref or allOf would yield a partial list. Every schema
+// this gate names is inline, and neither degradation is silent — an empty list
+// fails the coverage check outright, and a partial one fails as bindings the
+// contract no longer appears to publish.
 type contractSchemaFields struct {
 	Properties map[string]yaml.Node `yaml:"properties"`
 }

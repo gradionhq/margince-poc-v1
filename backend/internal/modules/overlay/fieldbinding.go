@@ -53,29 +53,9 @@ type EntityBinding struct {
 	Bindings []FieldBinding
 }
 
-// Field-name literals repeated across the bindings table below, named once
-// so a future rename touches one declaration rather than every row that
-// spells it out by hand. wireSlotAddress and canonicalKeyAddress name two
-// genuinely different vocabularies that happen to share a spelling for this
-// field — the contract's wire slot and the mirror's own jsonb key —
-// and incumbentAddress/incumbentEmail name the incumbent's own source-
-// property spelling, a third vocabulary again.
-const (
-	wireSlotAddress     = "address"
-	canonicalKeyAddress = "address"
-	incumbentAddress    = "address"
-	incumbentEmail      = "email"
-)
-
-// fieldFullName names the entity's assembled display name — the wire slot,
-// the mirror's canonical key, and the transform registered under that same
-// name in transforms.go are one concept seen from three call sites, so one
-// constant keeps a rename from touching only some of them.
-const fieldFullName = "full_name"
-
 // FieldBindings is the registry. Every gate derives from this one slice.
 func FieldBindings() []EntityBinding {
-	return []EntityBinding{personBindings}
+	return []EntityBinding{personBindings, dealBindings, leadBindings, activityBindings}
 }
 
 // BindingsFor resolves one canonical entity's bindings. An entity the
@@ -90,19 +70,22 @@ func BindingsFor(entity string) (EntityBinding, bool) {
 	return EntityBinding{}, false
 }
 
-// personBindings disposition every contract Person field. Unarmed until the
-// wire actually delivers what the mapped rows below claim.
+// personBindings disposition every contract Person field. Armed: the coverage
+// gate holds this entity to accounting for every field the contract publishes
+// on it, in both directions.
+//
+//nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
 var personBindings = EntityBinding{
 	Entity: "person",
 	Armed:  true,
 	Bindings: []FieldBinding{
 		{WireSlot: "first_name", CanonicalKey: "first_name", Incumbent: []string{"firstname"}, Disposition: DispositionMapped},
 		{WireSlot: "last_name", CanonicalKey: "last_name", Incumbent: []string{"lastname"}, Disposition: DispositionMapped},
-		{WireSlot: fieldFullName, CanonicalKey: fieldFullName, Incumbent: []string{"firstname", "lastname", incumbentEmail}, Transform: fieldFullName, Disposition: DispositionMapped},
+		{WireSlot: "full_name", CanonicalKey: "full_name", Incumbent: []string{"firstname", "lastname", "email"}, Transform: "full_name", Disposition: DispositionMapped},
 		{WireSlot: "title", CanonicalKey: "title", Incumbent: []string{"jobtitle"}, Disposition: DispositionMapped},
-		{WireSlot: wireSlotAddress, CanonicalKey: canonicalKeyAddress, Incumbent: []string{incumbentAddress, "city", "state", "zip", "country"}, Transform: "address_json", Disposition: DispositionMapped},
+		{WireSlot: "address", CanonicalKey: "address", Incumbent: []string{"address", "city", "state", "zip", "country"}, Transform: "address_json", Disposition: DispositionMapped},
 		{WireSlot: "owner_id", CanonicalKey: "owner_id", Incumbent: []string{"hubspot_owner_id"}, Disposition: DispositionMapped},
-		{WireSlot: "emails", CanonicalKey: "person_email", Incumbent: []string{incumbentEmail}, Transform: "lowercase", Disposition: DispositionMapped},
+		{WireSlot: "emails", CanonicalKey: "person_email", Incumbent: []string{"email"}, Transform: "lowercase", Disposition: DispositionMapped},
 		{WireSlot: "phones", CanonicalKey: "person_phone", Incumbent: []string{"phone", "mobilephone"}, Disposition: DispositionMapped},
 		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
 		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"lastmodifieddate"}, Disposition: DispositionMapped},
@@ -157,3 +140,18 @@ var personBindings = EntityBinding{
 		},
 	},
 }
+
+// dealBindings is unarmed: pipeline and stage are this product's own
+// semantics, so what an incumbent's deal offers is a reconciliation of its
+// own rather than a row-by-row disposition.
+var dealBindings = EntityBinding{Entity: "deal"}
+
+// leadBindings is unarmed: the lead mapping's targets were chosen before this
+// registry existed, so each one has to be re-decided against the contract
+// before an exhaustive claim about them would be true.
+var leadBindings = EntityBinding{Entity: "lead"}
+
+// activityBindings is unarmed: an activity spans five incumbent engagement
+// classes, and a disposition that held for one of them would say nothing
+// about the other four.
+var activityBindings = EntityBinding{Entity: "activity"}

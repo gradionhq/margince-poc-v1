@@ -158,11 +158,7 @@ deps:
     canUse: [pgx, oapi]
   overlay:
     mayDependOn: [overlay, contracts, platform]
-    # yaml: the field-coverage gate reads api/crm.yaml directly, the same
-    # way root's rbacvocabulary gate does, to derive the contract's field
-    # list without a generated intermediary the gate itself would have to
-    # trust.
-    canUse: [pgx, oapi, yaml]
+    canUse: [pgx, oapi]
   # The importer engine (import-export-migration): sources and native
   # writers are injected seams (compose), so the module itself sees only
   # the platform — never the record modules it feeds.
