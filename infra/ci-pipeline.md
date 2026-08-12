@@ -55,9 +55,10 @@ Consequences:
   `docker-bake.hcl`) also matches no scope. The role images are built, pushed
   and digest-pinned into the release by `release.yml` on every push to `main`
   — that build is the gate now, so an image break surfaces in the release run
-  rather than the merge gate. Branch protection still requires the
-  `docker images (api + web + worker)` context, so `ci.yml` posts it from a
-  no-op job; drop the job and the required-context entry together.
+  rather than the merge gate. Stated plainly because it is a real trade: a
+  Dockerfile change merges without any image being built, and the first thing
+  to notice is the release. `ci.yml` no longer carries a job for it, and the
+  `docker images (api + web + worker)` context is no longer required.
 - A **backend-only PR** skips the frontend + UAT lanes; a **frontend-only PR**
   skips the Go build/gate + the integration lane — except for
   `frontend/src/mcp-apps/forbidden.json`, which is authored under `frontend/`
