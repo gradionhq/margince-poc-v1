@@ -42,7 +42,7 @@ func TestEveryDeclaredPeopleFilterNarrowsSomething(t *testing.T) {
 // then refuses, and comparing what ListFilters returns against the same table
 // it returns would never see it. So the expectations are written out — a
 // person is listed by owner and by tag, a lead by owner, status and a score
-// floor (#828).
+// floor.
 func TestEachEntityIsOfferedItsOwnVocabulary(t *testing.T) {
 	p := &Provider{}
 	for _, tc := range []struct {

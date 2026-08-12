@@ -19,15 +19,13 @@ package people
 // catalog-budget decision, not something a store learning to bind one more
 // filter settles on its own.
 //
-// `tag`, `domain` and `min_score` were held back on exactly that rule and are
-// published now, as the one decision #828 asked for. The first two are link
-// predicates over rows this module holds in another table rather than in a
-// column of its own, which is why they read as store detail rather than as
-// filters — but a caller cannot see the difference, and an agent asked which
-// contacts are tagged `vip` was enumerating and discarding client-side to
-// answer it. `min_score` was never a new binding at all: the lead store has
-// answered it since before #826, and nothing noticed the seam offering less
-// than the store could.
+// `tag` and `domain` narrow through link predicates over rows this module holds
+// in another table rather than through a column of its own, which is why they
+// read as store detail rather than as filters. A caller cannot see the
+// difference, and it is not one the vocabulary makes: what a name has to be is
+// answerable, not cheap to answer. `min_score` is a threshold rather than an
+// equality match, and the only one here — it is why the binding set spells a
+// number at all.
 
 import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
