@@ -16,12 +16,12 @@ package ai
 // produce. The tiers no ladder names — frontier and local_large — stay
 // deliberately unbound: they exist for an operator to bind, and binding
 // them here would assert a fallback the contract does not declare.
-// TestFakeRoutingConfigBindsEveryLadder keeps the set derived from the
-// ladders rather than maintained by hand. Riding this config through
-// NewModelPath (rather than FakeModelPath's direct client wiring) means
-// --ai-fake exercises the
-// real Router — tiering, the budget guardrail, metering and call
-// tracing — with only the provider swapped for the deterministic fake.
+// TestFakeRoutingConfigBindsEveryLadder catches the case that matters,
+// a ladder rung this config cannot serve, by running the real
+// UnboundLadderWarnings over it. Riding this config through NewModelPath
+// (rather than FakeModelPath's direct client wiring) means --ai-fake
+// exercises the real Router — tiering, the budget guardrail, metering and
+// call tracing — with only the provider swapped for the deterministic fake.
 func FakeRoutingConfig() RoutingConfig {
 	fake := ProviderConfig{Provider: ProviderFake}
 	return RoutingConfig{

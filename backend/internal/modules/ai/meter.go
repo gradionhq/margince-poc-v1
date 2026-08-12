@@ -99,17 +99,25 @@ func (m *Meter) MonthTokens(ctx context.Context) (int64, error) {
 	return total, nil
 }
 
-// PremiumShare is the premium-tier fraction of tokens over the trailing
-// window — the §1.3 routing-fix alarm input.
+// PremiumShare is the costly-cloud fraction of tokens over the trailing
+// window — the §1.3 routing-fix alarm input. It measures every rung billed
+// above the cheap cloud rate, not premium alone: a rung priced higher than
+// premium that counted only toward the denominator would push the reported
+// share DOWN as a workspace spent more on it, which is backwards for an alarm
+// whose whole job is to notice expensive routing.
 func (m *Meter) PremiumShare(ctx context.Context, window time.Duration) (share float64, alarm bool, err error) {
 	since := m.now().UTC().Add(-window).Format("2006-01-02")
+	costly := make([]string, 0, len(costlyCloudTiers))
+	for _, tier := range costlyCloudTiers {
+		costly = append(costly, string(tier))
+	}
 	var premium, total int64
 	err = m.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT
-			  COALESCE(SUM(tokens_in + tokens_out) FILTER (WHERE tier = $1), 0),
+			  COALESCE(SUM(tokens_in + tokens_out) FILTER (WHERE tier = ANY($1)), 0),
 			  COALESCE(SUM(tokens_in + tokens_out), 0)
-			FROM ai_usage WHERE day >= $2::date`, string(TierPremium), since).Scan(&premium, &total)
+			FROM ai_usage WHERE day >= $2::date`, costly, since).Scan(&premium, &total)
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("ai: premium share: %w", err)

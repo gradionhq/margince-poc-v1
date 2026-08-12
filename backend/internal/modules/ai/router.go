@@ -383,28 +383,34 @@ func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceI
 	}
 }
 
-// cloudTiers are the rungs that reach a third-party API. applyProfile
-// rewrites every one of them to a local rung under sovereign, so the
-// classification must stay TOTAL over the contract's tier list: a tier
-// declared in ai-tasks.yaml and forgotten here would pass through the remap
-// and egress under the one profile that promises it never will.
-// TestEveryNonLocalTierIsClassifiedCloud holds that line.
-var cloudTiers = map[Tier]bool{
-	TierCheapCloud: true,
-	TierPremium:    true,
-	TierFrontier:   true,
+// localTiers are the rungs that run on the box. The set is written this way
+// round — naming what is SAFE rather than what egresses — so that a tier added
+// to the contract and forgotten here is remapped rather than let through:
+// an incomplete allowlist of cloud rungs would fail open under the one profile
+// that promises it never will. TestEveryLocallyNamedTierIsClassifiedLocal
+// keeps the two spellings of "local" agreeing.
+var localTiers = map[Tier]bool{
+	TierLocalSmall: true,
+	TierLocalLarge: true,
 }
 
-// applyProfile remaps cloud rungs to local ones under sovereign: P7
-// zero-egress holds by construction because a cloud tier is simply
-// never selected (validation already refused cloud bindings).
+// costlyCloudTiers are the rungs billed above the cheap cloud rate. The
+// §1.3 routing-fix alarm measures their combined share, so a rung priced above
+// premium belongs here the day it is declared — an alarm that watches only
+// part of the expensive spend reads LOWER the more of it a workspace does.
+var costlyCloudTiers = []Tier{TierPremium, TierFrontier}
+
+// applyProfile remaps cloud rungs to local ones under sovereign. P7
+// zero-egress rests on validation, which refuses a cloud binding outright
+// under this profile so no cloud client is ever constructed; this remap is
+// the second line, keeping a cloud-named rung off the ladder even so.
 func (r *Router) applyProfile(ladder []Tier) []Tier {
 	if r.profile != ProfileSovereign {
 		return ladder
 	}
 	remapped := make([]Tier, 0, len(ladder))
 	for _, tier := range ladder {
-		if cloudTiers[tier] {
+		if !localTiers[tier] {
 			if _, ok := r.clients[TierLocalLarge]; ok {
 				tier = TierLocalLarge
 			} else {

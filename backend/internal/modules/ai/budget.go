@@ -57,7 +57,8 @@ const (
 	queueUtilization   = 1.00
 )
 
-// premiumShareAlarmThreshold: a workspace whose premium-tier token
-// share exceeds this over the trailing window gets flagged for a
-// routing fix (§1.3) — the L2 analogue of "manual entry is a smell".
+// premiumShareAlarmThreshold: a workspace whose costly-cloud token share
+// (premium and every rung above it — see costlyCloudTiers) exceeds this over
+// the trailing window gets flagged for a routing fix (§1.3) — the L2 analogue
+// of "manual entry is a smell".
 const premiumShareAlarmThreshold = 0.20
