@@ -74,7 +74,7 @@ func BindingsFor(entity string) (EntityBinding, bool) {
 // wire actually delivers what the mapped rows below claim.
 var personBindings = EntityBinding{
 	Entity: "person",
-	Armed:  false,
+	Armed:  true,
 	Bindings: []FieldBinding{
 		{WireSlot: "first_name", CanonicalKey: "first_name", Incumbent: []string{"firstname"}, Disposition: DispositionMapped},
 		{WireSlot: "last_name", CanonicalKey: "last_name", Incumbent: []string{"lastname"}, Disposition: DispositionMapped},
