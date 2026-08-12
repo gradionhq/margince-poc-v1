@@ -386,7 +386,7 @@ func (c *telegramEnv) assertSubjectAccessDescribesTheReply(t *testing.T, personI
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.Pool, person)
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.DB(), person)
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

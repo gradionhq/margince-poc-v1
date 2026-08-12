@@ -46,7 +46,7 @@ func setupErasureDSR(t *testing.T, e *Env, subjectRef string) (consent.Handlers,
 	if err != nil {
 		t.Fatalf("creating erasure DSR: %v", err)
 	}
-	h := consent.NewHandlers(e.DB()).WithEraser(privacy.NewEraser(e.Pool))
+	h := consent.NewHandlers(e.DB()).WithEraser(privacy.NewEraser(e.DB()))
 	return h, store, created.ID
 }
 
@@ -212,7 +212,7 @@ func TestFulfillErasureHoldsTheRequestLockedAcrossTheErase(t *testing.T) {
 		t.Fatalf("creating erasure DSR: %v", err)
 	}
 	gate := &gatedEraser{
-		inner:   privacy.NewEraser(e.Pool),
+		inner:   privacy.NewEraser(e.DB()),
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
 	}

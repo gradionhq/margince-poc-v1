@@ -427,7 +427,7 @@ func TestOneInboundMessageLeavesOneRawEvidenceRowAndIsExportedOnce(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.Pool, ids.From[ids.PersonKind](person))
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.DB(), ids.From[ids.PersonKind](person))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

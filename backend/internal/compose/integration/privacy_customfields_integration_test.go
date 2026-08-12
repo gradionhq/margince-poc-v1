@@ -169,7 +169,7 @@ func TestErasureScrubsCustomFieldColumns(t *testing.T) {
 		t.Fatalf("fixture stored %d custom values, want %d — the scrub assertion would be vacuous", stored, len(allPersonCols))
 	}
 
-	if err := privacy.NewEraser(f.e.Pool).ErasePerson(f.e.Admin(), personID, "test"); err != nil {
+	if err := privacy.NewEraser(f.e.DB()).ErasePerson(f.e.Admin(), personID, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestSARExportsCustomFieldValues(t *testing.T) {
 		t.Fatalf("retiring the field: %v", err)
 	}
 
-	pkg, err := privacy.AssembleSAR(f.e.Admin(), f.e.Pool, ids.From[ids.PersonKind](personID))
+	pkg, err := privacy.AssembleSAR(f.e.Admin(), f.e.DB(), ids.From[ids.PersonKind](personID))
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}

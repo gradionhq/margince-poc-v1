@@ -33,7 +33,7 @@ func (h Handlers) GetRecordHistory(w http.ResponseWriter, r *http.Request,
 		Limit:      params.Limit,
 	}
 
-	page, err := ListRecordHistory(r.Context(), h.pool, f)
+	page, err := ListRecordHistory(r.Context(), h.db, f)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

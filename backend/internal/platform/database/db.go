@@ -47,6 +47,13 @@ func BindTo(pool *pgxpool.Pool, ws ids.WorkspaceID) *DB {
 	return &DB{pool: pool, workspace: func(context.Context) (ids.WorkspaceID, error) { return ws, nil }}
 }
 
+// Workspace reports which workspace this handle binds, for the callers that
+// need to name it rather than run in it — a job asserting it was wired to the
+// tenant its args declare, above all.
+func (d *DB) Workspace(ctx context.Context) (ids.WorkspaceID, error) {
+	return d.workspace(ctx)
+}
+
 // Pool exposes the underlying pool for the paths that do not run a
 // transaction — the outbox relay's listener, the health probe.
 func (d *DB) Pool() *pgxpool.Pool { return d.pool }
@@ -55,6 +62,20 @@ func (d *DB) Pool() *pgxpool.Pool { return d.pool }
 // the RLS policies key on. Same contract as WithWorkspaceTx, minus the
 // requirement that the caller have put the workspace in ctx.
 func (d *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
+	if d == nil {
+		// A store built without a handle, answered with the sentinel that
+		// already means "no workspace could be bound, and no SQL ran".
+		//
+		// It returns rather than panicking because that is how this degraded
+		// before the collapse, and the sentinel is kept because callers key on
+		// it: the gate tests distinguish "the read gate denied me" from "the
+		// gate admitted me and the probe reached a database it could not bind"
+		// by exactly this error, and that distinction is the thing they exist
+		// to protect.
+		return fmt.Errorf("%w: no database handle was injected; "+
+			"construct this store through compose, which binds the installation's pool",
+			ErrNoWorkspace)
+	}
 	ws, err := d.workspace(ctx)
 	if err != nil {
 		return fmt.Errorf("pg: resolving the installation's workspace: %w", err)

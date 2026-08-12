@@ -14,6 +14,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -35,4 +38,20 @@ func workspaceJobCtx(ctx context.Context, args jobs.WorkspaceScoped) (context.Co
 		return nil, fmt.Errorf("%s: declares WorkspaceScoped but carries no workspace", args.Kind())
 	}
 	return principal.WithWorkspaceID(ctx, ws), nil
+}
+
+// workspaceJobDB binds a handle to the workspace a per-workspace job NAMES.
+//
+// A fleet pass runs one job per workspace, so the installation resolver is the
+// wrong answer here twice over: it refuses outright while more than one
+// workspace exists (ADR-0061 §3), and even with one it would be answering a
+// question the job has already answered in its args. The workspace comes from
+// the args exactly as it did when the binding rode the context — this is the
+// same fact, moved to where the transaction now reads it (ADR-0091 §9 step 3).
+func workspaceJobDB(pool *pgxpool.Pool, args jobs.WorkspaceScoped) (*database.DB, error) {
+	ws := args.WorkspaceID()
+	if ws == (ids.UUID{}) {
+		return nil, fmt.Errorf("%s: declares WorkspaceScoped but carries no workspace", args.Kind())
+	}
+	return database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), nil
 }

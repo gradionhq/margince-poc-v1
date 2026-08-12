@@ -114,16 +114,20 @@ func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
 
-	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.DiscardHandler))
+	// A service per workspace: the handle carries the tenant now (ADR-0091 §9
+	// step 3), so one service driven by two contexts would run both passes
+	// against the same workspace — and the victim's fault would never fire.
+	healthy := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.DiscardHandler))
+	victimSvc := privacy.NewRetentionService(e.DBFor(victim), nil, slog.New(slog.DiscardHandler))
 
-	if err := svc.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
+	if err := healthy.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("the healthy tenant's pass: %v", err)
 	}
 	if got := leadName(t, owner, healthyLead); got != "Anonymized Lead" {
 		t.Fatalf("the healthy tenant's over-age lead is %q, want the anonymized tombstone — a pass that acted on nothing would make the assertion below vacuous", got)
 	}
 
-	err := svc.EvaluateWorkspace(integration.RetentionPassCtx(victim))
+	err := victimSvc.EvaluateWorkspace(integration.RetentionPassCtx(victim))
 	if got := leadName(t, owner, victimLead); got != "Over-age Lead" {
 		t.Fatalf("the fault injection did not hold: the victim's lead is %q, so its pass never failed", got)
 	}

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -75,7 +74,7 @@ type AuditPage struct {
 // only fronts mutating routes, so the human check lives here — an agent
 // reading the log that records its own governance would let it observe
 // exactly the oversight trail that bounds it.
-func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, f AuditFilter) (AuditPage, error) {
+func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPage, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman || !auth.Unbounded(actor) {
 		return AuditPage{}, apperrors.ErrPermissionDenied
@@ -92,7 +91,7 @@ func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, f AuditFilter) (Audit
 	}
 
 	var page AuditPage
-	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err = db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of,
 			        action, entity_type, entity_id, before, after, authorization_rule,

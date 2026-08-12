@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -171,7 +170,7 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 // (merge, promote, export, record_share, enrich, coldstart) serve
 // operational context verbatim from before/after, workspace-operational
 // data behind the same record-read gate, never subject PII.
-func ListRecordHistory(ctx context.Context, pool *pgxpool.Pool, f RecordHistoryFilter) (RecordHistoryPage, error) {
+func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilter) (RecordHistoryPage, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
 		return RecordHistoryPage{}, apperrors.ErrPermissionDenied
@@ -196,7 +195,7 @@ func ListRecordHistory(ctx context.Context, pool *pgxpool.Pool, f RecordHistoryF
 	mask := defaultFieldMasks[f.EntityType]
 
 	page := RecordHistoryPage{Entries: []RecordHistoryEntry{}}
-	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// activity carries no owner_id — it row-scopes through its links,
 		// so its visibility check dispatches to EnsureActivityVisible.
 		var visErr error

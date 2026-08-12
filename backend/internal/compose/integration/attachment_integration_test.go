@@ -321,7 +321,7 @@ func TestErasurePurgesAttachmentObjects(t *testing.T) {
 		t.Fatalf("precondition: uploaded object should exist: %v", gerr)
 	}
 
-	eraser := privacy.NewEraser(e.Pool).WithBlobstore(blob)
+	eraser := privacy.NewEraser(e.DB()).WithBlobstore(blob)
 	if err := eraser.ErasePerson(ctx, person, "test-erasure"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
 	// api stored objects but the worker running erasure has no store. Erasing
 	// a subject whose attachments have objects must FAIL and roll back, never
 	// commit a half-erasure that strands the bytes with their keys deleted.
-	eraser := privacy.NewEraser(e.Pool)
+	eraser := privacy.NewEraser(e.DB())
 	if err := eraser.ErasePerson(ctx, person, "misconfig"); err == nil {
 		t.Fatal("ErasePerson succeeded with objects present but no store configured — half-erasure risk")
 	}

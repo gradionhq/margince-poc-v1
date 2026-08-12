@@ -125,7 +125,7 @@ func WithBlobstore(store blobstore.Store) Option {
 		s.peopleHandlers = s.peopleHandlers.WithBlobstore(store)
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
-		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
+		s.consentHandlers = s.WithEraser(privacy.NewEraser(InstallationDB(pool)).WithBlobstore(store))
 		// The data reset sweeps the same bytes for a whole workspace. Set here
 		// as well as read in WithDataReset so neither option order leaves the
 		// reset silently unable to reach the object store.

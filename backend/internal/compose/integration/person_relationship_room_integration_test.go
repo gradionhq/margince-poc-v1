@@ -275,7 +275,7 @@ func TestErasureReachesTheEnrichmentSidecarAndTheLedger(t *testing.T) {
 		t.Fatalf("Record: %v", err)
 	}
 
-	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), mine, "test"); err != nil {
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), mine, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 

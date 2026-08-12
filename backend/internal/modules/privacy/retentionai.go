@@ -15,7 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -31,7 +30,7 @@ const aiRetentionStages = 2
 // honest), the generated and final texts do not outlive their window.
 func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) error {
 	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id FROM voice_learning_signal
 			WHERE retention_until < now() AND content_erased_at IS NULL
@@ -55,7 +54,7 @@ func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) err
 }
 
 func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The content_erased_at predicate is the CAS: a rival sweep that
 		// already erased this row matches zero rows, and nothing is audited
 		// twice for one erasure.
@@ -87,7 +86,7 @@ func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.U
 // engine telemetry, not a policy-configurable domain record.
 func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error {
 	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id FROM ai_call
 			WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)
@@ -113,7 +112,7 @@ func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error
 // — unlike activity/erase there is no metadata half left to keep: the
 // embedding trace row IS the content being aged out.
 func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM ai_call WHERE id = $1`, id); err != nil {
 			return err
 		}
