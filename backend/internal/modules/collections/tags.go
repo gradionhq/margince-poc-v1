@@ -187,13 +187,12 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string
 
 func wireTag(t tagRow) crmcontracts.Tag {
 	return crmcontracts.Tag{
-		Id:          openapi_types.UUID(t.ID.UUID),
-		WorkspaceId: openapi_types.UUID(t.WorkspaceID.UUID),
-		Name:        t.Name,
-		Color:       t.Color,
-		CreatedAt:   &t.CreatedAt,
-		UpdatedAt:   &t.UpdatedAt,
-		ArchivedAt:  t.ArchivedAt,
+		Id:         openapi_types.UUID(t.ID.UUID),
+		Name:       t.Name,
+		Color:      t.Color,
+		CreatedAt:  &t.CreatedAt,
+		UpdatedAt:  &t.UpdatedAt,
+		ArchivedAt: t.ArchivedAt,
 	}
 }
 

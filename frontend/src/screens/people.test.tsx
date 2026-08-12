@@ -61,7 +61,6 @@ async function optionTextOf(user: UserEvent, control: HTMLElement) {
 
 const anna = {
   id: "p-1",
-  workspace_id: "w-1",
   full_name: "Anna Weber",
   title: "Head of Procurement",
   emails: [{ id: "e-1", email: "anna.weber@brandt.example", is_primary: true }],
@@ -72,7 +71,6 @@ const anna = {
 
 const employmentRel = {
   id: "rel-1",
-  workspace_id: "w-1",
   kind: "employment",
   person_id: "p-1",
   organization_id: "o-1",
@@ -983,7 +981,6 @@ describe("PersonScreen — consent section wiring", () => {
 describe("activityTimeline", () => {
   const base = {
     id: "a-1",
-    workspace_id: "w-1",
     occurred_at: "2026-07-31T10:00:00Z",
     captured_by: "connector:telegram",
     source: "telegram:1:2:3",

@@ -171,7 +171,6 @@ func scanCustomField(row pgx.Row) (crmcontracts.CustomField, error) {
 		return crmcontracts.CustomField{}, err
 	}
 	out.Id = openapi_types.UUID(id)
-	out.WorkspaceId = openapi_types.UUID(wsID)
 	out.CreatedBy = openapi_types.UUID(createdBy)
 	out.Object = crmcontracts.CustomFieldObject(object)
 	out.Type = crmcontracts.CustomFieldType(typ)

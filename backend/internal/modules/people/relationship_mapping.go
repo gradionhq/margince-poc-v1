@@ -77,15 +77,14 @@ func relationshipUpdateInput(req crmcontracts.UpdateRelationshipRequest, ifVersi
 // project_stakeholder seat that named no project.
 func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
 	out := crmcontracts.Relationship{
-		Id:          openapi_types.UUID(rel.ID),
-		WorkspaceId: openapi_types.UUID(rel.WorkspaceID.UUID),
-		Kind:        crmcontracts.RelationshipKind(rel.Kind),
-		Source:      rel.Source,
-		CapturedBy:  &rel.CapturedBy,
-		CreatedAt:   rel.CreatedAt,
-		UpdatedAt:   rel.UpdatedAt,
-		ArchivedAt:  rel.ArchivedAt,
-		Role:        rel.Role,
+		Id:         openapi_types.UUID(rel.ID),
+		Kind:       crmcontracts.RelationshipKind(rel.Kind),
+		Source:     rel.Source,
+		CapturedBy: &rel.CapturedBy,
+		CreatedAt:  rel.CreatedAt,
+		UpdatedAt:  rel.UpdatedAt,
+		ArchivedAt: rel.ArchivedAt,
+		Role:       rel.Role,
 	}
 	version := crmcontracts.RowVersion(rel.Version)
 	out.Version = &version

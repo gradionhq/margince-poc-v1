@@ -424,7 +424,6 @@ func scanOfferTemplate(row pgx.Row, extra ...any) (crmcontracts.OfferTemplate, e
 		return t, err
 	}
 	t.Id = openapi_types.UUID(id)
-	t.WorkspaceId = openapi_types.UUID(wsID)
 	t.Version = &version
 	return t, nil
 }

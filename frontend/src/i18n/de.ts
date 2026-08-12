@@ -3953,7 +3953,7 @@ export const de = {
   "embedreindex.estimateCost": "Geschätzte Kosten:",
   "embedreindex.estimateQualityHeuristic":
     "Heuristische Schätzung — eine kalte Arbeitsmengen-Untergrenze, kein beobachteter Verbrauch.",
-  "embedreindex.utilizationTitle": "Budgetauswirkung je Workspace",
+  "embedreindex.utilizationTitle": "Budgetauswirkung",
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
   "embedreindex.impact.queued": "würde in die Warteschlange gestellt",

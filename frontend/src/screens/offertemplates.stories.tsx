@@ -16,7 +16,6 @@ type Story = StoryObj;
 
 const template = {
   id: "t-1",
-  workspace_id: "w",
   name: "Standard DE",
   locale: "de-DE",
   is_default: true,

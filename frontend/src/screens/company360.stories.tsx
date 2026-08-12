@@ -34,7 +34,6 @@ const populated = {
   as_of: "2026-07-13T09:00:00Z",
   organization: {
     id: "o-1",
-    workspace_id: "w-1",
     display_name: "Brandt Automotive GmbH",
     captured_by: "human:u1",
     source: "manual",
@@ -154,7 +153,6 @@ const populated = {
   list_memberships: [
     {
       id: "l-1",
-      workspace_id: "w-1",
       name: "Q3 renewals",
       entity_type: "organization",
       list_type: "static",

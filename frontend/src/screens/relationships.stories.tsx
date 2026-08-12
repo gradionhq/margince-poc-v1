@@ -18,7 +18,6 @@ type Story = StoryObj;
 
 const employmentRel = {
   id: "rel-1",
-  workspace_id: "w-1",
   kind: "employment",
   person_id: "p-1",
   organization_id: "o-1",

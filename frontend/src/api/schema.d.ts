@@ -6896,8 +6896,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            workspace_id: string;
-            /** Format: uuid */
             owner_id: string;
             /**
              * Format: uri
@@ -7290,12 +7288,6 @@ export interface components {
             reindex_needed: boolean;
             /** @description Fleet-wide count of live entities lacking a current-identity embedding row. */
             entities_pending: number;
-            /** @description Per-workspace breakdown of entities_pending, one row per live tenant workspace. */
-            per_workspace: {
-                /** Format: uuid */
-                workspace_id: string;
-                entities_pending: number;
-            }[];
         };
         /** @description The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call. */
         EmbedReindexPreview: {
@@ -7314,19 +7306,11 @@ export interface components {
             currency?: string;
             /** Format: date-time */
             computed_at: string;
-            /** @description Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates. */
-            per_workspace: {
-                /** Format: uuid */
-                workspace_id: string;
-                entities_pending: number;
-                /** @description This workspace's share of the fleet-wide estimate; absent on estimator fault. */
-                estimated_ai_tokens?: number;
-                /**
-                 * @description The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
-                 * @enum {string}
-                 */
-                utilization_impact: "normal" | "degraded" | "queued";
-            }[];
+            /**
+             * @description The AIRT-PARAM-9..11 budget band the installation would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds regardless of the band.
+             * @enum {string}
+             */
+            utilization_impact?: "normal" | "degraded" | "queued";
         };
         /** @description Optional confirm body. With no body, no drift check runs and force is off. */
         EmbedReindexStartRequest: {
@@ -7932,8 +7916,6 @@ export interface components {
         Person: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             first_name?: string | null;
             last_name?: string | null;
             /** @description Always present (display name). */
@@ -8103,8 +8085,6 @@ export interface components {
             readonly website_url?: string | null;
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             display_name: string;
             /**
              * @description True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
@@ -10221,8 +10201,6 @@ export interface components {
         Relationship: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @enum {string} */
             kind: "employment" | "deal_stakeholder" | "project_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
             /** Format: uuid */
@@ -10304,8 +10282,6 @@ export interface components {
         Deal: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /** Format: int64 */
             amount_minor?: number | null;
@@ -10468,8 +10444,6 @@ export interface components {
         Project: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /** @description The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it. */
             key?: string | null;
@@ -10572,8 +10546,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            workspace_id: string;
-            /** Format: uuid */
             pipeline_id: string;
             name: string;
             /** @description Unique within the pipeline. */
@@ -10620,8 +10592,6 @@ export interface components {
         Pipeline: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /**
              * @description Exactly one default per workspace.
@@ -10688,8 +10658,6 @@ export interface components {
         Activity: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @enum {string} */
             kind: "email" | "call" | "meeting" | "note" | "task" | "whatsapp" | "telegram";
             subject?: string | null;
@@ -10836,8 +10804,6 @@ export interface components {
         Attachment: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @enum {string} */
             entity_type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
             /** Format: uuid */
@@ -11090,8 +11056,6 @@ export interface components {
         Lead: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             full_name?: string | null;
             /**
              * Format: email
@@ -11240,8 +11204,6 @@ export interface components {
         Signal: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /**
              * @description The first six are what a human files by hand. The last four are what the producers
              *     raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
@@ -11437,8 +11399,6 @@ export interface components {
         List: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /** @enum {string} */
             entity_type: "person" | "organization" | "deal" | "lead";
@@ -11510,8 +11470,6 @@ export interface components {
         Tag: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             color?: string | null;
             /** Format: date-time */
@@ -11551,8 +11509,6 @@ export interface components {
         SavedView: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** Format: uuid */
             owner_id: string;
             /**
@@ -11627,8 +11583,6 @@ export interface components {
         User: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** Format: email */
             email: string;
             display_name: string;
@@ -11689,8 +11643,6 @@ export interface components {
         Team: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /** Format: uuid */
             parent_team_id?: string | null;
@@ -11882,11 +11834,6 @@ export interface components {
             extensions: components["schemas"]["ComposedExtension"][];
         };
         JobHealth: {
-            /**
-             * Format: uuid
-             * @description The workspace these counts are scoped to — the caller's own.
-             */
-            workspace_id: string;
             /** Format: date-time */
             generated_at: string;
             kinds: components["schemas"]["JobKindHealth"][];
@@ -11911,11 +11858,6 @@ export interface components {
         };
         JobFailure: {
             kind: string;
-            /**
-             * Format: uuid
-             * @description Null for a dispatcher.
-             */
-            workspace_id: string | null;
             /** @enum {string} */
             state: "retryable" | "discarded" | "cancelled";
             attempt: number;
@@ -11929,8 +11871,6 @@ export interface components {
         AuditLogEntry: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @enum {string} */
             actor_type: "human" | "agent" | "system" | "connector";
             /** @description User uuid, agent id, connector name (e.g. connector:gmail), or 'system'. */
@@ -12016,8 +11956,6 @@ export interface components {
         CustomField: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /**
              * @description The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
              * @enum {string}
@@ -13041,8 +12979,6 @@ export interface components {
         Approval: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @description coldstart | send_email | advance_deal | promote_lead | overnight | transcript_proposal. */
             kind: string;
             /** @enum {string} */
@@ -13191,8 +13127,6 @@ export interface components {
              * @description The Approval this token authorizes.
              */
             approval_id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /**
              * Format: uuid
              * @description Agent Seat Passport the token was minted for; null for a human-minted token.
@@ -13290,8 +13224,6 @@ export interface components {
         ConsentPurpose: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @description Stable machine key (e.g. transactional, marketing_email, profiling). Referenced by send_email.consent_purpose. */
             key: string;
             label: string;
@@ -13890,8 +13822,6 @@ export interface components {
         Product: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             name: string;
             /** @description Optional; unique per workspace while live. */
             sku?: string | null;
@@ -13966,8 +13896,6 @@ export interface components {
         OfferTemplate: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** @description Unique per workspace among live (non-archived) templates. */
             name: string;
             /**
@@ -14086,8 +14014,6 @@ export interface components {
         Offer: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /** Format: uuid */
             deal_id: string;
             /** @description Human-facing Angebot number, minted server-side, unique per workspace (with revision). */
@@ -14461,8 +14387,6 @@ export interface components {
         Quota: {
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            workspace_id: string;
             /**
              * Format: uuid
              * @description Exactly one of owner_id/team_id is non-null (RD-DDL-2 CHECK).

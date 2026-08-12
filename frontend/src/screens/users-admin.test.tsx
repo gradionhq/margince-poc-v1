@@ -32,7 +32,6 @@ const ROSTER = {
   data: [
     {
       id: "u-active",
-      workspace_id: "ws-1",
       email: "ada@acme.test",
       display_name: "Ada Active",
       status: "active",
@@ -41,7 +40,6 @@ const ROSTER = {
     },
     {
       id: "u-off",
-      workspace_id: "ws-1",
       email: "otto@acme.test",
       display_name: "Otto Off",
       status: "deactivated",
@@ -50,7 +48,6 @@ const ROSTER = {
     },
     {
       id: "u-none",
-      workspace_id: "ws-1",
       email: "nora@acme.test",
       display_name: "Nora None",
       status: "active",
@@ -62,7 +59,6 @@ const ROSTER = {
     // admin sees, rather than a people-only one that no longer exists.
     {
       id: "u-agent",
-      workspace_id: "ws-1",
       email: "agent@acme.gradion.local",
       display_name: "Gradion Agent",
       status: "active",

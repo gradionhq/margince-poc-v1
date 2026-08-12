@@ -64,7 +64,7 @@ func TestWireSubscriptionMapsEveryFieldAndHidesNoSecret(t *testing.T) {
 	if got.TargetUrl != s.TargetURL || string(got.State) != s.State || got.Version != s.Version {
 		t.Fatalf("scalar fields not mapped: %+v", got)
 	}
-	if ids.UUID(got.Id) != s.ID || ids.UUID(got.OwnerId) != s.OwnerID || ids.UUID(got.WorkspaceId) != s.WorkspaceID {
+	if ids.UUID(got.Id) != s.ID || ids.UUID(got.OwnerId) != s.OwnerID {
 		t.Fatal("id fields not mapped")
 	}
 	if got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) {

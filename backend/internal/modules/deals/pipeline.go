@@ -223,7 +223,6 @@ func readPipelineWith(
 		return p, err
 	}
 	p.Id = openapi_types.UUID(pid)
-	p.WorkspaceId = openapi_types.UUID(wsID)
 
 	rows, err := tx.Query(ctx,
 		`SELECT id, workspace_id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at
@@ -242,7 +241,6 @@ func readPipelineWith(
 			return p, err
 		}
 		st.Id = openapi_types.UUID(stID)
-		st.WorkspaceId = openapi_types.UUID(stWs)
 		st.PipelineId = openapi_types.UUID(stPipeline)
 		st.Semantic = crmcontracts.StageSemantic(semantic)
 		stages = append(stages, st)

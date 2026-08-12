@@ -3435,21 +3435,21 @@ func (e EmbedReindexPreviewEstimateQuality) Valid() bool {
 	}
 }
 
-// Defines values for EmbedReindexPreviewPerWorkspaceUtilizationImpact.
+// Defines values for EmbedReindexPreviewUtilizationImpact.
 const (
-	EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded EmbedReindexPreviewPerWorkspaceUtilizationImpact = "degraded"
-	EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "normal"
-	EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "queued"
+	EmbedReindexPreviewUtilizationImpactDegraded EmbedReindexPreviewUtilizationImpact = "degraded"
+	EmbedReindexPreviewUtilizationImpactNormal   EmbedReindexPreviewUtilizationImpact = "normal"
+	EmbedReindexPreviewUtilizationImpactQueued   EmbedReindexPreviewUtilizationImpact = "queued"
 )
 
-// Valid indicates whether the value is a known member of the EmbedReindexPreviewPerWorkspaceUtilizationImpact enum.
-func (e EmbedReindexPreviewPerWorkspaceUtilizationImpact) Valid() bool {
+// Valid indicates whether the value is a known member of the EmbedReindexPreviewUtilizationImpact enum.
+func (e EmbedReindexPreviewUtilizationImpact) Valid() bool {
 	switch e {
-	case EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded:
+	case EmbedReindexPreviewUtilizationImpactDegraded:
 		return true
-	case EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal:
+	case EmbedReindexPreviewUtilizationImpactNormal:
 		return true
-	case EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued:
+	case EmbedReindexPreviewUtilizationImpactQueued:
 		return true
 	default:
 		return false
@@ -9611,8 +9611,7 @@ type Activity struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // ActivityCaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
@@ -10047,8 +10046,7 @@ type Approval struct {
 	TargetEntityType *string `json:"target_entity_type,omitempty"`
 
 	// TargetVersion The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).
-	TargetVersion *int               `json:"target_version,omitempty"`
-	WorkspaceId   openapi_types.UUID `json:"workspace_id"`
+	TargetVersion *int `json:"target_version,omitempty"`
 }
 
 // ApprovalEvidenceSourceType defines model for Approval.Evidence.SourceType.
@@ -10200,8 +10198,7 @@ type Attachment struct {
 	SupersedesId *openapi_types.UUID `json:"supersedes_id,omitempty"`
 
 	// Title A display name distinct from the filename — what a reader looks for, rather than what arrived.
-	Title       *string            `json:"title,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Title *string `json:"title,omitempty"`
 }
 
 // AttachmentCategory What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
@@ -10296,8 +10293,7 @@ type AuditLogEntry struct {
 	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
 
 	// PassportId Agent Seat Passport that authorized an agent action.
-	PassportId  *openapi_types.UUID `json:"passport_id,omitempty"`
-	WorkspaceId openapi_types.UUID  `json:"workspace_id"`
+	PassportId *openapi_types.UUID `json:"passport_id,omitempty"`
 }
 
 // AuditLogEntryAction defines model for AuditLogEntry.Action.
@@ -11302,8 +11298,7 @@ type ConsentPurpose struct {
 	Label string `json:"label"`
 
 	// RequiresDoubleOptIn When true, a grant is only effective after a confirmed DOI event (German email norm).
-	RequiresDoubleOptIn *bool              `json:"requires_double_opt_in,omitempty"`
-	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
+	RequiresDoubleOptIn *bool `json:"requires_double_opt_in,omitempty"`
 }
 
 // ConsentQualifyingEvent The deterministic event that makes business correspondence lawful (ADR-0098 D2): an
@@ -11979,8 +11974,7 @@ type CustomField struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // CustomFieldObject The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
@@ -12103,7 +12097,6 @@ type Deal struct {
 
 	// WaitUntil 'Customer asked us to wait until' date; suppresses the stalled flag but not the overdue close-date flag.
 	WaitUntil            *openapi_types.Date    `json:"wait_until,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -12251,24 +12244,15 @@ type EmbedReindexPreview struct {
 	// EstimatedCostMinor USD minor units, estimated from the current embedding ai_model_rate; absent when no rate applies (ADR-0068).
 	EstimatedCostMinor *int `json:"estimated_cost_minor,omitempty"`
 
-	// PerWorkspace Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates.
-	PerWorkspace []struct {
-		EntitiesPending int `json:"entities_pending"`
-
-		// EstimatedAiTokens This workspace's share of the fleet-wide estimate; absent on estimator fault.
-		EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
-
-		// UtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
-		UtilizationImpact EmbedReindexPreviewPerWorkspaceUtilizationImpact `json:"utilization_impact"`
-		WorkspaceId       openapi_types.UUID                               `json:"workspace_id"`
-	} `json:"per_workspace"`
+	// UtilizationImpact The AIRT-PARAM-9..11 budget band the installation would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds regardless of the band.
+	UtilizationImpact *EmbedReindexPreviewUtilizationImpact `json:"utilization_impact,omitempty"`
 }
 
 // EmbedReindexPreviewEstimateQuality Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
 type EmbedReindexPreviewEstimateQuality string
 
-// EmbedReindexPreviewPerWorkspaceUtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
-type EmbedReindexPreviewPerWorkspaceUtilizationImpact string
+// EmbedReindexPreviewUtilizationImpact The AIRT-PARAM-9..11 budget band the installation would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds regardless of the band.
+type EmbedReindexPreviewUtilizationImpact string
 
 // EmbedReindexStartRequest Optional confirm body. With no body, no drift check runs and force is off.
 type EmbedReindexStartRequest struct {
@@ -12286,12 +12270,6 @@ type EmbedReindexStatus struct {
 
 	// EntitiesPending Fleet-wide count of live entities lacking a current-identity embedding row.
 	EntitiesPending int `json:"entities_pending"`
-
-	// PerWorkspace Per-workspace breakdown of entities_pending, one row per live tenant workspace.
-	PerWorkspace []struct {
-		EntitiesPending int                `json:"entities_pending"`
-		WorkspaceId     openapi_types.UUID `json:"workspace_id"`
-	} `json:"per_workspace"`
 
 	// PopulatedIdentity The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference.
 	PopulatedIdentity string `json:"populated_identity"`
@@ -12621,9 +12599,6 @@ type JobFailure struct {
 	// Reason The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here.
 	Reason string          `json:"reason"`
 	State  JobFailureState `json:"state"`
-
-	// WorkspaceId Null for a dispatcher.
-	WorkspaceId *openapi_types.UUID `json:"workspace_id"`
 }
 
 // JobFailureState defines model for JobFailure.State.
@@ -12636,9 +12611,6 @@ type JobHealth struct {
 
 	// RecentFailures Most recent first, capped at 50. A bounded list, not a log.
 	RecentFailures []JobFailure `json:"recent_failures"`
-
-	// WorkspaceId The workspace these counts are scoped to — the caller's own.
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
 
 // JobKindHealth defines model for JobKindHealth.
@@ -12716,7 +12688,6 @@ type Lead struct {
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
 	Version              *RowVersion            `json:"version,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -12794,15 +12765,14 @@ type List struct {
 	CreatedAt  *time.Time `json:"created_at,omitempty"`
 
 	// Definition Dynamic — validated query plan; static — null.
-	Definition  *map[string]interface{} `json:"definition,omitempty"`
-	EntityType  ListEntityType          `json:"entity_type"`
-	Id          openapi_types.UUID      `json:"id"`
-	ListType    ListListType            `json:"list_type"`
-	Name        string                  `json:"name"`
-	OwnerId     *openapi_types.UUID     `json:"owner_id,omitempty"`
-	TeamId      *openapi_types.UUID     `json:"team_id,omitempty"`
-	UpdatedAt   *time.Time              `json:"updated_at,omitempty"`
-	WorkspaceId openapi_types.UUID      `json:"workspace_id"`
+	Definition *map[string]interface{} `json:"definition,omitempty"`
+	EntityType ListEntityType          `json:"entity_type"`
+	Id         openapi_types.UUID      `json:"id"`
+	ListType   ListListType            `json:"list_type"`
+	Name       string                  `json:"name"`
+	OwnerId    *openapi_types.UUID     `json:"owner_id,omitempty"`
+	TeamId     *openapi_types.UUID     `json:"team_id,omitempty"`
+	UpdatedAt  *time.Time              `json:"updated_at,omitempty"`
 }
 
 // ListEntityType defines model for List.EntityType.
@@ -13148,7 +13118,6 @@ type Offer struct {
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
 	Version              *RowVersion            `json:"version,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -13254,8 +13223,7 @@ type OfferTemplate struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // OfferTemplateListResponse defines model for OfferTemplateListResponse.
@@ -13518,7 +13486,6 @@ type Organization struct {
 
 	// WebsiteUrl The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
 	WebsiteUrl           *string                `json:"website_url,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -15056,7 +15023,6 @@ type Person struct {
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
 	Version              *RowVersion            `json:"version,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -15751,12 +15717,11 @@ type Pipeline struct {
 	Id         openapi_types.UUID `json:"id"`
 
 	// IsDefault Exactly one default per workspace.
-	IsDefault   bool               `json:"is_default"`
-	Name        string             `json:"name"`
-	Position    int                `json:"position"`
-	Stages      *[]Stage           `json:"stages,omitempty"`
-	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	IsDefault bool       `json:"is_default"`
+	Name      string     `json:"name"`
+	Position  int        `json:"position"`
+	Stages    *[]Stage   `json:"stages,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // PipelineListResponse defines model for PipelineListResponse.
@@ -15840,7 +15805,6 @@ type Product struct {
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
 	Version              *RowVersion            `json:"version,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -15889,7 +15853,6 @@ type Project struct {
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
 	Version              *RowVersion            `json:"version,omitempty"`
-	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -15987,8 +15950,7 @@ type Quota struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // QuotaAttainment RD-WIRE-3 / RD-FORM-2 — server-computed attainment for one quota, decomposed for
@@ -16196,8 +16158,7 @@ type Relationship struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // RelationshipKind defines model for Relationship.Kind.
@@ -16404,8 +16365,7 @@ type SavedView struct {
 	UpdatedAt   *time.Time            `json:"updated_at,omitempty"`
 
 	// Version Optimistic-concurrency version; echo it in If-Match on update.
-	Version     int64              `json:"version"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version int64 `json:"version"`
 }
 
 // SavedViewResource defines model for SavedView.Resource.
@@ -16625,8 +16585,7 @@ type Signal struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version *RowVersion `json:"version,omitempty"`
 }
 
 // SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
@@ -16830,8 +16789,7 @@ type Stage struct {
 	UpdatedAt *time.Time    `json:"updated_at,omitempty"`
 
 	// WinProbability won=100, lost=0, open=0..100.
-	WinProbability int                `json:"win_probability"`
-	WorkspaceId    openapi_types.UUID `json:"workspace_id"`
+	WinProbability int `json:"win_probability"`
 }
 
 // StageSemantic defines model for Stage.Semantic.
@@ -16860,13 +16818,12 @@ type StartCompanySiteReadRequest struct {
 
 // Tag A tag. Mirrors the `tag` table.
 type Tag struct {
-	ArchivedAt  *time.Time         `json:"archived_at,omitempty"`
-	Color       *string            `json:"color,omitempty"`
-	CreatedAt   *time.Time         `json:"created_at,omitempty"`
-	Id          openapi_types.UUID `json:"id"`
-	Name        string             `json:"name"`
-	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
+	Color      *string            `json:"color,omitempty"`
+	CreatedAt  *time.Time         `json:"created_at,omitempty"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	UpdatedAt  *time.Time         `json:"updated_at,omitempty"`
 }
 
 // TagListResponse defines model for TagListResponse.
@@ -16898,7 +16855,6 @@ type Team struct {
 	Name         string              `json:"name"`
 	ParentTeamId *openapi_types.UUID `json:"parent_team_id,omitempty"`
 	UpdatedAt    *time.Time          `json:"updated_at,omitempty"`
-	WorkspaceId  openapi_types.UUID  `json:"workspace_id"`
 }
 
 // TeamListResponse defines model for TeamListResponse.
@@ -17274,9 +17230,8 @@ type User struct {
 	Status UserStatus `json:"status"`
 
 	// Timezone IANA name.
-	Timezone    *string            `json:"timezone,omitempty"`
-	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Timezone  *string    `json:"timezone,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // UserStatus defines model for User.Status.
@@ -17610,8 +17565,7 @@ type WebhookSubscription struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 
 	// Version Optimistic-concurrency version; echo it in If-Match on update.
-	Version     int64              `json:"version"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version int64 `json:"version"`
 }
 
 // WebhookSubscriptionState defines model for WebhookSubscription.State.
@@ -23045,14 +22999,6 @@ func (a *Deal) UnmarshalJSON(b []byte) error {
 		delete(object, "wait_until")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -23248,11 +23194,6 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_until': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -23481,14 +23422,6 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "version")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -23660,11 +23593,6 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'version': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -23941,14 +23869,6 @@ func (a *Offer) UnmarshalJSON(b []byte) error {
 		delete(object, "version")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -24150,11 +24070,6 @@ func (a Offer) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'version': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -24415,14 +24330,6 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "website_url")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -24624,11 +24531,6 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'website_url': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -24841,14 +24743,6 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "version")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -25010,11 +24904,6 @@ func (a Person) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
-	}
-
 	for fieldName, field := range a.AdditionalProperties {
 		object[fieldName], err = json.Marshal(field)
 		if err != nil {
@@ -25169,14 +25058,6 @@ func (a *Product) UnmarshalJSON(b []byte) error {
 		delete(object, "version")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -25277,11 +25158,6 @@ func (a Product) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'version': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -25470,14 +25346,6 @@ func (a *Project) UnmarshalJSON(b []byte) error {
 		delete(object, "version")
 	}
 
-	if raw, found := object["workspace_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkspaceId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workspace_id': %w", err)
-		}
-		delete(object, "workspace_id")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -25612,11 +25480,6 @@ func (a Project) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'version': %w", err)
 		}
-	}
-
-	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

@@ -48,7 +48,6 @@ type Activity = components["schemas"]["Activity"];
 function openTask(overrides: Partial<Activity>): Activity {
   return {
     id: "t1",
-    workspace_id: "w",
     kind: "task",
     subject: "Call Anna",
     occurred_at: "2026-07-01T00:00:00Z",

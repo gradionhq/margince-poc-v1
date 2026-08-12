@@ -37,7 +37,6 @@ func tagsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]cr
 			return t, err
 		}
 		t.Id = openapi_types.UUID(id)
-		t.WorkspaceId = openapi_types.UUID(wsID)
 		return t, nil
 	})
 }
@@ -73,7 +72,6 @@ func listMembershipsSection(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 			return l, err
 		}
 		l.Id = openapi_types.UUID(id)
-		l.WorkspaceId = openapi_types.UUID(wsID)
 		l.EntityType = crmcontracts.ListEntityType(entityType)
 		l.ListType = crmcontracts.ListListType(listType)
 		l.OwnerId = uuidPtr(ownerID)

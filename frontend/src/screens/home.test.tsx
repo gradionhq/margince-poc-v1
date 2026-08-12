@@ -43,7 +43,6 @@ function render(ui: ReactNode) {
 
 const fleetDeal = {
   id: "d-1",
-  workspace_id: "w",
   name: "Fleet retrofit",
   amount_minor: 4_800_000,
   currency: "EUR",
@@ -197,7 +196,6 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     let approved = false;
     const staged = {
       id: "ap-h1",
-      workspace_id: "w",
       kind: "send_email",
       status: "pending",
       proposed_by: "agent:runner",
@@ -234,7 +232,6 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     let decidedElsewhere = false;
     const staged = {
       id: "ap-h2",
-      workspace_id: "w",
       kind: "send_email",
       status: "pending",
       proposed_by: "agent:runner",

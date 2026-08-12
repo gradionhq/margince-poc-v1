@@ -20,7 +20,6 @@ function admin(overrides: Record<string, unknown> = {}) {
 
 const task = {
   id: "a-1",
-  workspace_id: "w1",
   kind: "task" as const,
   subject: "Follow up on proposal",
   occurred_at: "2026-07-20T09:00:00Z",

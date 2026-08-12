@@ -22,7 +22,6 @@ const orgScope: RelationshipScope = { organization_id: "o-1" };
 function baseRel(over: Partial<Relationship>): Relationship {
   return {
     id: "rel-1",
-    workspace_id: "w-1",
     kind: "employment",
     is_current_primary: false,
     source: "manual",

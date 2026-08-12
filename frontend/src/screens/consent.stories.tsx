@@ -21,7 +21,6 @@ const PURPOSES = {
   data: [
     {
       id: "p1",
-      workspace_id: "w",
       key: "transactional",
       label: "Deal messages",
       requires_double_opt_in: false,
@@ -29,7 +28,6 @@ const PURPOSES = {
     },
     {
       id: "p2",
-      workspace_id: "w",
       key: "events",
       label: "Events",
       requires_double_opt_in: false,
@@ -37,7 +35,6 @@ const PURPOSES = {
     },
     {
       id: "p3",
-      workspace_id: "w",
       key: "marketing_email",
       label: "Marketing",
       requires_double_opt_in: true,

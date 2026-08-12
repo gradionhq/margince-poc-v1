@@ -11,7 +11,6 @@ type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 
 const entry = (over: Partial<AuditLogEntry> = {}): AuditLogEntry => ({
   id: "a1",
-  workspace_id: "w",
   actor_type: "human",
   actor_id: "u1",
   action: "create",

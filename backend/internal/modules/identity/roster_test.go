@@ -35,9 +35,6 @@ func TestWireUser(t *testing.T) {
 	if got.Id != openapi_types.UUID(id) {
 		t.Errorf("Id = %v, want %v", got.Id, id)
 	}
-	if got.WorkspaceId != openapi_types.UUID(ws) {
-		t.Errorf("WorkspaceId = %v, want %v — it is required on User", got.WorkspaceId, ws)
-	}
 	if string(got.Email) != "ada@example.com" {
 		t.Errorf("Email = %q, want ada@example.com", got.Email)
 	}
@@ -224,9 +221,6 @@ func TestWireTeam(t *testing.T) {
 
 	if got.Id != openapi_types.UUID(id) {
 		t.Errorf("Id = %v, want %v", got.Id, id)
-	}
-	if got.WorkspaceId != openapi_types.UUID(ws) {
-		t.Errorf("WorkspaceId = %v, want %v", got.WorkspaceId, ws)
 	}
 	if got.Name != "Deal Desk" {
 		t.Errorf("Name = %q, want Deal Desk", got.Name)

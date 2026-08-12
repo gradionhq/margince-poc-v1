@@ -19,7 +19,6 @@ type Story = StoryObj;
 
 const anna = {
   id: "p-1",
-  workspace_id: "w-1",
   full_name: "Anna Weber",
   title: "Head of Procurement",
   emails: [{ id: "e-1", email: "anna.weber@brandt.example", is_primary: true }],

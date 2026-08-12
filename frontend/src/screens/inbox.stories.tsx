@@ -18,7 +18,6 @@ type Approval = components["schemas"]["Approval"];
 
 const base: Approval = {
   id: "ap-1",
-  workspace_id: "w",
   kind: "send_email",
   status: "pending",
   proposed_by: "agent:runner",

@@ -26,7 +26,6 @@ vi.mock("./customfields.form", async (importOriginal) => {
 function field(overrides: Partial<CustomField>): CustomField {
   return {
     id: "cf-1",
-    workspace_id: "ws-1",
     object: "deal",
     label: "Field",
     slug: "field",

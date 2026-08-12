@@ -16,7 +16,6 @@ type Story = StoryObj;
 
 const product = {
   id: "p-1",
-  workspace_id: "w",
   name: "Consulting Day",
   sku: "CONS-DAY",
   unit: "day",

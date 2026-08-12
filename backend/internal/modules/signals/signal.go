@@ -442,7 +442,6 @@ func scanSignal(row pgx.Row) (crmcontracts.Signal, error) {
 		return sig, fmt.Errorf("signal evidence is not the contract shape: %w", err)
 	}
 	sig.Id = openapi_types.UUID(id)
-	sig.WorkspaceId = openapi_types.UUID(wsID)
 	sig.Kind = crmcontracts.SignalKind(kind)
 	sig.SourceChannel = crmcontracts.SignalSourceChannel(sourceChannel)
 	sig.ResolutionState = crmcontracts.SignalResolutionState(resolutionState)

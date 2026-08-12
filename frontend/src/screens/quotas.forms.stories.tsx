@@ -18,7 +18,6 @@ const users = {
   data: [
     {
       id: "u1",
-      workspace_id: "w1",
       email: "riya@example.co",
       display_name: "Riya Patel",
       timezone: "UTC",
@@ -36,7 +35,6 @@ const teams = {
 
 const ownerQuota = {
   id: "q1",
-  workspace_id: "w1",
   owner_id: "u1",
   team_id: null,
   period_start: "2026-07-01",
