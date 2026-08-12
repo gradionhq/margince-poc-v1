@@ -17,12 +17,11 @@ secrets, platform manifests) is yours to own — keep those in your own infra re
 | `scripts/deploy/db-bootstrap.sql` | one-time DB role + database + extension setup |
 | `frontend/nginx.conf` | SPA static serving (listens on 8080, non-root) |
 
-All three images build with the **repo root** as context (the Go build folds in
-the `extensions/*` packs via `gen-composition`):
-
 The three roles live in the ONE root `Dockerfile`, each as a build target of
-the same name sharing a common Go builder base (`docker buildx bake` builds
-all three through `docker-bake.hcl`):
+the same name sharing a common Go builder base, and every image builds with
+the **repo root** as context (the Go build folds in the `extensions/*` packs
+via `gen-composition`; `docker buildx bake` builds all three through
+`docker-bake.hcl`):
 
 ```bash
 docker build --target api    -t margince-api:local .
