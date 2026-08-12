@@ -32,6 +32,18 @@ import (
 // operationId spelled the same way.
 const opRenameCustomField = "renameCustomField"
 
+// The remaining six action-shaped ops named below are ALSO both this file's
+// and agentcommand.go's restCommands table's (agentcommandnested.go): named
+// once here so the two do not spell an operationId twice each.
+const (
+	opAddListMember       = "addListMember"
+	opApplyTag            = "applyTag"
+	opAddOfferLineItem    = "addOfferLineItem"
+	opUpdateOfferLineItem = "updateOfferLineItem"
+	opRemoveOfferLineItem = "removeOfferLineItem"
+	opUpsertPartner       = "upsertPartner"
+)
+
 // actionShapedUpdateOps are the update_record twins whose body is a
 // membership/apply request naming ANOTHER record, or a mutation of a
 // CHILD record (an offer's line items), not a field patch on the routed
@@ -47,12 +59,13 @@ const opRenameCustomField = "renameCustomField"
 // left to the split, the creating admin's audit trail would mark `label`
 // human-owned and silently convert every agent rename into a 🟡 staging.
 var actionShapedUpdateOps = map[string]bool{
-	"applyTag":            true,
-	"addListMember":       true,
-	"addOfferLineItem":    true,
-	"updateOfferLineItem": true,
-	"removeOfferLineItem": true,
+	opApplyTag:            true,
+	opAddListMember:       true,
+	opAddOfferLineItem:    true,
+	opUpdateOfferLineItem: true,
+	opRemoveOfferLineItem: true,
 	opRenameCustomField:   true,
+	opUpsertPartner:       true,
 }
 
 // splitOrRedeemUpdate is the per-field human-edit-precedence split

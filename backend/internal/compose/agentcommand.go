@@ -113,6 +113,23 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"updateCustomFieldOptions":        updateCustomFieldOptionsCommand,
 	"setProjectStakeholder":           setStakeholderCommand,
 	"removeProjectStakeholder":        removeStakeholderCommand,
+
+	// The seven bespoke auto-execute commands (agentcommandnested.go): nested
+	// creates and child/membership actions that are 🟢 today, so none of
+	// these has ever staged — registered anyway, because the route walk's
+	// guess (stagedTargetByRoute) is the one this table replaces family by
+	// family, and for createOffer that guess is provably wrong today
+	// (gradionhq/margince-poc-v1#1046). Six of the seven share their
+	// operationId constant with agentsplit.go's actionShapedUpdateOps
+	// (opAddListMember's own comment says why); createOffer has no such
+	// twin, since create_record never reaches the split.
+	opAddListMember:       addListMemberCommand,
+	opApplyTag:            applyTagCommand,
+	opAddOfferLineItem:    addOfferLineItemCommand,
+	opUpdateOfferLineItem: updateOfferLineItemCommand,
+	opRemoveOfferLineItem: removeOfferLineItemCommand,
+	"createOffer":         createOfferCommand,
+	opUpsertPartner:       upsertPartnerCommand,
 }
 
 // archiveCommand decodes one DELETE /v1/<collection>/{id} into the archive
