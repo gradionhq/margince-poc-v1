@@ -114,11 +114,25 @@ func (e *lendEnv) revokeAndHold(t *testing.T, passportID ids.PassportID, fn func
 // live answer, and the deadline is a failure guard, not a race — the consent
 // either queues behind this transaction within it or the property under test is
 // simply false.
+//
+// Each round trip discards the statistics snapshot first, and without that the
+// round trips would not return a live answer at all. pg_stat_activity's row set
+// is materialized once per transaction and cached until it ends; this probe runs
+// INSIDE the revocation's own long-lived transaction, so a consent that arrives
+// on a connection dialled after the first look would be absent from every later
+// look no matter how long the loop ran. On an idle machine the pool has a warm
+// connection and the bug is invisible; under the lane's concurrency it is not,
+// and it reports itself as "the consent never contended" — a true-looking
+// failure about a consent queued squarely behind this transaction.
 func waitUntilBlockingSomebody(t *testing.T, tx pgx.Tx) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for ctx.Err() == nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("discarding the statistics snapshot before looking again: %v", err)
+		}
 		var blocked bool
 		err := tx.QueryRow(ctx, `
 			SELECT EXISTS (
