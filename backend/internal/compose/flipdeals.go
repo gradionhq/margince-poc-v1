@@ -95,14 +95,14 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 // settleAdoptedDeal finishes a deal the identity map already binds but
 // whose close may never have run.
 //
-// Landing a closed estate deal takes two transactions — born on an open
-// stage (the store's open-birth rule), then advanced to its terminal
-// one. A crash between the create and the identity write leaves the
-// first done and the second not; the reconcile then adopts the row, and
-// without this the import would answer Unchanged and leave a closed-won
-// deal parked open, counted as converged. Re-asserting is idempotent:
-// the ordinary replay case finds the deal already terminal and does
-// nothing.
+// A closed estate deal reaches its stage in two transactions: born on an
+// open stage (the store's open-birth rule), then advanced. The landing
+// commits the deal WITH its identity row, so what a crash can leave is a
+// deal that is mapped and still open — and without this the import would
+// answer Unchanged and leave a closed-won deal parked there, counted as
+// converged. It serves an orphan the reconcile adopted from an older
+// attempt equally, for the same reason. Re-asserting is idempotent: the
+// ordinary replay case finds the deal already terminal and does nothing.
 func (w *flipWriters) settleAdoptedDeal(ctx context.Context, dealID ids.DealID, row migration.Row) (migration.EnsureResult, error) {
 	stages, err := w.stageCatalog(ctx)
 	if err != nil {

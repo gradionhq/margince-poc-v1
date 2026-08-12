@@ -8,13 +8,14 @@ package compose
 // A flip landing is one transaction: the native record and the identity-map
 // row that names it commit together, or neither does.
 //
-// Before this, the two were separate transactions and a process that died
-// between them left a record the resume could not see — which is what
-// flipreconcile.go exists to repair, by scanning for live rows carrying the
-// reserved import provenance that the map does not know. That repair stays
-// (it adopts orphans from attempts that predate this change, and from the
-// classes that still land in two steps); what these suites pin is that the
-// three people classes stop producing new ones.
+// The two used to be separate transactions, and a process that died between
+// them left a record the resume could not see — which is what flipreconcile.go
+// exists to repair, by scanning for live rows carrying the reserved import
+// provenance that the map does not know. That repair stays, for the orphans an
+// estate already carries; what these suites pin is that no class produces new
+// ones. All five land atomically, and the deal's remaining window — mapped and
+// open, because the terminal stage is asserted in a second transaction — is
+// settleAdoptedDeal's to close.
 //
 // The forced failure is the production one rather than a test hook: the
 // identity row's composite FK names the import run, so a landing recorded
@@ -334,5 +335,92 @@ func TestAFailedIdentityWriteLeavesNoDealBehind(t *testing.T) {
 	}
 	if n := f.e.WsCount(t, `SELECT count(*) FROM deal WHERE name = 'Difference Engine order'`); n != 0 {
 		t.Errorf("deal rows = %d, want 0 — an orphan the resume cannot name", n)
+	}
+}
+
+// The replay path each idempotent class carries: the store answers with a
+// record that already exists under its natural key, so the landing wrote
+// nothing and must map nothing. The lead's arm is above; this is the
+// activity's, which routes through the same sentinel.
+func TestAnActivityReplayedUnderItsNaturalKeyIsSkippedAndNotMapped(t *testing.T) {
+	f := setupLanding(t)
+	row := landingRow("hs-act-3", map[string]any{"kind": "note", "body": "logged once"})
+
+	if _, err := f.w.Ensure(f.ctx, flipObjectActivity, row); err != nil {
+		t.Fatalf("landing the activity: %v", err)
+	}
+	// The map emptied under a second run: the store replays its own
+	// idempotency key while the map has no record of it.
+	f.e.WsExec(t, `DELETE FROM import_record_map WHERE object = 'activity' AND external_id = 'hs-act-3'`)
+
+	res, err := f.freshWriter().Ensure(f.ctx, flipObjectActivity, row)
+	if err != nil {
+		t.Fatalf("the replayed landing: %v — the sentinel escaped as a real failure", err)
+	}
+	if !res.Skipped || res.SkipReason != skipReasonNaturalKeyTaken {
+		t.Fatalf("result = %+v, want a skip naming the taken natural key", res)
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM import_record_map WHERE object = 'activity' AND external_id = 'hs-act-3'`); n != 0 {
+		t.Error("the replay recorded an identity for an activity this run did not create")
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM activity WHERE body = 'logged once'`); n != 1 {
+		t.Errorf("activity rows = %d, want the one the first landing created", n)
+	}
+}
+
+// A closed estate deal is the two-transaction case that survives on purpose:
+// the landing commits the OPEN deal with its identity row, and the terminal
+// stage is asserted afterwards. Both halves have to happen for the estate to
+// arrive closed.
+func TestAClosedEstateDealLandsMappedAndThenReachesItsTerminalStage(t *testing.T) {
+	f := setupLanding(t)
+	integration.DealFixture(t, f.e)
+
+	// "closedwon" is the incumbent's own stage vocabulary, which is what the
+	// estate carries; the catalog resolves it to this workspace's won stage.
+	res, err := f.w.Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-won", map[string]any{
+		"name": "Closed estate order", "stage_id": "closedwon",
+	}))
+	if err != nil {
+		t.Fatalf("landing the closed deal: %v", err)
+	}
+	if !res.Created {
+		t.Fatalf("result = %+v, want a created deal", res)
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM import_record_map m JOIN deal d ON d.id = m.native_id
+		WHERE m.object = 'deal' AND m.external_id = 'hs-deal-won' AND d.status = 'won'`); n != 1 {
+		t.Errorf("mapped won deals = %d, want 1 — the landing and the advance both have to land for the estate to arrive closed", n)
+	}
+}
+
+// The resume after a crash between the two: the deal is mapped and open, so
+// Ensure takes its already-landed branch and settleAdoptedDeal has to finish
+// the close rather than reporting the estate converged.
+func TestAMappedButOpenDealIsClosedOnTheNextPass(t *testing.T) {
+	f := setupLanding(t)
+	integration.DealFixture(t, f.e)
+
+	// Land it with no resolvable stage, so it stays on the first open one —
+	// the state a crash between the landing and the advance leaves behind.
+	if _, err := f.w.Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-resume", map[string]any{
+		"name": "Interrupted order",
+	})); err != nil {
+		t.Fatalf("landing the open deal: %v", err)
+	}
+
+	// The estate says it is won; the resumed pass finds the deal already
+	// mapped and has to settle it rather than report it converged.
+	res, err := f.freshWriter().Ensure(f.ctx, flipObjectDeal, landingRow("hs-deal-resume", map[string]any{
+		"name": "Interrupted order", "stage_id": "closedwon",
+	}))
+	if err != nil {
+		t.Fatalf("the resumed pass: %v", err)
+	}
+	if res.Skipped {
+		t.Fatalf("result = %+v, want the pass to settle the deal rather than skip it", res)
+	}
+	if n := f.e.WsCount(t, `SELECT count(*) FROM deal d JOIN import_record_map m ON m.native_id = d.id
+		WHERE m.external_id = 'hs-deal-resume' AND d.status = 'won'`); n != 1 {
+		t.Errorf("closed deals = %d, want the mapped one settled — a deal parked open here is counted as converged and never closes", n)
 	}
 }
