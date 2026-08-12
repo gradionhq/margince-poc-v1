@@ -86,6 +86,10 @@ func (updateRecord) ServesRecordType(recordType string) bool {
 // StageInfo puts a patch the contract tightened to confirm-first in the inbox
 // instead of dead-ending it (#982).
 //
+// It decodes this door's arguments into the patch command and delegates: the
+// refusals and the staged subject live in the resolver (command.go), where the
+// REST door reaches the same ones for the same operation.
+//
 // It stages the WHOLE call, not the per-field residue Handle's precedence split
 // stages. The two answer different questions and both are real: the split asks
 // "may a machine overwrite what a person typed", and applies everything else
@@ -94,33 +98,16 @@ func (updateRecord) ServesRecordType(recordType string) bool {
 // before admission, so a call that reaches here has already been judged the
 // second way, and an approved retry carries the ApprovalRedeemed marker that
 // sends Handle straight to the full apply.
-//
-// The record is READ, for the reasons its 🟡 siblings read theirs: a patch
-// naming a record the caller cannot see must be refused now rather than after a
-// human has spent a one-shot approval on it, and a record whose authority lives
-// in another system of record can never have that approval released at all.
 func (t updateRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args updateRecordArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if err := rejectUnknownFields(updateShapes, args.RecordType, args.Fields); err != nil {
-		return StageInfo{}, err
-	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{
-		Type: datasource.EntityType(args.RecordType), ID: args.ID,
-	})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: args.RecordType,
-		TargetID:   args.ID,
-		Summary:    describeGenericWrite("Update", args.RecordType, args.Fields),
-	}, nil
+	// This door's wire shape IS the command's field set (same reasoning as
+	// archiveRecord.StageInfo, command.go), so it converts rather than
+	// restating the fields: a field PatchCommand grows fails to compile here
+	// instead of quietly leaving it unset.
+	return StageSubject(ctx, NewPatchCall(t.p, PatchCommand(args)))
 }
 
 // Handle is the per-field human-edit-precedence split (interfaces.md

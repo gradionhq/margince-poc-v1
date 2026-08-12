@@ -257,24 +257,19 @@ func (createRecord) ServesRecordType(recordType string) bool {
 // StageInfo puts a create the contract tightened to confirm-first in the inbox
 // instead of dead-ending it (#982).
 //
-// WHAT IT STAGES IS A CREATE, and the shape says so: the record type with no id
-// and no version pin, because the record does not exist yet and there is no row
-// an approval could bind to. That is the shape the REST door stages for the same
+// It decodes this door's arguments into the create command and delegates: the
+// refusals and the staged subject live in the resolver (command.go), where the
+// REST door reaches the same ones for the same operation. WHAT IT STAGES IS A
+// CREATE, and the resolver's shape says so: the record type with no id and no
+// version pin, because the record does not exist yet and there is no row an
+// approval could bind to. That is the shape the REST door stages for the same
 // operation, whose route carries no `{id}` — one operation, one staged shape,
 // whichever door the agent came through.
 //
 // The checks run HERE as well as in Handle, and that is the point: the approved
 // retry re-enters through Handle, so a rule enforced only there is one a human's
 // yes is spent discovering.
-//
-// The record type is checked FIRST and by this verb's own served set, not by
-// rejectUnknownFields — which answers nil for a type it does not know, on the
-// deliberate ground that naming the served vocabulary is the provider's refusal
-// to make. That is right for a call about to reach the provider and wrong for one
-// about to reach a human: `create_record{record_type:"custom_field"}` would
-// otherwise stage cleanly, because the surface does not enforce schema enums, and
-// the approved retry would then die at the provider with the approval spent.
-func (t createRecord) StageInfo(_ context.Context, in json.RawMessage) (StageInfo, error) {
+func (t createRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args struct {
 		RecordType string          `json:"record_type"`
 		Fields     json.RawMessage `json:"fields"`
@@ -282,18 +277,11 @@ func (t createRecord) StageInfo(_ context.Context, in json.RawMessage) (StageInf
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if !t.ServesRecordType(args.RecordType) {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"this verb does not create %q records, so no approval of it could ever be carried out",
-			args.RecordType)}
-	}
-	if err := rejectUnknownFields(createShapes, args.RecordType, args.Fields); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: args.RecordType,
-		Summary:    describeGenericWrite("Create", args.RecordType, args.Fields),
-	}, nil
+	// This door's wire shape IS the command's field set (same reasoning as
+	// archiveRecord.StageInfo, command.go), so it converts rather than
+	// restating the fields: a field CreateCommand grows fails to compile here
+	// instead of quietly leaving it unset.
+	return StageSubject(ctx, NewCreateCall(CreateCommand(args)))
 }
 
 // --- log_activity (🟢 write) ---

@@ -18,6 +18,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -187,6 +188,142 @@ func (a *archiveResolver) Guards(ctx context.Context, cmd ArchiveCommand) error 
 	}
 	if !served {
 		return nil
+	}
+	return refuseStagingElsewhere(rec)
+}
+
+// CreateCommand is one record creation, whichever door asked for it.
+type CreateCommand struct {
+	RecordType string
+	Fields     json.RawMessage
+}
+
+// NewCreateCall binds one create to the resolver that answers for it.
+//
+// Unlike archive's, this resolver holds no dependency and no memo: a create
+// names no ROW — the record does not exist yet — so there is nothing for
+// Guards to read and nothing for Subject to describe beyond the command's own
+// fields. What Guards refuses is settled entirely from createShapes, the same
+// vocabulary createRecord.ServesRecordType already answers from, so this calls
+// that method rather than restating its membership test.
+//
+//nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
+func NewCreateCall(cmd CreateCommand) GovernedCall {
+	return bind[CreateCommand](createResolver{}, cmd)
+}
+
+type createResolver struct{}
+
+// Subject names the record TYPE the approval binds to — with no id and no
+// pin, because there is no row yet for either to describe. This is the shape
+// a staged create already had before this seam existed (#982); the REST door
+// now stages the identical shape for the same operation.
+func (createResolver) Subject(_ context.Context, cmd CreateCommand) (StageInfo, error) {
+	return StageInfo{
+		TargetType: cmd.RecordType,
+		Summary:    describeGenericWrite("Create", cmd.RecordType, cmd.Fields),
+	}, nil
+}
+
+// Guards refuses, before anything is staged, the two creates that were never
+// going to run: a record type this verb's own write path cannot make at all,
+// and a `fields` payload naming a key that type does not accept.
+//
+// The record type is checked FIRST and by createRecord's own served set, not
+// by rejectUnknownFields — which answers nil for a type it does not know, on
+// the deliberate ground that naming the served vocabulary is the provider's
+// refusal to make. That is right for a call about to reach the provider and
+// wrong for one about to reach a human: create_record{record_type:"custom_field"}
+// would otherwise stage cleanly, because the surface does not enforce schema
+// enums, and the approved retry would then die at the provider with the
+// approval spent.
+//
+// This is right for BOTH doors only because compose's restCommands
+// (agentcommand.go) registers this resolver for a create operation only when
+// its record type is one createRecord actually serves — a type outside that
+// set is created through its own module's handler, never through this verb's
+// write path, so the refusal below would describe a door it was never asked
+// about. That boundary is the REST wiring's to keep, not this resolver's: it
+// has no way to tell which door a given cmd.RecordType arrived from.
+func (createResolver) Guards(_ context.Context, cmd CreateCommand) error {
+	if !(createRecord{}).ServesRecordType(cmd.RecordType) {
+		return &BadArgsError{Cause: fmt.Errorf(
+			"this verb does not create %q records, so no approval of it could ever be carried out", cmd.RecordType)}
+	}
+	return rejectUnknownFields(createShapes, cmd.RecordType, cmd.Fields)
+}
+
+// PatchCommand is one whole-record field patch, whichever door asked for it.
+type PatchCommand struct {
+	RecordType string
+	ID         ids.UUID
+	Fields     json.RawMessage
+	// IfVersion is the caller's own optimistic-concurrency guard. Neither
+	// Guards nor Subject below reads it — the version an approval pins is
+	// taken server-side inside the staging transaction (Subject's own
+	// comment) — it is part of the command because it is part of what the
+	// call ASKED for, the same reason a canonicalized REST body carries it
+	// into the diff_hash the redemption checks.
+	IfVersion *int64
+}
+
+// NewPatchCall binds one patch to the resolver that answers for it, reading
+// through the record seam the patch itself writes through.
+//
+// No memo here, unlike archive's: Subject below reads nothing — its summary
+// names the FIELDS the patch sets, not the record, so there is only ONE
+// caller of a target read (Guards) and nothing for a second reading to race
+// against. A memo earns its keep with a second caller; adding one here ahead
+// of that caller would be exactly the abstraction T3/T8 forbid.
+//
+//nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
+func NewPatchCall(records datasource.SystemOfRecordProvider, cmd PatchCommand) GovernedCall {
+	return bind[PatchCommand](patchResolver{records: records}, cmd)
+}
+
+type patchResolver struct {
+	records datasource.SystemOfRecordProvider
+}
+
+// Subject names the record TYPE and ID the approval binds to, with no pin:
+// approvals.resolveTargetVersion takes the pin server-side inside the staging
+// transaction, the one place every stager passes through, so a version
+// computed here would be a number nothing reads. The summary names the
+// FIELDS the patch sets rather than the record, matching the shape a staged
+// patch already had before this seam existed (#982) — a record's values are
+// the record, and the staged row carries all of them in proposed_change,
+// which the inbox shows beside this line.
+func (patchResolver) Subject(_ context.Context, cmd PatchCommand) (StageInfo, error) {
+	return StageInfo{
+		TargetType: cmd.RecordType,
+		TargetID:   cmd.ID,
+		Summary:    describeGenericWrite("Update", cmd.RecordType, cmd.Fields),
+	}, nil
+}
+
+// Guards refuses, before anything is staged: a `fields` payload naming a key
+// the record type does not accept, a target the caller cannot see (the read
+// answers the row-scope miss as not-found), and a target whose authority
+// lives in another system of record.
+//
+// Unlike create's, there is no standalone "verb does not serve this type"
+// refusal here — update_record's pre-#982 body never had one, and adding one
+// keyed on the same vocabulary the seam is keyed on would make the
+// servedByTheRecordSeam stand-down below unreachable: a type outside it would
+// already have been refused. The seam stands down instead, exactly as
+// archive's does, for the same reason: five of the twelve patchable types
+// (custom_field, offer, product, saved_view, webhook_subscription) are
+// patched by their own module rather than through this seam.
+func (p patchResolver) Guards(ctx context.Context, cmd PatchCommand) error {
+	if err := rejectUnknownFields(updateShapes, cmd.RecordType, cmd.Fields); err != nil {
+		return err
+	}
+	if !servedByTheRecordSeam(cmd.RecordType) {
+		return nil
+	}
+	rec, err := p.records.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(cmd.RecordType), ID: cmd.ID})
+	if err != nil {
+		return err
 	}
 	return refuseStagingElsewhere(rec)
 }
