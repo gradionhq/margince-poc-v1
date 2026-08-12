@@ -105,30 +105,20 @@ func overlayChildRows(fields map[string]any, parent string) []map[string]any {
 	}
 }
 
-// overlayPersonEmailRow answers the mirrored contact's email together with the
-// row that carries it — the first row of the person_email collection holding
-// one, so a collection whose leading row holds only its declared attributes
-// still yields the address. The row is what a caller reads the address's type
-// and primary flag from; it is nil exactly when the address is "".
-func overlayPersonEmailRow(fields map[string]any) (map[string]any, string) {
-	return overlayFirstChildRow(fields, "person_email", "email")
-}
-
-// overlayPersonEmail answers the mirrored contact's email alone, for a caller
-// that needs the address and none of the row's declared attributes.
+// overlayPersonEmail answers the mirrored contact's email alone — the first row
+// of the person_email collection holding one, so a collection whose leading row
+// carries only its declared attributes still yields the address. Its readers
+// are the display-name fallbacks, which need an address to name a contact by
+// and none of the row's attributes; a reader that publishes or imports the
+// addresses takes the whole collection instead (overlayPersonEmails,
+// flipPersonEmails).
 func overlayPersonEmail(fields map[string]any) string {
-	_, email := overlayPersonEmailRow(fields)
-	return email
-}
-
-// overlayOrgDomainRow answers the mirrored company's domain and its row out of
-// the organization_domain collection, mirroring overlayPersonEmailRow. Its one
-// reader is the flip import, which needs the row for the primary flag the
-// mapping declared, so there is no domain-only counterpart to
-// overlayPersonEmail. The read wire takes the whole collection instead
-// (overlayOrganizationDomains).
-func overlayOrgDomainRow(fields map[string]any) (map[string]any, string) {
-	return overlayFirstChildRow(fields, "organization_domain", "domain")
+	for _, row := range overlayChildRows(fields, "person_email") {
+		if address := strings.TrimSpace(fieldString(row, "email")); address != "" {
+			return address
+		}
+	}
+	return ""
 }
 
 // overlayPersonEmails assembles the contract's email collection from the
@@ -260,20 +250,6 @@ func childRowPosition(row map[string]any) int {
 	default:
 		return 0
 	}
-}
-
-// overlayFirstChildRow answers the first row of a child collection holding a
-// non-empty string under column, with that trimmed value; nil and "" when no
-// row holds one.
-func overlayFirstChildRow(fields map[string]any, parent, column string) (map[string]any, string) {
-	for _, row := range overlayChildRows(fields, parent) {
-		if value, ok := row[column].(string); ok {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				return row, trimmed
-			}
-		}
-	}
-	return nil, ""
 }
 
 // fieldString answers the string value of a canonical field, "" when

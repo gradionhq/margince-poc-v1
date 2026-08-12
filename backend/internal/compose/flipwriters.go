@@ -348,43 +348,56 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
-// flipPersonEmails shapes the mirrored contact's address into the people
-// store's input. The mapper lands a TargetChild under its PARENT key, as one
-// row of a collection, never under the dotted To — so this reads it with the
-// same helper the wire projection uses; a flat lookup silently returns "" and
-// drops every contact's email, and with it the duplicate-email skip
-// ensurePerson depends on. Type and primary flag are the row's own declared
-// attributes, so the native row inherits what the mapping said rather than an
-// assumption. The type is held to the contract's enum before it is forwarded:
+// flipPersonEmails shapes the mirrored contact's addresses into the people
+// store's input. The mapper lands a TargetChild under its PARENT key, as rows
+// of a collection, never under the dotted To — so this reads it with the same
+// helper the wire projection uses; a flat lookup silently returns "" and drops
+// every contact's email, and with it the duplicate-email skip ensurePerson
+// depends on. The WHOLE collection is carried, as the read wire publishes it
+// (overlayPersonEmails): the flip writes durable rows and freezes the mirror,
+// so an address the wire shows but the import drops is lost for good. Type,
+// primary flag and position are each row's own declared attributes, so the
+// native rows inherit what the mapping said rather than an assumption. Every
+// row's type is held to the contract's enum before it is forwarded:
 // person_email.email_type is CHECK-constrained, so a mapping declaring a type
 // outside that set would abort the whole import with a raw constraint error
 // where the read wire falls back — the work address one mapped address means.
 func flipPersonEmails(fields map[string]any) []people.PersonEmailInput {
-	row, email := overlayPersonEmailRow(fields)
-	if email == "" {
-		return nil
+	var out []people.PersonEmailInput
+	for _, row := range overlayChildRows(fields, "person_email") {
+		address := strings.TrimSpace(fieldString(row, "email"))
+		if address == "" {
+			continue
+		}
+		emailType := crmcontracts.PersonEmailEmailType(strings.TrimSpace(fieldString(row, "email_type")))
+		if !emailType.Valid() {
+			emailType = crmcontracts.PersonEmailEmailTypeWork
+		}
+		out = append(out, people.PersonEmailInput{
+			Email:     address,
+			EmailType: string(emailType),
+			IsPrimary: childRowIsPrimary(row),
+			Position:  childRowPosition(row),
+		})
 	}
-	emailType := crmcontracts.PersonEmailEmailType(strings.TrimSpace(fieldString(row, "email_type")))
-	if !emailType.Valid() {
-		emailType = crmcontracts.PersonEmailEmailTypeWork
-	}
-	return []people.PersonEmailInput{{
-		Email:     email,
-		EmailType: string(emailType),
-		IsPrimary: childRowIsPrimary(row),
-	}}
+	return out
 }
 
-// flipOrgDomains shapes the mirrored company's domain the way flipPersonEmails
-// shapes the contact's address — the same child-collection row, carried across
-// rather than dropped (the people store normalizes the host, so no pre-cleaning
-// here). A domain row declares no type, so there is no enum to hold it to.
+// flipOrgDomains shapes the mirrored company's domains the way flipPersonEmails
+// shapes the contact's addresses — the same child collection, carried across
+// whole rather than reduced to its leading row (the people store normalizes the
+// host, so no pre-cleaning here). A domain row declares no type, so there is no
+// enum to hold it to.
 func flipOrgDomains(fields map[string]any) []people.OrgDomainInput {
-	row, domain := overlayOrgDomainRow(fields)
-	if domain == "" {
-		return nil
+	var out []people.OrgDomainInput
+	for _, row := range overlayChildRows(fields, "organization_domain") {
+		domain := strings.TrimSpace(fieldString(row, "domain"))
+		if domain == "" {
+			continue
+		}
+		out = append(out, people.OrgDomainInput{Domain: domain, IsPrimary: childRowIsPrimary(row)})
 	}
-	return []people.OrgDomainInput{{Domain: domain, IsPrimary: childRowIsPrimary(row)}}
+	return out
 }
 
 func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {

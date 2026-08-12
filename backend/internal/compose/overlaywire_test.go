@@ -484,11 +484,15 @@ func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	}
 }
 
-// orgDomainOf drops the row overlayOrgDomainRow answers alongside the domain,
-// so a case table can hold it next to overlayPersonEmail's matching shape.
+// orgDomainOf reduces the collection overlayOrganizationDomains publishes to
+// its leading domain, so a case table can hold that reader next to
+// overlayPersonEmail's value-only shape.
 func orgDomainOf(fields map[string]any) string {
-	_, domain := overlayOrgDomainRow(fields)
-	return domain
+	domains := overlayOrganizationDomains(openapi_types.UUID{}, fields)
+	if domains == nil || len(*domains) == 0 {
+		return ""
+	}
+	return (*domains)[0].Domain
 }
 
 // The child collection the wire reads is the one the mapping pipeline
@@ -565,7 +569,7 @@ func TestOverlayChildReadersStillReadTheSingleObjectShape(t *testing.T) {
 		t.Errorf("overlayPersonEmail = %q, want the address the pre-collection payload holds", got)
 	}
 	if got := orgDomainOf(legacy); got != "acme.io" {
-		t.Errorf("overlayOrgDomainRow = %q, want the domain the pre-collection payload holds", got)
+		t.Errorf("orgDomainOf = %q, want the domain the pre-collection payload holds", got)
 	}
 	// A payload holding neither shape answers absent rather than erroring:
 	// the true value always survives in raw.
