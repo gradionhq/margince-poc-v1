@@ -71,6 +71,58 @@ type stagedApprovalNote struct {
 	Message    string          `json:"message"`
 }
 
+// RecordTypeOf lets the contract's per-record-type tier floor see which record
+// this call patches (tierfloor.go).
+func (updateRecord) RecordTypeOf(args json.RawMessage) string { return recordTypeArg(args) }
+
+// ServesRecordType reports the record types this verb can actually patch — the
+// contract's own update bodies. The floor reads it so a type this verb cannot
+// patch is never tightened into an approval that could only ever fail.
+func (updateRecord) ServesRecordType(recordType string) bool {
+	_, served := updateShapes[datasource.EntityType(recordType)]
+	return served
+}
+
+// StageInfo puts a patch the contract tightened to confirm-first in the inbox
+// instead of dead-ending it (#982).
+//
+// It stages the WHOLE call, not the per-field residue Handle's precedence split
+// stages. The two answer different questions and both are real: the split asks
+// "may a machine overwrite what a person typed", and applies everything else
+// meanwhile; the floor says this operation is confirm-first whatever the fields
+// hold, so nothing may apply until a human releases it. The floor is resolved
+// before admission, so a call that reaches here has already been judged the
+// second way, and an approved retry carries the ApprovalRedeemed marker that
+// sends Handle straight to the full apply.
+//
+// The record is READ, for the reasons its 🟡 siblings read theirs: a patch
+// naming a record the caller cannot see must be refused now rather than after a
+// human has spent a one-shot approval on it, and a record whose authority lives
+// in another system of record can never have that approval released at all.
+func (t updateRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args updateRecordArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	if err := rejectUnknownFields(updateShapes, args.RecordType, args.Fields); err != nil {
+		return StageInfo{}, err
+	}
+	rec, err := t.p.Read(ctx, datasource.EntityRef{
+		Type: datasource.EntityType(args.RecordType), ID: args.ID,
+	})
+	if err != nil {
+		return StageInfo{}, err
+	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: args.RecordType,
+		TargetID:   args.ID,
+		Summary:    describeGenericWrite("Update", args.RecordType, args.Fields),
+	}, nil
+}
+
 // Handle is the per-field human-edit-precedence split (interfaces.md
 // §2.1): fields a human last wrote are staged 🟡 for approval, the rest
 // of the patch applies 🟢 in the same call — a machine does not silently
