@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Globe, Link2, MapPin, Tag, Users } from "lucide-react";
-import type { ReactElement } from "react";
+import { Fragment, type ReactElement } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -8,8 +7,7 @@ import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
 import { InlineChoice } from "../design-system/inlinechoice";
-import { Chip } from "../design-system/readings";
-import { formatDateTime } from "../format/format";
+import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { throwProblem, useSorMode } from "./common";
@@ -202,7 +200,13 @@ export function useCompanyReadOnlyReason(
   return undefined;
 }
 
-function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
+// Exported so the call site can pass it straight into RecordView's
+// `nameBadge` slot — the record's standing belongs on the name's own line
+// (mockup's target header), not folded into CompanyIdentityLine's meta line
+// with everything else the account carries.
+export function CompanyLifecycleControl({
+  org,
+}: Readonly<{ org: Organization }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
@@ -210,11 +214,11 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("org.lifecycle")}
-      // The identity line already names every value it carries in prose
-      // ("Owner …", "Created …") — a "Lifecycle: " prefix in front of the
-      // badge would be the one value on the line saying its own name twice.
-      // `label` still drives the accessible name (aria-label, sr-only form
-      // label), so a screen reader hears "Lifecycle" regardless.
+      // The badge already reads as the account's standing beside its name —
+      // a "Lifecycle: " prefix in front of it would be the one value on the
+      // line saying its own name twice. `label` still drives the accessible
+      // name (aria-label, sr-only form label), so a screen reader hears
+      // "Lifecycle" regardless.
       hideLabel
       value={org.lifecycle ?? "unknown"}
       options={LIFECYCLE_OPTIONS.map((value) => ({
@@ -223,10 +227,9 @@ function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
       }))}
       canEdit={canUpdate && !readOnlyReason}
       readOnlyReason={readOnlyReason}
-      // The account's standing is the one value on the line a reader looks
-      // for first, and both mockups draw it as the header's prominent
-      // control. An accent badge is that weight; grey text beside Owner and
-      // Created read as one more fact among them.
+      // The account's standing is the one value beside its name a reader
+      // looks for first. Tinted rather than filled: it marks the one value
+      // here a reader can set, without reading as the page's primary action.
       render={(value) => (
         <Badge tone="accent">{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
       )}
@@ -272,6 +275,11 @@ function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("co.pulse.owner")}
+      // The meta line prints "Owner" itself, immediately before this control
+      // (mockup target: "Owner Demo Admin", no colon) — the same "say it
+      // once" rule the lifecycle badge follows above. `label` still drives
+      // the accessible name regardless.
+      hideLabel
       value={org.owner_id ?? ""}
       options={options}
       canEdit={canUpdate && !readOnlyReason}
@@ -526,77 +534,9 @@ export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
   return <p className="co-description">{value}</p>;
 }
 
-// CompanyChips is the header's row of facts: where the company is on the web,
-// where it is on the map, what it does and how big it is (plan §4.1). It
-// replaces the joined subtitle string it grew out of — five values crushed
-// into one dot-separated line, where the two that are links did not read as
-// links and none of them said which was which.
-export function CompanyChips({ org }: Readonly<{ org: Organization }>) {
-  const t = useT();
-  // `website_url` is derived server-side from the primary domain row, and an
-  // overlay-mirrored company carries the domain without it. Falling back to
-  // the row keeps the chip on those records rather than silently dropping the
-  // one identifying fact the reader had before.
-  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
-  const website =
-    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined);
-  const location = [org.address?.city, org.address?.country]
-    .filter(Boolean)
-    .join(", ");
-  const chips: ReactElement[] = [];
-  if (website) {
-    chips.push(
-      <Chip key="website" icon={Globe} href={website}>
-        {displayHost(website)}
-      </Chip>,
-    );
-  }
-  if (org.linkedin_url) {
-    chips.push(
-      <Chip key="linkedin" icon={Link2} href={org.linkedin_url}>
-        {t("co.chip.linkedin")}
-      </Chip>,
-    );
-  }
-  if (location) {
-    chips.push(
-      <Chip key="location" icon={MapPin}>
-        {location}
-      </Chip>,
-    );
-  }
-  if (org.industry) {
-    chips.push(
-      <Chip key="industry" icon={Tag}>
-        {org.industry}
-      </Chip>,
-    );
-  }
-  if (org.size_band) {
-    chips.push(
-      <Chip key="size" icon={Users}>
-        {t("co.chip.employees", { band: org.size_band })}
-      </Chip>,
-    );
-  }
-  if (chips.length === 0) {
-    return null;
-  }
-  return (
-    // A list, so the row announces how many facts it carries and a reader can
-    // step through them — a bare div with a label announces the label and then
-    // runs the five chips together as one string.
-    <ul className="co-chiprow" aria-label={t("co.chip.rowLabel")}>
-      {chips.map((chip) => (
-        <li key={chip.key}>{chip}</li>
-      ))}
-    </ul>
-  );
-}
-
 // The scheme is noise in a chip: every one of these is https, and "https://"
-// costs eight characters of a row that has five things to fit. A URL we cannot
-// parse is shown whole rather than silently dropped.
+// costs eight characters of a row that has little space to fit it in. A URL
+// we cannot parse is shown whole rather than silently dropped.
 function displayHost(url: string): string {
   try {
     return new URL(url).host.replace(/^www\./, "");
@@ -605,15 +545,34 @@ function displayHost(url: string): string {
   }
 }
 
-// CompanyIdentityLine is the header's one meta line: where the account
-// stands and who owns it (both editable in place), then when the record was
-// created and when it was last exchanged with, then the way into whatever
-// decisions are waiting. One row, one baseline (mockup's `.under`) — this
-// replaces the four-row scatter the header used to draw (name; a chip row;
-// a "way in / they wrote / we wrote / agent: X" pulse line; lifecycle and
-// owner stranded in their own column at the top right), which gave the
-// reader four places to look for one fact each instead of one line to read
-// once.
+// `website_url` is derived server-side from the primary domain row, and an
+// overlay-mirrored company carries the domain without it. Falling back to
+// the row keeps the domain on those records rather than silently dropping
+// the one identifying fact the reader had before. Shared by every reader of
+// the company's web presence, so the fallback lives in one place rather than
+// being re-derived per caller.
+function companyWebsite(org: Organization): string | undefined {
+  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
+  return (
+    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined)
+  );
+}
+
+// CompanyIdentityLine is the header's two meta lines, under the name and its
+// lifecycle badge (which now sits on the name's own line — see RecordView's
+// `nameBadge`). The first names what the account is and who owns it — its
+// domain, its industry, its owner — as plain facts rather than pill chips;
+// the second, quieter, says when the record was made and when it was last
+// exchanged with. This replaces the four-row scatter the header used to draw
+// (name; a chip row; a "way in / they wrote / we wrote / agent: X" pulse
+// line; lifecycle and owner stranded in their own column at the top right),
+// which gave the reader four places to look for one fact each instead of two
+// lines to read in order: who this is, then when.
+//
+// Location and employee-band chips are dropped rather than moved: both
+// already have a home in the rail's Details grid (companyraildetails.tsx),
+// so drawing them here a second time would be the same fact stated twice
+// rather than a real loss.
 //
 // `agent: deepread`-style record provenance no longer renders here. It was
 // CompanyPulse's ProvenanceTag on `org.captured_by` — who/what wrote the
@@ -642,7 +601,7 @@ export function CompanyIdentityLine({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
+  const when = (at: string) => formatDateAbbrev(at, locale, RECORD_ZONE);
   // Withheld, absent, or still in flight, the line says nothing about it at
   // all: "never contacted" read off data the page could not answer is a
   // business conclusion it has no basis for, and it is the one a rep would
@@ -662,23 +621,52 @@ export function CompanyIdentityLine({
         ? inbound
         : outbound
       : (inbound ?? outbound);
+  const website = companyWebsite(org);
+  // What the account IS and who owns it, as plain facts rather than pill
+  // chips — built as a list rather than three fixed slots because website
+  // and industry are each legitimately absent, and a fixed "· ·" either
+  // side of a missing fact would leave a stray separator.
+  const facts: ReactElement[] = [];
+  if (website) {
+    facts.push(
+      <a key="website" className="co-meta-link" href={website}>
+        {displayHost(website)}
+      </a>,
+    );
+  }
+  if (org.industry) {
+    facts.push(<span key="industry">{org.industry}</span>);
+  }
+  // Owner always has a slot, even unowned — "Unassigned" is the honest
+  // current state, not an absence to omit the way a missing website is.
+  facts.push(
+    <span key="owner">
+      {t("co.pulse.owner")} <CompanyOwnerControl org={org} />
+    </span>,
+  );
   return (
-    <div className="co-under">
-      <CompanyLifecycleControl org={org} />
-      <span className="co-sep">·</span>
-      <CompanyOwnerControl org={org} />
-      <span className="co-sep">·</span>
-      <span>{t("co.pulse.created", { when: when(org.created_at) })}</span>
-      {touchKnown && (
-        <>
-          <span className="co-sep">·</span>
-          <span>
-            {lastExchange
-              ? t("co.pulse.lastExchange", { when: when(lastExchange) })
-              : t("co.pulse.neverTouched")}
-          </span>
-        </>
-      )}
+    <div className="co-identity-meta">
+      <div className="co-meta-line">
+        {facts.map((fact, i) => (
+          <Fragment key={fact.key}>
+            {i > 0 && <span className="co-sep">·</span>}
+            {fact}
+          </Fragment>
+        ))}
+      </div>
+      <div className="co-meta-line co-meta-quiet">
+        <span>{t("co.pulse.created", { when: when(org.created_at) })}</span>
+        {touchKnown && (
+          <>
+            <span className="co-sep">·</span>
+            <span>
+              {lastExchange
+                ? t("co.pulse.lastExchange", { when: when(lastExchange) })
+                : t("co.pulse.neverTouched")}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

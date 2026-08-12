@@ -196,6 +196,25 @@
 .record-head .record-id {
   flex: 1;
 }
+/* The name and its one standing badge, on the SAME baseline — the badge
+   reads as part of naming the record, not as one more fact under it. */
+.record-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Small and tinted rather than the button-sized accent badge every other
+   inline choice draws elsewhere on the page — beside a 22-34px name it
+   reads as a tag on the record, not a control competing with it for
+   weight. Uppercase via CSS only: the label string itself stays sentence
+   case for every other reader of the same translation key (aria-label,
+   the edit form). */
+.record-name-row .badge {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
 .record-head h1 {
   font-family: var(--f-display);
   font-size: 22px;

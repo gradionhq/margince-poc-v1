@@ -37,18 +37,6 @@
   margin-bottom: 0;
 }
 
-/* The header's ONE meta line: lifecycle, owner, created, last exchange, the
-   decisions chip — folded onto one row under the name rather than scattered
-   over several (mockup's `.under`). Wraps rather than truncates: a long
-   owner name loses nothing here that a second line would keep. */
-.co-under {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
-  font-size: 13px;
-  color: var(--textMeta);
-}
 /* Owned by the reading that FOLLOWS it, same rule as .today-tile's own
    separator above: a line that wraps never leaves a dot stranded at its
    end. */
@@ -56,36 +44,44 @@
   color: var(--textTertiary);
 }
 
-/* Where the account STANDS is the line's one prominent control, drawn in
-   both mockups as a filled button rather than as another grey reading beside
-   Owner. The badge carries that weight: solid accent, and a target big
-   enough to read as something you press. */
-/* Quiet, like every other reading on this line. Filled accent at button size
-   it read as the page's primary action — the loudest thing in the header was
-   a label stating what the account already is, beside verbs that actually do
-   something. Tinted, it still marks the one value here a reader can set. */
-.co-under .badge {
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-medium);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--r-sm);
-  background: var(--accentLight);
-  color: var(--accent);
-}
-
-/* The header's description line and its row of attribute chips. */
+/* The header's description line. */
 .co-description {
   margin: 0 0 var(--space-2);
   color: var(--textMeta);
   font-size: 13.5px;
 }
-.co-chiprow {
+
+/* CompanyIdentityLine's two meta lines: what the account is and who owns it,
+   then when it was created and last exchanged with — stacked, not run into
+   one row, so the two questions read as two answers rather than one long
+   sentence a reader has to re-parse. A single flex item inside record-pulse
+   (composed.css), so it stacks on its own without fighting that row's own
+   layout. */
+.co-identity-meta {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.co-meta-line {
+  display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-2) 0 0;
-  padding: 0;
-  list-style: none;
+  gap: var(--space-1) var(--space-2);
+  font-size: 13px;
+  color: var(--textMeta);
+}
+/* The second line: when, not who — quieter than the first so the eye lands
+   on identity before date. */
+.co-meta-quiet {
+  font-size: var(--fs-meta);
+  color: var(--textTertiary);
+}
+.co-meta-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.co-meta-link:hover {
+  text-decoration: underline;
 }
 
 .co-list {
@@ -602,6 +598,13 @@
 .co-strip .stat-card-label {
   flex-wrap: wrap;
   justify-content: flex-start;
+  /* The strip's own reading, not StatCard's default sentence case: a KPI row
+     reads as a row of labelled readings, and small caps say "label" at a
+     glance the way sentence case says "sentence". Scoped here rather than on
+     StatCard itself, which every other free-standing card also uses. */
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 11px;
 }
 
 /* The brief under the questions it answers. Sections are separated by space
@@ -1196,4 +1199,14 @@
 .co-lead > .panel-head h2 {
   font-size: var(--fs-body);
   font-weight: var(--fw-semibold);
+}
+
+/* The readings are a row a reader sweeps, so each one needs room around it to
+   read as its own reading rather than as a column of a table. The shared tile
+   is sized for a dashboard grid where the card's own border holds it apart;
+   here the slots share one plate and a hairline is all that separates them,
+   so the space has to come from inside. */
+.co-strip > .stat-card {
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5);
 }

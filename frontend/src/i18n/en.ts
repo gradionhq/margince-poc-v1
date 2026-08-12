@@ -595,8 +595,6 @@ export const en = {
   "co.description.label": "Description",
   "co.description.placeholder": "Add what this company does",
   "co.chip.linkedin": "LinkedIn",
-  "co.chip.employees": "{band} employees",
-  "co.chip.rowLabel": "Company details",
   "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 months",
   "co.strip.overdue": "Overdue",

@@ -373,6 +373,7 @@ function actionsPlacement(
 function RecordHead({
   name,
   avatarSrc,
+  nameBadge,
   subtitle,
   pulse,
   badges,
@@ -383,6 +384,7 @@ function RecordHead({
 }: Readonly<{
   name: string;
   avatarSrc?: string | null;
+  nameBadge?: ReactNode;
   subtitle?: ReactNode;
   pulse?: ReactNode;
   badges?: ReactNode;
@@ -395,10 +397,19 @@ function RecordHead({
     <header className={wide ? "record-head record-head-wide" : "record-head"}>
       <Avatar name={name} src={avatarSrc} size="lg" />
       <div className="record-id">
-        {/* The record page's name. The shell's page head yields to it on a
-            record route — it prints the trail that leads here and nothing at
-            heading level, so this stays the page's one h1. */}
-        <h1>{name}</h1>
+        {/* The record page's name, and the one badge that belongs on ITS
+            OWN line — a record's standing, read immediately after what it
+            is named, not one fact among the others under it. A div, not a
+            p, for the same reason as record-sub below: a caller passing
+            structure there must not land inside a paragraph the browser
+            silently un-nests. */}
+        <div className="record-name-row">
+          {/* The shell's page head yields to it on a record route — it
+              prints the trail that leads here and nothing at heading
+              level, so this stays the page's one h1. */}
+          <h1>{name}</h1>
+          {nameBadge}
+        </div>
         {/* A div, not a p: a caller passing structure — the company page's
             description line plus its chip row — would otherwise nest block
             elements inside a paragraph, which the browser silently un-nests,
@@ -429,6 +440,7 @@ function RecordHead({
 export function RecordView({
   name,
   avatarSrc,
+  nameBadge,
   subtitle,
   badges,
   pulse,
@@ -455,6 +467,10 @@ export function RecordView({
   // Null or absent renders the deterministic monogram, which is the floor for
   // every record type that has no image at all.
   avatarSrc?: string | null;
+  // The record's standing, read on the SAME line as its name rather than as
+  // one more fact under it — the company page's editable lifecycle badge.
+  // Absent on every record that has no such single, always-shown value.
+  nameBadge?: ReactNode;
   // A string for the records whose subtitle IS one line of joined facts, or a
   // node for a record that needs structure under its name — the company page's
   // editable description plus its row of attribute chips.
@@ -540,6 +556,7 @@ export function RecordView({
       <RecordHead
         name={name}
         avatarSrc={avatarSrc}
+        nameBadge={nameBadge}
         subtitle={subtitle}
         pulse={pulse}
         badges={badges}

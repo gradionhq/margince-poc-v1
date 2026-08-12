@@ -893,6 +893,23 @@
   color: var(--danger);
 }
 
+/* The verdict dot beside a StatCard value — see `dot` on StatCard above.
+ * Colour follows the same tone class as the value it sits beside, never a
+ * literal, so the two can never disagree about what the verdict is. */
+.stat-card-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+}
+.stat-card-dot-warn {
+  background: var(--warn);
+}
+.stat-card-dot-danger {
+  background: var(--danger);
+}
+
 /* The whole-tile variant: the slot itself is bad news, not just its figure —
    see StatCard's `alert` docblock. Two classes deliberately, so this beats
    `.co-strip > *`'s own background reset regardless of stylesheet order. */

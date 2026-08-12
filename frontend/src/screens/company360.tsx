@@ -2924,6 +2924,7 @@ function HealthSummaryStat({
       label={t("co.strip.healthSummary")}
       value={t(HEALTH_RATING_LABEL[overall])}
       tone={overall === "at_risk" ? "warn" : undefined}
+      dot={overall === "at_risk"}
       detail={
         failing > 0
           ? t("co.strip.healthSummary.failingOf", { failing, rated })

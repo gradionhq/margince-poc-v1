@@ -588,8 +588,6 @@ export const vi = {
   "co.description.label": "Mô tả",
   "co.description.placeholder": "Thêm mô tả công ty này làm gì",
   "co.chip.linkedin": "LinkedIn",
-  "co.chip.employees": "{band} nhân viên",
-  "co.chip.rowLabel": "Thông tin công ty",
   "co.strip.netInvoicedLifetime": "Đã xuất hóa đơn ròng · trọn đời",
   "co.strip.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
   "co.strip.overdue": "Quá hạn",

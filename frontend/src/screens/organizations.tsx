@@ -74,9 +74,9 @@ import { CompanyFinanceCard } from "./companyfinance";
 import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
-  CompanyChips,
   CompanyDescription,
   CompanyIdentityLine,
+  CompanyLifecycleControl,
   CompanyPrimaryActions,
 } from "./companyheader";
 import {
@@ -2055,15 +2055,15 @@ function CompanyPage({
     <RecordView
       name={org.display_name}
       avatarSrc={org.logo_url}
-      // The description a person wrote, then the row of attribute chips
-      // (mockup State D). It replaces a dot-joined string of the same five
-      // values, in which the two that were links did not read as links.
-      subtitle={
-        <>
-          <CompanyDescription org={org} />
-          <CompanyChips org={org} />
-        </>
-      }
+      // The account's standing, read on the name's own line rather than
+      // folded into the meta line below with everything else it carries —
+      // the one value here a reader looks for first.
+      nameBadge={<CompanyLifecycleControl org={org} />}
+      // The description a person wrote — the row of attribute chips that
+      // used to sit here moved into CompanyIdentityLine's meta line as plain
+      // facts (mockup's target header), alongside the ones that already had
+      // no chip (owner).
+      subtitle={<CompanyDescription org={org} />}
       zone={RECORD_ZONE}
       pulse={<CompanyIdentityLine org={org} view={view} loading={loading} />}
       // The composer opens from a button rather than standing open above the

@@ -311,6 +311,7 @@ export function StatCard({
   tone,
   source,
   alert,
+  dot,
 }: Readonly<{
   label: string;
   value: string;
@@ -324,6 +325,12 @@ export function StatCard({
   // stronger volume, it is a different judgement (the slot itself is bad
   // news, not just its figure).
   alert?: boolean;
+  // A small coloured mark before the value, for the one slot whose reading
+  // is a VERDICT rather than a figure — a glance a reader can catch without
+  // reading the word. Gated on `tone` as well as this flag, never on its
+  // own: the colour and the decision to show it at all come from the same
+  // judgement, so a fine verdict can never carry a leftover dot.
+  dot?: boolean;
 }>) {
   return (
     <section className={alert ? "stat-card stat-card-alert" : "stat-card"}>
@@ -338,6 +345,12 @@ export function StatCard({
             : "stat-card-value t-h3"
         }
       >
+        {dot && tone && (
+          <span
+            className={`stat-card-dot stat-card-dot-${tone}`}
+            aria-hidden="true"
+          />
+        )}
         {value}
       </span>
       {detail && <span className="stat-card-detail t-caption">{detail}</span>}
