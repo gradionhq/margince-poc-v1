@@ -47,6 +47,13 @@ func BindTo(pool *pgxpool.Pool, ws ids.WorkspaceID) *DB {
 	return &DB{pool: pool, workspace: func(context.Context) (ids.WorkspaceID, error) { return ws, nil }}
 }
 
+// Workspace reports which workspace this handle binds, for the callers that
+// need to name it rather than run in it — a job asserting it was wired to the
+// tenant its args declare, above all.
+func (d *DB) Workspace(ctx context.Context) (ids.WorkspaceID, error) {
+	return d.workspace(ctx)
+}
+
 // Pool exposes the underlying pool for the paths that do not run a
 // transaction — the outbox relay's listener, the health probe.
 func (d *DB) Pool() *pgxpool.Pool { return d.pool }
