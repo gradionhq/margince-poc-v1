@@ -501,6 +501,37 @@ different one — an ungoverned-agent refusal answered `ErrMultipleWorkspaces`
 instead of the refusal it exists to assert. **A component that carries a handle
 must pass THAT handle to everything it constructs.**
 
+### Step 4: the surfaces are done, the last of `principal` waits on step 5
+
+Landed: the **envelope** drops `workspace_id` (#1036, taking `events.ForWorkspace`
+with it — a bus filter whose premise was that the workspace is a field on the
+bus), and the **contract, generated types and SPA** drop it from thirty response
+schemas (#1049, after the spec's own `crm.yaml` landed it first —
+margince-foundation#1284, which is what P3 requires).
+
+Two things from that pair are worth carrying forward:
+
+- **The ledger now takes its tenant from the TRANSACTION.** `audit_log`,
+  `system_log` and `LockWriteIdentity`'s advisory key read
+  `current_setting('app.workspace_id')` in SQL instead of ctx. Read from ctx,
+  a ledger row could name a different workspace than the domain row it records,
+  and two writers of one record could take different lock keys and serialize
+  neither — both invisible. This is why the ledger moved early while the domain
+  INSERTs did not: their `workspace_id` binds vanish with the column in §8 phase
+  D, so converting them now is churn that phase deletes.
+- **A per-tenant breakdown of a single tenant is the total repeated.** Two wire
+  shapes collapsed rather than losing a field (embed-reindex status and
+  preview), and the same reasoning retires any other per-workspace fan-out on
+  the wire.
+
+**What is left of step 4 is `principal.WorkspaceID`, and it is entangled with
+step 5.** Sixty-six non-test readers remain, and they are not one shape: bound
+checks, meter keys, blob path segments, cache keys. The big consumer is
+`storekit.MustWorkspace` (53 sites stamping a `workspace_id` column) and
+`WithWorkspaceTx` itself (~580 uses), and §5 retires the latter as part of the
+SCHEMA phase. So the honest order is: do §8's phases, and let `principal` fall
+out where its referents go, rather than churning 600 call sites twice.
+
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
 Deliberately not a precise count: it moved by eleven while this note was being

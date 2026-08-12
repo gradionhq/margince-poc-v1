@@ -21,6 +21,46 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-12 (later still) — the tenant leaves the bus and the wire (PRs #1036, #1049, foundation#1284)
+
+ADR-0091 §9 **step 4**, the parts that do not wait on the schema. The envelope
+carries no `workspace_id`, and neither do thirty contract response schemas —
+the spec's own `crm.yaml` landed first, which is what contract-first means when
+the change is yours to write.
+
+The consumers are the interesting half. Every one that read the tenant off the
+envelope now takes it from what it was BUILT with — its store's handle, or the
+installation resolver where it holds no store. That is step 3's rule arriving at
+the bus: which tenant a component serves is a property of its construction, not
+of the message it is handed.
+
+Three ledger writes went further and take the tenant from the TRANSACTION —
+`audit_log`, `system_log`, and the advisory key in `LockWriteIdentity`, all
+reading `current_setting('app.workspace_id')` in SQL. Read from ctx, two things
+could disagree invisibly: a ledger row and the domain row it records, and two
+writers of one record taking different lock keys. The domain INSERTs deliberately
+did NOT follow — their binds vanish with the column in §8 phase D.
+
+That change surfaced a genuine test defect: the lock-contention racer opened a
+transaction without binding its workspace, so under a transaction-derived key it
+contended with nobody and would have reported a working lock as broken. A test
+supplying its own version of production, exactly as the review-loop rule warns.
+
+On the wire, two shapes collapsed rather than losing a field, because a per-tenant
+breakdown of a single tenant is the total repeated: embed-reindex status dropped
+`per_workspace`, and its preview keeps one `utilization_impact` instead of an
+array of one.
+
+The breaking-change gate was satisfied through its ratified-resync allowlist —
+the mechanism's intended use, keyed on the exact (base blob, new blob) pair so
+any later contract edit restores the stable gate.
+
+Filed, not fixed: **#1048** — the data reset drains the outbox in a transaction
+of its own and sweeps domain rows in another, so an event staged between them
+survives the sweep. Pre-existing since #513; closing it means a reset lock on
+every outbox writer, which is a change to the shared write shape rather than a
+line in the sweep.
+
 ## 2026-08-12 (later) — identity too: step 3 is complete (PR #1010)
 
 The entry below called identity a slice with real fixture work, and it was —
