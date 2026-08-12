@@ -108,6 +108,29 @@ func Keep(sentences []Sentence, known map[Evidence]bool, knownNature map[string]
 	return Dedupe(kept)
 }
 
+// TerminateSentence renders a stored statement as one sentence: a closing full
+// stop when the value ends without one, and the author's own terminator kept
+// when it has one. Rewriting a "?" into a "." would be an edit to approved
+// text, which none of these surfaces promises, and appending a second "."
+// to a value that already ends with one renders "..". Exported so every
+// surface that turns a stored field into a sentence — the brief, the
+// dossier — terminates it the same way rather than re-deriving the rule and
+// one of them missing the already-terminated case.
+func TerminateSentence(value string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), ";:, ")
+	if trimmed == "" {
+		return trimmed
+	}
+	// "…" included: a statement that trails off already ends, and appending a
+	// full stop to it renders "….".
+	for _, terminator := range []string{".", "!", "?", "…"} {
+		if strings.HasSuffix(trimmed, terminator) {
+			return trimmed
+		}
+	}
+	return trimmed + "."
+}
+
 // Dedupe collapses repeated citations within each sentence, keeping first-seen
 // order.
 //
