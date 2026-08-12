@@ -38,7 +38,15 @@ var draftRetentionUntil = sendOutcomeClock.Add(voiceLearningSignalRetention)
 type sendOutcomeEnv struct {
 	owner *pgx.Conn
 	pool  *pgxpool.Pool
-	store *VoiceStore
+}
+
+// storeIn is the voice store bound to ONE of this suite's workspaces. Each
+// seedDraft mints its own tenant, so there is no single workspace the fixture
+// could bind at setup — and the workspace a store runs in is its handle's.
+func (e *sendOutcomeEnv) storeIn(ws ids.UUID) *VoiceStore {
+	s := NewVoiceStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](ws)))
+	s.now = func() time.Time { return sendOutcomeClock }
+	return s
 }
 
 func setupSendOutcomeStore(t *testing.T) *sendOutcomeEnv {
@@ -65,9 +73,7 @@ func setupSendOutcomeStore(t *testing.T) *sendOutcomeEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	store := NewVoiceStore(pool)
-	store.now = func() time.Time { return sendOutcomeClock }
-	return &sendOutcomeEnv{owner: owner, pool: pool, store: store}
+	return &sendOutcomeEnv{owner: owner, pool: pool}
 }
 
 // draftOptions varies the seeded signal for the refusal under test. The
@@ -196,14 +202,26 @@ func (e *sendOutcomeEnv) seedUser(t *testing.T, workspace ids.UUID, label string
 	return id
 }
 
+// workspaceOf names the tenant a fixture ctx is acting in, which is the one its
+// store has to bind.
+func workspaceOf(ctx context.Context, t *testing.T) ids.UUID {
+	t.Helper()
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		t.Fatal("the fixture context carries no workspace")
+	}
+	return ws
+}
+
 // record runs the method the way task 3's send path will: inside a
 // workspace transaction the CALLER owns, never one the store opens.
 func (e *sendOutcomeEnv) record(ctx context.Context, t *testing.T, draftRef, finalBody string) bool {
 	t.Helper()
+	store := e.storeIn(workspaceOf(ctx, t))
 	var recorded bool
 	if err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var err error
-		recorded, err = e.store.RecordSendOutcomeTx(ctx, tx, draftRef, finalBody)
+		recorded, err = store.RecordSendOutcomeTx(ctx, tx, draftRef, finalBody)
 		return err
 	}); err != nil {
 		t.Fatalf("RecordSendOutcomeTx: %v", err)
@@ -520,13 +538,14 @@ func (e *sendOutcomeEnv) holdSignalLock(t *testing.T, signal ids.UUID) {
 // call that does take one surfaces as an error instead of a hang.
 func (e *sendOutcomeEnv) recordUnderLockTimeout(ctx context.Context, t *testing.T, draftRef, finalBody string) (bool, error) {
 	t.Helper()
+	store := e.storeIn(workspaceOf(ctx, t))
 	var recorded bool
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '2s'`); err != nil {
 			return err
 		}
 		var err error
-		recorded, err = e.store.RecordSendOutcomeTx(ctx, tx, draftRef, finalBody)
+		recorded, err = store.RecordSendOutcomeTx(ctx, tx, draftRef, finalBody)
 		return err
 	})
 	return recorded, err

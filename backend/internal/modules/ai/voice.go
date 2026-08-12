@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -38,16 +37,19 @@ import (
 // (tableownership: this module). The profile half lives here; the
 // corpus-source half (ingest, manifest, meter) is voicesources.go.
 type VoiceStore struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db  *database.DB
+	now func() time.Time
 	// enqueueBuild queues a freshly created build's job inside the creating
 	// transaction; nil when no job runner is configured (the row then stays
 	// honestly queued). Wired by WithBuildEnqueue.
 	enqueueBuild VoiceBuildEnqueue
 }
 
-func NewVoiceStore(pool *pgxpool.Pool) *VoiceStore {
-	return &VoiceStore{pool: pool, now: time.Now}
+// NewVoiceStore opens the voice store on a handle already bound to the
+// workspace it serves.
+func NewVoiceStore(db *database.DB) *VoiceStore {
+	return &VoiceStore{db: db, now: time.Now}
 }
 
 // VoiceProfile is the §B0.2 artifact pair: derived voice_profile_md
@@ -127,7 +129,7 @@ func (s *VoiceStore) ListProfiles(ctx context.Context, cursor *string, limit *in
 		where += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID))
 	}
 	var page VoiceProfilePage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM voice_profile WHERE %s ORDER BY created_at DESC, id DESC LIMIT %d`,
 			voiceProfileColumns, where, n+1,
@@ -164,7 +166,7 @@ func (s *VoiceStore) GetProfile(ctx context.Context, id ids.UUID) (VoiceProfile,
 		return VoiceProfile{}, err
 	}
 	var p VoiceProfile
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		p, err = s.visibleProfile(ctx, tx, id)
 		return err
@@ -224,7 +226,7 @@ func (s *VoiceStore) CreateProfile(ctx context.Context, in CreateVoiceProfileInp
 		return VoiceProfile{}, apperrors.ErrPermissionDenied
 	}
 	var p VoiceProfile
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		p, err = scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_profile
@@ -265,7 +267,7 @@ func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, in UpdateVo
 		return VoiceProfile{}, err
 	}
 	var p VoiceProfile
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		p, err = s.updateVoiceProfile(ctx, tx, id, in)
 		return err
@@ -388,7 +390,7 @@ func (s *VoiceStore) ArchiveProfile(ctx context.Context, id ids.UUID, ifVersion 
 		return VoiceProfile{}, err
 	}
 	var archived VoiceProfile
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "voice_profile", id, storekit.LiveOnly); err != nil {
 			return err
 		}

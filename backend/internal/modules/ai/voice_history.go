@@ -16,7 +16,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -103,7 +102,7 @@ func (s *VoiceStore) ListDeltas(ctx context.Context, profileID ids.UUID, cursor 
 		where += " AND (created_at, id) < ($2, $3)"
 	}
 	var page VoiceProfileDeltaPage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}
@@ -161,7 +160,7 @@ func (s *VoiceStore) LearningSummary(ctx context.Context, profileID ids.UUID) (V
 		return VoiceLearningSummary{}, err
 	}
 	var summary VoiceLearningSummary
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}
@@ -222,7 +221,7 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 		return VoiceLearningSummary{}, &CorpusIngestError{Field: voiceKeyDraftRef, Reason: voiceValidationNotEmpty}
 	}
 	hash := sha256.Sum256([]byte(draftRef))
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}

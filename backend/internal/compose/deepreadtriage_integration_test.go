@@ -53,7 +53,7 @@ func newTriageTestWorker(e *integration.Env, site *fakeSite, extractBrain comple
 		triageBrain: triage,
 		approvals:   svc,
 		authority:   identity.NewService(e.Pool),
-		autoEnrich:  capture.NewAutoEnrichStore(e.Pool),
+		autoEnrich:  capture.NewAutoEnrichStore(e.DB()),
 		settings:    capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}

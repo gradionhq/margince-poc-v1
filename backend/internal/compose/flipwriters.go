@@ -101,7 +101,7 @@ func newFlipWriters(db *database.DB, ms *overlay.MirrorStore, incumbent string) 
 		deals:      deals.NewStore(db, DealsInstallation()),
 		activities: activities.NewStore(db),
 		ms:         ms,
-		identities: migration.NewRunStore(pool),
+		identities: migration.NewRunStore(db),
 		incumbent:  incumbent,
 		nativeIDs:  map[string]ids.UUID{},
 	}

@@ -120,7 +120,7 @@ func TestTriageOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
 	// round trips to demonstrate a bound that behaves identically at three, and
 	// the number under test is "the cap", not its value.
 	const testCap = 3
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	for i := 0; i < testCap; i++ {
 		slot, err := store.ReserveBudget(e.Admin(), testCap)
 		if err != nil {
@@ -188,7 +188,7 @@ func TestTriageOnCaptureIgnoresAnEmptyDomain(t *testing.T) {
 // exactly the concurrency the cap is meant to be indifferent to.
 func TestAutoEnrichBudgetSlotIsReturnedWhenItBoughtNothing(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 
 	const testCap = 3
 	var last capture.BudgetSlot
@@ -226,7 +226,7 @@ func TestAutoEnrichBudgetSlotIsReturnedWhenItBoughtNothing(t *testing.T) {
 // failure the cap exists to prevent.
 func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 
 	const testCap = 3
 	// The day comes from a real reservation rather than Go's clock: the counter
@@ -265,7 +265,7 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 // cap.
 func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 
 	// Yesterday relative to the DATABASE's day, taken from a real reservation —
 	// the counter is keyed on that day, not on the test process's clock.
@@ -305,7 +305,7 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 // leaking the slot in precisely the case it was written to handle.
 func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	slot, err := store.ReserveBudget(e.Admin(), 3)
 	if err != nil {
 		t.Fatal(err)

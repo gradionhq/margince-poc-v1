@@ -83,7 +83,7 @@ func TestCaptureLedgerStopsDeferringAtTheWorkspaceCeiling(t *testing.T) {
 func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
-	store := capturemod.NewPendingStore(e.Pool)
+	store := capturemod.NewPendingStore(e.DB())
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	sync(t, email("contested@stranger.example", "Contested", captureOwner, "led3@stranger.example", ""))

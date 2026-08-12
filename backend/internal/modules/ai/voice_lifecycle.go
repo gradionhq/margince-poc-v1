@@ -17,7 +17,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -88,7 +87,7 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 		return VoiceBuild{}, apperrors.ErrPermissionDenied
 	}
 	var build VoiceBuild
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "voice_profile", profileID, storekit.LiveOnly); err != nil {
 			return err
 		}
@@ -158,7 +157,7 @@ func (s *VoiceStore) GetBuild(ctx context.Context, profileID, buildID ids.UUID) 
 		return VoiceBuild{}, err
 	}
 	var build VoiceBuild
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
 			return err
 		}

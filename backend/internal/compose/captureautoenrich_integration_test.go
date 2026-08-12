@@ -28,7 +28,7 @@ import (
 func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
 
 	// The dossier is created system-requested (as the sweep does), and its
@@ -100,7 +100,7 @@ func insertDomainOrg(t *testing.T, e *integration.Env, domain string) ids.Organi
 
 func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	// Two captured domain-named orgs are due; a human-named org (from insertOrg,
@@ -162,7 +162,7 @@ func TestTheInstallationsOwnCompanyIsNeverSwept(t *testing.T) {
 	// from a swept company in exactly the thing the sweep selects on, and the
 	// exclusion is the point rather than an oversight.
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	website := "https://anchor.example"
@@ -188,7 +188,7 @@ func TestACancelledReadDoesNotRetireAnOrgForever(t *testing.T) {
 	// reach that company, or the sweep's self-healing stops at exactly the orgs
 	// the setting stopped.
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	cancelled := insertDomainOrg(t, e, "offagain.example")
@@ -207,7 +207,7 @@ func TestACancelledReadDoesNotRetireAnOrgForever(t *testing.T) {
 
 func TestAutoEnrichExpireExhausted(t *testing.T) {
 	e := integration.Setup(t)
-	store := capture.NewAutoEnrichStore(e.Pool)
+	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 	org := insertDomainOrg(t, e, "fail.example")
 

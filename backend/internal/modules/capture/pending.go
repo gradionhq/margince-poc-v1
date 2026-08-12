@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -218,10 +217,13 @@ type dispositionRow struct {
 
 // PendingStore reads and resolves the ledger. It is the verdict engine's seam
 // into capture's own table; compose injects it.
-type PendingStore struct{ pool *pgxpool.Pool }
+// PendingStore's db binds the workspace this store runs for (ADR-0091 §9
+// step 3).
+type PendingStore struct{ db *database.DB }
 
-// NewPendingStore builds the ledger store over the capture pool.
-func NewPendingStore(pool *pgxpool.Pool) *PendingStore { return &PendingStore{pool: pool} }
+// NewPendingStore builds the ledger store on a handle already bound to the
+// workspace it serves.
+func NewPendingStore(db *database.DB) *PendingStore { return &PendingStore{db: db} }
 
 // ClaimDue atomically leases up to limit due rows for this workspace. FOR UPDATE
 // SKIP LOCKED lets several replicas drain the ledger without double-judging a
@@ -234,7 +236,7 @@ func NewPendingStore(pool *pgxpool.Pool) *PendingStore { return &PendingStore{po
 func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounterparty, error) {
 	claim := ids.NewV7()
 	var out []PendingCounterparty
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			UPDATE capture_pending_counterparty p
 			   SET attempts = p.attempts + 1,
@@ -336,7 +338,7 @@ func (s *PendingStore) CorrectResolution(ctx context.Context, tx pgx.Tx, id ids.
 // Guarded by the same claim as Resolve, for the same reason: a stalled worker
 // releasing "its" row would otherwise cut short a lease someone else now holds.
 func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string, refundAttempt bool) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Whether the attempt is given back is the difference between a row the
 		// SYSTEM failed and a row that fails on its own content.
 		//
@@ -371,7 +373,7 @@ func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff
 // it stopped, so an operator reading the row sees why it ended rather than
 // having to infer it from a counter that says something else.
 func (s *PendingStore) Retire(ctx context.Context, p PendingCounterparty, reason string) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET status = 'unsure', disposition_reason = NULLIF($2, ''),

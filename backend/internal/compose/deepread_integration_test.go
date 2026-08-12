@@ -98,7 +98,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		// the REQUESTER's live grants, and a stub would let the tests pass
 		// while production asked the question with the wrong authority.
 		authority:  identity.NewService(e.Pool),
-		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
+		autoEnrich: capture.NewAutoEnrichStore(e.DB()),
 		settings:   capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
