@@ -33,6 +33,16 @@ import (
 // happen to share a provider today and have no reason to share a shape.
 type restCommandDeps struct {
 	records datasource.SystemOfRecordProvider
+	// stages resolves a pipeline stage's configured SEMANTIC, which is what
+	// makes a deal move a close, a reopen or a routine step — three opposite
+	// decisions wearing one shape, so the summary a human reads cannot be
+	// written without it (modules/agents/commandlifecycle.go).
+	stages agents.StageResolver
+	// channels answers whether an activity kind is a messaging-channel
+	// conversation. The tool door holds the whole Comms seam and asks it
+	// there; this door holds the question alone, because a REST send_message
+	// needs to refuse a non-channel anchor without being able to send anything.
+	channels agents.ChannelKinds
 }
 
 // restCommands maps a crm.yaml operationId to the decoder that turns an HTTP
@@ -142,6 +152,39 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	opRemoveOfferLineItem: removeOfferLineItemCommand,
 	"createOffer":         createOfferCommand,
 	opUpsertPartner:       upsertPartnerCommand,
+
+	// The fourteen single-purpose commands over sixteen routes
+	// (agentcommandsend.go, agentcommandlifecycle.go, agentcommandrecord.go,
+	// agentcommandauto.go), and the first family where EVERY entry has a real
+	// tool-door twin resolving the same command. Until here the seam only
+	// promised that both doors COULD agree; these are where they actually do,
+	// because every one of these operations is reachable as a tool call too.
+	//
+	// Two commands serve two operations each, and neither pair is a duplicate:
+	// merge_records is the person and organization halves of one verb, and
+	// enrich is one verb at its two DEPTHS — a page read and a whole-site
+	// crawl, told apart by which decoder was reached rather than by anything on
+	// the wire (agentcommandrecord.go says why that has to be structural).
+	//
+	// Four of the fourteen are 🟢 today and stage nothing, so their entries are
+	// unreached until a tier floor tightens them; agentcommandauto.go's own doc
+	// says why they are registered anyway.
+	"sendEmail":           sendEmailCommand,
+	"sendMessage":         sendMessageCommand,
+	"sendAccountEmail":    sendAccountEmailCommand,
+	"bookMeeting":         bookMeetingCommand,
+	"promoteLead":         promoteLeadCommand,
+	"disqualifyLead":      disqualifyLeadCommand,
+	"advanceProjectPhase": advanceProjectPhaseCommand,
+	"advanceDeal":         advanceDealCommand,
+	"mergePerson":         mergeCommand,
+	"mergeOrganization":   mergeCommand,
+	"scrapeCompany":       scrapeCompanyCommand,
+	"deepReadCompany":     deepReadCompanyCommand,
+	"logActivity":         logActivityCommand,
+	"draftEmail":          draftEmailCommand,
+	"relinkActivity":      relinkActivityCommand,
+	"runReport":           runReportCommand,
 }
 
 // archiveCommand decodes one DELETE /v1/<collection>/{id} into the archive

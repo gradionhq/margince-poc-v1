@@ -87,8 +87,9 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				}
 			}
 			admitAgentCall(w, r, next, admissionOutcome{
-				staging: staging, ownership: ownership, commands: restCommandDeps{records: records}, pol: pol, body: body,
-				err: err, spec: spec, registry: reg,
+				staging: staging, ownership: ownership, pol: pol, body: body,
+				commands: restCommandDeps{records: records, stages: stages, channels: channelKinds{}},
+				err:      err, spec: spec, registry: reg,
 			})
 		})
 	}
