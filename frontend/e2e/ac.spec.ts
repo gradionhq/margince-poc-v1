@@ -129,13 +129,17 @@ test("AC-shell-1k: one h1 per railed page, and on a record it is the record's ow
   await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
   await expect(page.locator(".pagecrumb .pageback")).toHaveText("Kontakte");
 
-  // An id segment that names no record is the screen's own state, never the
-  // page's name: #/settings/privacy is the Settings page, and "privacy" is a
-  // route slug no reader should ever be shown as a title.
+  // An id segment that names no record is the screen's own state, so it is named
+  // in WORDS and never as the slug it is addressed by: #/settings/privacy is the
+  // privacy surface, and the sidebar's level beside it carries "Settings" — the
+  // page said that word twice while naming the surface never. "privacy" itself
+  // is a route slug no reader should ever be shown.
   await page.goto("/#/settings/privacy");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-    "Einstellungen",
-  );
+  const settingsHeading = page.getByRole("heading", { level: 1 });
+  await expect(settingsHeading).toHaveCount(1);
+  await expect(settingsHeading).toHaveText("Datenschutz & Einwilligung");
+  await expect(page.locator(".rail .navtitle")).toHaveText("Einstellungen");
+  await expect(page.locator("main")).not.toContainText("privacy");
 });
 
 test("AC-shell-3/4/5: ⌘K opens focused+empty, filters, Enter navigates", async ({
