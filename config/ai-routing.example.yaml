@@ -44,8 +44,13 @@ tiers:
   # which needs a rebuild). It is here so the rung has a measured default when a
   # task does need it, and so `make e2e-ai` can judge a candidate against it.
   # gemini-3.1-pro-preview is $2.00/$12.00 per MTok against premium's
-  # $1.50/$9.00, so at equal token counts a ladder change here raises that
-  # task's model cost by about a third.
+  # $1.50/$9.00 — about a third more per token, which is the SMALLER half of
+  # what a ladder change costs. Measured on the drafting fixtures (2026-08-12):
+  # Pro emits roughly 18x the output tokens of cheap_cloud's flash-lite and
+  # takes ~30s where premium takes ~7s and flash-lite ~2s. Token counts are not
+  # equal between rungs, so price the change on measured output, and on an
+  # interactive surface treat it as a latency decision first: 30s is felt by a
+  # rep waiting on a draft in a way that a cent is not.
   frontier:
     provider: gemini
     model: gemini-3.1-pro-preview
