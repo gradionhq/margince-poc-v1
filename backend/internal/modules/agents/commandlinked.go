@@ -267,10 +267,24 @@ func requireBookingWindow(start, end time.Time) error {
 		end.Format(time.RFC3339), start.Format(time.RFC3339))}
 }
 
-// requireBookingLinks enforces what crm.yaml's bookMeeting body states: at
-// least one link. A staged approval with no target is a human asked to release
-// a meeting attached to nothing — nothing to show them, and no version to pin
-// it against.
+// requireBookingLinks refuses a booking attached to nothing, because the
+// APPROVAL cannot exist without one: Subject binds to the first link and pins
+// its version, so a link-less booking could only stage against a zero id — an
+// authority object the approvals surface can scope to nobody in particular,
+// which is the defect this seam fixes rather than one it may reintroduce.
+//
+// It does NOT restate the contract, and the difference is worth being exact
+// about. `/bookings` declares `links` a required KEY with `maxItems: 25` and
+// no `minItems`, so `"links": []` is contract-legal, and neither the handler
+// nor activities.Store.BookMeeting refuses one. This rule is the gate's own,
+// and an agent doing what the schema permits now meets it where it previously
+// staged and executed. That disagreement is filed rather than settled here,
+// because closing it the right way is a contract change:
+// gradionhq/margince-poc-v1#1065.
+//
+// requireAccountSendLinks' identical-looking claim IS backed —
+// SendAccountEmailRequest.links carries minItems: 1 — which is why that one
+// cites the contract and this one cannot.
 //
 // A function for the reason requireAccountSendLinks is one: this verb has two
 // doors past the rule, and the MCP surface does not validate arguments against
