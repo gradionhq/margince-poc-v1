@@ -118,90 +118,142 @@ test.describe("company record — the mockup's page shape", () => {
     );
   });
 
-  // State A draws six: lifetime, 12 months, open, overdue, median paid after
-  // due, and the relationship reading.
-  test("the KPI strip has six slots", async ({ page }) => {
-    await openCompany(page, POPULATED_ORG as string);
-    await expect(page.locator(".co-strip > *")).toHaveCount(6);
-  });
-
-  // Overview · People · History · Documents. The page ships
-  // Overview/People/Timeline today, so this fails until the tabs are rebuilt.
-  test("the tab strip offers overview, people, history and documents", async ({
-    page,
-  }) => {
-    await openCompany(page, POPULATED_ORG as string);
-    await expect(
-      page.locator(".co-tabs [role='tab'], .co-tabs button"),
-    ).toHaveCount(4);
-  });
-
-  // The mockups draw six tiles and the card can build six, but it does not draw
-  // six on every account ON PURPOSE: a tile appears only when it has something
-  // to say, so an account with no meeting booked and no open signal shows
-  // fewer. A fixed count would demand the card invent the missing ones.
+  // The strip carries the account's STANDING state — what is true until
+  // something changes it. What is true TODAY is the daily brief's, so the
+  // whose-move and worth-knowing readings are not here to be counted.
   //
-  // So this names the two tiles this fixture's data guarantees — an open task
-  // and a logged exchange — by their own hook. The rest depend on a booked
-  // meeting, a live deal and an open signal, which this account may not have.
-  test("Today on this account draws its tiles, including the last exchange", async ({
+  // How MANY slots is the fixture's business, not this test's. The strip has
+  // always been variable-width — StateStrip's own comment puts a customer's
+  // row at six and a non-customer with no open signal at five, and a slot
+  // whose reading the account cannot supply (a close date with no open deal)
+  // renders nothing at all rather than an empty card. Pinning a number only
+  // records which fixture ran. What must hold on every account is that the row
+  // reads
+  // as ONE row — the regression this strip actually had was two slots drawn
+  // at a different font size than the rest — so every slot is checked for a
+  // label AND a value, and every value against the SAME computed size. A row
+  // of readings is a scale the eye sweeps; a slot that sizes itself to its
+  // own content breaks the sweep.
+  test("every KPI slot carries a label and a value, all at one size", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
-    // Anchored on the tile's own data hook, never on drawn copy: this suite
-    // pins layout, and a translation edit must not turn it red.
-    await expect(
-      page.locator('.today-tile[data-tile="interaction"]'),
-    ).toHaveCount(1);
-    await expect(
-      page.locator('.today-tile[data-tile="commitment"]'),
-    ).toHaveCount(1);
+    const slots = page.locator(".co-strip > *");
+    // Waited for, not counted straight away: a bare count() resolves against
+    // whatever is mounted at that instant, which on a composite read is an
+    // empty strip. The floor is the stage and relationship readings, which no
+    // account lacks.
+    await expect(slots.nth(1)).toBeVisible();
+    const count = await slots.count();
+    const sizes = new Set<string>();
+    for (let index = 0; index < count; index++) {
+      const slot = slots.nth(index);
+      await expect(slot.locator(".stat-card-label")).not.toBeEmpty();
+      await expect(slot.locator(".stat-card-value")).not.toBeEmpty();
+      sizes.add(
+        await slot
+          .locator(".stat-card-value")
+          .evaluate((element) => getComputedStyle(element).fontSize),
+      );
+    }
+    expect(sizes.size).toBe(1);
   });
 
-  // AccountBrief's "BEFORE YOU TALK TO THEM" prose block, the NextSteps list
-  // and the Ask panel appear in NO mockup. They are the page's biggest visual
-  // departure, so their absence is asserted rather than assumed.
+  // Overview · People · Deals · Tasks · History · Documents · Profile, plus
+  // Partner for an account that has a partner programme (companyTabsFor in
+  // organizations.tsx gates it on relationship_types, not on a fixed count) —
+  // so the expectation follows the fixture's own data rather than assuming
+  // either shape.
+  test("the tab strip offers every tab, plus partner only where the account has one", async ({
+    page,
+  }) => {
+    await openCompany(page, POPULATED_ORG as string);
+    const isPartnerAccount = await page.evaluate(async () => {
+      const id = location.hash.split("/").pop();
+      const response = await fetch(`/v1/organizations/${id}`, {
+        headers: { accept: "application/json" },
+      });
+      const org = await response.json();
+      return Boolean(org?.relationship_types?.includes("partner"));
+    });
+    await expect(page.locator(".co-tabs button")).toHaveCount(
+      isPartnerAccount ? 8 : 7,
+    );
+  });
+
+  // "Today on this account" and "Worth doing next" merged into one daily
+  // brief (companytoday.tsx), which LEADS the overview column. The account
+  // brief ("The account, in short") follows it in the same column.
+  //
   // Anchored on the rendered HEADING rather than a class: NextSteps draws a
   // bare `.card.co-card` with nothing to name it by, so a class assertion here
-  // would pass against any page — including one that still renders all three.
+  // would pass against any page — including one that still renders it.
   // The strings are the German chrome the suite pins via `locale: de-DE`.
-  test("the overview does not render the brief, next steps or the ask panel", async ({
+  test("the overview renders the account brief, but not next steps or the ask panel", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
-    for (const heading of [
-      "Bevor du mit ihnen sprichst",
-      "Nächste Schritte",
-      "Diesen Account befragen",
-    ]) {
+    await expect(
+      page.getByRole("heading", { name: "Der Account, kurz gefasst" }),
+    ).toHaveCount(1);
+    for (const heading of ["Nächste Schritte", "Diesen Account befragen"]) {
       await expect(page.getByRole("heading", { name: heading })).toHaveCount(0);
     }
   });
 
-  // State A's right column: next best actions, health, contacts, signals and
-  // recent activity.
+  // The brief asks for a move on the account, so it belongs to the tab a
+  // reader opens to be told what to do — not to every tab. Someone who has
+  // gone to People or Documents has already chosen what to read, and the
+  // readings above the tab bar are what stays with them there.
+  test("the daily brief leads the overview, and is not drawn on the other tabs", async ({
+    page,
+  }) => {
+    await openCompany(page, POPULATED_ORG as string);
+    const brief = page.getByRole("heading", {
+      name: "Heute bei diesem Account",
+    });
+    await expect(brief).toBeVisible();
+
+    await page.getByRole("button", { name: "Personen" }).click();
+    await expect(brief).toHaveCount(0);
+  });
+
+  // State A's left column (RecordView's `rail` slot, aria-label "Profile"):
+  // the account's own fields, then health, people, signals and how it is
+  // filed, drawn as ONE panel rather than a stack of separate cards.
   //
-  // What is asserted is that the rail EXISTS and sits to the RIGHT of the work
-  // column, which is what makes it a rail rather than more page. (The x
-  // comparison holds above the 1200px restack, which this suite's viewport
-  // pins.)
+  // What is asserted is structural, not textual: the panel's own presence,
+  // and that it carries a fixed number of named sections (a non-empty
+  // <summary> on each collapsible slice), never the copy inside them. The
+  // app renders German chrome, and a copy change must not fail a layout
+  // suite. The rail sitting to the LEFT of the overview stack is the other
+  // half of the claim, the account's context beside the work rather than
+  // under it (the x comparison holds above the 1200px restack, which this
+  // suite's viewport pins).
   //
-  // Four rather than five: the advice card draws nothing when the rules found
-  // nothing to advise, and health draws nothing on an account it cannot judge.
-  test("the right rail carries the account's context beside the work", async ({
+  // Four, always: Health, People, Signals and Lists & tags each name their
+  // own slice whether or not they have a row to draw today, unlike the
+  // stacked cards this replaced, which could disappear along with their data.
+  test("the left rail carries the account's context as one panel of named sections", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
     const rail = page.locator(".co-rail");
     await expect(rail).toBeVisible();
-    expect(await rail.locator("> section").count()).toBeGreaterThanOrEqual(4);
+
+    expect(await rail.locator("> .panel").count()).toBe(1);
+    const sections = rail.locator("> .panel > details");
+    expect(await sections.count()).toBe(4);
+    for (const summary of await sections.locator("> summary").all()) {
+      expect((await summary.textContent())?.trim()).not.toBe("");
+    }
 
     const railBox = await rail.boundingBox();
-    const bodyBox = await page.locator(".co-grid").boundingBox();
+    const bodyBox = await page.locator(".co-overview-stack").boundingBox();
     if (!railBox || !bodyBox) {
-      throw new Error("rail and grid are visible but one has no box");
+      throw new Error("rail and stack are visible but one has no box");
     }
-    expect(railBox.x).toBeGreaterThan(bodyBox.x);
+    expect(railBox.x).toBeLessThan(bodyBox.x);
   });
 
   // A freshly imported company is lifecycle `unknown` and has nothing on it.
@@ -231,6 +283,14 @@ test.describe("company record — the mockup's page shape", () => {
       ["sparse", SPARSE_ORG],
     ] as const) {
       await openCompany(page, org as string);
+      // openCompany waits for the h1, which the router paints before the
+      // composite read returns. Shooting there photographs skeletons and —
+      // because a section reading the shared view cannot tell "still loading"
+      // from "failed" — two rail sections mid-flash of the same wording a real
+      // outage shows. A capture whose whole purpose is eyeball comparison must
+      // wait for the page it is comparing. The strip's second slot comes from
+      // that same composite read, so its arrival is the proxy for it.
+      await expect(page.locator(".co-strip > *").nth(1)).toBeVisible();
       await page.screenshot({
         path: `${SHOTS}/company-${name}.png`,
         fullPage: true,
@@ -293,30 +353,26 @@ test.describe("company record — the mockup's visual weight", () => {
   test("the KPI figures read as the headline numbers they are", async ({
     page,
   }) => {
-    // The money is the reading the page is opened for, and at 16px it was the
-    // same size as the label above it.
-    //
-    // The floor is 20 rather than the mockup's ~30. Six slots share this
-    // strip and the app's left nav takes width the mockup's page does not
-    // spend, so ~110px per slot is what a figure actually gets — at 30px a
-    // euro amount wraps mid-number, and "€201,099.0" is a different number
-    // rather than a bigger rendering of the right one. The figures abbreviate
-    // (€201.1k) for the same reason, which is what both mockups draw.
-    const size = await px(
-      page.locator(".stat-card-value").first(),
-      "font-size",
-    );
-    // 18 rather than 20: the clamp's floor IS 20, and asserting the exact
-    // floor makes the check flip on sub-pixel rounding. The bar is "clearly
+    // ONE size for every slot (company360.css `.co-strip .stat-card-value`):
+    // some slots carry a figure and some a sentence ("typically 4 days
+    // early"), and a slot sized to its own content would stop the row reading
+    // as one comparison. The shared clamp floors at 14px, and at 1280px (this
+    // suite's pinned viewport) it sits AT that floor: the bar is "clearly
     // bigger than a label", not "exactly what the clamp happens to compute".
-    expect(size).toBeGreaterThanOrEqual(18);
-    // And it must still LEAD its label, which is the relationship the mockup
-    // fixes even where the absolute size cannot hold.
-    const label = await px(
-      page.locator(".stat-card-label").first(),
+    const size = await px(
+      page.locator(".co-strip .stat-card-value").first(),
       "font-size",
     );
-    expect(size).toBeGreaterThan(label * 1.4);
+    expect(size).toBeGreaterThanOrEqual(14);
+    // And it must still LEAD its label — the stronger claim, that every
+    // slot's value shares this exact size with every other slot, is what the
+    // strip's "the KPI strip has six slots…" test above pins; a fixed ratio
+    // here cannot also express that.
+    const label = await px(
+      page.locator(".co-strip .stat-card-label").first(),
+      "font-size",
+    );
+    expect(size).toBeGreaterThan(label);
   });
 
   test("the lifecycle control is a control, not a tag", async ({ page }) => {
@@ -359,7 +415,7 @@ test.describe("company record — the mockup's visual weight", () => {
     // The mockups set white cards on a light grey page. The border is what
     // makes a card an object; against a near-white background at 1px of very
     // low contrast it stops being visible at all.
-    const card = page.locator(".co-grid > .card").first();
+    const card = page.locator(".co-overview-stack > .panel").first();
     const pageBg = await page.evaluate(
       () => getComputedStyle(document.body).backgroundColor,
     );

@@ -1,0 +1,48 @@
+/* SPDX-License-Identifier: BUSL-1.1 */
+/* SPDX-FileCopyrightText: 2026 Gradion */
+
+/* The resting face of an editable value (InlineText/InlineChoice's closed
+ * button): a fact, not a control. No box, no accent colour — that would say
+ * "click me" before the reader has asked whether this can be changed at all.
+ * A hover or a keyboard focus is the only thing that reveals it: the
+ * underline appears, and a chooser's caret fades in beside it. Padding and
+ * its matching negative margin cancel exactly, on purpose — the visible TEXT
+ * has to land on the same left edge whether the field beside it is this
+ * button or a plain read-only span (fieldgrid.css's own shared-edge rule),
+ * and a click target smaller than the padded box would be would feel mean. */
+.inline-editable {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.inline-editable:hover,
+.inline-editable:focus-visible {
+  border-bottom-color: var(--borderStrong);
+}
+.inline-editable:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+/* The caret only a chooser draws, and only once the reader has already
+ * noticed the underline — two affordances at once would be one more thing to
+ * read than free text needs. */
+.inline-editable-caret {
+  color: var(--textMeta);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.inline-editable-choice:hover .inline-editable-caret,
+.inline-editable-choice:focus-visible .inline-editable-caret {
+  opacity: 1;
+}

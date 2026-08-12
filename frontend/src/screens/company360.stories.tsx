@@ -3,21 +3,27 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
-import { AssistantPanel } from "./assistant";
 import {
   AccountBrief,
+  CommercialPanel,
   DealsCard,
   NextSteps,
   PeopleCard,
-  TagsCard,
+  RecentActivityPanel,
+  StateStrip,
 } from "./company360";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
-// The company view's cards, rendered straight from a payload rather than
-// through the screen — so the three answers a card can give are visible side
-// by side: here it is, there is none, and your role cannot read this.
-// A fixed instant, so the brief renders the same lines in every snapshot
-// rather than drifting as the story ages.
+// The company view's Panel-shaped cards, rendered straight from a payload
+// rather than through the screen — so the three answers a card can give are
+// visible side by side: here it is, there is none, and your role cannot
+// read this.
+//
+// This gallery is what the live stack CANNOT show: every seeded demo
+// account grants the viewer full RBAC and omits nothing, so SectionWithheld
+// is a state no browser session reaches. It is real — a role scoped to
+// fewer objects hits it on every 360 read that names a section it may not
+// see — and this is the only place it can be looked at.
 
 const meta: Meta = {
   title: "Screens/Company 360 cards",
@@ -35,6 +41,7 @@ const populated = {
   organization: {
     id: "o-1",
     display_name: "Brandt Automotive GmbH",
+    lifecycle: "customer",
     captured_by: "human:u1",
     source: "manual",
     created_at: "2026-06-01T08:00:00Z",
@@ -124,11 +131,23 @@ const populated = {
     won_lifetime: { amount_minor: 12_000_000, currency: "EUR" },
     lost_count: 1,
   },
-  activities: { data: [], page },
+  activities: {
+    data: [
+      {
+        id: "a-1",
+        kind: "email",
+        direction: "outbound",
+        subject: "Re: retrofit timeline",
+        occurred_at: "2026-07-12T10:00:00Z",
+        links: [{ entity_type: "deal", entity_id: "d-1" }],
+      },
+    ],
+    page,
+  },
   next_steps: {
     data: [
       {
-        activity_id: "a-1",
+        activity_id: "a-2",
         subject: "Send the renewal paperwork",
         due_at: "2026-07-01T09:00:00Z",
         overdue: true,
@@ -137,7 +156,7 @@ const populated = {
         assignee_id: null,
       },
       {
-        activity_id: "a-2",
+        activity_id: "a-3",
         subject: "Confirm the depot walkthrough date",
         due_at: "2026-08-04T09:00:00Z",
         overdue: false,
@@ -164,14 +183,36 @@ const populated = {
     deal_stage_moves: 1,
     pending_proposals: 0,
   },
+  state_strip: {
+    account: { lifecycle: "customer", relationship_types: ["customer"] },
+    engagement: {
+      state: "active",
+      last_inbound_at: "2026-07-11T09:00:00Z",
+      last_outbound_at: "2026-07-12T09:00:00Z",
+    },
+    commercial: {
+      open_count: 2,
+      stalled_count: 1,
+      priced_count: 2,
+      converted_count: 0,
+      open_pipeline_minor_base: 5_700_000,
+      base_currency: "EUR",
+      next_close_on: "2026-08-15",
+    },
+  },
 } as unknown as View;
 
-// The same account read by someone whose role cannot see deals: the card
-// says so rather than reading as an account with no pipeline.
+// The same account read by someone whose role cannot see deals, people or
+// the state strip: each card says so rather than reading as an account with
+// no pipeline, no contacts and no standing. This is the state no seeded demo
+// account can reach — every one of them grants the viewer full RBAC — so
+// this gallery is the only place a reader ever sees it rendered.
 const withheld = {
   ...populated,
   deals: undefined,
-  sections_omitted: ["deals"],
+  people: undefined,
+  state_strip: undefined,
+  sections_omitted: ["deals", "people", "state_strip"],
 } as unknown as View;
 
 // An account nobody has worked yet — every card in its own empty state.
@@ -184,6 +225,7 @@ const empty = {
     won_lifetime: { amount_minor: 0, currency: "EUR" },
     lost_count: 0,
   },
+  activities: { data: [], page },
   next_steps: { data: [], page },
   // Nothing to advise on a dormant account: the card renders nothing at all,
   // which is the state this story exists to show.
@@ -245,13 +287,13 @@ function Cards({ view }: Readonly<{ view: View }>) {
   });
   return (
     <StoryProviders>
-      <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
+      <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 420 }}>
         <AccountBrief orgId="o-1" view={view} enabled />
-        <AssistantPanel orgId="o-1" enabled />
-        <NextSteps view={view} />
-        <PeopleCard view={view} writable />
+        <CommercialPanel view={view} />
+        <RecentActivityPanel view={view} />
+        <PeopleCard view={view} writable orgId="o-1" />
         <DealsCard view={view} />
-        <TagsCard view={view} />
+        <NextSteps view={view} />
       </div>
     </StoryProviders>
   );
@@ -264,3 +306,47 @@ export const SectionWithheld: Story = {
 };
 
 export const NothingYet: Story = { render: () => <Cards view={empty} /> };
+
+// StateStrip: the record's own KPI row, above the tabs. Withheld is the
+// state this gallery exists for — no seeded demo account carries it, so
+// this story is the only place it renders.
+function Strip({ view }: Readonly<{ view?: View }>) {
+  installFetchStub({
+    // The customer branch's money slots read this directly (FinanceStat) —
+    // the same query the finance card runs — so a customer story with
+    // nothing stubbed here fires a real request the static build has
+    // nowhere to send.
+    "GET /organizations/o-1/finance-summary": () =>
+      jsonResponse({ organization_id: "o-1", state: "no_connection" }),
+  });
+  return (
+    <StoryProviders>
+      <div style={{ maxWidth: 720 }}>
+        <StateStrip
+          orgId="o-1"
+          view={view}
+          lifecycleLabel={(value) => value}
+          relationshipLabels={(values) => values.join(", ")}
+        />
+      </div>
+    </StoryProviders>
+  );
+}
+
+export const StateStripPopulated: Story = {
+  render: () => <Strip view={populated} />,
+};
+
+export const StateStripWithheld: Story = {
+  render: () => (
+    <Strip
+      view={
+        {
+          ...populated,
+          state_strip: undefined,
+          sections_omitted: ["state_strip"],
+        } as unknown as View
+      }
+    />
+  ),
+};

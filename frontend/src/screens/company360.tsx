@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -13,6 +21,9 @@ import {
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
+import { AvatarStack } from "../design-system/avatarstack";
+import { type TimelineEntry, TimelineRow } from "../design-system/composed";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import {
   formatDate,
@@ -28,8 +39,15 @@ import {
   problemMessageOf,
   throwProblem,
   useFinanceSummary,
+  useViewerId,
 } from "./common";
 import "./company360.css";
+import {
+  HEALTH_RANK,
+  HEALTH_RATING_LABEL,
+  type HealthRating,
+  usePaymentHealth,
+} from "./companylookups";
 import {
   routesTo,
   type StrengthBucket,
@@ -44,6 +62,8 @@ import {
 } from "./coverage";
 import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
+import { activityTimeline } from "./people";
+import { TaskCompleteCheck, type useTaskUpdate } from "./taskactions";
 
 // The company view's data layer and its right-rail cards.
 //
@@ -57,7 +77,6 @@ type Organization360 = components["schemas"]["Organization360"];
 type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
-type Signal = components["schemas"]["Signal"];
 type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
 
 // What each signal kind is, in words. The badge rendered the stored enum, so
@@ -108,8 +127,10 @@ const SIGNAL_TONE: Record<string, "warn" | "danger" | undefined> = {
 
 // Severity is a closed enum on the wire, but it arrives as a string like every
 // other wire value: an own-property check keeps a value named `toString` from
-// finding something on Object's prototype and typing as a tone.
-function signalTone(severity: string): "warn" | "danger" | undefined {
+// finding something on Object's prototype and typing as a tone. Exported so
+// the daily brief's risk reading (companytoday.tsx) colours its tile the same
+// way the strip used to, rather than a second mapping that could drift.
+export function signalTone(severity: string): "warn" | "danger" | undefined {
   return Object.hasOwn(SIGNAL_TONE, severity)
     ? SIGNAL_TONE[severity]
     : undefined;
@@ -298,19 +319,33 @@ export type SectionState =
  * sectionState classifies one 360 section. `present` is whether the payload
  * carried it at all, which is a different question from whether it had rows.
  *
- * No payload at all — the composite read failed — makes every section
- * unavailable. The cards take an optional view for exactly this reason: a
- * fabricated empty payload would have to claim an as_of it does not have,
- * and would be indistinguishable from a real answer one refactor later.
+ * No payload at all is two different facts, not one, and `loading` is what
+ * tells them apart: the composite read still in flight and the composite
+ * read that failed both hand every card an undefined `view`, and without
+ * `loading` this function could not see the difference — every section on
+ * every record page reads UNAVAILABLE, "some of this page could not be
+ * loaded", for as long as the read is still running. On a slow connection
+ * that is not a flash, it is the page calling itself broken while its own
+ * data is on the way. The cards take an optional view for exactly this
+ * reason: a fabricated empty payload would have to claim an as_of it does
+ * not have, and would be indistinguishable from a real answer one refactor
+ * later.
  */
 export function sectionState(
   view: Organization360 | undefined,
   section: Section,
   present: boolean,
   count: number,
+  // Whether the read that would carry `view` is still running. Defaults to
+  // false rather than being required so a caller wired to a query that has
+  // no pending state of its own (NextSteps, CompanyTasksTab's own withheld
+  // check — both only ever call this once their OWN guard has already
+  // proven `view` defined) is not forced to invent one; a caller reading
+  // straight off the composite `view` MUST pass its query's own `isPending`.
+  loading = false,
 ): SectionState {
   if (!view) {
-    return "unavailable";
+    return loading ? "loading" : "unavailable";
   }
   if (omitted(view, section)) {
     return "withheld";
@@ -529,6 +564,51 @@ export function SectionCard({
 }
 
 /**
+ * RailPanel is SectionCard's four-state discipline rendered through Panel's
+ * chrome — a fixed-height header and full-bleed rows — instead of the
+ * negative-margin CSS breakout that shape used to need. The message states
+ * (empty, withheld, unavailable, loading, failed) reuse SectionPart verbatim,
+ * padded in a PanelBody; `ready` is left to the caller, so rows passed as
+ * children run edge to edge the way Panel is built to take them.
+ *
+ * Scoped to the rail's own cards — SectionCard itself is untouched, because
+ * its other callers (the grid, the other tabs) are not this card's chrome.
+ */
+export function RailPanel({
+  title,
+  state,
+  emptyLabel,
+  detail,
+  footer,
+  children,
+}: Readonly<{
+  title: string;
+  state: SectionState;
+  emptyLabel: string;
+  detail?: SectionDetail;
+  // A figure belonging to the whole card rather than to one row. Shown only
+  // on `ready`/`empty` — the states RailPanel's callers ever reach — because a
+  // withheld or unavailable section has no figure to report either.
+  footer?: ReactNode;
+  children: ReactNode;
+}>) {
+  const present = state === "ready" || state === "empty";
+  return (
+    <Panel title={title} footer={present ? footer : undefined}>
+      {state === "ready" ? (
+        children
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Panel>
+  );
+}
+
+/**
  * PeopleCard lists the account's contacts with their relationship strength,
  * their role on the open deals, and whether they may be contacted.
  *
@@ -556,10 +636,15 @@ export function PeopleCard({
   // The account whose connection graph a route-in asks about. Absent on the
   // loading skeleton, where there is no account to ask about yet.
   orgId,
+  // The composite read's own pending flag, so an undefined `view` reads as
+  // "still loading" rather than "could not be loaded" for as long as the
+  // read is actually running.
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   writable?: boolean;
   orgId?: string;
+  loading?: boolean;
 }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
@@ -587,31 +672,40 @@ export function PeopleCard({
   const missing = missingRoles(contacts, openDealIds, committeeIncomplete);
   const untried = contacts.filter((c) => reachOf(c) === "untried");
   return (
-    <SectionCard
+    <RailPanel
       title={t("co.people.title")}
       state={sectionState(
         view,
         "people",
         Boolean(view?.people),
         contacts.length,
+        loading,
       )}
       emptyLabel={t("co.people.empty")}
       footer={
-        <CoverageSummary
-          contacts={contacts}
-          untried={untried.length}
-          gaps={missing.length}
-          truncated={truncated}
-          routesReadable={contacts.some((each) => each.routes)}
-        />
-      }
-      // The per-row coverage says who to call. The explorer answers the other
-      // question — where are we thin — for a handful of colleagues the reader
-      // picks, rather than a column per person on a forty-strong team.
-      actions={
-        orgId && contacts.length > 0 ? (
-          <CoverageExplorer orgId={orgId} contacts={contacts} />
-        ) : undefined
+        <>
+          {contacts.length > 0 && (
+            <AvatarStack
+              people={contacts.map((contact) => ({
+                name: contact.full_name,
+              }))}
+            />
+          )}
+          <CoverageSummary
+            contacts={contacts}
+            untried={untried.length}
+            gaps={missing.length}
+            truncated={truncated}
+            routesReadable={contacts.some((each) => each.routes)}
+          />
+          {/* The per-row coverage says who to call. The explorer answers the
+              other question — where are we thin — for a handful of
+              colleagues the reader picks, rather than a column per person
+              on a forty-strong team. */}
+          {orgId && contacts.length > 0 && (
+            <CoverageExplorer orgId={orgId} contacts={contacts} />
+          )}
+        </>
       }
     >
       {/* The per-contact chips read as all-time claims — "Not approached"
@@ -620,46 +714,55 @@ export function PeopleCard({
           window (PO-F-3), so the window is stated once here rather than
           repeated on every row. */}
       {contacts.length > 0 && (
-        <p className="t-caption">{t("co.reach.window")}</p>
+        <PanelBody>
+          <p className="t-caption">{t("co.reach.window")}</p>
+        </PanelBody>
       )}
-      <ul className="co-list">
-        {contacts.map((contact) => (
+      {contacts.map((contact) => (
+        <PanelRow key={contact.person_id} className="co-person-row">
           <ContactRow
-            key={contact.person_id}
             contact={contact}
             openDeals={openDeals}
             writable={writable}
             orgId={orgId}
           />
-        ))}
-      </ul>
+        </PanelRow>
+      ))}
       {contacts.length === 1 && !truncated && (
-        <p className="co-callout">
-          <Badge tone="warn">{t("co.people.singleThread")}</Badge>
-        </p>
+        <PanelBody>
+          <p className="co-callout">
+            <Badge tone="warn">{t("co.people.singleThread")}</Badge>
+          </p>
+        </PanelBody>
       )}
       {/* Who is missing, not only who is present. On an account where every
           known contact has gone quiet, the person nobody has written to is the
           only move left that is not a fourth follow-up. */}
-      {untried.length > 0 && (
-        <p className="co-callout">
-          <Badge tone="accent">
-            {untried.length === 1
-              ? t("co.people.untriedHintOne")
-              : t("co.people.untriedHint", { count: untried.length })}
-          </Badge>
-        </p>
+      {(untried.length > 0 || missing.length > 0) && (
+        <PanelBody>
+          {untried.length > 0 && (
+            <p className="co-callout">
+              <Badge tone="accent">
+                {untried.length === 1
+                  ? t("co.people.untriedHintOne")
+                  : t("co.people.untriedHint", { count: untried.length })}
+              </Badge>
+            </p>
+          )}
+          {missing.length > 0 && (
+            <p className="co-callout">
+              <Badge tone="warn">
+                {t("co.people.missing", {
+                  roles: missing
+                    .map((role) => t(roleLabelKey(role)))
+                    .join(" / "),
+                })}
+              </Badge>
+            </p>
+          )}
+        </PanelBody>
       )}
-      {missing.length > 0 && (
-        <p className="co-callout">
-          <Badge tone="warn">
-            {t("co.people.missing", {
-              roles: missing.map((role) => t(roleLabelKey(role))).join(" / "),
-            })}
-          </Badge>
-        </p>
-      )}
-    </SectionCard>
+    </RailPanel>
   );
 }
 
@@ -866,32 +969,44 @@ function ContactRow({
       ? openDeals.find((deal) => deal.id === dealId)?.name
       : undefined;
   const reach = reachOf(contact);
+  // Title and role read as one quiet line under the name, not as a run of
+  // badges — "Sales Manager · Champion on Pilot" is one fact about who this
+  // person is, and a badge per clause said the same thing louder than it
+  // needed to.
+  const subline = [
+    contact.title,
+    ...roles.map((entry) => {
+      const deal = nameOfDeal(entry.deal_id);
+      return deal
+        ? `${dealRoleLabel(entry.role, t)} · ${deal}`
+        : dealRoleLabel(entry.role, t);
+    }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <li className="co-row">
-      <button
-        type="button"
-        className="co-rowlink"
-        onClick={() => navigate({ screen: "contacts", id: contact.person_id })}
-      >
-        {contact.full_name}
-      </button>
-      <span className="co-row-meta">
-        {contact.title && <span>{contact.title}</span>}
+    <>
+      <span className="co-person-avatar">
+        <Avatar name={contact.full_name} tinted />
+      </span>
+      <span className="co-person-body">
+        <button
+          type="button"
+          className="co-rowlink co-person-name"
+          onClick={() =>
+            navigate({ screen: "contacts", id: contact.person_id })
+          }
+        >
+          {contact.full_name}
+        </button>
+        {subline && <span className="co-person-sub">{subline}</span>}
+      </span>
+      <span className="co-person-end">
         {/* Where this person stands with us. "No reply" and "never asked"
             looked identical in this list and call for opposite next moves. */}
         <Badge tone={reach === "answered" ? "success" : undefined}>
           {t(reachLabelKey(reach))}
         </Badge>
-        {roles.map((entry) => {
-          const deal = nameOfDeal(entry.deal_id);
-          return (
-            <Badge key={`${entry.deal_id}:${entry.role}`}>
-              {deal
-                ? `${dealRoleLabel(entry.role, t)} · ${deal}`
-                : dealRoleLabel(entry.role, t)}
-            </Badge>
-          );
-        })}
         {/* Who here can actually reach them, inline rather than a click away.
             A forty-person team makes a contact x colleague matrix unreadable,
             so the row names the few worth naming and counts the rest. */}
@@ -903,7 +1018,7 @@ function ContactRow({
         {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
         {orgId && <RouteInAction orgId={orgId} contact={contact} />}
       </span>
-    </li>
+    </>
   );
 }
 
@@ -1067,26 +1182,41 @@ function ConsentChip({ consent }: Readonly<{ consent: Contact["consent"] }>) {
 export function DealsCard({
   view,
   actions,
+  extra,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
   // The verbs that change this section, rendered under it. Absent on an
   // archived record, which takes no new deals.
   actions?: ReactNode;
+  // Whatever else belongs beside this account's deals — the Deals tab hands
+  // in the last offer read here rather than drawing it as a second card, so
+  // the two readings that both start from "this account's open deals" stop
+  // reading as two different sections.
+  extra?: ReactNode;
+  // The composite read's own pending flag — see sectionState's own doc. The
+  // Deals tab already gates its own skeleton on `!view && !failed` before
+  // this ever renders, so `view` is always defined by the time this call
+  // runs; passed anyway so the card is correct on its own terms rather than
+  // depending on a caller's guard it cannot see.
+  loading?: boolean;
 }>) {
   const t = useT();
   const { locale } = useLocale();
   const deals = view?.deals;
   const won = deals?.won_lifetime;
+  const state = sectionState(
+    view,
+    "deals",
+    Boolean(deals),
+    deals?.data.length ?? 0,
+    loading,
+  );
+  const present = state === "ready" || state === "empty";
   return (
-    <SectionCard
+    <Panel
       title={t("co.deals.title")}
-      state={sectionState(
-        view,
-        "deals",
-        Boolean(deals),
-        deals?.data.length ?? 0,
-      )}
-      emptyLabel={t("co.deals.empty")}
+      titleAction={present ? actions : undefined}
       footer={
         deals && (
           <p className="co-row-meta">
@@ -1098,17 +1228,27 @@ export function DealsCard({
           </p>
         )
       }
-      // The verb sits under the section it changes, and renders whatever the
-      // section's own state is: "no open deal on this account" is exactly the
-      // reading that should be one click from opening one.
-      actions={actions}
     >
-      <ul className="co-list">
-        {(deals?.data ?? []).map((deal) => (
-          <DealRow key={deal.deal_id} deal={deal} />
-        ))}
-      </ul>
-    </SectionCard>
+      {present ? (
+        <>
+          {(deals?.data ?? []).map((deal) => (
+            <DealRow key={deal.deal_id} deal={deal} />
+          ))}
+          {state === "empty" && (
+            <PanelBody>
+              <p className="co-empty">{t("co.deals.empty")}</p>
+            </PanelBody>
+          )}
+          {extra}
+        </>
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("co.deals.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Panel>
   );
 }
 
@@ -1116,7 +1256,7 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
   const t = useT();
   const { locale } = useLocale();
   return (
-    <li className="co-row">
+    <PanelRow className="co-row">
       <button
         type="button"
         className="co-rowlink"
@@ -1137,161 +1277,276 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
         )}
         {deal.stalled && <Badge tone="warn">{t("deal.stalled")}</Badge>}
       </span>
-    </li>
+    </PanelRow>
   );
 }
 
 /**
- * TagsCard shows two INDEPENDENT sections in one card: the lists the account
- * belongs to, and the tags applied to it. They are governed by different
- * grants, so each reports its own state.
+ * CommercialPanel is the overview's own reading of the pipeline: the two
+ * lifetime figures the deals section actually carries, then the open deals
+ * themselves. It is deliberately not DealsCard reused wholesale — the Deals
+ * tab keeps that card in full, and this is the shorter reading a rep gets
+ * without leaving Overview.
  *
- * Collapsing them into one verdict let either half speak for the other: a
- * caller who could read tags but not lists was told "not on any list, and no
- * tags applied", which was false about the half nobody had answered for.
+ * No open-pipeline total is drawn: nothing in Organization360 sums the open
+ * deals' amounts, and inventing one here would be exactly the fabricated
+ * figure the deals section's own honesty rule forbids.
  */
-export function TagsCard({
+export function CommercialPanel({
   view,
-  listAction,
-  tagAction,
+  titleAction,
+  onAllDeals,
+  loading = false,
 }: Readonly<{
   view?: Organization360;
-  // One verb per SECTION, not one per card. The two halves are governed by
-  // different grants, so a caller who may read tags but not lists must be
-  // offered the tag verb and not the list one — the same rule the card
-  // already applies to what it displays.
-  listAction?: ReactNode;
-  tagAction?: ReactNode;
+  // The "new deal" verb, gated by the caller on the record being writable.
+  titleAction?: ReactNode;
+  onAllDeals?: () => void;
+  // The composite read's own pending flag — see sectionState's own doc.
+  loading?: boolean;
 }>) {
   const t = useT();
-  const tags = view?.tags ?? [];
-  const lists = view?.list_memberships ?? [];
-  const listState = sectionState(
+  const { locale } = useLocale();
+  const deals = view?.deals;
+  const state = sectionState(
     view,
-    "list_memberships",
-    Boolean(view?.list_memberships),
-    lists.length,
+    "deals",
+    Boolean(deals),
+    deals?.data.length ?? 0,
+    loading,
   );
-  const tagState = sectionState(view, "tags", Boolean(view?.tags), tags.length);
-  // Present means read and answered — ready or empty. A withheld section says
-  // the caller may not see it, and an unavailable one says nobody knows; a
-  // verb on either offers a write whose refusal would be the first the reader
-  // hears of the limit.
-  const shows = (state: SectionState) => state === "ready" || state === "empty";
+  const present = state === "ready" || state === "empty";
+  // The section is a page of `deals.data` with `has_more` beside it — past
+  // the cap this reads as the whole open pipeline unless it says otherwise.
+  const truncated = deals?.page.has_more === true;
   return (
-    <Card className="co-card" title={t("co.tags.title")}>
-      <SectionPart
-        label={t("co.tags.lists")}
-        state={listState}
-        emptyLabel={t("co.tags.noLists")}
-      >
-        <p className="co-row-meta">
-          {lists.map((list) => (
-            <Badge key={list.id} tone="accent">
-              {list.name}
-            </Badge>
+    <Panel
+      title={t("co.commercial.title")}
+      titleAction={present ? titleAction : undefined}
+      footer={
+        present && (onAllDeals || truncated) ? (
+          <>
+            {truncated && (
+              <p className="co-row-meta">{t("co.commercial.truncated")}</p>
+            )}
+            {onAllDeals && (
+              <Button small variant="ghost" onClick={onAllDeals}>
+                {t("co.commercial.allDeals")}
+              </Button>
+            )}
+          </>
+        ) : undefined
+      }
+    >
+      {state === "ready" && deals ? (
+        <>
+          <PanelBody className="co-figures">
+            <CommercialFigure
+              label={t("co.deals.wonLifetime")}
+              // Both halves or nothing: an amount with no currency cannot be
+              // rendered without picking one, and a fabricated €0 would say
+              // "square with us" about a figure the server never sent.
+              value={
+                deals.won_lifetime?.amount_minor != null &&
+                deals.won_lifetime.currency
+                  ? formatMoney(
+                      deals.won_lifetime.amount_minor,
+                      deals.won_lifetime.currency,
+                      locale,
+                    )
+                  : undefined
+              }
+            />
+            <CommercialFigure
+              label={t("co.commercial.lostFigure")}
+              value={String(deals.lost_count)}
+            />
+          </PanelBody>
+          {deals.data.map((deal) => (
+            <PanelRow key={deal.deal_id} className="co-commercial-row">
+              <button
+                type="button"
+                className="co-rowlink co-commercial-name"
+                onClick={() => navigate({ screen: "deals", id: deal.deal_id })}
+              >
+                <span className="co-commercial-title">{deal.name}</span>
+                {deal.expected_close_date && (
+                  <span className="co-commercial-sub">
+                    {t("commercial.closes", {
+                      when: formatDate(
+                        deal.expected_close_date,
+                        locale,
+                        RECORD_ZONE,
+                      ),
+                    })}
+                  </span>
+                )}
+              </button>
+              <span className="co-row-meta">
+                {deal.stage_name && <Badge>{deal.stage_name}</Badge>}
+                {deal.amount?.amount_minor != null && (
+                  <span className="t-mono">
+                    {formatMoney(
+                      deal.amount.amount_minor,
+                      deal.amount.currency ?? "",
+                      locale,
+                    )}
+                  </span>
+                )}
+              </span>
+            </PanelRow>
           ))}
-        </p>
-      </SectionPart>
-      <SectionPart
-        label={t("co.tags.tags")}
-        state={tagState}
-        emptyLabel={t("co.tags.noTags")}
-      >
-        <p className="co-row-meta">
-          {tags.map((tag) => (
-            <Badge key={tag.id}>{tag.name}</Badge>
-          ))}
-        </p>
-      </SectionPart>
-      {/* The strip exists only when something is IN it. An archived company
-          passes no verbs, and a wrapper rendered anyway leaves an empty box
-          and its margin under the card — SectionCard already gates on the
-          same condition. */}
-      {((shows(tagState) && tagAction) || (shows(listState) && listAction)) && (
-        <div className="co-card-actions">
-          {shows(tagState) && tagAction}
-          {shows(listState) && listAction}
-        </div>
+        </>
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("co.deals.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
       )}
-    </Card>
+    </Panel>
   );
 }
 
+// One eyebrow-labelled figure. Shared shape with the finance panel, so the
+// two read as the same kind of reading rather than two different cards that
+// happen to sit near each other.
+function CommercialFigure({
+  label,
+  value,
+}: Readonly<{ label: string; value?: string }>) {
+  return (
+    <div className="co-figure">
+      <span className="co-part-label">{label}</span>
+      {/* An absent value renders as a dash with its label intact, so the
+          reader sees WHICH figure is missing rather than a shorter row. */}
+      <span className="co-figure-value">{value ?? "—"}</span>
+    </div>
+  );
+}
+
+// How many entries the overview's chronology carries. The full history is the
+// History tab; this is "what happened lately" without leaving Overview.
+const RECENT_ACTIVITY_LIMIT = 5;
+
+// One run of the timeline under the day it happened. Consecutive rather than
+// grouped-by-key, because `entries` arrives newest-first from the server and a
+// day is never revisited later in the same page.
+type ActivityDay = { key: string; entries: TimelineEntry[] };
+
+function groupByDay(entries: readonly TimelineEntry[], locale: Locale) {
+  const days: ActivityDay[] = [];
+  for (const entry of entries) {
+    const key = formatDate(entry.atIso, locale, RECORD_ZONE);
+    const last = days.at(-1);
+    if (last?.key === key) {
+      last.entries.push(entry);
+    } else {
+      days.push({ key, entries: [entry] });
+    }
+  }
+  return days;
+}
+
 /**
- * SignalsCard reads the account-filtered signals. It is its own query
- * rather than a 360 section: signals are a separate governed surface, and
- * the account filter is a dial on the list endpoint.
+ * RecentActivityPanel is the overview's chronology: the same activities
+ * section the rail used to carry, grouped under the day they happened rather
+ * than as a flat list — a day is one thing that happened, several messages
+ * are how it happened.
+ *
+ * Reads the SAME activities section the account's Suggestions and health
+ * cards read, so the story here cannot disagree with what they cite.
  */
-export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
+export function RecentActivityPanel({
+  view,
+  onOpenHistory,
+  loading = false,
+}: Readonly<{
+  view?: Organization360;
+  // Where the header's link leads. Absent for a caller with no History tab
+  // of its own (the stories file).
+  onOpenHistory?: () => void;
+  // The composite read's own pending flag — see sectionState's own doc.
+  loading?: boolean;
+}>) {
   const t = useT();
   const { locale } = useLocale();
-  const query = useQuery({
-    queryKey: ["signals", "organization", orgId],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/signals", {
-        params: {
-          query: { organization_id: orgId, status: "open", limit: 10 },
-        },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-      return data.data;
-    },
-  });
-  const signals: Signal[] = query.data ?? [];
-  // This card reads its own endpoint, so it owns the two states the 360's
-  // sections get from the payload: a failed read is unavailable, and only a
-  // successful one may say there are no signals.
-  let state: SectionState = "ready";
-  if (query.isError) {
-    state = "unavailable";
-  } else if (query.isPending) {
-    state = "loading";
-  } else if (signals.length === 0) {
-    state = "empty";
-  }
+  const viewerId = useViewerId();
+  // Every logged activity, not only the ones with a subject: a call or a note
+  // often has none, and filtering them out here would under-report the
+  // chronology and — because the count feeds sectionState — draw "nothing
+  // logged with them yet" on an account that has been called five times.
+  const logged = view?.activities?.data ?? [];
+  const state = sectionState(
+    view,
+    "activities",
+    Boolean(view?.activities),
+    logged.length,
+    loading,
+  );
+  const days = groupByDay(
+    activityTimeline(logged.slice(0, RECENT_ACTIVITY_LIMIT), viewerId),
+    locale,
+  );
   return (
-    <SectionCard
-      title={t("co.signals.title")}
-      state={state}
-      emptyLabel={t("co.signals.empty")}
+    <Panel
+      title={t("co.recent.title")}
+      titleAction={
+        onOpenHistory && (
+          <Button small variant="ghost" onClick={onOpenHistory}>
+            {t("co.recent.viewHistory")}
+          </Button>
+        )
+      }
     >
-      <ul className="co-list">
-        {signals.map((signal) => (
-          <li key={signal.id} className="co-row">
-            <span>{signal.summary}</span>
-            <span className="co-row-meta">
-              {/* The SEVERITY colours the row. A tone-neutral badge made an
-                  urgent risk look like an informational note, which is the one
-                  distinction a reader scans this card for. */}
-              <Badge tone={signalTone(signal.severity)}>
-                {t(SIGNAL_KIND_LABELS[signal.kind])}
-              </Badge>
-              <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </SectionCard>
+      {state === "ready" ? (
+        days.map((day) => (
+          <div key={day.key} className="co-timeline-day">
+            <h3 className="co-timeline-day-heading">{day.key}</h3>
+            <ul className="timeline">
+              {day.entries.map((entry) => (
+                <TimelineRow key={entry.id} entry={entry} zone={RECORD_ZONE} />
+              ))}
+            </ul>
+          </div>
+        ))
+      ) : (
+        <PanelBody>
+          <SectionPart state={state} emptyLabel={t("co.recent.empty")}>
+            {null}
+          </SectionPart>
+        </PanelBody>
+      )}
+    </Panel>
   );
 }
 
 /**
  * NextSteps is the middle column's first block: the open tasks on this
  * account, overdue first, each showing what it is linked to.
+ *
+ * The tick is `update`'s own verb (`TaskCompleteCheck`), not `renderAction`'s
+ * — a row names its primary move as the row, not as one more item in a menu.
+ * `renderAction` is left for whatever ELSE a caller wants beside the tick
+ * (snooze), and stays hidden until the row is hovered or focused, since a
+ * list of open tasks reads by title and due date first and only reveals its
+ * verbs on approach.
  */
 export function NextSteps({
   view,
   renderAction,
   onOpenTask,
+  update,
 }: Readonly<{
   view: Organization360;
   renderAction?: (step: NextStep) => ReactNode;
   // Given, the subject opens the task where it is listed. Absent, it stays
   // plain text rather than a button that goes nowhere.
   onOpenTask?: (step: NextStep) => void;
+  // Wires the tick to the real completion write. Absent (the stories file,
+  // a read-only account) draws the row with no checkbox at all — a box that
+  // cannot be ticked is worse than no box.
+  update?: ReturnType<typeof useTaskUpdate>;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1310,15 +1565,27 @@ export function NextSteps({
     return null;
   }
   return (
-    <Card className="co-card" title={t("co.next.title")}>
+    <Panel title={t("co.next.title")}>
       {state === "unavailable" && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
+        <PanelBody>
+          <p className="co-restricted">{t("co.section.unavailable")}</p>
+        </PanelBody>
       )}
-      {state === "empty" && <p className="co-empty">{t("co.next.empty")}</p>}
-      {state === "ready" && (
-        <ul className="co-list">
-          {steps.map((step) => (
-            <li key={step.activity_id} className="co-row">
+      {state === "empty" && (
+        <PanelBody>
+          <p className="co-empty">{t("co.next.empty")}</p>
+        </PanelBody>
+      )}
+      {state === "ready" &&
+        steps.map((step) => (
+          <PanelRow key={step.activity_id} className="co-task-row">
+            {update && (
+              <TaskCompleteCheck
+                activityId={step.activity_id}
+                update={update}
+              />
+            )}
+            <span className="co-task-body">
               {onOpenTask ? (
                 <button
                   type="button"
@@ -1351,13 +1618,14 @@ export function NextSteps({
                 {step.assignee_id && (
                   <EntityRef kind="user" id={step.assignee_id} />
                 )}
-                {renderAction?.(step)}
               </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+            </span>
+            {renderAction && (
+              <span className="co-task-verbs">{renderAction(step)}</span>
+            )}
+          </PanelRow>
+        ))}
+    </Panel>
   );
 }
 
@@ -1365,55 +1633,72 @@ type Cited = BriefSentence["evidence"][number];
 type CitedKind = Cited["entity_type"];
 
 /**
- * A citation chip as it is rendered: either one openable record, or the count
- * of records of one kind that have nowhere to open.
+ * A citation chip as it is rendered: either one (or a counted GROUP of) an
+ * openable record, or the count of records of one kind that have nowhere to
+ * open.
  */
 export type CitationChip =
-  | { openable: true; entityType: CitedKind; entityId: string }
+  | { openable: true; entityType: CitedKind; entityId: string; count: number }
   | { openable: false; entityType: CitedKind; count: number };
 
 /**
  * citationChips turns a sentence's raw evidence into what a reader should see.
  *
- * Two reductions, both of which the raw list gets wrong. The same record cited
- * twice is one source, not two. And several records of a kind the app cannot
- * open are one statement about that kind — rendered one by one they became a
- * run of identical unopenable labels ("activity activity activity"), which
- * says nothing the count does not say better.
+ * Three reductions, all of which the raw list gets wrong on its own. The same
+ * record cited twice is one source, not two. Several records of a kind the app
+ * cannot open are one statement about that kind — rendered one by one they
+ * became a run of identical unopenable labels ("activity activity activity"),
+ * which says nothing the count does not say better. And several RECEIPT
+ * citations of the same kind (`groupable`) are one counted chip too, opening
+ * the first and stepping through the rest — rendered one per record they
+ * became the same run under a different reason: a receipt has no name of its
+ * own, so ten profile fields all read "profile field", ten times, with nothing
+ * to tell them apart. `deal`/`person` stay one chip per record: each opens its
+ * OWN screen rather than a shared stepper, so collapsing them would silently
+ * drop every record after the first.
  *
  * Order is first-seen, so the chips follow the sentence's own reasoning.
  */
 export function citationChips(
   evidence: readonly Cited[],
   openable: (entityType: CitedKind) => boolean,
+  groupable: (entityType: CitedKind) => boolean = () => false,
 ): CitationChip[] {
   const chips: CitationChip[] = [];
   const seen = new Set<string>();
-  const flatAt = new Map<CitedKind, number>();
+  const groupAt = new Map<CitedKind, number>();
   for (const cited of evidence) {
     const identity = `${cited.entity_type}:${cited.entity_id}`;
     if (seen.has(identity)) {
       continue;
     }
     seen.add(identity);
-    if (openable(cited.entity_type)) {
+    const isOpenable = openable(cited.entity_type);
+    if (isOpenable && !groupable(cited.entity_type)) {
       chips.push({
         openable: true,
         entityType: cited.entity_type,
         entityId: cited.entity_id,
+        count: 1,
       });
       continue;
     }
-    const at = flatAt.get(cited.entity_type);
+    const at = groupAt.get(cited.entity_type);
     if (at === undefined) {
-      flatAt.set(cited.entity_type, chips.length);
-      chips.push({ openable: false, entityType: cited.entity_type, count: 1 });
+      groupAt.set(cited.entity_type, chips.length);
+      chips.push(
+        isOpenable
+          ? {
+              openable: true,
+              entityType: cited.entity_type,
+              entityId: cited.entity_id,
+              count: 1,
+            }
+          : { openable: false, entityType: cited.entity_type, count: 1 },
+      );
       continue;
     }
-    const chip = chips[at];
-    if (!chip.openable) {
-      chip.count += 1;
-    }
+    chips[at].count += 1;
   }
   return chips;
 }
@@ -1470,6 +1755,7 @@ function Citations({
   const chips = citationChips(
     evidence,
     (entityType) => Boolean(onOpenRecord) && ROUTABLE_CITATIONS.has(entityType),
+    (entityType) => RECEIPT_CITATIONS.has(entityType),
   );
   // THIS sentence's citations, in the order it cites them, so the receipt's
   // prev/next walks the sentence the reader is actually looking at. The order
@@ -1496,7 +1782,15 @@ function Citations({
               onOpenRecord?.(chip.entityType, chip.entityId, siblings)
             }
           >
-            {t(`co.brief.cite.${chip.entityType}`)}
+            {/* A grouped chip (fact/profile_field, several of the same kind
+                in one prose block) opens the FIRST and names the count; the
+                drawer's own stepper reaches the rest, which is the receipt
+                kind's whole reason for having one. */}
+            {chip.count === 1
+              ? t(`co.brief.cite.${chip.entityType}`)
+              : t(`co.brief.cite.${chip.entityType}.many`, {
+                  count: chip.count,
+                })}
           </button>
         ) : (
           <span key={chip.entityType} className="co-brief-cite-flat">
@@ -1682,16 +1976,14 @@ export function AccountBrief({
   view,
   enabled,
   onOpenRecord,
-  onPerform,
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
-  // this is for the two things it cannot write — what to DO next, and whether
-  // any of the account was withheld from this reader.
+  // this is for the one thing it cannot write — whether any of the account
+  // was withheld from this reader.
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
-  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1729,65 +2021,53 @@ export function AccountBrief({
   // A payload without sentences is a brief this build cannot read, not an
   // account with nothing to say — the same distinction every card here keeps.
   const readable = Array.isArray(written?.sections) ? written : undefined;
+  // Who wrote it and when, plus the verb to have it rewritten — the panel's
+  // own sourcing, so it sits in the footer band rather than inside the prose
+  // it is sourcing.
+  const footer = readable && (
+    <>
+      <WrittenBy by={readable.generated_by} />
+      <span className="t-small">
+        {t("co.brief.generatedAt", {
+          when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+        })}
+      </span>
+      <Button
+        small
+        onClick={() => rewrite.mutate()}
+        disabled={rewrite.isPending}
+      >
+        {rewrite.isPending ? t("co.brief.rewriting") : t("co.brief.rewrite")}
+      </Button>
+    </>
+  );
   return (
-    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
-      <h2 className="co-part-label">{t("co.brief.title")}</h2>
-      {brief.isPending && <Skeleton width="100%" height={64} />}
-      {/* Errored, or answered with a payload this build cannot read: both are
-          "no brief to show", and rendering the heading over nothing would be a
-          card that looks broken rather than one that says so. */}
-      {(brief.isError || (!brief.isPending && !readable)) && (
-        <EmptyState>{t("co.brief.unavailable")}</EmptyState>
-      )}
-      {readable && readable.sections.length === 0 && (
-        <EmptyState>{t("co.brief.empty")}</EmptyState>
-      )}
-      {readable && readable.sections.length > 0 && (
-        <BriefSections
-          sections={readable.sections}
-          onOpenRecord={onOpenRecord}
-        />
-      )}
-      {readable && (
-        <p className="co-brief-meta">
-          {/* Who wrote it and when, always — a reader weighing a sentence
-              needs both, and an undated summary is one nobody can trust. */}
-          <WrittenBy by={readable.generated_by} />
-          <span className="t-small">
-            {t("co.brief.generatedAt", {
-              when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
-            })}
-          </span>
-          <Button
-            small
-            onClick={() => rewrite.mutate()}
-            disabled={rewrite.isPending}
-          >
-            {rewrite.isPending
-              ? t("co.brief.rewriting")
-              : t("co.brief.rewrite")}
-          </Button>
-        </p>
-      )}
-      {rewrite.isError && (
-        <p className="t-caption form-error">
-          {problemMessageOf(rewrite.error, t)}
-        </p>
-      )}
-      {/* What to do about it, in the same block that said what it is. These
-          were two cards — one describing the account, one advising on it —
-          so the reader carried the reading from the first into the second
-          themselves. */}
-      {view && (
-        <SuggestionsSection
-          orgId={orgId}
-          view={view}
-          onOpenRecord={onOpenRecord}
-          onPerform={onPerform}
-        />
-      )}
-      <BriefFooter view={view} />
-    </section>
+    <Panel title={t("co.brief.title")} footer={footer}>
+      <PanelBody className="co-brief-body">
+        {brief.isPending && <Skeleton width="100%" height={64} />}
+        {/* Errored, or answered with a payload this build cannot read: both are
+            "no brief to show", and rendering the panel over nothing would be a
+            card that looks broken rather than one that says so. */}
+        {(brief.isError || (!brief.isPending && !readable)) && (
+          <EmptyState>{t("co.brief.unavailable")}</EmptyState>
+        )}
+        {readable && readable.sections.length === 0 && (
+          <EmptyState>{t("co.brief.empty")}</EmptyState>
+        )}
+        {readable && readable.sections.length > 0 && (
+          <BriefSections
+            sections={readable.sections}
+            onOpenRecord={onOpenRecord}
+          />
+        )}
+        {rewrite.isError && (
+          <p className="t-caption form-error">
+            {problemMessageOf(rewrite.error, t)}
+          </p>
+        )}
+        <BriefFooter view={view} />
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -1986,85 +2266,26 @@ type Health = NonNullable<Organization360["health"]>;
 // actually rendered. A fixed template reserves a cell for a reading the account
 // does not have, and an empty cell in a bordered row reads as a figure that
 // failed to load.
-function fitStripColumns(node: HTMLElement | null) {
-  if (!node) {
-    return;
-  }
-  node.style.setProperty("--co-strip-slots", String(node.childElementCount));
+function useStripColumns() {
+  const ref = useRef<HTMLElement | null>(null);
+  // After EVERY render, not only on mount. The slot count is a fact about the
+  // account — a prospect draws four readings, a customer draws the money row's
+  // six — so it changes while the node stays put. A callback ref fires when
+  // the element attaches and never again, which left the grid sized for the
+  // lifecycle the account had when the page opened: promote a prospect and six
+  // slots wrapped into a four-column template, the two cells over the end
+  // showing the strip's own fill as though a reading had failed to load.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) {
+      node.style.setProperty(
+        "--co-strip-slots",
+        String(node.childElementCount),
+      );
+    }
+  });
+  return ref;
 }
-
-const HEALTH_RANK = ["at_risk", "good", "strong"] as const;
-type HealthRating = (typeof HEALTH_RANK)[number];
-
-const HEALTH_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
-  at_risk: "danger",
-  good: "warn",
-  strong: "success",
-};
-
-const HEALTH_DIMENSION_LABEL: Record<
-  "relationship" | "commercial" | "payment",
-  MessageKey
-> = {
-  relationship: "co.health.dim.relationship",
-  commercial: "co.health.dim.commercial",
-  payment: "co.health.dim.payment",
-};
-
-/**
- * Payment health, read from the finance summary the page already fetches.
- *
- * Rated from the median days after due, which is the reading that says how they
- * PAY rather than what they owe: one late invoice is an exception, a habit is a
- * habit. Below the sample floor the server sends no median, and this returns
- * nothing — "pays on time" concluded from four invoices is a claim about a
- * habit nobody has observed yet.
- *
- * Overdue money outranks the median. An account that pays promptly and has
- * money outstanding right now is at risk today, whatever its habit.
- */
-function usePaymentHealth(orgId?: string) {
-  const t = useT();
-  const { data } = useFinanceSummary(orgId ?? "");
-  if (!orgId || !data) {
-    return undefined;
-  }
-  const overdue = data.overdue?.amount_minor ?? 0;
-  if (overdue > 0) {
-    return {
-      rating: "at_risk" as const,
-      reason: t("co.health.payment.overdue"),
-    };
-  }
-  const median = data.median_days_after_due;
-  if (median == null) {
-    return undefined;
-  }
-  if (median > paymentLateDays) {
-    return {
-      rating: "good" as const,
-      reason: t("co.health.payment.late", { days: median }),
-    };
-  }
-  return {
-    rating: "strong" as const,
-    reason:
-      median < 0
-        ? t("finance.medianEarly", { days: Math.abs(median) })
-        : t("co.health.payment.onTime"),
-  };
-}
-
-// How many days past due a median has to run before it reads as a habit worth
-// naming. Named rather than inlined so the threshold is one number a reader can
-// find and argue with.
-const paymentLateDays = 5;
-
-const HEALTH_RATING_LABEL: Record<HealthRating, MessageKey> = {
-  at_risk: "co.health.rating.atRisk",
-  good: "co.health.rating.good",
-  strong: "co.health.rating.strong",
-};
 
 /**
  * The account's health as its named dimensions and one verdict over them.
@@ -2092,116 +2313,13 @@ export function worstOf(
   return { overall: worst, rated: present.length };
 }
 
-export function HealthCard({
-  health,
-  orgId,
-}: Readonly<{ health?: Health; orgId?: string }>) {
-  const t = useT();
-  // PAYMENT is composed here rather than served with the other two. The finance
-  // mirror is another module's, and a module never imports a sibling — so the
-  // 360 carries relationship and commercial, and the surface that already reads
-  // the finance summary folds in the third. Same query the KPI strip and the
-  // finance card run, so it costs no request and the three cannot disagree.
-  const payment = usePaymentHealth(orgId);
-  if (!health) {
-    return null;
-  }
-  const { overall, rated } = worstOf([
-    health.relationship,
-    health.commercial,
-    payment,
-  ]);
-  const lines: string[] = [];
-  if (health.days_since_last_inbound != null) {
-    lines.push(
-      t("co.health.sinceInbound", { days: health.days_since_last_inbound }),
-    );
-  }
-  if (health.reply_balance != null) {
-    lines.push(
-      t("co.health.replyBalance", {
-        percent: Math.round(health.reply_balance * 100),
-      }),
-    );
-  }
-  if (health.active_contacts != null) {
-    lines.push(
-      t("co.health.activeContacts", { count: health.active_contacts }),
-    );
-  }
-  if (health.open_commitments != null && health.open_commitments > 0) {
-    lines.push(
-      t("co.health.openCommitments", { count: health.open_commitments }),
-    );
-  }
-  if (lines.length === 0 && rated === 0) {
-    return null;
-  }
-  return (
-    <SectionCard
-      title={t("co.health.title")}
-      state="ready"
-      // Never reached: the card returns null when it has no line to draw,
-      // because "how it stands: nothing" is not a reading of an account.
-      emptyLabel={t("co.health.title")}
-    >
-      {/* The dimensions lead, each with its rating. A dimension with no rating
-          is absent rather than shown as unknown — absence is a fact about the
-          reading, and a permanently unknown row teaches a reader to skip the
-          card (ADR-0095/A146). */}
-      <ul className="co-health-rows">
-        {(
-          [
-            ["relationship", health.relationship],
-            ["commercial", health.commercial],
-            ["payment", payment],
-          ] as const
-        ).map(([name, dimension]) =>
-          dimension?.rating ? (
-            <li key={name} className="co-health-row">
-              <span>{t(HEALTH_DIMENSION_LABEL[name])}</span>
-              <Badge tone={HEALTH_TONE[dimension.rating as HealthRating]}>
-                {t(HEALTH_RATING_LABEL[dimension.rating as HealthRating])}
-              </Badge>
-              <span className="co-row-meta">{dimension.reason}</span>
-            </li>
-          ) : null,
-        )}
-        {overall && (
-          <li className="co-health-row co-health-overall">
-            <span>{t("co.health.overall")}</span>
-            <Badge tone={HEALTH_TONE[overall]}>
-              {t(HEALTH_RATING_LABEL[overall])}
-            </Badge>
-            {/* How many dimensions the verdict was read from. Three-of-three
-                and one-of-three are different claims. */}
-            <span className="co-row-meta">
-              {t("co.health.ratedOf", { rated })}
-            </span>
-          </li>
-        )}
-      </ul>
-      <ul className="co-list">
-        {lines.map((line) => (
-          <li key={line} className="co-row">
-            {line}
-          </li>
-        ))}
-      </ul>
-      {/* The one shape a rep can fix before it costs them the account, so it
-          is said rather than scored. */}
-      {health.single_threaded && (
-        <p className="co-row-meta">
-          <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>
-        </p>
-      )}
-    </SectionCard>
-  );
-}
+export type StateStrip = NonNullable<Organization360["state_strip"]>;
 
-type StateStrip = NonNullable<Organization360["state_strip"]>;
-
-const ENGAGEMENT_LABELS: Record<
+// Whose move it is, in words. Exported (and no longer rendered by this file
+// as a strip tile) because the daily brief's context band reads the same
+// `engagement` field now — companytoday.tsx composes the label from here
+// rather than re-deriving it.
+export const ENGAGEMENT_LABELS: Record<
   NonNullable<StateStrip["engagement"]>["state"],
   MessageKey
 > = {
@@ -2213,8 +2331,8 @@ const ENGAGEMENT_LABELS: Record<
 };
 
 // The two states that name a problem rather than a condition. Colouring only
-// these keeps the strip from reading as a dashboard where every tile is lit.
-const ENGAGEMENT_TONE: Partial<
+// these keeps the brief from reading as a dashboard where every tile is lit.
+export const ENGAGEMENT_TONE: Partial<
   Record<NonNullable<StateStrip["engagement"]>["state"], "warn">
 > = {
   waiting_on_them: "warn",
@@ -2222,10 +2340,19 @@ const ENGAGEMENT_TONE: Partial<
 };
 
 /**
- * StateStrip is the KPI row directly under the header: SIX slots, and which
- * six depends on where the account stands. A customer is asked about money and
- * health; everyone else about pipeline, timing and engagement. Showing one set
- * to both makes half of them noise.
+ * StateStrip is the KPI row directly under the header. Every lifecycle draws
+ * the account's own standing — stage, open pipeline, relationship, health —
+ * because a customer needs those readings at least as much as a prospect
+ * does: being a customer is not a reason to stop reporting whether the
+ * relationship is healthy or what deals are open with them. A customer's row
+ * then adds what the finance connection can say, collapsed to one slot when
+ * it can say nothing.
+ *
+ * The standing readings come first, the money readings after: what is true of
+ * the account regardless of what it has paid is the frame the money sits in,
+ * not the other way round. A row that led with money would ask a reader to
+ * read the account's health off a number they have not been given the
+ * context for yet.
  *
  * Each slot is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
@@ -2250,8 +2377,27 @@ export function StateStrip({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  // Above the early returns: a hook cannot be called conditionally, and this
+  // component returns before its grid on a withheld or absent reading.
+  const stripRef = useStripColumns();
   const strip = view?.state_strip;
   if (!strip) {
+    // Absent for two different reasons, and only `sections_omitted` tells
+    // them apart. The caller already withholds this component entirely while
+    // the composite read is still in flight or has failed (`view` itself is
+    // undefined then), so reaching this branch WITH a view means the read
+    // succeeded and this one section did not — either it was withheld, or a
+    // future account state has nothing here yet. Only the first is worth
+    // saying: silently dropping the whole KPI row on a page that otherwise
+    // rendered would read as "no readings for this account", the empty state
+    // a permission boundary must never impersonate.
+    if (view && omitted(view, "state_strip")) {
+      return (
+        <section className="co-strip-withheld" aria-label={t("co.strip.title")}>
+          <p className="co-restricted">{t("co.section.restricted")}</p>
+        </section>
+      );
+    }
     return null;
   }
   const types = strip.account.relationship_types ?? [];
@@ -2264,91 +2410,46 @@ export function StateStrip({
     <section
       className="co-strip"
       aria-label={t("co.strip.title")}
-      // The grid draws exactly the slots this account has. A customer's row is
-      // six; a non-customer with no open signal is five, and a template that
-      // reserved a sixth would leave a grey cell where a reading never was.
-      // Counted from the DOM rather than predicted: several slots return null
-      // on their own (engagement with no grant, pipeline with no deals), so an
-      // expression here would have to restate every one of their conditions and
-      // would drift the moment one changed.
-      ref={fitStripColumns}
+      // The grid draws exactly the slots this account has. Counted from the
+      // DOM rather than predicted: several slots return null on their own
+      // (pipeline with no deals, health with nothing rated, finance with
+      // nothing answered), so an expression here would have to restate every
+      // one of their conditions and would drift the moment one changed.
+      ref={stripRef}
     >
-      {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
-          and how it is held: what they have ever been worth, what lately,
-          what is outstanding, what is late, how late they usually are, and
-          whether the relationship stays that way.
-
-          Where the account STANDS is not among them. The mockups put
-          lifecycle and owner in the header beside the name, and repeating it
-          here would spend a money slot on a value the reader has already
-          passed. On a non-customer there are no invoices to ask about, so the
-          account's own state leads and the row keeps its shape. */}
-      {customer ? (
-        <>
-          {/* Lifetime beside the trailing year, which is the comparison the
-              mockup draws: what this account has ever been worth, and what it
-              has been worth lately. Each refuses on its own — a widened window
-              can be unconvertible while the narrow one is not. */}
-          <FinanceStat
-            orgId={orgId}
-            reading="netInvoicedLifetime"
-            locale={locale}
-            t={t}
-          />
-          <FinanceStat
-            orgId={orgId}
-            reading="netInvoiced"
-            namesSource
-            locale={locale}
-            t={t}
-          />
-          <FinanceStat
-            orgId={orgId}
-            reading="openInvoices"
-            locale={locale}
-            t={t}
-          />
-          {/* What is late, then how late they usually are: the amount is the
-              exception standing open, the median is the habit behind it. */}
-          <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
-          <PaidAfterDueStat orgId={orgId} t={t} />
-          {/* Health closes the row, as the mockup draws it: the money above is
-              what the account IS worth, and this is whether it stays that way. */}
-          <HealthStat health={view?.health} t={t} />
-        </>
-      ) : (
-        <>
-          {/* No invoices to ask about, so the account's own standing leads and
-              the commercial readings follow it. */}
-          <StatCard
-            label={t("co.strip.account")}
-            value={lifecycleLabel(strip.account.lifecycle)}
-            detail={types.length > 0 ? relationshipLabels(types) : undefined}
-          />
-          <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
-          <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
-          <HealthStat health={view?.health} t={t} />
-          <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
-          {/* An open signal ADDS a sixth slot rather than replacing one: the
-              worst thing standing open is the most urgent reading on the row.
-              With none open the row is five, because an "all clear" nobody
-              asked for spends a slot saying a rule did not fire. */}
-          {strip.signal ? (
-            <StatCard
-              label={t("co.strip.signal")}
-              value={signalKindLabel(strip.signal.kind, t)}
-              tone={signalTone(strip.signal.severity)}
-              detail={strip.signal.summary}
-            />
-          ) : null}
-        </>
+      {/* Stage, pipeline, relationship and health are the account's own
+          standing, and every lifecycle gets them — a customer is not asked
+          to give up knowing whether the relationship is healthy or what is
+          open with them just because it also has money to report. */}
+      <StatCard
+        label={t("co.strip.account")}
+        value={lifecycleLabel(strip.account.lifecycle)}
+        detail={types.length > 0 ? relationshipLabels(types) : undefined}
+      />
+      <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+      {/* Expected close is a prospect's question — how soon a deal not yet
+          won might land — and stays out of a customer's row, where a money
+          reading already answers what is coming from them. */}
+      {!customer && (
+        <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
       )}
+      <HealthStat health={view?.health} t={t} />
+      {/* Whose move it is and the worst open signal both moved to the daily
+          brief's context band (companytoday.tsx) — the brief reads the same
+          `engagement` and `signal` fields this strip used to, so the strip
+          carries the account's STANDING state and the brief carries what is
+          DATED. A reading in both places is one the reader has to reconcile,
+          which is what made this page a mishmash in the first place. */}
+      <HealthSummaryStat health={view?.health} orgId={orgId} t={t} />
+      {/* Money closes the row, and only for a customer: everyone else has no
+          invoices to ask about. */}
+      {customer && <FinanceRow orgId={orgId} locale={locale} t={t} />}
     </section>
   );
 }
 
 /**
- * The two finance slots a customer's KPI row carries, in the honest-unknown
+ * The finance slots a customer's KPI row carries, in the honest-unknown
  * state (mockup State B).
  *
  * No finance source is connected to this installation yet — the ingestion
@@ -2364,10 +2465,16 @@ export function StateStrip({
 // Which field of the summary each strip slot reads. A map rather than a chain
 // of ternaries so a new slot is one line and cannot silently fall through to
 // the wrong figure.
+//
+// Open balance and the payment-habit median are deliberately not here: both
+// are Finance-tab headline readings already (companyfinance.tsx), and the
+// strip is a glance rather than a second copy of that detail. Lifetime and
+// the trailing year stay because their side-by-side comparison is the one
+// figure the Finance tab does not carry at all, and overdue stays because it
+// is the one reading that says something needs acting on now.
 const FINANCE_READINGS = {
   netInvoicedLifetime: (data?: FinanceSummary) => data?.net_invoiced_lifetime,
   netInvoiced: (data?: FinanceSummary) => data?.net_invoiced,
-  openInvoices: (data?: FinanceSummary) => data?.open_balance,
   overdue: (data?: FinanceSummary) => data?.overdue,
 } as const;
 
@@ -2379,7 +2486,7 @@ function FinanceStat({
   t,
 }: Readonly<{
   orgId: string;
-  reading: "netInvoicedLifetime" | "netInvoiced" | "openInvoices" | "overdue";
+  reading: "netInvoicedLifetime" | "netInvoiced" | "overdue";
   // Whether this slot carries the provider badge. True on exactly one slot per
   // row; see the note beside `source` below.
   namesSource?: boolean;
@@ -2439,61 +2546,6 @@ function FinanceStat({
       // the date matters. `error` is the last good answer after an attempt
       // that failed. Calling either one the other is a wrong claim about
       // whether anything is broken.
-      detail={caveat && t(caveat)}
-    />
-  );
-}
-
-/**
- * How late this customer pays, as the strip's sixth slot (FIN-FORM-3).
- *
- * Not a FinanceStat: the value is a count of DAYS rather than money, and the
- * two directions read as opposite facts. A negative median means they pay
- * BEFORE the due date, so it is rendered as "typically N days early" — the
- * literal "-4 days after due" is a puzzle rather than a reading.
- *
- * A missing median has one reason the money slots do not share: the server
- * withholds it below FIN-PARAM-3's five-settled-invoice floor, because a
- * payment habit read off four invoices is an anecdote. That case says so.
- * Delegating it to the money slots' reason would put "Nothing invoiced yet"
- * beside a lifetime total of €186,420 — two slots on one row contradicting
- * each other, and the wrong one stating a fact about the account.
- */
-function PaidAfterDueStat({
-  orgId,
-  t,
-}: Readonly<{ orgId: string; t: ReturnType<typeof useT> }>) {
-  const { data, isPending, isError, error } = useFinanceSummary(orgId);
-  const withheld = isError && problemCodeOf(error) === "permission_denied";
-  const median = data?.median_days_after_due;
-  if (median == null) {
-    // A read that SUCCEEDED against a live connection and still carries no
-    // median is the sample floor. Every other reason — no source, unmapped,
-    // syncing, denied, failed — means the same for this slot as for the money
-    // beside it, so those keep the shared wording.
-    const settled = data?.state === "connected" || data?.state === "stale";
-    return (
-      <StatCard
-        label={t("co.strip.paidAfterDue")}
-        value={t("co.strip.financeUnknown")}
-        detail={t(
-          settled && !isPending && !isError
-            ? "co.strip.fin.tooFewSettled"
-            : financeDetailKey({
-                pending: isPending,
-                withheld,
-                failed: isError && !withheld,
-                state: data?.state,
-              }),
-        )}
-      />
-    );
-  }
-  const caveat = staleDetailKey(data?.state);
-  return (
-    <StatCard
-      label={t("co.strip.paidAfterDue")}
-      value={medianDaysLabel(median, t)}
       detail={caveat && t(caveat)}
     />
   );
@@ -2579,6 +2631,80 @@ function financeDetailKey({
       // no source to read, which is the one case the setup advice fits.
       return "co.strip.fin.noConnection";
   }
+}
+
+/**
+ * The customer row's three money slots, collapsed to one when the finance
+ * connection cannot answer any of them.
+ *
+ * All three read the SAME `useFinanceSummary` result, so "not matched to a
+ * customer yet" (or "connect your accounting", or a permission denial) is one
+ * fact about the connection, not three separate figures — repeating it three
+ * times buries the standing readings this row now carries beside it under a
+ * sentence a reader already read twice.
+ *
+ * Because the three share one query, they always share one cause when none of
+ * them has a figure — there is no second code path here that could disagree
+ * with `financeDetailKey` about why, unlike the median FinanceStat's siblings
+ * used to carry (FIN-PARAM-3's settled-invoice floor), which is why that
+ * reading moved out of the strip rather than into this collapse.
+ */
+function FinanceRow({
+  orgId,
+  locale,
+  t,
+}: Readonly<{
+  orgId: string;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  const { data, isPending, isError, error } = useFinanceSummary(orgId);
+  const withheld = isError && problemCodeOf(error) === "permission_denied";
+  const moneyUnavailable = (
+    ["netInvoicedLifetime", "netInvoiced", "overdue"] as const
+  ).every((reading) => {
+    const amount = FINANCE_READINGS[reading](data);
+    return !amount || amount.amount_minor == null || !amount.currency;
+  });
+  if (moneyUnavailable) {
+    return (
+      <StatCard
+        label={t("co.strip.finance")}
+        value={t("co.strip.financeUnknown")}
+        detail={t(
+          financeDetailKey({
+            pending: isPending,
+            withheld,
+            failed: isError && !withheld,
+            state: data?.state,
+          }),
+        )}
+      />
+    );
+  }
+  return (
+    <>
+      {/* Lifetime beside the trailing year, which is the comparison the
+          mockup draws: what this account has ever been worth, and what it
+          has been worth lately. Each refuses on its own — a widened window
+          can be unconvertible while the narrow one is not. */}
+      <FinanceStat
+        orgId={orgId}
+        reading="netInvoicedLifetime"
+        locale={locale}
+        t={t}
+      />
+      <FinanceStat
+        orgId={orgId}
+        reading="netInvoiced"
+        namesSource
+        locale={locale}
+        t={t}
+      />
+      {/* What is late, closing the row: the exception a rep needs to act on. */}
+      <FinanceStat orgId={orgId} reading="overdue" locale={locale} t={t} />
+    </>
+  );
 }
 
 type StripCommercial = NonNullable<
@@ -2760,33 +2886,48 @@ function HealthStat({
 // and it is deliberately the same span the dormant engagement state uses.
 const HEALTH_QUIET_DAYS = 30;
 
-function EngagementStat({
-  engagement,
-  locale,
+// HealthSummaryStat is the fourth non-customer slot: the rated dimensions'
+// worst verdict, and how many of the possible three were rated at all — the
+// same `worstOf` verdict HealthCard's rail breakdown reaches, read here as
+// one figure rather than the rail's per-dimension list. Absent entirely
+// where nothing has been rated, rather than drawn as a neutral "unknown":
+// the strip has no basis to report a verdict `worstOf` itself declined to
+// give, and a fourth grey slot would read as a reading that failed to load.
+function HealthSummaryStat({
+  health,
+  orgId,
   t,
 }: Readonly<{
-  engagement?: NonNullable<Organization360["state_strip"]>["engagement"];
-  locale: Locale;
+  health?: Health;
+  orgId: string;
   t: ReturnType<typeof useT>;
 }>) {
-  if (!engagement) {
+  const payment = usePaymentHealth(orgId);
+  const { overall, rated } = worstOf([
+    health?.relationship,
+    health?.commercial,
+    payment,
+  ]);
+  if (!overall) {
     return null;
   }
-  const when = (at?: string | null) =>
-    at ? formatDate(at, locale, RECORD_ZONE) : undefined;
+  // The denominator is always said, not only when something is failing:
+  // "3 of 3 rated" and "1 of 3 rated" are different claims about how much is
+  // known, and a figure that only speaks up when things are bad would let a
+  // thin reading pass for a complete one.
+  const failing = [health?.relationship, health?.commercial, payment].filter(
+    (dimension) => dimension?.rating === "at_risk",
+  ).length;
   return (
     <StatCard
-      label={t("co.strip.engagement")}
-      value={t(ENGAGEMENT_LABELS[engagement.state])}
-      tone={ENGAGEMENT_TONE[engagement.state]}
+      label={t("co.strip.healthSummary")}
+      value={t(HEALTH_RATING_LABEL[overall])}
+      tone={overall === "at_risk" ? "warn" : undefined}
+      dot={overall === "at_risk"}
       detail={
-        engagement.last_inbound_at || engagement.last_outbound_at
-          ? t("co.strip.lastBoth", {
-              inbound: when(engagement.last_inbound_at) ?? t("co.strip.never"),
-              outbound:
-                when(engagement.last_outbound_at) ?? t("co.strip.never"),
-            })
-          : undefined
+        failing > 0
+          ? t("co.strip.healthSummary.failingOf", { failing, rated })
+          : t("co.strip.healthSummary.of", { rated })
       }
     />
   );
@@ -2820,7 +2961,42 @@ function SuggestionActionButton({
   );
 }
 
-export function SuggestionsSection({
+// nextCommitmentLine is the daily brief's own footer reading: what is owed
+// and how soon. It is not a suggestion — nobody proposed it, the open tasks
+// section simply has one — so it sits in the footer rather than as a row.
+// Exported so the brief (companytoday.tsx) reads the same truncation-honesty
+// logic rather than a second copy of it.
+export function nextCommitmentLine(
+  view: Organization360 | undefined,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): { headline: string; overdue: boolean } | undefined {
+  const steps = view?.next_steps?.data ?? [];
+  const step = steps[0];
+  if (!step) {
+    return undefined;
+  }
+  // The section is a page of 25 with `has_more` beside it, so past the cap
+  // the count is a claim about the PAGE. "12 overdue" on an account with 40
+  // is the kind of small wrong figure a rep plans against.
+  const truncated = view?.next_steps?.page?.has_more === true;
+  const overdueCount = steps.filter((each) => each.overdue).length;
+  const count = overdueCount > 0 ? overdueCount : steps.length;
+  const key = overdueCount > 0 ? "overdue" : "open";
+  return {
+    headline: truncated
+      ? t(`co.suggest.commitment.${key}AtLeast`, { count })
+      : t(`co.suggest.commitment.${key}Count`, { count }),
+    overdue: overdueCount > 0,
+  };
+}
+
+// useSuggestionsBody is the advice section's data and rows, split out of the
+// Panel that used to own it: the daily brief now carries this chrome, so the
+// dismiss mutation and the "move" rows live here where both that panel and
+// the standalone `SuggestionsSection` (still used on its own in tests) can
+// reach them without a second, drifting copy. Exported so companytoday.tsx
+// composes the same rows rather than reimplementing them.
+export function useSuggestionsBody({
   orgId,
   view,
   onOpenRecord,
@@ -2829,10 +3005,19 @@ export function SuggestionsSection({
   orgId: string;
   view?: Organization360;
   onOpenRecord?: (entityType: string, entityId: string) => void;
-  // Performing the advice is the page's job, not this card's: the composer,
-  // the deal and the task form all live above it.
+  // Performing the advice is the page's job, not this section's: the
+  // composer, the deal and the task form all live above it.
   onPerform?: (action: SuggestionAction) => void;
-}>) {
+}>): {
+  // Whether the section has rows worth showing. A withheld, empty or
+  // unavailable suggestion block carries none — advice is additive, and
+  // "no advice" or "we cannot advise you" are not things a rep acts on.
+  ready: boolean;
+  rows: ReactNode;
+  // The truncation count and a failed dismissal, additive on top of whatever
+  // else the caller's own footer carries.
+  footer?: ReactNode;
+} {
   const { locale } = useLocale();
   const t = useT();
   const client = useQueryClient();
@@ -2861,83 +3046,136 @@ export function SuggestionsSection({
     Boolean(view?.suggestions),
     suggestions.length,
   );
-  // A withheld, empty or unavailable suggestion block is dropped entirely.
-  // Advice is additive: "no advice" and "we cannot advise you" are not things
-  // a rep acts on, and either would claim space above the timeline that the
-  // account's story needs.
   if (state !== "ready") {
+    return { ready: false, rows: null };
+  }
+  const footer =
+    (dropped !== undefined && dropped > 0) || dismiss.isError ? (
+      <>
+        {/* A truncated list with no count reads as "that is everything".
+            Absent means the section was never computed, which this card
+            does not render at all. */}
+        {dropped !== undefined && dropped > 0 && (
+          <p className="co-row-meta">
+            {t("co.suggest.more", { count: dropped })}
+          </p>
+        )}
+        {/* The row staying put with no word reads as a click that missed,
+            and the rep clicks again. */}
+        {dismiss.isError && (
+          <p className="co-restricted">
+            {t("co.suggest.dismissFailed")}
+            {` ${problemMessageOf(dismiss.error, t)}`}
+          </p>
+        )}
+      </>
+    ) : undefined;
+  const rows = suggestions.map((suggestion) => (
+    <PanelRow key={suggestion.fingerprint} className="co-move">
+      <span className="co-move-body">
+        {/* The ASK, at the row's loudest weight: what the rule wants done.
+            Falls back to the kind only when the rule named no title of
+            its own. */}
+        <span className="co-move-ask">
+          {suggestion.title ?? t(`co.suggest.kind.${suggestion.kind}`)}
+        </span>
+        {/* The WHY, under the ask and quieter: the reason is the
+            suggestion, and the rest of the row is chrome around it. */}
+        <span className="co-move-why">{suggestion.reason}</span>
+        <span className="co-move-do">
+          <span className="co-move-cites">
+            {/* The date the EVIDENCE carries — when the thread went
+                quiet, when the deal last moved. Never a deadline the
+                system chose, which is why a rule firing on an absence
+                shows none. */}
+            {suggestion.due_at && (
+              <span className="co-row-meta">
+                {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
+              </span>
+            )}
+            <Citations
+              evidence={suggestion.evidence}
+              onOpenRecord={onOpenRecord}
+            />
+          </span>
+          <span className="co-move-actions">
+            {/* What performing the advice means, named by the server. A
+                rule that could not name one carries null and this
+                renders nothing rather than a control that does nothing. */}
+            {suggestion.action && onPerform && (
+              <SuggestionActionButton
+                action={suggestion.action}
+                onPerform={onPerform}
+              />
+            )}
+            <Button
+              small
+              onClick={() => dismiss.mutate(suggestion.fingerprint)}
+              // Only the row in flight is disabled: one dismissal must not
+              // freeze the rep's other choices.
+              disabled={
+                dismiss.isPending &&
+                dismiss.variables === suggestion.fingerprint
+              }
+            >
+              {t("co.suggest.dismiss")}
+            </Button>
+          </span>
+        </span>
+      </span>
+    </PanelRow>
+  ));
+  return { ready: true, rows, footer };
+}
+
+/**
+ * SuggestionsSection is the advice rows on their own, in their own Panel —
+ * used standalone where nothing else on the page carries this chrome (the
+ * stories file, and the suites that exercise the rows without the rest of
+ * the daily brief). The live record page mounts the merged brief instead
+ * (`TodayOnThisAccount`, companytoday.tsx), which composes the same rows
+ * body via `useSuggestionsBody` alongside its own context band.
+ */
+export function SuggestionsSection({
+  orgId,
+  view,
+  onOpenRecord,
+  onPerform,
+  onOpenTasks,
+}: Readonly<{
+  orgId: string;
+  view?: Organization360;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+  onPerform?: (action: SuggestionAction) => void;
+  // Where the footer's commitment reading leads. Absent for a caller with no
+  // Tasks tab of its own (the stories file).
+  onOpenTasks?: () => void;
+}>) {
+  const t = useT();
+  const body = useSuggestionsBody({ orgId, view, onOpenRecord, onPerform });
+  if (!body.ready) {
     return null;
   }
+  const commitment = nextCommitmentLine(view, t);
+  const footer =
+    commitment || onOpenTasks || body.footer ? (
+      <>
+        {commitment && (
+          <Badge tone={commitment.overdue ? "warn" : undefined}>
+            {commitment.headline}
+          </Badge>
+        )}
+        {onOpenTasks && (
+          <Button small variant="ghost" onClick={onOpenTasks}>
+            {t("co.suggest.viewTasks")}
+          </Button>
+        )}
+        {body.footer}
+      </>
+    ) : undefined;
   return (
-    <section className="co-part co-suggest" aria-label={t("co.suggest.title")}>
-      <h3 className="co-part-label">{t("co.suggest.title")}</h3>
-      <ul className="co-list">
-        {suggestions.map((suggestion) => (
-          <li key={suggestion.fingerprint} className="co-row">
-            <span>
-              {/* The title leads where the rule gave one: it says what to DO,
-                  where the kind says which rule fired. Absent on a rule that
-                  named none, and the kind carries the row alone. */}
-              <span className="co-suggest-kind">
-                {suggestion.title ?? t(`co.suggest.kind.${suggestion.kind}`)}
-              </span>
-              {/* The reason is the suggestion. Everything else is chrome. */}
-              <span className="co-suggest-reason">{suggestion.reason}</span>
-            </span>
-            <span className="co-row-meta">
-              {/* The date the EVIDENCE carries — when the thread went quiet,
-                  when the deal last moved. Never a deadline the system chose,
-                  which is why a rule firing on an absence shows none. */}
-              {suggestion.due_at && (
-                <span>
-                  {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
-                </span>
-              )}
-              <Citations
-                evidence={suggestion.evidence}
-                onOpenRecord={onOpenRecord}
-              />
-              {/* What performing the advice means, named by the server. A rule
-                  that could not name one carries null and this renders nothing
-                  rather than a control that does nothing. */}
-              {suggestion.action && onPerform && (
-                <SuggestionActionButton
-                  action={suggestion.action}
-                  onPerform={onPerform}
-                />
-              )}
-              <Button
-                small
-                onClick={() => dismiss.mutate(suggestion.fingerprint)}
-                // Only the row in flight is disabled: one dismissal must not
-                // freeze the rep's other choices.
-                disabled={
-                  dismiss.isPending &&
-                  dismiss.variables === suggestion.fingerprint
-                }
-              >
-                {t("co.suggest.dismiss")}
-              </Button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {/* The card offers a handful, so what it left out is named. A truncated
-          list with no count reads as "that is everything". Absent means the
-          section was never computed, which this card does not render at all. */}
-      {dropped !== undefined && dropped > 0 && (
-        <p className="co-row-meta">
-          {t("co.suggest.more", { count: dropped })}
-        </p>
-      )}
-      {/* A dismissal that failed must say so: the row staying put with no word
-          reads as a click that missed, and the rep clicks again. */}
-      {dismiss.isError && (
-        <p className="co-restricted">
-          {t("co.suggest.dismissFailed")}
-          {` ${problemMessageOf(dismiss.error, t)}`}
-        </p>
-      )}
-    </section>
+    <Panel title={t("co.suggest.title")} footer={footer} className="co-lead">
+      {body.rows}
+    </Panel>
   );
 }

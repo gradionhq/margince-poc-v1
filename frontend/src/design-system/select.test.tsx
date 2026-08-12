@@ -396,15 +396,21 @@ describe("committing a choice", () => {
     expect(trigger.textContent).toContain("Proposal");
   });
 
-  it("toggles shut on a second click of the trigger, committing nothing", async () => {
+  // Closing on the trigger is a dismissal like Escape and like a press
+  // outside, so the caller hears about it the same way. A caller that shows an
+  // editing view around this control (InlineChoice) has no other signal to
+  // leave that view by, and would sit in it with no list underneath.
+  it("toggles shut on a second click of the trigger, committing nothing and reporting the dismissal", async () => {
     const user = userEvent.setup();
-    const { trigger, changes } = renderSelect();
+    const onCancel = vi.fn();
+    const { trigger, changes } = renderSelect({ onCancel });
 
     await user.click(trigger);
     await user.click(trigger);
 
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(changes).toEqual([]);
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("closes on a pointer press outside, committing nothing", async () => {

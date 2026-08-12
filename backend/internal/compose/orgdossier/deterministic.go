@@ -106,29 +106,36 @@ func Deterministic(in Input) []Section {
 // company record instead tells them where to look but not at what — the
 // grounding filter would drop such a sentence anyway, so producing one here
 // would only make the floor and the filter disagree.
+//
+// A field with no mapped label is SKIPPED too, rather than falling back to its
+// own column name with the underscores opened out — `display_name` has no
+// label here for exactly that reason: the organization's name is already the
+// page's own heading, and "display name: Acme." restates it under a label
+// nobody wrote for a reader, six lines below where it is already the
+// biggest text on the page.
 func fieldSentence(field crmcontracts.CompanyProfileField) (claims.Sentence, bool) {
 	value := strings.TrimSpace(field.Value)
 	if value == "" || field.Id == nil {
 		return claims.Sentence{}, false
 	}
+	// A stored value of nothing but punctuation reduces to nothing, and a
+	// sentence reading "Label: " is worse than no sentence.
+	value = claims.TerminateSentence(value)
+	if value == "" {
+		return claims.Sentence{}, false
+	}
+	label, ok := fieldLabels[field.Field]
+	if !ok {
+		return claims.Sentence{}, false
+	}
 	return claims.Sentence{
-		Text:   fieldLabel(field.Field) + ": " + value + ".",
+		Text:   label + ": " + value,
 		Nature: natureFact,
 		Evidence: []claims.Evidence{{
 			EntityType: citeProfileField,
 			EntityID:   field.Id.String(),
 		}},
 	}, true
-}
-
-// fieldLabel turns a column name into something a person reads. An unmapped
-// field falls back to its own name with the underscores opened out, which is
-// plainer than a lookup miss and still true.
-func fieldLabel(field crmcontracts.CompanyProfileFieldField) string {
-	if label, ok := fieldLabels[field]; ok {
-		return label
-	}
-	return strings.ReplaceAll(string(field), "_", " ")
 }
 
 var fieldLabels = map[crmcontracts.CompanyProfileFieldField]string{
@@ -147,6 +154,19 @@ var fieldLabels = map[crmcontracts.CompanyProfileFieldField]string{
 	crmcontracts.CompanyProfileFieldFieldRegisterVat:       "Registration",
 	crmcontracts.CompanyProfileFieldFieldRegisteredAddress: "Registered address",
 	crmcontracts.CompanyProfileFieldFieldHistory:           "History",
+}
+
+// fieldLabel turns a column name into something a person reads, for the
+// RECEIPT a reader opens deliberately having already clicked a citation —
+// unlike a sentence's own label (fieldSentence, above, which skips a field
+// with none rather than guess), a receipt already open needs SOME label for
+// whatever field it names, so an unmapped one falls back to its own column
+// name with the underscores opened out.
+func fieldLabel(field crmcontracts.CompanyProfileFieldField) string {
+	if label, ok := fieldLabels[field]; ok {
+		return label
+	}
+	return strings.ReplaceAll(string(field), "_", " ")
 }
 
 // orderedSections renders the populated sections in reading order. A section

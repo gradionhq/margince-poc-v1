@@ -1,6 +1,8 @@
-import { type ReactNode, useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
-import { Button, TextInput } from "./atoms";
+import { TextInput } from "./atoms";
+import "./inlinechoice.css";
 import { Select, type SelectOption } from "./select";
 
 // One value a reader can change without leaving the page they are reading.
@@ -10,21 +12,29 @@ import { Select, type SelectOption } from "./select";
 // owner are the two a rep moves during a call, and both were reachable only
 // through a form that also asked about legal names and size bands.
 //
-// The rules it keeps, all four of which are failure modes rather than polish:
+// The interaction is edit-in-place, not a form: at rest the value reads as
+// plain text — no box, no accent, nothing saying "control" — and only a hover
+// or a keyboard focus reveals the affordance (an underline, and for a chooser
+// a caret) that this can be changed. A click turns the value itself into the
+// live control in the same spot; there is no separate Save — a chooser
+// commits on picking, a text field commits on Enter or on losing focus.
 //
-//   - A viewer who may NOT change the value sees the VALUE, not a greyed-out
-//     control. A disabled select says "you could do this" and then refuses;
-//     plain text says what is true.
-//   - A save that fails leaves the picker open on what the user chose. Snapping
-//     back to the old value on a version conflict discards their answer and
-//     tells them nothing.
-//   - The refusal is shown next to the control that caused it, not as a toast
-//     somewhere else on the page.
-//   - Escape reverts and closes, so a reader who opened it to LOOK at the
-//     options can get out without changing anything.
+// The rules it keeps, all failure modes rather than polish:
+//
+//   - A viewer who may NOT change the value sees the VALUE, with no hover
+//     affordance at all. A control that looks editable and then refuses is
+//     a defect already fixed once; plain text says what is true.
+//   - A save that fails leaves the control open on what the user chose,
+//     the refusal shown right beside it. Snapping back to the old value on a
+//     version conflict would discard their answer and tell them nothing.
+//   - Escape reverts and closes, so a reader who opened it to LOOK can get
+//     out without changing anything, whether or not a save is failing.
+//   - Choosing or retyping the value already stored is not an edit: no
+//     audit row for a change that did not happen, however often blur fires.
 
 export function InlineChoice({
   label,
+  hideLabel,
   value,
   options,
   canEdit,
@@ -35,6 +45,13 @@ export function InlineChoice({
   // Names the field, for the reader and for assistive tech. A bare value in a
   // header row reads as one more fact among many.
   label: string;
+  // Suppresses the VISIBLE "label: " prefix without touching the accessible
+  // name: `label` still drives the change button's aria-label and the edit
+  // form's own label, both read to assistive tech, sr-only rather than
+  // dropped. For a caller whose surrounding layout already prints the field's
+  // name once (FieldGrid's own label column) — printing it a second time here
+  // is the field naming itself twice, not a second fact.
+  hideLabel?: boolean;
   value: string;
   options: readonly SelectOption[];
   canEdit: boolean;
@@ -56,22 +73,60 @@ export function InlineChoice({
   const [pending, setPending] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const container = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Set right before a close that should return focus to the resting
+  // trigger, read once that trigger has actually remounted (see the effect
+  // below). Every exit from the editing view sets it — a value picked and a
+  // value abandoned both put the reader back where they started — because
+  // what the rule is about is leaving the view, not which answer they left
+  // with. Neither path can focus the trigger directly: at the moment they
+  // run, `editing` is still true, so the resting button — only rendered in
+  // the `!editing` branch — does not exist yet and `trigger.current` is null.
+  const restoreFocus = useRef(false);
   const fieldId = useId();
   const errorId = useId();
+
+  const close = () => {
+    setEditing(false);
+    setPending(null);
+    setFailure(null);
+  };
+
+  const revert = () => {
+    // The a11y counterpart of the value snapping back into plain text: a
+    // keyboard user who opened this and backed out lands on the same trigger
+    // they pressed, not dropped to the document body.
+    restoreFocus.current = true;
+    close();
+  };
+
+  // Runs after the resting trigger has actually mounted, so the focus call
+  // lands on a live node instead of the null ref `revert` would have hit.
+  useEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      trigger.current?.focus();
+    }
+  }, [editing]);
 
   if (!canEdit || !editing) {
     return (
       <span>
-        {label}:{" "}
+        {!hideLabel && <>{label}: </>}
         {canEdit ? (
           <button
+            ref={trigger}
             type="button"
-            className="link-button"
+            className="inline-editable inline-editable-choice"
             // aria-label, not title: the button's content is the VALUE, so
             // without this a screen reader announces "Not assessed, button" —
             // the state, with no hint that pressing it changes anything. title
             // does not override content for the accessible name; aria-label
-            // does, and stays as the tooltip for a pointer.
+            // does, and stays as the tooltip for a pointer. Carried
+            // regardless of `hideLabel`: the visible prefix is what a sighted
+            // reader does not need twice, not the accessible name a screen
+            // reader needs at all.
             aria-label={t("inlineChoice.change", { field: label })}
             title={t("inlineChoice.change", { field: label })}
             onClick={() => {
@@ -81,6 +136,11 @@ export function InlineChoice({
             }}
           >
             {render(value)}
+            <ChevronDown
+              className="inline-editable-caret"
+              size={12}
+              aria-hidden="true"
+            />
           </button>
         ) : (
           <span title={readOnlyReason}>{render(value)}</span>
@@ -94,6 +154,7 @@ export function InlineChoice({
     // Choosing what is already set is not an edit. Sending it would write an
     // audit row for a change that did not happen.
     if (next === value) {
+      restoreFocus.current = true;
       setEditing(false);
       return;
     }
@@ -101,6 +162,10 @@ export function InlineChoice({
     setFailure(null);
     try {
       await onSave(next);
+      // Picking a value leaves the editing view exactly as backing out of it
+      // does, so it lands the reader on the same trigger: the rule is about
+      // leaving the view at all, not about which answer they left with.
+      restoreFocus.current = true;
       setEditing(false);
     } catch (err) {
       // The draft survives: `pending` still holds what they chose, and the
@@ -113,8 +178,23 @@ export function InlineChoice({
   };
 
   return (
-    <span>
-      <label htmlFor={fieldId}>{label}: </label>
+    // Escape only reaches this handler once the popup itself is closed — an
+    // OPEN popup's own keydown claims and stops the Escape press, which is
+    // exactly the case (a picker left open on a failed save) that this
+    // control has no other way to back out of.
+    // biome-ignore lint/a11y/noStaticElementInteractions: keydown here only ever catches an Escape the Select below already declined to claim; the interactive element is that Select's own trigger.
+    <span
+      ref={container}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          revert();
+        }
+      }}
+    >
+      <label className={hideLabel ? "sr-only" : undefined} htmlFor={fieldId}>
+        {label}
+        {!hideLabel && ": "}
+      </label>
       <Select
         id={fieldId}
         value={chosen}
@@ -122,6 +202,18 @@ export function InlineChoice({
         disabled={saving}
         aria-invalid={failure ? true : undefined}
         aria-describedby={failure ? errorId : undefined}
+        // The click that started editing already meant "show me the
+        // options" — opening on mount spends that same click rather than
+        // asking for a second one.
+        openOnMount
+        // Closing the popup without picking anything (a press outside, the
+        // trigger scrolling away) is the one closed transition that is not
+        // also a commit — Select's own `commit` never routes through this,
+        // only `cancel`/an outside dismissal do. Tab is deliberately routed
+        // to `onLeave`, not here: the reader already moved forward, and
+        // refocusing this trigger would drag them back to where they left.
+        onCancel={revert}
+        onLeave={close}
         onChange={(next) => {
           setPending(next);
           void commit(next);
@@ -140,12 +232,13 @@ export function InlineChoice({
 // description, edited where it is read rather than inside a form that also
 // asks about legal names and size bands.
 //
-// It keeps the same four rules — a viewer who may not edit sees the value and
-// not a disabled control, a failed save keeps the typed text, the refusal
-// shows next to the field, and Escape reverts — and adds the two a text field
-// needs that a select does not: an explicit commit (a select commits on
-// choice; typing has no such moment), and something to press when the value is
-// empty, since there is no text to click on.
+// It keeps the same rules as InlineChoice above — a viewer who may not edit
+// sees the value with no hover affordance, a failed save keeps the typed
+// text and shows the refusal beside the field, Escape reverts — and adds the
+// two a text field needs that a chooser does not: an explicit MOMENT of
+// commit (a chooser commits the instant something is picked; typing has no
+// such moment, so Enter or losing focus stands in for it), and something to
+// press when the value is empty, since there is no text to click on.
 export function InlineText({
   label,
   value,
@@ -172,27 +265,50 @@ export function InlineText({
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // Escape unmounts this input, which the browser reads as focus leaving it —
+  // a blur this control did not ask to commit. Set true for exactly the tick
+  // between the Escape keydown and that blur, so the blur handler below can
+  // tell "the reader cancelled" from "the reader tabbed away" and skip the
+  // commit only for the former.
+  const cancelling = useRef(false);
   const fieldId = useId();
   const errorId = useId();
 
   if (!canEdit || !editing) {
     const shown = value || placeholder;
     if (!canEdit) {
+      // `placeholder` is written for someone about to press it ("Add legal
+      // name") — showing it plain to a viewer who cannot edit reads as an
+      // instruction aimed at them. `field.unset` is the neutral fact instead,
+      // the same fallback the grid's own read-only rows (owner, domain,
+      // address) already use, so an empty field never reads as either an
+      // invitation this viewer cannot act on or a blank the row forgot to
+      // fill.
       return (
         <span className="inlinetext" title={readOnlyReason}>
-          {value}
+          {value || t("field.unset")}
         </span>
       );
     }
     return (
       <button
         type="button"
-        className="link-button inlinetext"
+        className="inline-editable"
+        // An empty field is an invitation to fill it and reads as one; a field
+        // with a value is a value, and dressing the fact as a link would say
+        // it is a place to go.
+        data-empty={value ? undefined : "true"}
         aria-label={t("inlineChoice.change", { field: label })}
         title={t("inlineChoice.change", { field: label })}
         onClick={() => {
           setDraft(value);
           setFailure(null);
+          // A previous Escape can leave this set if the browser never
+          // delivered the unmount's blur to this node's React handler — the
+          // one place `onBlur` below clears it. Cleared here too, the one
+          // path every new edit session always runs, so a stale flag cannot
+          // silently swallow this session's first blur commit.
+          cancelling.current = false;
           setEditing(true);
         }}
       >
@@ -202,9 +318,16 @@ export function InlineText({
   }
 
   const commit = async () => {
+    // A commit already in flight owns the next state transition; a second
+    // one racing in behind it (Enter, then the blur disabling the input for
+    // `saving` fires synchronously) would double-send the same edit.
+    if (saving) {
+      return;
+    }
     const next = draft.trim();
     // Saving what is already stored writes an audit row for a change that did
-    // not happen.
+    // not happen. Blur fires on every exit now, so this guard is what keeps
+    // "clicked in, typed nothing, clicked out" silent.
     if (next === value) {
       setEditing(false);
       return;
@@ -215,8 +338,9 @@ export function InlineText({
       await onSave(next);
       setEditing(false);
     } catch (err) {
-      // The draft survives, so a failed save does not also lose what they
-      // typed.
+      // The draft survives and the input stays mounted right where the
+      // reader left it — pulling focus back after a failed blur-commit would
+      // be a second surprise on top of the refusal.
       setFailure(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
@@ -242,24 +366,19 @@ export function InlineText({
             void commit();
           }
           if (event.key === "Escape") {
+            cancelling.current = true;
             setDraft(value);
             setEditing(false);
           }
         }}
-      />
-      <Button small variant="primary" disabled={saving} onClick={commit}>
-        {t("inlineText.save")}
-      </Button>
-      <Button
-        small
-        disabled={saving}
-        onClick={() => {
-          setDraft(value);
-          setEditing(false);
+        onBlur={() => {
+          if (cancelling.current) {
+            cancelling.current = false;
+            return;
+          }
+          void commit();
         }}
-      >
-        {t("inlineText.cancel")}
-      </Button>
+      />
       {failure && (
         <span id={errorId} role="alert" className="form-error">
           {failure}

@@ -156,3 +156,28 @@ func TestDedupeDoesNotMutateItsInput(t *testing.T) {
 		t.Errorf("Dedupe rewrote its caller's slice: %+v", in[0].Evidence)
 	}
 }
+
+func TestTerminateSentence(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"appends a full stop to a bare statement", "Load-shifting software", "Load-shifting software."},
+		{
+			"keeps the author's own terminator rather than doubling it",
+			"What is their pricing model?", "What is their pricing model?",
+		},
+		{"does not double an existing full stop", "Voltaq Systems GmbH.", "Voltaq Systems GmbH."},
+		{"does not turn a trailing ellipsis into two stops", "The rollout is still…", "The rollout is still…"},
+		{"strips a dangling list separator rather than terminating it", "Berlin, Munich, ", "Berlin, Munich."},
+		{"reduces punctuation-only input to nothing", "  ; : ,  ", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := TerminateSentence(c.value); got != c.want {
+				t.Errorf("TerminateSentence(%q) = %q, want %q", c.value, got, c.want)
+			}
+		})
+	}
+}

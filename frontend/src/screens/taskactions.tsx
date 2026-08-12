@@ -64,34 +64,84 @@ export function snoozedDueAt(dueAt: string | null | undefined): string | null {
 }
 
 /**
- * TaskQuickActions is the pair of verbs a rep needs on a next-step row.
- * Snooze is offered only for a dated task: there is no day to move a task to
- * that never had one.
+ * TaskCompleteCheck is the tick affordance itself — a checkbox rather than a
+ * labelled button, for a row that names its own verb (ticking IS completing)
+ * rather than one that reads as a menu of actions. Every caller lists OPEN
+ * tasks only, so the box always starts unchecked; ticking it fires the
+ * completion and the row leaves the list on the invalidated re-read, rather
+ * than the checkbox itself flipping to a done state it would then have to
+ * keep showing.
+ */
+export function TaskCompleteCheck({
+  activityId,
+  update,
+}: Readonly<{
+  activityId: string;
+  update: ReturnType<typeof useTaskUpdate>;
+}>) {
+  const t = useT();
+  const isThisTask = update.variables?.id === activityId;
+  const pending = update.isPending && isThisTask;
+  // A rejected PATCH re-enables the box and leaves it unchecked — the same
+  // rendering a click that did nothing would leave. Without this, the two are
+  // indistinguishable and the reader has no reason to try again.
+  const failed = update.isError && isThisTask;
+  return (
+    <>
+      <input
+        type="checkbox"
+        className="co-task-check"
+        checked={false}
+        disabled={pending}
+        aria-label={t("tasks.complete")}
+        onChange={() =>
+          update.mutate({ id: activityId, body: { is_done: true } })
+        }
+      />
+      {failed && (
+        <span className="co-part-error" role="alert">
+          {problemMessageOf(update.error, t)}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * TaskQuickActions is the verb a rep needs on a next-step row beyond the tick:
+ * snooze, offered only for a dated task, since there is no day to move a task
+ * to that never had one. Complete lives on `TaskCompleteCheck` instead —
+ * `showComplete` keeps it here too for the one caller (the detail modal) that
+ * has no row-level checkbox of its own to tick.
  */
 export function TaskQuickActions({
   activityId,
   dueAt,
   update,
+  showComplete = true,
 }: Readonly<{
   activityId: string;
   dueAt?: string | null;
   update: ReturnType<typeof useTaskUpdate>;
+  showComplete?: boolean;
 }>) {
   const t = useT();
   const nextDue = snoozedDueAt(dueAt);
   const pending = update.isPending && update.variables?.id === activityId;
   return (
     <>
-      <Button
-        small
-        variant="primary"
-        disabled={pending}
-        onClick={() =>
-          update.mutate({ id: activityId, body: { is_done: true } })
-        }
-      >
-        {t("tasks.complete")}
-      </Button>
+      {showComplete && (
+        <Button
+          small
+          variant="primary"
+          disabled={pending}
+          onClick={() =>
+            update.mutate({ id: activityId, body: { is_done: true } })
+          }
+        >
+          {t("tasks.complete")}
+        </Button>
+      )}
       {nextDue && (
         <Button
           small
@@ -116,10 +166,15 @@ export function TaskQuickActions({
  */
 export function TaskDetailModal({
   activityId,
+  readOnly,
   onClose,
   update,
 }: Readonly<{
   activityId: string;
+  // An archived company takes no new activity, so the verbs below would only
+  // be refused server-side — omitted here rather than disabled and left
+  // visible.
+  readOnly: boolean;
   onClose: () => void;
   update: ReturnType<typeof useTaskUpdate>;
 }>) {
@@ -172,7 +227,7 @@ export function TaskDetailModal({
               <EntityRef kind="user" id={task.assignee_id} />
             )}
           </p>
-          {!task.is_done && (
+          {!task.is_done && !readOnly && (
             <div className="form-actions">
               <TaskQuickActions
                 activityId={task.id}

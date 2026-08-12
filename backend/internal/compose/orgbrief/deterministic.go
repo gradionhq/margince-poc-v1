@@ -99,7 +99,7 @@ func profileLines(in Input, account []Evidence) []Sentence {
 		}
 		// A stored value of nothing but punctuation reduces to nothing, and a
 		// line reading "What they sell: ." is worse than no line.
-		statement := trimSentence(entry.Value)
+		statement := claims.TerminateSentence(entry.Value)
 		if statement == "" {
 			continue
 		}
@@ -109,26 +109,6 @@ func profileLines(in Input, account []Evidence) []Sentence {
 		})
 	}
 	return out
-}
-
-// trimSentence renders a stored statement as one sentence: a closing full
-// stop when the value ends without one, and the author's own terminator kept
-// when it has one. Rewriting a "?" into a "." would be an edit to approved
-// text, which is the one thing this half of the brief promises not to do —
-// so only a dangling list separator is stripped.
-func trimSentence(value string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(value), ";:, ")
-	if trimmed == "" {
-		return trimmed
-	}
-	// "…" included: a statement that trails off already ends, and appending a
-	// full stop to it renders "….".
-	for _, terminator := range []string{".", "!", "?", "…"} {
-		if strings.HasSuffix(trimmed, terminator) {
-			return trimmed
-		}
-	}
-	return trimmed + "."
 }
 
 func identityLine(in Input) string {
