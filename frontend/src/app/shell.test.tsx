@@ -1062,6 +1062,10 @@ describe("Section switcher (the page head at phone width)", () => {
     // a reader driving the app by voice says what they can see.
     expect(switcher.textContent).toContain("Audit log");
     expect(switcher.getAttribute("aria-expanded")).toBe("false");
+    // Under the head, not inside it: the head is the page's title and the two
+    // things true of the whole product, and a control that changes which page you
+    // are on is none of those — it belongs to the column it switches.
+    expect(document.querySelector(".pagehead")?.contains(switcher)).toBe(false);
     // Closed, it claims nothing: it is a control that opens a list, not a page.
     expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
   });

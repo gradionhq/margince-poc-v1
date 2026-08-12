@@ -611,14 +611,32 @@
 }
 /* The level's own name, at the head of its rows. It is the page's section, so it
    sits at heading level 2 and the group labels under it move down to 3 — the
-   outline a screen reader walks says which level these rows belong to. */
+   outline a screen reader walks says which level these rows belong to.
+   It reads at the lead size: the level is a place, and a name set smaller than
+   the rows under it reads as their caption instead. */
 .rail .navtitle {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   padding: 0 14px; /* ds:ignore matches .navheading's inset, so the title sits on the rows' own text column */
   font-family: var(--f-display);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-lead);
   font-weight: var(--fw-semibold);
   color: var(--textPrimary);
+}
+/* The header block ends here, and the rule says so — bled out through the title's
+   own inset and the rail's gutter so it meets both edges and divides the SIDEBAR
+   rather than underlining a word. Carried by the title rather than by the first
+   group, so it travels with the thing it belongs to: collapsed, the name is
+   clipped and the line goes with it, where the group hairlines take over. */
+.rail .navtitle::after {
+  content: "";
+  display: block;
+  height: 1px;
+  margin: var(--space-3) calc(-1 * (14px + var(--space-2))) 0; /* ds:ignore reaches the rail's edge through the title's 14px inset */
+  background: var(--borderSubtle);
+}
+/* The rows start clear of that rule rather than against it. */
+.rail .navtitle + .navgroup {
+  margin-top: var(--space-3);
 }
 /* Collapsed there is no room for the name — and it must not leave the document
    either: the rows below are icons, and this heading is what says which level
@@ -631,21 +649,46 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* The way back up. Quieter than a destination, because it names where the reader
-   came FROM rather than where they are, and on `.navitem`'s geometry so the
-   level's header and its rows share one column of icons. */
+/* The way back up: the first control in the level and the only one that leaves
+   it, so it is the one thing here that looks like a control. On `.navitem`'s
+   geometry — the level's header and its rows stand on one column of icons — with
+   a recessed fill of its own, because at destination weight and the rows' own
+   transparent ground it read as a stray label above the section's name rather
+   than as the way out of it. */
 .rail .navback {
   /* `flex: none`, against the rows' own `flex: 1`: a row grows inside its
      `.navwrap`, which is a ROW, while this control is a child of the level's
      column — where growing would mean growing taller than the rows under it. */
   flex: none;
-  color: var(--textMeta);
+  margin-bottom: var(--space-2);
+  /* Filled, where the search row above it is an outlined field: the two sit one
+     under the other, and giving both a hairline made them twins. A recessed
+     ground says "control" in a different word than a border does. */
+  background: var(--bgCard);
+  color: var(--textPrimary);
   font-family: var(--f-body);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
   text-align: left;
 }
 .rail .navback:hover {
-  color: var(--textPrimary);
+  background: var(--bgHover);
+}
+/* The chevron leads the movement it stands for: it pulls back the way the reader
+   is about to go, which is the whole gesture in 2px. */
+.rail .navback svg {
+  color: var(--textMeta);
+  transition: transform 0.16s var(--shellEase, cubic-bezier(0.2, 0, 0, 1));
+}
+.rail .navback:hover svg,
+.rail .navback:focus-visible svg {
+  transform: translateX(-2px);
+  color: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail .navback svg {
+    transition: none;
+  }
 }
 /* A level takes the brand's WORDS for its own rows: the mark alone already stands
    for the product here, and it keeps both jobs it has — the link home and the
@@ -657,6 +700,14 @@
    claims `display` on the brand's words, so the 64px rail follows without being
    named. */
 .rail.leveled .ws-name {
+  display: none;
+}
+/* The foot goes with them. Both its rows point where the reader already is — the
+   door leads to the section they are standing in, and their own surfaces are the
+   level's own first group, sign-out included (it lives on Settings → Account). A
+   level is the sidebar's whole attention; two rows restating it are two rows of
+   noise. */
+.rail.leveled .railfoot {
   display: none;
 }
 
@@ -768,25 +819,48 @@
  * no media query of its own — but it is a phone control, which is why it takes
  * the 44px target WCAG 2.5.5 asks for rather than the compact row rhythm the
  * sidebar uses under a pointer. */
+/* Its own band under the head, on the content column's gutter (the `.wrap` below
+   it stands on the same var(--space-4)), so the row, the heading above it and the
+   cards under it share one left edge. `flex: none` because `.main` is a column
+   and this band must not stretch to fill it. */
+.pageswitchwrap {
+  display: flex;
+  flex: none;
+  width: 100%;
+  max-width: var(--pageColumn);
+  margin: 0 auto;
+  padding: 0 var(--space-4) var(--space-3);
+}
+/* Full width, because what it switches is the whole page: a pill hugging its own
+   label read as one more chip in the head, and at 390px the thumb wants the
+   whole row rather than the six characters of "Audit log". The chevron sits at
+   the far end for the same reason — the gap between name and glyph is the
+   affordance that says the row opens. */
 .pageswitch {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  align-self: flex-start;
+  justify-content: space-between;
   gap: var(--space-2);
-  max-width: 100%;
+  width: 100%;
   min-height: 44px;
   padding: 0 var(--space-3);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: var(--bgElevated);
-  color: var(--textContent);
+  color: var(--textPrimary);
   font-family: var(--f-body);
   font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  text-align: left;
   cursor: pointer;
 }
 .pageswitch:hover {
   background: var(--bgHover);
-  color: var(--textPrimary);
+}
+/* Pressed, it says so before the sheet arrives — the one frame of feedback a
+   touch control owes the thumb that is still on it. */
+.pageswitch:active {
+  background: var(--bgCard);
 }
 /* A settings entry's name is copy, not user data, but the column is 390px wide
    and the pill must never widen the page: it clips itself instead. */
@@ -1287,8 +1361,12 @@
   .rail.sheetopen .railsearchwrap {
     display: flex;
   }
+  /* The foot divides the sheet the way the header does: one rule, wall to wall,
+     on the sheet's own 4px gutter rather than the sidebar's 8px one. */
   .rail.sheetopen .railfoot {
     display: block;
+    margin: var(--space-3) calc(-1 * var(--space-1)) 0;
+    padding: var(--space-3) var(--space-1) 0;
   }
   /* The foot comes back with the sheet, but the Settings door does not: the
      account rows inside the sheet already offer Settings, and two rows to the
@@ -1333,25 +1411,37 @@
   .rail.sheetopen .ws {
     display: flex;
   }
+  /* The sheet's header row: the installation on the left, the way out on the
+     right, both centred against a row tall enough to hold the two-line brand
+     block — and a rule under it that meets both walls of the sheet, so the list
+     below reads as the sheet's content rather than as more of its header. */
   .rail.sheetopen .railhead {
     display: flex;
     order: -1;
     align-items: center;
-    min-height: 40px;
-    margin-bottom: var(--space-2);
-    /* Room for the close control, which is absolutely positioned in this
-       row: without it a long organization name runs under the X. */
-    padding-right: var(--space-16);
+    min-height: 48px;
+    /* Bled out through the sheet's own gutter: the rule divides the SHEET, and a
+       line inset on both sides would read as an underline on the brand. */
+    margin: 0 calc(-1 * var(--space-1)) var(--space-3);
+    /* Room on the right for the close control, which is absolutely positioned in
+       this row: without it a long organization name runs under the X. */
+    padding: 0 var(--space-16) var(--space-3) var(--space-1);
+    border-bottom: 1px solid var(--borderSubtle);
   }
   /* More is the sheet's close control. It sits in that header row rather than
      over the first thing in the list, which is where it used to land. */
   .rail.sheetopen .railmore {
     position: absolute;
-    top: var(--space-4);
+    /* Centred on the header row rather than measured from the top of the sheet:
+       the row is as tall as the brand block it holds, and a fixed offset left the
+       X riding above the name it sits beside. */
+    top: var(--space-1);
     right: var(--space-2);
     flex-direction: row;
+    align-items: center;
     width: auto;
-    min-height: 40px;
+    height: 48px;
+    min-height: 0;
     padding: 0 var(--space-2);
     gap: var(--space-2);
   }
