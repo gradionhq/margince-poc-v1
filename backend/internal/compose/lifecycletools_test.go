@@ -22,11 +22,11 @@ func TestCompanyEnricherRoutesOnDepthAndNamesWhatIsMissing(t *testing.T) {
 	// so an operator reads which flag was not declared rather than a generic
 	// failure. This is the tool's half of the REST route's explicit 501.
 	unwired := companyEnricher{}
-	for depth, want := range map[string]string{
+	for depth, want := range map[agents.EnrichDepth]string{
 		agents.EnrichDepthSite: "crawl runner",
 		agents.EnrichDepthPage: "model path",
 	} {
-		t.Run(depth, func(t *testing.T) {
+		t.Run(string(depth), func(t *testing.T) {
 			_, err := unwired.EnrichCompany(context.Background(), ids.NewV7(), "", depth)
 			if err == nil {
 				t.Fatalf("depth %q answered without an engine — a silent empty result where the "+
@@ -46,7 +46,7 @@ func TestCompanyEnricherRoutesOnDepthAndNamesWhatIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown depth was served")
 	}
-	if !strings.Contains(err.Error(), agents.EnrichDepthPage) || !strings.Contains(err.Error(), agents.EnrichDepthSite) {
+	if !strings.Contains(err.Error(), string(agents.EnrichDepthPage)) || !strings.Contains(err.Error(), string(agents.EnrichDepthSite)) {
 		t.Errorf("err = %v, want the two depths this seam serves named", err)
 	}
 }

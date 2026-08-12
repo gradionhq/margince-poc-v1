@@ -379,3 +379,58 @@ func (t routedRecordTarget) refuse(ctx context.Context, id ids.UUID) error {
 	}
 	return refuseStagingElsewhere(rec)
 }
+
+// anchoredRecord answers, for a resolver whose Subject needs the ROW and not
+// only the id, the one read both of its questions rest on.
+//
+// It is routedRecordTarget's sibling, and the difference is which of the two
+// questions reads. That family's Subject names an operand and reads nothing, so
+// Guards is the only reader and a memo would protect against nothing (its own
+// doc says so). The families in commandcomms.go, commandlifecycle.go and
+// commandrecord.go are the other case: their Subject pins the row's VERSION and
+// names the row's LABEL, so both questions want the same row — and a row read
+// twice can change between the readings, leaving the authority judgment and the
+// human's sentence describing two different states of one record.
+//
+// entityType is a datasource.EntityType rather than a plain string, which is
+// what makes servedByTheRecordSeam's stand-down unnecessary here rather than
+// merely omitted: a type outside the seam's vocabulary cannot be spelled into
+// this field at all, so there is no unserved case for a branch to answer.
+//
+// The zero value is not usable: every constructor sets both fields, and a
+// resolver holding this is reached only through its family's New…Call.
+type anchoredRecord struct {
+	records    datasource.SystemOfRecordProvider
+	entityType datasource.EntityType
+	// seen is the id rec was read for, so a resolver asked about a second row
+	// reads that row rather than answering about the first.
+	seen ids.UUID
+	rec  datasource.Record
+	read bool
+}
+
+// row reads the record the id names, once.
+func (a *anchoredRecord) row(ctx context.Context, id ids.UUID) (datasource.Record, error) {
+	if a.read && a.seen == id {
+		return a.rec, nil
+	}
+	rec, err := a.records.Read(ctx, datasource.EntityRef{Type: a.entityType, ID: id})
+	if err != nil {
+		return datasource.Record{}, err
+	}
+	a.seen, a.rec, a.read = id, rec, true
+	return rec, nil
+}
+
+// refuse reads the row and refuses the two stagings patchResolver.Guards
+// refuses for its own target: one whose row the caller cannot see (the read
+// answers the row-scope miss as not-found, the existence-hiding answer the
+// executor would give), and one whose authority lives in another system of
+// record.
+func (a *anchoredRecord) refuse(ctx context.Context, id ids.UUID) error {
+	rec, err := a.row(ctx, id)
+	if err != nil {
+		return err
+	}
+	return refuseStagingElsewhere(rec)
+}

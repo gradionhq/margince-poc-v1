@@ -397,29 +397,21 @@ func (t advanceDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mcp
 	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
-// StageInfo pins the staged move to the deal's CURRENT version, so an
-// approval given for "close this deal as it stands" cannot execute
-// against a deal that changed in between.
+// StageInfo decodes this door's arguments into the deal-move command and
+// delegates: the refusals and the staged subject — including the version pin,
+// so an approval given for "close this deal as it stands" cannot execute
+// against a deal that changed in between — live in the resolver
+// (commandlifecycle.go), where the REST door reaches the same ones for the
+// same operation.
 func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args advanceDealArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	semantic, _, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
-	}, nil
+	return StageSubject(ctx, NewAdvanceDealCall(t.p, t.stages, AdvanceDealCommand{
+		DealID:    args.DealID,
+		ToStageID: args.ToStageID,
+	}))
 }
 
 func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

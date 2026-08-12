@@ -14,8 +14,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -38,12 +36,14 @@ type Comms interface {
 	// addressee: the recipient is the person the anchor conversation is with,
 	// resolved server-side, so a reply can only reach the human who opened it.
 	SendMessage(ctx context.Context, anchor ids.UUID, in SendMessageArgs) (SendMessageResult, error)
-	// IsChannelKind reports whether an activity kind is a messaging-channel
-	// conversation send_message may reply on. StageInfo needs the exact
-	// answer activities.IsChannelKind gives — the same test the store's own
-	// SendMessage refuses on — but this module may not import activities
-	// directly (modules never import a sibling), so the seam carries it.
-	IsChannelKind(kind string) bool
+	// ChannelKinds reports whether an activity kind is a messaging-channel
+	// conversation send_message may reply on. The send_message resolver needs
+	// the exact answer activities.IsChannelKind gives — the same test the
+	// store's own SendMessage refuses on — but this module may not import
+	// activities directly (modules never import a sibling), so the seam
+	// carries it. Embedded rather than declared inline because the REST door
+	// reaches that resolver holding the question alone (commandcomms.go).
+	ChannelKinds
 	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (AvailabilityResult, error)
 	BookMeeting(ctx context.Context, in BookMeetingArgs) (json.RawMessage, error)
 }
@@ -174,61 +174,29 @@ type sendEmailToolArgs struct {
 	SendEmailArgs
 }
 
-// StageInfo puts a refused send in the inbox instead of dead-ending it. The
-// anchor is the thread being replied to: it is the row the effect hangs off,
-// so it is what the redemption version pin re-checks.
+// StageInfo decodes this door's arguments into the mail-reply command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandcomms.go), where the REST door reaches the same ones for the same
+// operation.
 //
-// The recipients are NOT resolved here, and that is the difference from
+// The recipients are NOT resolved, and that is the difference from
 // send_message rather than an omission. A mail send names its own addressees
 // in `to`/`cc`, so they travel inside the staged arguments and are covered by
 // the diff_hash — the approved retry can only reach the addresses the human
 // read. A channel reply names none, which is why its recipient has to be
 // resolved server-side, and why binding an approval to a recipient is an open
 // question there and a settled one here.
-//
-// What this does not pre-empt, so neither reads as covered: the consent gate's
-// per-purpose verdict, the workspace's mailbox send capability, and whether an
-// address is syntactically deliverable. All are refusals a human's yes cannot
-// fix, and the first two need reads this call does not have — staging fetches
-// the anchor for the version pin and nothing else.
 func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args sendEmailToolArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	// Refuse here what the store refuses at execution. Otherwise staging mints
-	// an approval, a human reads a send with no addressee and says yes, the
-	// approved retry consumes that one-shot authority, and only then does the
-	// store refuse — a "yes" spent on something that was never going to happen.
-	if err := requireAddressee(args.To); err != nil {
-		return StageInfo{}, err
-	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
-		// Every addressee, cc included. A human approving from the inbox row
-		// reads only this line, so an unnamed recipient is a recipient nobody
-		// agreed to — the diff_hash faithfully binds cc either way, which is
-		// precisely what makes omitting it from the display a problem rather
-		// than a harmless abbreviation.
-		Summary: describeSend(args),
-	}, nil
-}
-
-// describeSend is the one line the inbox shows for a mail send: who it
-// reaches, cc included, and what it says it is about.
-func describeSend(args sendEmailToolArgs) string {
-	summary := fmt.Sprintf("Send an email to %s", strings.Join(args.To, ", "))
-	if len(args.Cc) > 0 {
-		summary += fmt.Sprintf(", cc %s", strings.Join(args.Cc, ", "))
-	}
-	return summary + fmt.Sprintf(", subject %q", args.Subject)
+	return StageSubject(ctx, NewSendEmailCall(t.p, SendEmailCommand{
+		ActivityID: args.ActivityID,
+		To:         args.To,
+		Cc:         args.Cc,
+		Subject:    args.Subject,
+	}))
 }
 
 func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -271,58 +239,19 @@ type sendMessageToolArgs struct {
 	SendMessageArgs
 }
 
+// StageInfo decodes this door's arguments into the channel-reply command and
+// delegates. The kind test travels with the call rather than being asked here:
+// the resolver refuses a non-channel anchor for BOTH doors, and this tool's
+// own seam is what supplies the answer either way.
 func (t sendMessageTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args sendMessageToolArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	// Refuse here what Handle's eventual SendMessage call would refuse anyway
-	// (errEmptyMessageBody, NotAChannelConversationError): otherwise staging
-	// mints an approval a human can approve, the approved retry consumes that
-	// one-shot approval on redemption, and only then does the store refuse
-	// permanently — a "yes" with no path to actually happening.
-	//
-	// SendMessage has two more permanent refusals this does not guard:
-	// ChannelRecipientError (the conversation reaches nobody, or more than
-	// one person) and ChannelNotSendCapableError (the workspace has no bot
-	// bound for the provider). Both are the same "yes with no path to
-	// actually happening" shape as the two guarded above, but closing them
-	// needs a reachability read this call does not have: the record read
-	// above returns the anchor's fields, not who the conversation resolves
-	// to or whether a bot is bound, and answering either question here would
-	// mean a new datasource seam method plus a database read at staging
-	// time — staging today only reads the anchor already fetched for
-	// version-pinning.
-	if strings.TrimSpace(args.Body) == "" {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("body is empty or whitespace-only; a channel provider rejects a text-less message")}
-	}
-	var anchor struct {
-		Kind string `json:"kind"`
-	}
-	if err := json.Unmarshal(rec.Fields, &anchor); err != nil {
-		return StageInfo{}, fmt.Errorf("crmagents: activity %s read back with unreadable fields: %w", args.ActivityID, err)
-	}
-	if !t.comms.IsChannelKind(anchor.Kind) {
-		return StageInfo{}, &BadArgsError{
-			Cause: fmt.Errorf("activity %s is a %q activity, not a messaging-channel conversation",
-				args.ActivityID, anchor.Kind),
-			Guidance: "reply on the channel the conversation was held on",
-		}
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
-		// The inbox shows the human what they are releasing. The message text
-		// is the thing being approved, so it belongs in the summary; the
-		// recipient does not, because nobody named one — the conversation did.
-		Summary: fmt.Sprintf("Reply on a captured conversation: %q", args.Body),
-	}, nil
+	return StageSubject(ctx, NewSendMessageCall(t.p, t.comms, SendMessageCommand{
+		ActivityID: args.ActivityID,
+		Body:       args.Body,
+	}))
 }
 
 func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

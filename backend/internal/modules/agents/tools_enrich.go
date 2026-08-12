@@ -23,7 +23,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -31,22 +30,35 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// The depth vocabulary: how much of the site a call reads. The two values are
-// two contract operations behind one verb, so the argument is what chooses
-// between them rather than the client picking a route. EXPORTED because the
-// implementation of CompanyEnricher lives in the composition layer and routes
-// on them — a second spelling there would silently send a site read to the
-// one-page path.
+// EnrichDepth is how much of the site a call reads. Its two values are two
+// contract operations behind one verb, so the argument is what chooses between
+// them rather than the client picking a route.
+//
+// A named type rather than a bare string, because the two doors reach this
+// vocabulary from opposite directions: the tool parses one of two words out of
+// its arguments, and the REST door has no word at all — its two routes ARE the
+// two depths, so its decoders set the value structurally (commandrecord.go).
+// A string would let the second of those be spelled wrong in a way every
+// schema accepts (gradionhq/margince-poc-v1#928 task 7).
+//
+// EXPORTED because the implementation of CompanyEnricher lives in the
+// composition layer and routes on it — a second spelling there would silently
+// send a site read to the one-page path.
+type EnrichDepth string
+
+// The two depths, and the whole vocabulary: EnrichDepthPage reads one page and
+// answers with the proposal, EnrichDepthSite queues a multi-page crawl and
+// answers with the read's id and queue state.
 const (
-	EnrichDepthPage = "page"
-	EnrichDepthSite = "site"
+	EnrichDepthPage EnrichDepth = "page"
+	EnrichDepthSite EnrichDepth = "site"
 )
 
 // CompanyEnricher reads a company's website and stages what it found. depth is
 // EnrichDepthPage (one page, answers with the proposal) or EnrichDepthSite (a
 // queued multi-page crawl, answers with the read's id and queue state).
 type CompanyEnricher interface {
-	EnrichCompany(ctx context.Context, orgID ids.UUID, overrideURL, depth string) (json.RawMessage, error)
+	EnrichCompany(ctx context.Context, orgID ids.UUID, overrideURL string, depth EnrichDepth) (json.RawMessage, error)
 }
 
 // RegisterEnrichTool wires the enrich verb over the site-read seam.
@@ -55,9 +67,9 @@ func RegisterEnrichTool(r *Registry, p datasource.SystemOfRecordProvider, enrich
 }
 
 type enrichArgs struct {
-	OrganizationID ids.UUID `json:"organization_id"`
-	URL            string   `json:"url"`
-	Depth          string   `json:"depth"`
+	OrganizationID ids.UUID    `json:"organization_id"`
+	URL            string      `json:"url"`
+	Depth          EnrichDepth `json:"depth"`
 }
 
 type enrichCompany struct {
@@ -90,27 +102,22 @@ func (t enrichCompany) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the enrich command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandrecord.go), where the REST door reaches the same ones for the same
+// operation.
+//
+// The depth is admitted HERE and typed by the command, which is the division
+// this verb needs. This door receives a WORD and has to decide whether it is
+// one of the two; the REST door receives no word at all — its two routes are
+// the two depths — so the vocabulary check belongs to the door that has a
+// string to check, and the command carries only the resolved value.
 func (t enrichCompany) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	args, err := readEnrichArgs(in)
 	if err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityOrganization, ID: args.OrganizationID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	target := "its own domain"
-	if args.URL != "" {
-		target = args.URL
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityOrganization), TargetID: args.OrganizationID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Read %s from %s and propose enrichment of %s",
-			args.Depth, target, recordLabel(rec)),
-	}, nil
+	return StageSubject(ctx, NewEnrichCall(t.p, EnrichCommand(args)))
 }
 
 func (t enrichCompany) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -128,6 +135,10 @@ func (t enrichCompany) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 // readEnrichArgs decodes, defaults the depth and admits the override URL in one
 // place, so a call this refuses can never reach a human's inbox on the staging
 // path and then be refused differently on the execution path.
+//
+// The URL admission is the resolver's own function (requireEnrichURL,
+// commandrecord.go), not a second copy of it: the staging path asks it through
+// Guards, and this asks it for Handle, which the approved retry re-enters.
 func readEnrichArgs(in json.RawMessage) (enrichArgs, error) {
 	var args enrichArgs
 	if err := decodeArgs(in, &args); err != nil {
@@ -140,13 +151,8 @@ func readEnrichArgs(in json.RawMessage) (enrichArgs, error) {
 		return enrichArgs{}, &BadArgsError{Cause: fmt.Errorf("depth %q is not %q or %q",
 			args.Depth, EnrichDepthPage, EnrichDepthSite)}
 	}
-	if args.URL != "" {
-		// The same admission the REST route applies before it fetches: a
-		// scheme-less or hostless target is a bad argument, not a thin page.
-		parsed, err := url.Parse(args.URL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return enrichArgs{}, &BadArgsError{Cause: fmt.Errorf("url %q must be an absolute http(s) URL", args.URL)}
-		}
+	if err := requireEnrichURL(args.URL); err != nil {
+		return enrichArgs{}, err
 	}
 	return args, nil
 }

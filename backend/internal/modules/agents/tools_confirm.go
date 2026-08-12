@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -114,25 +113,19 @@ func (t promoteLead) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the promotion command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandlifecycle.go), where the REST door reaches the same ones for the
+// same operation.
 func (t promoteLead) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args promoteArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if !validTriggers[args.Trigger] {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("trigger %q is not genuine engagement", args.Trigger)}
-	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityLead, ID: args.LeadID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: "lead", TargetID: args.LeadID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Promote lead %s to a contact (%s)", recordLabel(rec), args.Trigger),
-	}, nil
+	return StageSubject(ctx, NewPromoteLeadCall(t.p, PromoteLeadCommand{
+		LeadID:  args.LeadID,
+		Trigger: args.Trigger,
+	}))
 }
 
 // validTriggers mirrors the contract enum — checked BEFORE staging so a
@@ -204,46 +197,21 @@ func (t mergeRecords) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the merge command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandrecord.go), where the REST door reaches the same ones for the same
+// operation.
+//
+// This door's wire shape IS the command's field set — the arguments differ
+// only in carrying JSON tags — so it converts rather than restating the
+// fields, and a command that grows one fails to compile here instead of
+// quietly leaving it unset.
 func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args mergeArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if !mergeableTypes[args.RecordType] {
-		return StageInfo{}, &BadArgsError{
-			Cause:    fmt.Errorf("record_type %q cannot be merged", args.RecordType),
-			Guidance: "mergeable types are " + strings.Join(mergeableTypeNames(), ", "),
-		}
-	}
-	if args.SourceID == args.TargetID {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("source and target must differ")}
-	}
-	// Pin the SURVIVOR's version: the human's yes is a judgment about
-	// merging into B as it is now, so if B changes before redemption the
-	// approval no longer covers it (version skew, re-stage). The source is read
-	// because it is the other half of the change — the merge archives and
-	// relinks it — so its authority is checked too and its label goes in the
-	// summary.
-	survivor, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.TargetID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	source, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.SourceID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	// Every record this change touches, not just the pinned one, and named so a
-	// human reading the refusal knows which half of the merge blocked it.
-	if err := refuseStagingElsewhere(survivor); err != nil {
-		return StageInfo{}, fmt.Errorf("the record being merged INTO: %w", err)
-	}
-	if err := refuseStagingElsewhere(source); err != nil {
-		return StageInfo{}, fmt.Errorf("the record being merged FROM: %w", err)
-	}
-	return StageInfo{
-		TargetType: args.RecordType, TargetID: args.TargetID, TargetVersion: &survivor.Version,
-		Summary: fmt.Sprintf("Merge %s %s into %s", args.RecordType, recordLabel(source), recordLabel(survivor)),
-	}, nil
+	return StageSubject(ctx, NewMergeCall(t.p, MergeCommand(args)))
 }
 
 func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -251,8 +219,11 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	// The resolver's own refusal (commandrecord.go), not a second spelling of
+	// it: the approved retry re-enters here, so a type the staging refused must
+	// read the same way when it is refused again.
 	if !mergeableTypes[args.RecordType] {
-		return nil, &BadArgsError{Cause: fmt.Errorf("record_type %q cannot be merged", args.RecordType)}
+		return nil, mergeableTypeError(args.RecordType)
 	}
 	ref, err := t.p.Merge(ctx, datasource.MergeInput{
 		Type: datasource.EntityType(args.RecordType), SourceID: args.SourceID, TargetID: args.TargetID,
