@@ -93,7 +93,13 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// The replay reader is the composite provider this registry is already
 	// composed over, so a recorded result's records are re-checked through the
 	// same door — mirror included — that a live read of them would take.
-	opts = append(opts, agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
+	// The contract's per-record-type tier floor, on EVERY role that composes this
+	// surface. A verb's own tier cannot express "confirm-first for a project and
+	// auto-execute for a person", so without this the tool door admits at a tier
+	// the contract tightened and the REST door refuses (#982) — one credential,
+	// two answers, which is what ADR-0055 exists to prevent.
+	opts = append(opts, withContractTierFloor(),
+		agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
