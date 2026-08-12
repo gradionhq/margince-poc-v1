@@ -13,6 +13,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 )
 
 // FromView folds the caller's 360 into the draft's input.
@@ -254,15 +255,12 @@ func stripMailHeaders(body string) string {
 	return body
 }
 
-// isMailHeaderLine reports whether a line is one of the envelope headers the
-// capture path stores above a body.
+// isMailHeaderLine defers to the shared vocabulary rather than keeping a second
+// list. Two lists is how this drifted: the language detector knew two headers
+// and this knew six, and neither knew what the other knew — which is how a
+// German thread kept drafting in English.
 func isMailHeaderLine(line string) bool {
-	for _, header := range []string{"From: ", "To: ", "Cc: ", "Bcc: ", "Von: ", "An: "} {
-		if strings.HasPrefix(line, header) {
-			return true
-		}
-	}
-	return false
+	return textlang.IsMailHeader(line)
 }
 
 // isOverdueOurs reports whether this claim is a promise WE made, still open,

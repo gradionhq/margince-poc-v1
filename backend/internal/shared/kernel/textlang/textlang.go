@@ -253,11 +253,24 @@ const ownHeaderRunes = 400
 // all the evidence there is and refusing to read it would answer Unknown for a
 // forward whose language is perfectly clear.
 func replyText(runes []rune) (text []rune, lead int) {
-	if cut := quoteStart(runes); cut > 0 {
+	if cut := quoteStart(runes); cut > 0 && WordsWritten(string(runes[:cut])) >= minReplyWords {
 		runes = runes[:cut]
 	}
 	return runes, min(len(runes), LeadRunes)
 }
+
+// minReplyWords is how much text has to sit above a quote before that text is
+// treated as the reply.
+//
+// A forwarded message is stored as its envelope headers and then the whole
+// original, every line quoted. Cutting at the quote leaves the address lines
+// and nothing else - 53 runes of a 1180-rune German mail, no words to read, and
+// the language resolves to Unknown so the draft comes out in English. That is a
+// real defect a user reported twice.
+//
+// Three words, because a header pair carries two names and a real reply above a
+// quote is a sentence.
+const minReplyWords = 3
 
 // quoteStart finds where the quoted thread begins, as a rune offset, or -1
 // when no line announces itself as quoted.
@@ -291,8 +304,7 @@ func isOwnHeader(line []rune, offset int) bool {
 	if offset >= ownHeaderRunes {
 		return false
 	}
-	text := string(line)
-	return strings.HasPrefix(text, "From: ") || strings.HasPrefix(text, "Von: ")
+	return IsMailHeader(string(line))
 }
 
 // lineAt returns the rest of the line beginning at offset.
