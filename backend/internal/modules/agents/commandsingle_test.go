@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -510,4 +511,36 @@ func linkFixture(p *tallyingProvider) ids.UUID {
 	ref := datasource.EntityRef{Type: datasource.EntityOrganization, ID: id}
 	p.records[ref] = nativeRecord(datasource.Record{Ref: ref, Fields: json.RawMessage(`{}`)})
 	return id
+}
+
+// The archive TOOL refuses a record type its own write path cannot express,
+// before any approval is minted.
+//
+// The seam's resolver deliberately stands down for such a type — six of the
+// twelve archivable types have no seam row and are archived by their own
+// module, which is a real REST archive (archiveResolver.Guards, command.go).
+// That makes the question this door's alone, exactly as create_record's
+// ServesRecordType refusal is: this verb archives ONLY through
+// datasource.SystemOfRecordProvider.Archive, and the surface does not enforce
+// the InputSchema enum, so a raw tools/call can name anything at all.
+//
+// Both halves matter. A type the provider knows nothing about stages a target
+// the approvals surface has no visibility rule for — an authority object that
+// is invisible, undecidable and minted at the caller's choosing. A type it
+// half-knows stages one a human CAN release, onto a retry that then dies at
+// the provider with the one-shot authority already spent.
+func TestTheArchiveToolRefusesARecordTypeItsOwnWritePathCannotArchive(t *testing.T) {
+	for _, recordType := range []string{"tag", "list", "saved_view", "nonsense", ""} {
+		t.Run(recordType, func(t *testing.T) {
+			// A provider that fails EVERY read, so a door that reached the seam
+			// anyway fails here rather than passing on a lenient stub.
+			_, err := archiveRecord{p: unreadableProvider{}}.StageInfo(context.Background(),
+				json.RawMessage(fmt.Sprintf(`{"record_type":%q,"id":%q}`, recordType, ids.NewV7())))
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Fatalf("staging an archive of %q answered %v, want a BadArgsError — an approval for it "+
+					"could never be carried out", recordType, err)
+			}
+		})
+	}
 }

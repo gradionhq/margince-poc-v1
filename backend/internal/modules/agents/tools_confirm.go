@@ -56,10 +56,31 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 // only in carrying JSON tags — so it converts rather than restating the fields,
 // and a command that grows one fails to compile here instead of quietly
 // leaving it unset.
+//
+// ONE check runs HERE, before the command is built, for exactly the reason
+// createRecord.StageInfo's does (tools.go): a record type this verb's OWN
+// write path cannot express. Handle archives exclusively through
+// datasource.SystemOfRecordProvider.Archive, which cannot name a type outside
+// the seam's vocabulary — and the surface does not enforce the InputSchema
+// enum at this layer, so a raw tool call can put any string here. Without it,
+// `record_type:"tag"` stages an approval a human releases onto a retry that
+// dies at the provider, and an arbitrary string stages one with a target type
+// the approvals surface has no visibility rule for at all: a zombie authority
+// object, minted at the caller's choosing.
+//
+// That is a fact about THIS door's executor rather than about the operation,
+// which is why it cannot live in the resolver: the same command reaching it
+// from REST names an archive whose OWN module's handler performs it fine, and
+// archiveResolver.Guards stands down for exactly that reason.
 func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args archiveArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
+	}
+	if !servedByTheRecordSeam(args.RecordType) {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
+			"this verb does not archive %q records, so no approval of it could ever be carried out",
+			args.RecordType)}
 	}
 	return StageSubject(ctx, NewArchiveCall(t.p, ArchiveCommand(args)))
 }

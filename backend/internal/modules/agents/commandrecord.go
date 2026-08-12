@@ -124,6 +124,19 @@ func (r *mergeResolver) halves(ctx context.Context, cmd MergeCommand) (survivor,
 // no longer covers it (version skew, re-stage). The summary names both halves,
 // because a merge that named only the survivor would ask a human to release a
 // change without saying what disappears into it.
+//
+// Naming the survivor as the target also decides WHO may release this, and
+// that bound is stated rather than left to be discovered. The approvals
+// surface scopes an inbox row by probing its target, so the approver is the
+// one whose row scope reaches B — and B alone. An approver who can see the
+// survivor but not the source still decides the source's archival, and reads
+// the source's name out of the summary above. Guards below proves the STAGER
+// can see both halves; nothing proves it of the approver, and closing that
+// needs a second, source-scoped probe the approvals surface has no shape for
+// (gradionhq/margince-poc-v1#1021 is where a target's visibility question
+// gets its home). Both alternatives are worse: binding to the source pins a
+// row the merge is about to archive, and binding to both is not something one
+// approval row can express.
 func (r *mergeResolver) Subject(ctx context.Context, cmd MergeCommand) (StageInfo, error) {
 	survivor, source, err := r.halves(ctx, cmd)
 	if err != nil {
