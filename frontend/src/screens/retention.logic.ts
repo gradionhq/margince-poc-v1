@@ -18,9 +18,15 @@ export type RetentionPolicy = components["schemas"]["RetentionPolicy"];
 
 // The authorable set, in the contract enum's own order (coarse scopes before
 // the finer ones inside them), so the create form reads top-down the way the
-// data model nests. Typed as the generated union rather than as strings: a
-// scope added to crm.yaml and forgotten here is a missing label, and one
-// removed there is a compile error.
+// data model nests. Typed as the generated union, so a scope REMOVED from
+// crm.yaml is a compile error here.
+//
+// A scope ADDED there is not — an ordered array cannot be exhaustively checked
+// by the type system, and the failure is silent: the new scope simply never
+// appears in the create form, so an admin cannot author a policy the server
+// would accept. SCOPE_LABEL_KEYS below IS an exhaustive Record over the same
+// union, and retention.logic.test.ts asserts this array covers its keys — that
+// test is the gate, not this comment.
 export const RETENTION_SCOPES: readonly RetentionScope[] = [
   "lead/unconverted",
   "activity",
@@ -42,7 +48,7 @@ export const RETENTION_ACTIONS: readonly RetentionAction[] = [
 // A scope is a wire identifier ("deal/won"), not words. Keyed on the union so
 // a widened enum fails to compile here rather than rendering a raw slug at a
 // reader who has no way to know what it selects.
-const SCOPE_LABEL_KEYS: Record<RetentionScope, MessageKey> = {
+export const SCOPE_LABEL_KEYS: Record<RetentionScope, MessageKey> = {
   "lead/unconverted": "retention.scopeLeadUnconverted",
   activity: "retention.scopeActivity",
   "activity/transcript": "retention.scopeActivityTranscript",
@@ -56,7 +62,7 @@ export function scopeLabelKey(scope: RetentionScope): MessageKey {
   return SCOPE_LABEL_KEYS[scope];
 }
 
-const ACTION_LABEL_KEYS: Record<RetentionAction, MessageKey> = {
+export const ACTION_LABEL_KEYS: Record<RetentionAction, MessageKey> = {
   archive: "retention.actionArchive",
   anonymize: "retention.actionAnonymize",
   erase: "retention.actionErase",

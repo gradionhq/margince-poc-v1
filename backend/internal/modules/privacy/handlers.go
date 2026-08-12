@@ -24,24 +24,19 @@ type Handlers struct {
 	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
 	db       *database.DB
 	policies *PolicyStore
-	// posture is the retain-only surface. Nil in a role that wired the transport
-	// without the settings catalog, where the two posture routes stay their
-	// generated 501 rather than panicking on the first read.
-	posture *PostureStore
+	posture  *PostureStore
 }
 
-// NewHandlers wires the transport over the installation-bound pool.
-func NewHandlers(db *database.DB) Handlers {
-	return Handlers{db: db, policies: NewPolicyStore(db)}
-}
-
-// WithSettings returns a copy whose retain-only posture routes work. Separate
-// from NewHandlers because the settings catalog is assembled from every module's
-// declarations at the composition root, which is a later step than this module's
-// own construction.
-func (h Handlers) WithSettings(store *settings.Store) Handlers {
-	h.posture = NewPostureStore(store)
-	return h
+// NewHandlers wires the transport over the installation-bound pool and the
+// assembled settings catalog.
+//
+// The catalog is a constructor argument rather than a chained option because
+// every route here needs it: the posture routes read and write it, and the policy
+// list reports each row's live suppression against it. An optional form would
+// mean a half-built handler set whose only honest answer is 501, which is a state
+// no role wants and none would be given.
+func NewHandlers(db *database.DB, store *settings.Store) Handlers {
+	return Handlers{db: db, policies: NewPolicyStore(db), posture: NewPostureStore(store)}
 }
 
 // ListAuditLog implements (GET /audit-log).

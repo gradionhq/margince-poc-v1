@@ -187,7 +187,6 @@ type retentionPolicy struct {
 // policy with nothing recording that it happened.
 func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 	var policies []retentionPolicy
-	var retainOnly bool
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id, object_type, category, retain_days, action
@@ -195,14 +194,7 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if policies, err = pgx.CollectRows(rows, pgx.RowToStructByPos[retentionPolicy]); err != nil {
-			return err
-		}
-		// ONE posture read per pass, in the same transaction as the policy read.
-		// Reading it per policy would let a mid-pass change apply to some
-		// records and not others, which is the one thing an installation that
-		// declared it destroys nothing must never see.
-		retainOnly, err = settings.GetTx(ctx, tx, RetainOnly)
+		policies, err = pgx.CollectRows(rows, pgx.RowToStructByPos[retentionPolicy])
 		return err
 	})
 	if err != nil {
@@ -219,11 +211,28 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		if pol.Category != nil {
 			scope += *pol.Category
 		}
+		selector, known := retentionSelectors[scope]
+		if !known {
+			s.log.Warn("retention: policy scope has no selector — skipped, not half-applied",
+				"scope", scope, "policy", pol.ID)
+			continue
+		}
+		retainOnly, err := s.retainOnly(ctx)
+		if err != nil {
+			return err
+		}
 		if retainOnly && isDestructive(pol.Action) {
 			// Suppressed at the POLICY, before the due-list query: the records
 			// are never selected, so a retain-only pass costs one log line per
 			// suppressed policy rather than a batch of reads that act on
 			// nothing.
+			//
+			// The posture is re-read PER STAGE rather than once per pass, and the
+			// asymmetry is the reason: a pass is bounded at hours, so an admin who
+			// turns the posture on while one is running would otherwise keep
+			// watching records be destroyed until it ended. Partial suppression is
+			// strictly better than none when the change is toward KEEPING, and a
+			// stage is the smallest unit at which stopping costs nothing.
 			//
 			// Not audited. audit_log records mutations, and a suppression is the
 			// absence of one — a row per skipped record would be up to a full
@@ -233,12 +242,6 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 			// suppressed_by_posture so nobody has to read the log to see it.
 			s.log.Info("retention: retain-only posture suppresses a destructive policy",
 				"scope", scope, "policy", pol.ID, "action", pol.Action)
-			continue
-		}
-		selector, known := retentionSelectors[scope]
-		if !known {
-			s.log.Warn("retention: policy scope has no selector — skipped, not half-applied",
-				"scope", scope, "policy", pol.ID)
 			continue
 		}
 		args := []any{pol.RetainDays, retentionBatch}
@@ -253,7 +256,7 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		// (lead, activity, person, deal), so the id kind is only known one
 		// dispatch deeper, in apply.
 		var due []ids.UUID
-		err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 			rows, err := tx.Query(ctx, selector, args...)
 			if err != nil {
 				return err
@@ -270,14 +273,17 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 			}
 		}
 	}
-	// The embedding-kind ai_call sweep runs under the posture too, and that is
-	// deliberate rather than an omission: those rows are telemetry — routing,
-	// spend and served identity, never a customer's data (see embedCallRetention)
-	// — so ageing them out is engine hygiene, not storage limitation, and a
-	// retain-only installation is promising to keep its RECORDS, not its metering
-	// backlog. The voice corpus is the other way round: it holds draft plaintext
-	// about real correspondence, so it stops with the policies.
-	if err := s.evaluateEmbedCallRetention(ctx); err != nil {
+	// The two engine-owned sweeps, and they part company under the posture.
+	// The embed sweep still runs — ai_call's columns are routing, spend and
+	// served identity, so ageing them out is hygiene rather than storage
+	// limitation — but narrowed to rows whose deletion cannot reach content
+	// through the ai_call_payload cascade (embedCallWithoutPayload). The voice
+	// corpus stops outright: it holds draft plaintext about real correspondence.
+	retainOnly, err := s.retainOnly(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.evaluateEmbedCallRetention(ctx, retainOnly); err != nil {
 		return err
 	}
 	if retainOnly {
@@ -285,6 +291,25 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 		return nil
 	}
 	return s.evaluateVoiceSignalRetention(ctx)
+}
+
+// retainOnly reads the installation's retain-only posture (GCS-PARAM-6).
+//
+// Its own short transaction, called once per stage. The alternative — one read
+// for the whole pass — would let a pass that began before an admin set the
+// posture keep destroying records for as long as it ran, which for a bound
+// measured in hours is the wrong answer in the one direction that matters.
+func (s *RetentionService) retainOnly(ctx context.Context) (bool, error) {
+	var held bool
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		held, err = settings.GetTx(ctx, tx, RetainOnly)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("retention: reading the retain-only posture: %w", err)
+	}
+	return held, nil
 }
 
 // isDestructive reports whether an action destroys data. `archive` retains — it

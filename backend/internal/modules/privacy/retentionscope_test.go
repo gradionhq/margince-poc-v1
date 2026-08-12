@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -198,5 +199,47 @@ func TestScopeOfInvertsCategoryPtr(t *testing.T) {
 				t.Errorf("a stored row names itself %q, want %q", back.String(), wire)
 			}
 		})
+	}
+}
+
+// TestTheContractEnumAndTheSelectorTableAreTheSameSet is the gate the comment on
+// crm.yaml's RetentionScope enum used to be.
+//
+// Three copies of this vocabulary exist — the selector table, the contract enum,
+// and the SPA's create-form options — and a comment asking the next author to
+// keep them in step is not an invariant (review-loop rule 2). Drift is silent
+// and bidirectional: an enum member with no selector is a 422 the enum promised
+// away, and a selector with no enum member makes the refusal message advertise a
+// scope the wire rejects.
+//
+// The frontend's third copy is gated in its own suite; this pins the two Go ones.
+func TestTheContractEnumAndTheSelectorTableAreTheSameSet(t *testing.T) {
+	authorable := AuthorableScopes()
+	for _, scope := range authorable {
+		if !crmcontracts.RetentionScope(scope).Valid() {
+			t.Errorf("selector %q is not a member of the contract's RetentionScope enum — "+
+				"the refusal message advertises a scope no client can send", scope)
+		}
+	}
+	// And the other direction, which the loop above cannot see: an enum member
+	// with no selector would be accepted by a client and refused by the server.
+	enumMembers := []crmcontracts.RetentionScope{
+		crmcontracts.RetentionScopeLeadunconverted,
+		crmcontracts.RetentionScopeActivity,
+		crmcontracts.RetentionScopeActivitytranscript,
+		crmcontracts.RetentionScopePersonnoConsentNoDeal,
+		crmcontracts.RetentionScopeDeallost,
+		crmcontracts.RetentionScopeDealwon,
+		crmcontracts.RetentionScopeAiCallPayloadcontent,
+	}
+	if len(enumMembers) != len(authorable) {
+		t.Fatalf("the contract enum has %d members and the selector table %d — "+
+			"if this list is stale, that is the drift this test exists to catch",
+			len(enumMembers), len(authorable))
+	}
+	for _, member := range enumMembers {
+		if _, err := ParseRetentionScope(string(member)); err != nil {
+			t.Errorf("contract enum member %q has no evaluator selector: %v", member, err)
+		}
 	}
 }

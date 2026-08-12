@@ -46,7 +46,7 @@ func retentionHumanCtx(e *integration.Env, grant principal.ObjectGrant) context.
 func TestRetentionPolicyHandlersSpeakTheContract(t *testing.T) {
 	e := integration.Setup(t)
 	integration.SeedRetentionPolicies(t, e)
-	h := privacy.NewHandlers(e.DB()).WithSettings(NewSettingsStore(e.Pool))
+	h := privacy.NewHandlers(e.DB(), NewSettingsStore(e.Pool))
 
 	admin := retentionHumanCtx(e, principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true})
 
@@ -170,7 +170,7 @@ func createRetentionPolicy(ctx context.Context, t *testing.T, h privacy.Handlers
 func TestRetentionPolicyHandlersRefuseARoleWithoutTheGrant(t *testing.T) {
 	e := integration.Setup(t)
 	integration.SeedRetentionPolicies(t, e)
-	h := privacy.NewHandlers(e.DB()).WithSettings(NewSettingsStore(e.Pool))
+	h := privacy.NewHandlers(e.DB(), NewSettingsStore(e.Pool))
 	rep := retentionHumanCtx(e, principal.ObjectGrant{})
 
 	listRec := httptest.NewRecorder()
@@ -197,7 +197,7 @@ func TestRetentionPolicyHandlersRefuseARoleWithoutTheGrant(t *testing.T) {
 func TestRetentionSettingsHandlersToggleThePostureAndReportIt(t *testing.T) {
 	e := integration.Setup(t)
 	integration.SeedRetentionPolicies(t, e)
-	h := privacy.NewHandlers(e.DB()).WithSettings(NewSettingsStore(e.Pool))
+	h := privacy.NewHandlers(e.DB(), NewSettingsStore(e.Pool))
 	admin := retentionHumanCtx(e, principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true})
 
 	// An installation nobody has configured reads as the registered default —
@@ -274,30 +274,4 @@ func readRetentionPosture(ctx context.Context, t *testing.T, h privacy.Handlers)
 		t.Fatalf("decode posture: %v", err)
 	}
 	return out.RetainOnly
-}
-
-// TestRetentionSettingsWithoutTheCatalogStayUnimplemented covers the role that
-// wires the transport without the settings store: the two posture routes answer
-// 501 rather than panicking on a nil store. Unreachable through compose, which
-// wires both together — which is exactly why it needs a test rather than trust.
-func TestRetentionSettingsWithoutTheCatalogStayUnimplemented(t *testing.T) {
-	e := integration.Setup(t)
-	h := privacy.NewHandlers(e.DB()) // no WithSettings
-	admin := retentionHumanCtx(e, principal.ObjectGrant{Read: true, Update: true})
-
-	getRec := httptest.NewRecorder()
-	h.GetRetentionSettings(getRec,
-		httptest.NewRequest(http.MethodGet, "/v1/retention/settings", nil).WithContext(admin))
-	if getRec.Code != http.StatusNotImplemented {
-		t.Errorf("posture read with no catalog = %d, want 501", getRec.Code)
-	}
-
-	patchRec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPatch, "/v1/retention/settings",
-		strings.NewReader(`{"retain_only":true}`)).WithContext(admin)
-	req.Header.Set("Content-Type", "application/json")
-	h.UpdateRetentionSettings(patchRec, req)
-	if patchRec.Code != http.StatusNotImplemented {
-		t.Errorf("posture write with no catalog = %d, want 501", patchRec.Code)
-	}
 }

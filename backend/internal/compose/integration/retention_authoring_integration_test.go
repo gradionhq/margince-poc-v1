@@ -421,3 +421,80 @@ func TestBootstrapTakesItsRetentionPostureFromTheDeploymentConfiguration(t *test
 		})
 	}
 }
+
+// seedEmbedCallWithPayload plants an over-age embedding-kind ai_call that DOES
+// carry a captured payload — the state an installation with
+// `ai.capture_payloads` on produces, where the payload's request holds the input
+// TEXTS that were embedded.
+func seedEmbedCallWithPayload(t *testing.T, e *Env, daysBack int, embeddedText string) ids.UUID {
+	t.Helper()
+	callID := seedEmbedCall(t, e, daysBack)
+	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+	e.WsExec(t, `INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload, occurred_at)
+		VALUES (`+wsClause+`, $1, jsonb_build_object('inputs', jsonb_build_array($2::text)), '{}'::jsonb,
+		        now() - make_interval(days => $3))`,
+		callID, embeddedText, daysBack)
+	return callID
+}
+
+// TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade closes the
+// one leak the posture had.
+//
+// The embed sweep still runs under retain-only, because ai_call's own columns are
+// routing and spend — telemetry, not storage limitation. But ai_call_payload
+// FK-CASCADES from ai_call, and an embed call's payload holds the text that was
+// embedded. So deleting a payload-bearing embed call destroyed record content in
+// the same pass that suppressed the ai_call_payload/content policy governing
+// exactly those rows.
+//
+// Two rows, one assertion each, and they must diverge: the payload-free row is
+// still swept (the hygiene the sweep exists for, and the default state with
+// capture off), the payload-bearing one is not.
+func TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade(t *testing.T) {
+	e := Setup(t)
+	SeedRetentionPolicies(t, e)
+	bare := seedEmbedCall(t, e, 91)
+	withContent := seedEmbedCallWithPayload(t, e, 91, "Marek Janetzke, Q3 renewal terms")
+
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return settings.SeedValue(context.Background(), tx, privacy.RetainOnly, true)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, withContent); n != 1 {
+		t.Errorf("a retain-only installation destroyed an embed call carrying captured "+
+			"input text: %d rows remain, want 1 — the ai_call_payload cascade reaches "+
+			"record content, so the sweep must skip payload-bearing rows", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call_payload WHERE ai_call_id = $1`, withContent); n != 1 {
+		t.Errorf("the captured embedded text was cascade-deleted: %d payload rows, want 1", n)
+	}
+	// The other half, so this cannot pass by suppressing the whole sweep: a
+	// payload-free embed call is pure telemetry and still ages out.
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, bare); n != 0 {
+		t.Errorf("the posture suppressed the telemetry-only embed sweep too: %d rows remain, "+
+			"want 0 — a retain-only installation keeps its RECORDS, not its metering backlog", n)
+	}
+
+	// With the posture lifted, the payload-bearing row ages out like any other:
+	// the narrowing is the posture's, not a new permanent exemption.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`DELETE FROM setting WHERE key = $1`, privacy.RetainOnly.Key())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, withContent); n != 0 {
+		t.Errorf("lifting the posture left the payload-bearing embed call standing: %d rows", n)
+	}
+}

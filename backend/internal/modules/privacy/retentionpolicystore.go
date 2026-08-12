@@ -188,6 +188,12 @@ func (s *PolicyStore) Create(ctx context.Context, in PolicyInput) (Policy, error
 	}
 	var out Policy
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The response reports suppressed_by_posture, so a create reads the
+		// posture — which takes RetainOnly's own READ grant on this same object.
+		// A custom role granted create-without-read would therefore be refused
+		// here rather than at the entry point. Left as is deliberately: the
+		// alternative is an ungated settings read, and that gate is the only
+		// control on a table with no RLS.
 		retainOnly, err := settings.GetTx(ctx, tx, RetainOnly)
 		if err != nil {
 			return err
@@ -306,9 +312,17 @@ func (s *PolicyStore) Delete(ctx context.Context, id ids.UUID) error {
 	})
 }
 
-// readPolicyTx reads one row, or reports it absent. Anything that returns a
-// record is a read (review-loop rule 3), and the object gate is already held by
-// every caller's entry point.
+// readPolicyTx reads one row FOR UPDATE, or reports it absent. Anything that
+// returns a record is a read (review-loop rule 3), and the object gate is
+// already held by every caller's entry point.
+//
+// The lock is load-bearing, not defensive. Update writes all four mutable
+// columns from the image merged onto this read, so two concurrent sparse patches
+// without it would interleave: the second reads before the first commits, then
+// writes its stale merge back — silently reverting a colleague's change and
+// audit-logging a before-image that was never the state it replaced. Same
+// failure platform/settings takes an advisory lock for, on a table whose subject
+// is what the installation destroys.
 func readPolicyTx(ctx context.Context, tx pgx.Tx, id ids.UUID, retainOnly bool) (Policy, error) {
 	var (
 		out        Policy
@@ -317,7 +331,7 @@ func readPolicyTx(ctx context.Context, tx pgx.Tx, id ids.UUID, retainOnly bool) 
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT id, object_type, category, retain_days, action, lawful_basis, enabled
-		FROM retention_policy WHERE id = $1`, id).
+		FROM retention_policy WHERE id = $1 FOR UPDATE`, id).
 		Scan(&out.ID, &objectType, &category, &out.RetainDays, &out.Action,
 			&out.LawfulBasis, &out.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -103,10 +103,6 @@ func (h Handlers) DeleteRetentionPolicy(w http.ResponseWriter, r *http.Request, 
 
 // GetRetentionSettings implements (GET /retention/settings).
 func (h Handlers) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
-	if h.posture == nil {
-		httperr.NotImplemented(w, r, "GetRetentionSettings")
-		return
-	}
 	retainOnly, err := h.posture.Posture(r.Context())
 	if err != nil {
 		httperr.Write(w, r, err)
@@ -119,10 +115,6 @@ func (h Handlers) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
 func (h Handlers) UpdateRetentionSettings(w http.ResponseWriter, r *http.Request) {
 	var req crmcontracts.UpdateRetentionSettingsRequest
 	if !httperr.Decode(w, r, &req) {
-		return
-	}
-	if h.posture == nil {
-		httperr.NotImplemented(w, r, "UpdateRetentionSettings")
 		return
 	}
 	// A nil field is a patch that names nothing: the store answers with the

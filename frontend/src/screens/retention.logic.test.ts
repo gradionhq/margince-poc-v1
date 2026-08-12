@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "./common";
+import type { RetentionAction, RetentionScope } from "./retention.logic";
 import {
+  ACTION_LABEL_KEYS,
   actionLabelKey,
   effectReasonKey,
   effectTone,
@@ -9,6 +11,7 @@ import {
   policyEffect,
   RETENTION_ACTIONS,
   RETENTION_SCOPES,
+  SCOPE_LABEL_KEYS,
   scopeLabelKey,
 } from "./retention.logic";
 
@@ -107,5 +110,29 @@ describe("parseRetainDays", () => {
     expect(parseRetainDays("-30")).toBeNull();
     expect(parseRetainDays("30.5")).toBeNull();
     expect(parseRetainDays("thirty")).toBeNull();
+  });
+});
+
+describe("the authorable scope list and the contract enum", () => {
+  // RETENTION_SCOPES is an ordered array, which TypeScript cannot check for
+  // exhaustiveness. SCOPE_LABEL_KEYS is a Record over the same generated union,
+  // which it can — so the Record's keys are the authoritative set and this is
+  // the gate the array's own comment points at.
+  //
+  // The failure this catches is silent in the worst way: a scope the server
+  // accepts that the create form never offers, so the capability ships and
+  // nobody can reach it.
+  it("offers every scope the contract admits, exactly once", () => {
+    const offered = [...RETENTION_SCOPES];
+    const admitted = Object.keys(SCOPE_LABEL_KEYS) as RetentionScope[];
+    expect([...offered].sort()).toEqual([...admitted].sort());
+    expect(new Set(offered).size).toBe(offered.length);
+  });
+
+  it("offers every action the contract admits, exactly once", () => {
+    const offered = [...RETENTION_ACTIONS];
+    const admitted = Object.keys(ACTION_LABEL_KEYS) as RetentionAction[];
+    expect([...offered].sort()).toEqual([...admitted].sort());
+    expect(new Set(offered).size).toBe(offered.length);
   });
 });
