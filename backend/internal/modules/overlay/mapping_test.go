@@ -4,6 +4,7 @@
 package overlay_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -525,5 +526,28 @@ func TestChildCollectionIsOrderedByDeclaredPosition(t *testing.T) {
 	if rows[0]["phone_type"] != "work" || rows[1]["phone_type"] != "mobile" {
 		t.Errorf("rows read back %v/%v, want position 0 before position 1 regardless of declaration order",
 			rows[0]["phone_type"], rows[1]["phone_type"])
+	}
+}
+
+// A raw property no FieldMapping, ExternalKey, Baseline or Const consumes must
+// come back in the unmapped list: UnmappedPolicy "flag" is only honest if Apply
+// actually flags it (UC-E18-01 F3, "flag, never silently drop"), and nothing
+// else in this package asserts a NON-empty unmapped list — an Apply that
+// dropped every unmapped key unconditionally would otherwise pass unnoticed.
+func TestApplyFlagsARawKeyNoMappingConsumes(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"firstname"}, To: "first_name", Kind: overlay.TargetColumn},
+		},
+	}
+	_, unmapped, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "firstname": "Christian", "hs_unknown_property": "x",
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !slices.Contains(unmapped, "hs_unknown_property") {
+		t.Errorf("unmapped = %v, want it to contain %q (no declared mapping consumes it)", unmapped, "hs_unknown_property")
 	}
 }

@@ -14,8 +14,9 @@ package compose
 // one: a person's created_at is the incumbent's create instant and its
 // updated_at the incumbent's last-modified instant, each falling back to the
 // mirror's own last-synced instant — the only time the mirror can claim for
-// itself — where the incumbent stamped none. The entities whose timestamp
-// properties no mapping lands carry that last-synced instant in both slots.
+// itself — where the incumbent stamped none. The other four entities read
+// the mirror's own last-synced instant into both slots, even where the
+// mapping landed the incumbent's (#1016).
 
 import (
 	"context"
