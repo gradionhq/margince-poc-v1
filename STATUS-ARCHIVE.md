@@ -21,6 +21,56 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-13 — phase A: RLS is gone, and it was holding up nineteen queries (PRs #1053, #1067)
+
+ADR-0091 §8 phase A. All 139 tenant-isolation policies and both flags dropped,
+by catalog sweep rather than by list, across every non-system schema; verified
+139 → 0 on up and 0 → 139 on down against a real database. §3's waiver re-read
+landed first, because the ADR makes it a precondition rather than cleanup.
+
+The migrations were the easy half. **Nineteen queries turned out to be relying
+on RLS for their scope** — the class §4 named and nobody could enumerate. Each
+surfaced as a failing test, and each was a real defect, not a fixture to adjust:
+
+- **Data loss.** The own-domain `Remove` deleted the domain from EVERY workspace
+  that had registered it. The retention sweep selected records fleet-wide, so
+  one tenant's pass anonymized another's.
+- **Cross-tenant disclosure.** `matchingSubscriptions` returned every
+  installation's webhook subscriptions for an event type, and the caller creates
+  a delivery per subscription — one tenant's payload POSTed to another tenant's
+  `target_url`. `loadTarget` then handed back that delivery's target and sealed
+  signing secret rather than not-found.
+- **Wrong authority.** The runner claimed another tenant's due jobs and ran them
+  under its own pass's authority; the extension dispatcher's agent-seat lookup
+  answered the first installation's seat for every workspace.
+- **Leaked internals.** Overlay's user-map resolver said "grantable" for a
+  foreign seat, so the write died on a composite FK — a 500 carrying a
+  constraint name where a 404 belonged.
+
+Two things worth remembering. **A per-workspace UNIQUE index is not a scoped
+query**: the lead-email probe sat directly above one, so the row could never
+have collided — only the PROBE could, and RLS was what kept it honest. And
+**the test suite was the only detector**: six of the nineteen came from
+CodeRabbit reading the diff, including the webhook one, which no test covered.
+
+The harness half: 179 tests across 19 packages depended on deny-on-unset,
+because a package's tests share one database. The reset that fixes it must be
+once per TEST, not per call — the per-call version silently disarmed a
+tenant-fence test, and repairing that is what surfaced `import_run`'s two
+unscoped reads. The cross-tenant assertions themselves retired with the
+mechanism, as §9 step 6 says.
+
+One fault injector changed mechanism rather than premise: the webhook due-scan
+test now arms row security itself, on its own table, because a restrictive
+policy is still the only way to make a SELECT fail for one tenant and no other.
+It needs a permissive base policy beside it — with RLS on and nothing permissive
+present the default is deny-all, the scan reads zero rows, and the fault never
+fires.
+
+Also fixed rather than left filed: #1015, the seatless-dispatch assertion that
+counted failed `river_job` rows table-wide and so reported another test's
+expected failure as its own regression, per shard.
+
 ## 2026-08-12 (later still) — the tenant leaves the bus and the wire (PRs #1036, #1049, foundation#1284)
 
 ADR-0091 §9 **step 4**, the parts that do not wait on the schema. The envelope
