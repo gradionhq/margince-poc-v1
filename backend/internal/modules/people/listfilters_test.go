@@ -23,12 +23,15 @@ import (
 // remembering to cover it.
 func TestEveryDeclaredPeopleFilterNarrowsSomething(t *testing.T) {
 	owner := ids.NewV7().String()
-	assertEveryFilterNarrows(t, "person", personListFilters, map[string]string{"owner_id": owner})
+	assertEveryFilterNarrows(t, "person", personListFilters, map[string]string{
+		"owner_id": owner, "tag": "vip",
+	})
 	assertEveryFilterNarrows(t, "organization", organizationListFilters, map[string]string{
-		"lifecycle": "customer", "owner_id": owner, "relationship_type": "partner",
+		"domain": "kaercher-technik.example", "lifecycle": "customer", "owner_id": owner,
+		"relationship_type": "partner",
 	})
 	assertEveryFilterNarrows(t, "lead", leadListFilters, map[string]string{
-		"owner_id": owner, "status": "working",
+		"min_score": "70", "owner_id": owner, "status": "working",
 	})
 }
 
@@ -38,16 +41,17 @@ func TestEveryDeclaredPeopleFilterNarrowsSomething(t *testing.T) {
 // switch arm pointing at a sibling's table hands out a vocabulary the store
 // then refuses, and comparing what ListFilters returns against the same table
 // it returns would never see it. So the expectations are written out — a
-// person is listed by owner and nothing else, a lead by owner and its status.
+// person is listed by owner and by tag, a lead by owner, status and a score
+// floor (#828).
 func TestEachEntityIsOfferedItsOwnVocabulary(t *testing.T) {
 	p := &Provider{}
 	for _, tc := range []struct {
 		entity datasource.EntityType
 		want   []string
 	}{
-		{datasource.EntityPerson, []string{"owner_id"}},
-		{datasource.EntityOrganization, []string{"lifecycle", "owner_id", "relationship_type"}},
-		{datasource.EntityLead, []string{"owner_id", "status"}},
+		{datasource.EntityPerson, []string{"owner_id", "tag"}},
+		{datasource.EntityOrganization, []string{"domain", "lifecycle", "owner_id", "relationship_type"}},
+		{datasource.EntityLead, []string{"min_score", "owner_id", "status"}},
 	} {
 		if got := p.ListFilters(tc.entity); !slices.Equal(got, tc.want) {
 			t.Errorf("%s is offered %v, want %v", tc.entity, got, tc.want)

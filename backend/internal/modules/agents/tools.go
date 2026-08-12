@@ -91,9 +91,9 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 		OpenAPIOp: "search",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep every type this workspace serves, which is not always all of these"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
-			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
+			"cursor":{"type":"string","description":"Keyset cursor from the previous page, which a page reporting more always carries. A sweep of every type resumes by it too."}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[SearchRecordsResult](),
 	}

@@ -127,8 +127,8 @@ var advanceDealCopy = toolCopy{
 	Purpose: "Move a deal to a different stage of its pipeline.",
 	Limits: "The stage is named by id, not by label, and the id of the stage you are moving TO " +
 		"comes from list_pipelines — call it first, because a deal you have read carries only the " +
-		"stage it is already in. Moving onto a stage that closes the deal as won or lost is a " +
-		"decision a person makes: it is staged for approval and needs a lost_reason when the " +
+		"stage it is already in. Moving onto or off a stage that closes the deal as won or lost " +
+		"is a decision a person makes: it is staged for approval and needs a lost_reason when the " +
 		"stage is a losing one. Read the target stage's semantic rather than guessing it from its " +
 		"name.",
 	Instead: "Use progress_deal when the move should also leave a note explaining it, which is " +
@@ -143,8 +143,8 @@ var progressDealCopy = toolCopy{
 	Limits: "The move commits first and the note follows it, so a note that fails to write does " +
 		"not put the deal back — the answer says so, and the note is then log_activity's to " +
 		"retry. The note itself is optional. Same rules as the bare move otherwise: call " +
-		"list_pipelines for the id of the stage you are moving to, and closing a deal as won or " +
-		"lost is staged for a person to approve.",
+		"list_pipelines for the id of the stage you are moving to, and moving onto or off a " +
+		"stage that closes a deal as won or lost is staged for a person to approve.",
 	Instead: "Use advance_deal when there is genuinely nothing to say about the move, and " +
 		"log_activity when something happened but the deal did not move.",
 	Retain: "Send if_version with the version you read of the deal; keep the staged approval id " +
