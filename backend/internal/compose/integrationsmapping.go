@@ -214,18 +214,41 @@ func derefString(s *string) string {
 // ifMatchVersion reads the optional If-Match header into a version. Absent is
 // zero, which the store treats as an unconditional write — the contract makes
 // the header optional, so requiring it here would refuse a legal request.
-func ifMatchVersion(v *crmcontracts.IfMatch) int64 {
+//
+// A header that is PRESENT but unparseable is a different thing entirely, and
+// it must not become zero: the caller asked for a conditional write, and
+// answering it with an unconditional one applies the very overwrite they were
+// guarding against. The error says the header is malformed rather than letting
+// the write through and hoping the store catches it — the store cannot check a
+// version nobody handed it.
+func ifMatchVersion(v *crmcontracts.IfMatch) (int64, error) {
 	if v == nil {
-		return 0
+		return 0, nil
 	}
-	// The header is a quoted or bare integer version. An unparseable one is
-	// treated as absent rather than as zero-means-conflict: the store's own
-	// version check is what refuses a stale write.
 	n, err := strconv.ParseInt(strings.Trim(string(*v), `"`), 10, 64)
 	if err != nil {
-		return 0
+		return 0, &malformedIfMatchError{}
 	}
-	return n
+	return n, nil
+}
+
+// malformedIfMatchError maps to 422: the precondition could not be read, so
+// the write is refused rather than silently promoted to unconditional.
+//
+// It implements MessageFault rather than FieldFault because the offending
+// input is a HEADER, and no request-body field path names it — publishing
+// "If-Match" in the field slot would put prose where a machine reads a
+// contract path.
+type malformedIfMatchError struct{}
+
+func (e *malformedIfMatchError) Error() string {
+	return "the If-Match header must be the last-seen integer version"
+}
+
+func (e *malformedIfMatchError) MessageFault() (code, message string) {
+	// The rejected value is deliberately not echoed: it is caller-supplied
+	// text and reflecting it is how a header becomes an injection vector.
+	return "malformed_if_match", "The If-Match header must be the last-seen integer version. Re-read the connection and retry with its version."
 }
 
 // toProviderSnapshot renders the frozen configuration in the same shape the

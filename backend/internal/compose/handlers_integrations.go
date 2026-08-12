@@ -94,8 +94,13 @@ func (h integrationsHandlers) UpdateProviderConnection(w http.ResponseWriter, r 
 		httperr.Write(w, r, httperr.Validation("body", "invalid_json", "request body is not valid JSON"))
 		return
 	}
+	version, err := ifMatchVersion(params.IfMatch)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	patch := fromProviderConfigPatch(body.Configuration)
-	conn, err := h.store.UpdateConfig(r.Context(), string(name), patch, ifMatchVersion(params.IfMatch))
+	conn, err := h.store.UpdateConfig(r.Context(), string(name), patch, version)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

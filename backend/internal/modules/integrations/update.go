@@ -138,12 +138,23 @@ func (s *Store) DeleteProviderData(ctx context.Context, name string) error {
 				return fmt.Errorf("integrations: deleting provider claims: %w", err)
 			}
 		}
-		// The run rows stay as the spend ledger, stripped of everything that
-		// points at a person: the fingerprint is derived from their
-		// identifiers, and the job id would let the provider be re-asked.
+		// The run rows stay as the spend ledger, but they must stop naming
+		// anybody. person_id goes first: a row saying "we bought data about
+		// this person on this date" is data about that person, and leaving it
+		// while deleting the values would be a scrub in name only. The
+		// fingerprint is derived from their identifiers, the job id would let
+		// the provider be re-asked for the same answer, and the snapshot can
+		// carry identifying configuration.
+		//
+		// What survives is what the installation spent: the state, the cost
+		// and the dates, now attached to nobody. The subject-shape check
+		// permits this because it constrains person_id only when subject_kind
+		// still says 'person'; a scrubbed row declares no subject.
 		if _, err := tx.Exec(ctx, `
 			UPDATE provider_run
-			   SET input_fingerprint = '', provider_job_id = NULL,
+			   SET person_id = NULL, subject_kind = 'scrubbed',
+			       input_fingerprint = '', provider_job_id = NULL,
+			       requested_by = NULL,
 			       configuration_snapshot = '{}'::jsonb
 			 WHERE provider = $1`, name); err != nil {
 			return fmt.Errorf("integrations: scrubbing run metadata: %w", err)

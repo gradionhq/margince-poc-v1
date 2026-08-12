@@ -71,7 +71,13 @@ CREATE TABLE provider_connection_budget (
 -- PI-DDL-2: the run ledger. Every paid call is one row, before it is made.
 CREATE TABLE provider_run (
   id                         uuid PRIMARY KEY DEFAULT uuidv7(),
-  subject_kind               text NOT NULL CHECK (subject_kind IN ('person')),
+  -- 'scrubbed' is the tombstone a run wears after delete-provider-data or a
+  -- subject erasure: the spend stays as an accounting fact, the subject is
+  -- gone. It is a subject KIND rather than a nullable person_id alone so the
+  -- shape check below can still insist that a live person run names its
+  -- person — otherwise "no subject" and "forgot the subject" would look
+  -- identical to the database.
+  subject_kind               text NOT NULL CHECK (subject_kind IN ('person','scrubbed')),
   -- Typed per subject kind, not a polymorphic id: the ON DELETE clause is the
   -- privileged-erasure backstop (DM-CONV-15) and a bare uuid would have none.
   person_id                  uuid NULL REFERENCES person(id) ON DELETE CASCADE,
@@ -109,7 +115,8 @@ CREATE TABLE provider_run (
   created_at                 timestamptz NOT NULL DEFAULT now(),
   updated_at                 timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT provider_run_subject_shape CHECK (
-    (subject_kind = 'person' AND person_id IS NOT NULL)
+    (subject_kind = 'person' AND person_id IS NOT NULL) OR
+    (subject_kind = 'scrubbed' AND person_id IS NULL)
   ),
   CONSTRAINT provider_run_skip_reason_shape CHECK (
     (state = 'skipped') = (skip_reason IS NOT NULL)
