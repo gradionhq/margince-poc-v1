@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -114,7 +113,7 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 	}
 	query := fmt.Sprintf(listPassportsSQL, scope)
 	var out []PassportRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err

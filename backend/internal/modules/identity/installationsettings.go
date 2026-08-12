@@ -14,7 +14,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -37,15 +36,17 @@ type InstallationSettings struct {
 
 // InstallationSettingsStore reads and patches the installation settings.
 type InstallationSettingsStore struct {
-	pool     *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3); it is
+	// held for the lock probe, which asks a question no setting read can
+	// answer: whether the currency has become immutable.
+	db       *database.DB
 	settings *settings.Store
 }
 
-// NewInstallationSettings builds the store over the settings mechanism. The
-// pool is held for the lock probe, which asks a question no setting read can
-// answer: whether the currency has become immutable.
-func NewInstallationSettings(pool *pgxpool.Pool, s *settings.Store) *InstallationSettingsStore {
-	return &InstallationSettingsStore{pool: pool, settings: s}
+// NewInstallationSettings builds the store over the settings mechanism, on a
+// handle already bound to the workspace it serves.
+func NewInstallationSettings(db *database.DB, s *settings.Store) *InstallationSettingsStore {
+	return &InstallationSettingsStore{db: db, settings: s}
 }
 
 // GetInstallation reads the three settings and the base currency's lock state.
@@ -88,7 +89,7 @@ func (s *InstallationSettingsStore) GetInstallation(ctx context.Context) (Instal
 func (s *InstallationSettingsStore) baseCurrencyLock(ctx context.Context) (bool, string, error) {
 	var locked bool
 	var why string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var probeErr error
 		locked, why, probeErr = BaseCurrency.Frozen(ctx, tx)
 		return probeErr
@@ -122,7 +123,7 @@ func (s *InstallationSettingsStore) UpdateInstallation(ctx context.Context, name
 		{Timezone, zone},
 		{BaseCurrency, currency},
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		for _, w := range patch {
 			if w.value == nil {
 				continue

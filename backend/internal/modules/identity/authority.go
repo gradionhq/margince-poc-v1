@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/policy"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -80,7 +79,7 @@ func (s *Service) liveUserTx(ctx context.Context, workspaceID, humanID ids.UUID,
 	if !ok || ctxWs != workspaceID {
 		return fmt.Errorf("crmauth: authority resolution outside the bound workspace")
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var seatType string
 		err := tx.QueryRow(ctx,
 			`SELECT seat_type FROM app_user

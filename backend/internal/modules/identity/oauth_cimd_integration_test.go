@@ -52,7 +52,6 @@ func setupCIMD(t *testing.T, slug string) *cimdEnv {
 	t.Helper()
 	owner, pool := setupIdentityDB(t)
 	_ = owner
-	svc := NewService(pool)
 	slug += "-" + ids.NewV7().String()[24:]
 
 	var wsID ids.WorkspaceID
@@ -70,6 +69,9 @@ func setupCIMD(t *testing.T, slug string) *cimdEnv {
 		t.Fatalf("creating the installation: %v", err)
 	}
 
+	// Bound to the workspace this fixture just created: the suite seeds one per
+	// test, so there is no installation singleton to resolve.
+	svc := NewServiceFor(database.BindTo(pool, wsID))
 	e := &cimdEnv{
 		svc: svc,
 		ctx: principal.WithWorkspaceID(context.Background(), wsID.UUID),
@@ -95,7 +97,7 @@ func setupCIMD(t *testing.T, slug string) *cimdEnv {
 // client reads back the one row a document produced.
 func (e *cimdEnv) client(t *testing.T, clientID string) (name, via string, redirects []string, expires *time.Time) {
 	t.Helper()
-	err := database.WithWorkspaceTx(e.ctx, e.svc.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(e.ctx,
 			`SELECT client_name, created_via, redirect_uris, metadata_expires_at
 			   FROM oauth_client WHERE client_id = $1`, clientID).
@@ -187,7 +189,7 @@ func TestAStaleDocumentIsRefetchedAndItsNewContentWins(t *testing.T) {
 // expire backdates the cache so the next resolve has to fetch.
 func (e *cimdEnv) expire(t *testing.T, clientID string) {
 	t.Helper()
-	err := database.WithWorkspaceTx(e.ctx, e.svc.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		_, err := tx.Exec(e.ctx,
 			`UPDATE oauth_client SET metadata_expires_at = now() - interval '1 hour' WHERE client_id = $1`, clientID)
 		return err
@@ -207,7 +209,7 @@ func TestADisabledClientIsNotFetchedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.expire(t, clientID)
-	err := database.WithWorkspaceTx(e.ctx, e.svc.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		_, err := tx.Exec(e.ctx, `UPDATE oauth_client SET disabled_at = now() WHERE client_id = $1`, clientID)
 		return err
 	})
@@ -233,7 +235,7 @@ func TestADisabledClientIsNotFetchedAgain(t *testing.T) {
 func TestADocumentCannotTakeOverARegisteredClient(t *testing.T) {
 	e := setupCIMD(t, "cimd-takeover")
 	clientID := e.docs.URL + "/client.json"
-	err := database.WithWorkspaceTx(e.ctx, e.svc.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		_, err := tx.Exec(e.ctx, `
 			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'Registered', $2, 'dcr')`,
@@ -286,7 +288,7 @@ func TestARefusedDocumentLeavesNoRow(t *testing.T) {
 	}
 
 	var rows int
-	if err := database.WithWorkspaceTx(e.ctx, e.svc.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(e.ctx, `SELECT count(*) FROM oauth_client WHERE client_id = $1`, clientID).Scan(&rows)
 	}); err != nil {
 		t.Fatal(err)

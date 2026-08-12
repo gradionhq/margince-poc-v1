@@ -37,7 +37,11 @@ const (
 // Service owns identity: the singleton organization, users, opaque
 // server-side sessions.
 type Service struct {
-	pool *pgxpool.Pool
+	// db binds the installation's workspace, resolved through this service's
+	// own InstallationWorkspace — which reads no tenant table, so a service
+	// holding a handle that resolves through it is not circular at runtime
+	// (ADR-0091 §9 step 3).
+	db *database.DB
 	// now is the service's clock: the §27 lockout window and duration are
 	// judged against it, so tests prove the lock/expiry transitions
 	// without sleeping. Session/passport expiries stay on the database's
@@ -50,7 +54,19 @@ type Service struct {
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, now: time.Now}
+	svc := &Service{now: time.Now}
+	svc.db = database.Bind(pool, svc.InstallationWorkspace)
+	return svc
+}
+
+// NewServiceFor is NewService over a handle whose workspace is already decided.
+//
+// A server resolves the installation's singleton, which is what NewService does
+// for it. A suite that seeds a workspace per test has no singleton to resolve —
+// identity is the module that refuses when a second one exists — so it names the
+// one it means instead (ADR-0091 §9 step 3).
+func NewServiceFor(db *database.DB) *Service {
+	return &Service{db: db, now: time.Now}
 }
 
 // Identity is the authenticated principal's resolved state — what /me
@@ -185,7 +201,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 	}
 
 	var id Identity
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		account, err := s.checkCredentials(ctx, tx, email, plaintext)
 		if err != nil {
 			return err
@@ -252,7 +268,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 	tokenHash := hashToken(rawToken)
 
 	var id Identity
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// note: a session is keyed by its opaque token, not exposed as a
 		// first-class entity id — its row id has no kind and stays ids.UUID.
 		var sessionID ids.UUID
@@ -300,7 +316,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 		// revoke, same no-op as an unknown token.
 		return nil
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`UPDATE session SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
 			hashToken(rawToken))

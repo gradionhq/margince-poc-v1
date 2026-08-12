@@ -43,8 +43,10 @@ func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
 // has no singleton to resolve and names the one it means instead. Same wiring,
 // same gate — only where the tenant comes from differs (ADR-0091 §9 step 3).
 func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
-	pool := db.Pool()
-	return registryWithGate(db, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{}, nil)
+	// The gate resolves seats through identity, and identity binds the same
+	// handle: a registry built for a named workspace must not admit through a
+	// service that resolves a different one.
+	return registryWithGate(db, auth.NewGate(identity.NewServiceFor(db)), nil, nil, send, companyEnricher{}, nil)
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent

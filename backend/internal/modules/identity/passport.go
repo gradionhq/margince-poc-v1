@@ -22,7 +22,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -114,7 +113,7 @@ func (e *InvalidScopeError) Error() string {
 // A1/local path, where the passport answers to no OAuth grant.
 func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePassportInput) (IssuedPassport, error) {
 	var out IssuedPassport
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = mintPassport(ctx, tx, id, in, nil)
 		return err
@@ -195,7 +194,7 @@ func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportI
 // function must not invert.
 func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.PassportID) error {
 	ctx = actorCtx(ctx, id)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return s.revokePassportTx(ctx, tx, id, passportID)
 	})
 }
@@ -407,7 +406,7 @@ func (s *Service) authenticateAgentWhere(ctx context.Context, tx pgx.Tx, predica
 // when enqueued.
 func (s *Service) AuthenticateAgentByID(ctx context.Context, passportID ids.PassportID) (AgentIdentity, error) {
 	var a AgentIdentity
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = s.authenticateAgentWhere(ctx, tx, agentByIDPredicate, passportID)
 		return err
@@ -428,7 +427,7 @@ func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (Agent
 	}
 
 	var a AgentIdentity
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = s.authenticateAgentWhere(ctx, tx, agentByHashPredicate, hashToken(rawToken))
 		return err

@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -71,7 +70,7 @@ func (e *revocationEnv) connectOAuthLent(
 	var out connectFixture
 	out.clientID = clientID
 	ctx := e.wsCtx(consenter)
-	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
+	if err := e.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out.grantID, out.refresh, err = issueGrant(ctx, tx, issueGrantInput{
 			WorkspaceID: consenter.WorkspaceID, UserID: consenter.UserID, ClientID: clientID,
@@ -119,7 +118,7 @@ func TestARevokeRacingARotationNeverDeadlocksOrLeavesACredentialLive(t *testing.
 		}()
 		go func() {
 			defer wg.Done()
-			revokeErr = database.WithWorkspaceTx(revokeCtx, e.svc.pool, func(tx pgx.Tx) error {
+			revokeErr = e.svc.db.Tx(revokeCtx, func(tx pgx.Tx) error {
 				return revokeGrantTx(revokeCtx, tx, fixture.grantID, "the human ended the connection")
 			})
 		}()
@@ -224,7 +223,7 @@ func (e *revocationEnv) mintUnderGrantFor(t *testing.T, grantID ids.UUID, consen
 	t.Helper()
 	ctx := e.wsCtx(consenter)
 	var issued IssuedPassport
-	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
+	if err := e.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		label := oauthPassportLabel("lock order")
 		var err error
 		issued, err = mintPassport(ctx, tx, consenter,

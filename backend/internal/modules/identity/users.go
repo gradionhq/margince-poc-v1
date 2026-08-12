@@ -20,7 +20,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -87,7 +86,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 	}
 	ctx = actorCtx(ctx, actor)
 	var newUserID ids.UserID
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
@@ -149,7 +148,7 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var status string
 		err := tx.QueryRow(ctx,
 			`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
@@ -237,7 +236,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var status string
 		err := tx.QueryRow(ctx,
 			`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
@@ -372,7 +371,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// The target is read rather than merely proved to exist, because what it
 		// IS decides the answer: an agent seat holds no role at all.
 		var isAgent bool

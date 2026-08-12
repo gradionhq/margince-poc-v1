@@ -72,8 +72,12 @@ func setupIdentityDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 // revocationEnv is one bootstrapped workspace: an admin (with session)
 // plus a plain second user with a known password.
 type revocationEnv struct {
-	owner  *pgx.Conn
-	svc    *Service
+	owner *pgx.Conn
+	svc   *Service
+	// ws is the workspace this env bootstrapped, for the fixtures that build a
+	// second service of their own — a pinned handle is what they need, since
+	// the suite seeds one workspace per env and there is no singleton.
+	ws     ids.WorkspaceID
 	admin  Identity
 	member Identity
 }
@@ -83,7 +87,6 @@ const memberPassword = "correct horse battery staple"
 func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	t.Helper()
 	owner, pool := setupIdentityDB(t)
-	svc := NewService(pool)
 	ctx := context.Background()
 	// The database persists across binary runs; key the slug (and the
 	// emails derived from it) uniquely so reruns never collide. The suffix is
@@ -111,6 +114,9 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
+	// Bound to the workspace just created: this suite seeds one per env, so
+	// there is no installation singleton to resolve.
+	svc := NewServiceFor(database.BindTo(pool, wsID))
 	// Login resolves the admin's full Identity (roles, permissions) the
 	// way the HTTP surface would.
 	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), adminEmail, "a bootstrap password!")
@@ -132,7 +138,7 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	}
 
 	return &revocationEnv{
-		owner: owner, svc: svc, admin: admin,
+		owner: owner, svc: svc, ws: wsID, admin: admin,
 		member: Identity{UserID: memberID, WorkspaceID: admin.WorkspaceID, Email: memberEmail},
 	}
 }

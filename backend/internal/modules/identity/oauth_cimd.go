@@ -38,7 +38,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/netguard"
 )
 
@@ -144,7 +143,7 @@ func (s *Service) resolveCIMDClient(ctx context.Context, clientID string) error 
 // admin switched off keep this server making outbound requests on its behalf.
 func (s *Service) cimdCacheIsFresh(ctx context.Context, clientID string) (bool, error) {
 	var fresh bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT (metadata_expires_at IS NOT NULL AND metadata_expires_at > now())
 			       OR disabled_at IS NOT NULL OR deleted_at IS NOT NULL
@@ -168,7 +167,7 @@ func (s *Service) cimdCacheIsFresh(ctx context.Context, clientID string) (bool, 
 // list. The conflict target is the row this document may own or nothing.
 func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl time.Duration) error {
 	expires := time.Now().Add(ttl)
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via, metadata_expires_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'cimd', $4)

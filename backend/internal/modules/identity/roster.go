@@ -129,7 +129,7 @@ const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $2 AND
 // it always asks for the role keys. ErrNotFound when absent or archived.
 func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
 	var u userRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, true, userID))
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
@@ -150,7 +150,7 @@ func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, 
 	if in.IncludeInactive {
 		plain, filtered = listUsersAllQuery, listUsersAllFilteredQuery
 	}
-	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
+	return listRosterPage(ctx, s.db.Pool(), in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
 		plain:     plain,
 		filtered:  filtered,
 		leadArgs:  []any{in.WithRoles},
@@ -211,7 +211,7 @@ func scanTeam(r pgx.Row) (teamRow, error) {
 // teams (row-scoped by RLS) with each team's active-membership count,
 // optionally filtered by in.Q.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
-	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
+	return listRosterPage(ctx, s.db.Pool(), in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
 		plain:     listTeamsQuery,
 		filtered:  listTeamsFilteredQuery,
 		scan:      scanTeam,
