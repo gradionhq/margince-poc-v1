@@ -943,6 +943,14 @@ func (stubs) DraftPersonEmail(w nethttp.ResponseWriter, r *nethttp.Request, id c
 	httperr.NotImplemented(w, r, "DraftPersonEmail")
 }
 
+func (stubs) CreatePersonEnrichmentRun(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.CreatePersonEnrichmentRunParams) {
+	httperr.NotImplemented(w, r, "CreatePersonEnrichmentRun")
+}
+
+func (stubs) GetPersonEnrichmentRun(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, runId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetPersonEnrichmentRun")
+}
+
 func (stubs) GetPersonGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetPersonGraph")
 }
@@ -1049,6 +1057,26 @@ func (stubs) SetProjectStakeholder(w nethttp.ResponseWriter, r *nethttp.Request,
 
 func (stubs) RemoveProjectStakeholder(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, personId openapi_types.UUID, params crmcontracts.RemoveProjectStakeholderParams) {
 	httperr.NotImplemented(w, r, "RemoveProjectStakeholder")
+}
+
+func (stubs) ListProviderConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListProviderConnections")
+}
+
+func (stubs) DisconnectProvider(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.Provider) {
+	httperr.NotImplemented(w, r, "DisconnectProvider")
+}
+
+func (stubs) UpdateProviderConnection(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.Provider, params crmcontracts.UpdateProviderConnectionParams) {
+	httperr.NotImplemented(w, r, "UpdateProviderConnection")
+}
+
+func (stubs) ConnectProvider(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.Provider, params crmcontracts.ConnectProviderParams) {
+	httperr.NotImplemented(w, r, "ConnectProvider")
+}
+
+func (stubs) DeleteProviderData(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.Provider) {
+	httperr.NotImplemented(w, r, "DeleteProviderData")
 }
 
 func (stubs) BookPublicMeeting(w nethttp.ResponseWriter, r *nethttp.Request, hostSlug string, params crmcontracts.BookPublicMeetingParams) {

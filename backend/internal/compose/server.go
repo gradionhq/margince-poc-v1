@@ -111,6 +111,7 @@ type Server struct {
 	orgDossierHandlers
 	accountDraftHandlers
 	financeHandlers
+	integrationsHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -373,12 +374,17 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		financeHandlers:    finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
-		signalsHandlers:    signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
-		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
-		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
-		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
-		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
+		financeHandlers: finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
+		// No adapter is registered by default, which is the supported
+		// "no provider connected" configuration (PI-AC-9): every surface
+		// answers honestly and nothing can reach the network. WithProvider
+		// is what registers one.
+		integrationsHandlers: newIntegrationsHandlers(pool, nil),
+		signalsHandlers:      signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
+		privacyHandlers:      privacy.NewHandlers(InstallationDB(pool)),
+		automationHandlers:   automation.NewHandlers(InstallationDB(pool)),
+		voiceHandlers:        ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
+		reportHandlers:       reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))),
