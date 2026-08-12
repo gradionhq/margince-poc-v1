@@ -63,6 +63,10 @@ type mergeResolver struct {
 	// rather than two anchoredRecords because the record TYPE is the command's,
 	// not the resolver's — a merge is person-to-person or org-to-org, and the
 	// type arrives with the call.
+	// seen is the command the pair was read for, so a resolver asked about a
+	// second merge reads that merge — the same key archiveResolver's own memo
+	// carries (command.go), for the same reason its doc gives.
+	seen     MergeCommand
 	survivor datasource.Record
 	source   datasource.Record
 	read     bool
@@ -72,8 +76,18 @@ type mergeResolver struct {
 // survivor and no archived half, so nothing an approval could describe.
 var errNothingToMerge = errors.New("source and target must differ")
 
-// mergeableTypeError refuses a record type that has no merge verb.
-func mergeableTypeError(recordType string) error {
+// requireMergeableType refuses a record type that has no merge verb.
+//
+// One function for both doors — predicate and sentence together: the staging
+// path asks it through Guards below and the execution path through
+// mergeRecords.Handle, which the approved retry re-enters without passing
+// Guards. Two copies of the membership test is how the two doors come to
+// disagree about which types can be merged, or to say it differently for the
+// same refusal.
+func requireMergeableType(recordType string) error {
+	if mergeableTypes[recordType] {
+		return nil
+	}
 	return &BadArgsError{
 		Cause:    fmt.Errorf("record_type %q cannot be merged", recordType),
 		Guidance: "mergeable types are " + strings.Join(mergeableTypeNames(), ", "),
@@ -83,11 +97,11 @@ func mergeableTypeError(recordType string) error {
 // halves reads both records the merge touches, once, in the order their
 // refusals are reported.
 func (r *mergeResolver) halves(ctx context.Context, cmd MergeCommand) (survivor, source datasource.Record, err error) {
-	if r.read {
+	if r.read && r.seen == cmd {
 		return r.survivor, r.source, nil
 	}
-	if !mergeableTypes[cmd.RecordType] {
-		return datasource.Record{}, datasource.Record{}, mergeableTypeError(cmd.RecordType)
+	if err := requireMergeableType(cmd.RecordType); err != nil {
+		return datasource.Record{}, datasource.Record{}, err
 	}
 	if cmd.SourceID == cmd.TargetID {
 		return datasource.Record{}, datasource.Record{}, &BadArgsError{Cause: errNothingToMerge}
@@ -101,7 +115,7 @@ func (r *mergeResolver) halves(ctx context.Context, cmd MergeCommand) (survivor,
 	if err != nil {
 		return datasource.Record{}, datasource.Record{}, err
 	}
-	r.survivor, r.source, r.read = survivor, source, true
+	r.seen, r.survivor, r.source, r.read = cmd, survivor, source, true
 	return survivor, source, nil
 }
 

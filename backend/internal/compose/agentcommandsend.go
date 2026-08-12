@@ -31,12 +31,13 @@ import (
 
 // commandBody decodes the buffered body into one decoder's view of it.
 //
-// An ABSENT body answers the zero value rather than an error. Three of this
-// task's routes declare their body optional in crm.yaml, and for the rest a
-// missing required field is the HANDLER's 422 to write: this decoder's job is
-// to say what an approval would bind to, and a governance layer that refused
-// the request first would answer one mistake with two different machine codes
-// depending on which credential the caller presented.
+// An ABSENT body answers the zero value rather than an error. The two enrich
+// routes declare their body optional in crm.yaml ("With no body the org's own
+// domain is read") and are the pair that actually reaches this branch; for
+// every other route a missing required field is the HANDLER's 422 to write.
+// This decoder's job is to say what an approval would bind to, and a governance
+// layer that refused the request first would answer one mistake with two
+// different machine codes depending on which credential the caller presented.
 //
 // Unreadable JSON is different, and is refused with the code httperr.Decode
 // answers on the session half of the same route — the rule

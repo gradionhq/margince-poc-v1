@@ -18,7 +18,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -106,8 +105,8 @@ func (t relinkActivity) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if !relinkTargets[args.EntityType] {
-		return nil, &BadArgsError{Cause: fmt.Errorf("entity_type %q is not a link target", args.EntityType)}
+	if err := requireLinkTarget(args.EntityType); err != nil {
+		return nil, err
 	}
 	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	noteEvidence(ctx, datasource.EntityType(args.EntityType), args.EntityID)

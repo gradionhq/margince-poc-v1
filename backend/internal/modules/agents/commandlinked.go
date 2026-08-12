@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,9 +40,15 @@ import (
 // link, so asking twice doubles a bounded-but-not-small cost.
 type namedLinks struct {
 	records datasource.SystemOfRecordProvider
-	unique  []RecordLink
-	rows    []datasource.Record
-	read    bool
+	// seen is the list the memo was filled for, so a resolver asked about a
+	// second set of links reads THAT set — the same key archiveResolver's and
+	// anchoredRecord's memos carry (command.go), compared elementwise because a
+	// slice is not comparable and a bare "already read" flag would answer the
+	// second question with the first question's records.
+	seen   []RecordLink
+	unique []RecordLink
+	rows   []datasource.Record
+	read   bool
 }
 
 // stageable de-duplicates the caller's links, bounds them, reads every one and
@@ -50,7 +57,7 @@ type namedLinks struct {
 // a booking pins its first link's version — reads it here rather than fetching
 // it again.
 func (n *namedLinks) stageable(ctx context.Context, links []RecordLink) ([]RecordLink, []datasource.Record, error) {
-	if n.read {
+	if n.read && slices.Equal(n.seen, links) {
 		return n.unique, n.rows, nil
 	}
 	unique, err := uniqueRecordLinks(links)
@@ -61,7 +68,7 @@ func (n *namedLinks) stageable(ctx context.Context, links []RecordLink) ([]Recor
 	if err != nil {
 		return nil, nil, err
 	}
-	n.unique, n.rows, n.read = unique, rows, true
+	n.seen, n.unique, n.rows, n.read = slices.Clone(links), unique, rows, true
 	return unique, rows, nil
 }
 

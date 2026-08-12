@@ -137,8 +137,11 @@ func (t enrichCompany) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 // path and then be refused differently on the execution path.
 //
 // The URL admission is the resolver's own function (requireEnrichURL,
-// commandrecord.go), not a second copy of it: the staging path asks it through
-// Guards, and this asks it for Handle, which the approved retry re-enters.
+// commandrecord.go), not a second copy of it. It is asked TWICE on the staging
+// path — once here, once in Guards — because StageInfo needs this function for
+// the depth defaulting anyway; that redundancy is the price of Handle, which an
+// approved retry re-enters without passing Guards, sharing the one spelling
+// rather than keeping its own.
 func readEnrichArgs(in json.RawMessage) (enrichArgs, error) {
 	var args enrichArgs
 	if err := decodeArgs(in, &args); err != nil {

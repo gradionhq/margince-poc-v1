@@ -131,9 +131,16 @@ func TestAMergeStagesTheSurvivorTheBodyNamesRatherThanTheRoutedRecord(t *testing
 
 // The two enrich routes are ONE verb at two depths, and nothing on the wire
 // tells them apart — no `depth` field, no differing body, only which path was
-// taken. So the decoders set it structurally, and the line a human approves
-// says which read it is. A site crawl described as a page read is an approval
-// given for something else entirely.
+// taken. So the decoders set it structurally, and the resolver's own summary is
+// where that shows: a site crawl a resolver describes as a page read is an
+// approval given for something else entirely.
+//
+// The SUMMARY rather than the inbox line, and the difference is worth stating.
+// stagedTarget (agentgatestaging.go) takes only the TARGET from the resolver
+// and writes restSummary as the line an approver reads on this door — that line
+// names the concrete path, so a human here does see which read they are
+// releasing. What the summary proves is that the erased command underneath
+// carries the right depth at all, which is the only handle this door has on it.
 func TestTheTwoEnrichRoutesStageTheDepthTheirOwnRouteMeans(t *testing.T) {
 	staged := map[string]string{}
 	for _, c := range []struct{ op, path string }{

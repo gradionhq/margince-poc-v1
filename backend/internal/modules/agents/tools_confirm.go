@@ -139,8 +139,8 @@ func (t promoteLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if !validTriggers[args.Trigger] {
-		return nil, &BadArgsError{Cause: fmt.Errorf("trigger %q is not genuine engagement", args.Trigger)}
+	if err := requireGenuineTrigger(args.Trigger); err != nil {
+		return nil, err
 	}
 	ref, merged, err := t.promoter.PromoteLead(ctx, args.LeadID, args.Trigger, args.EvidenceNote)
 	if err != nil {
@@ -219,11 +219,12 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	// The resolver's own refusal (commandrecord.go), not a second spelling of
-	// it: the approved retry re-enters here, so a type the staging refused must
-	// read the same way when it is refused again.
-	if !mergeableTypes[args.RecordType] {
-		return nil, mergeableTypeError(args.RecordType)
+	// The resolver's own refusal (commandrecord.go), predicate and sentence
+	// both: the approved retry re-enters here without passing Guards, so a type
+	// the staging refused must be refused again, and read the same way when it
+	// is.
+	if err := requireMergeableType(args.RecordType); err != nil {
+		return nil, err
 	}
 	ref, err := t.p.Merge(ctx, datasource.MergeInput{
 		Type: datasource.EntityType(args.RecordType), SourceID: args.SourceID, TargetID: args.TargetID,

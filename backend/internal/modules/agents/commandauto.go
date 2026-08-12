@@ -171,10 +171,24 @@ func (r *relinkActivityResolver) Subject(ctx context.Context, cmd RelinkActivity
 // one is filed rather than implied away: gradionhq/margince-poc-v1#1021 is
 // where a target's visibility question gets its home.
 func (r *relinkActivityResolver) Guards(ctx context.Context, cmd RelinkActivityCommand) error {
-	if !relinkTargets[cmd.EntityType] {
-		return &BadArgsError{Cause: fmt.Errorf("entity_type %q is not a link target", cmd.EntityType)}
+	if err := requireLinkTarget(cmd.EntityType); err != nil {
+		return err
 	}
 	return r.activity.refuse(ctx, cmd.ActivityID)
+}
+
+// requireLinkTarget admits the record type an activity may be re-associated to.
+//
+// One function for both doors — predicate and sentence together: the staging
+// path asks it through Guards above and the execution path through
+// relinkActivity.Handle, which an approved retry would re-enter without passing
+// Guards. Two copies of the membership test is how the two doors come to
+// disagree about what a link target is.
+func requireLinkTarget(entityType string) error {
+	if relinkTargets[entityType] {
+		return nil
+	}
+	return &BadArgsError{Cause: fmt.Errorf("entity_type %q is not a link target", entityType)}
 }
 
 // RunReportCommand is one report run, whichever door asked for it. The report

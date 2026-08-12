@@ -71,10 +71,24 @@ func (r *promoteLeadResolver) Subject(ctx context.Context, cmd PromoteLeadComman
 // no reply must never even reach the inbox — and then the lead itself, the
 // same two ways patchResolver.Guards refuses its own target.
 func (r *promoteLeadResolver) Guards(ctx context.Context, cmd PromoteLeadCommand) error {
-	if !validTriggers[cmd.Trigger] {
-		return &BadArgsError{Cause: fmt.Errorf("trigger %q is not genuine engagement", cmd.Trigger)}
+	if err := requireGenuineTrigger(cmd.Trigger); err != nil {
+		return err
 	}
 	return r.lead.refuse(ctx, cmd.LeadID)
+}
+
+// requireGenuineTrigger admits the engagement a promotion rests on.
+//
+// One function for both doors: the staging path asks it through Guards above
+// and the execution path through promoteLead.Handle, which the approved retry
+// re-enters without passing Guards. Two copies of the predicate AND its
+// sentence is how the two doors come to disagree about what counts as
+// engagement, or to say it differently for the same refusal.
+func requireGenuineTrigger(trigger string) error {
+	if validTriggers[trigger] {
+		return nil
+	}
+	return &BadArgsError{Cause: fmt.Errorf("trigger %q is not genuine engagement", trigger)}
 }
 
 // DisqualifyLeadCommand is one lead retirement, whichever door asked for it.

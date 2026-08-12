@@ -433,3 +433,81 @@ func TestTheCommandsThatNameNoRowStageNoTarget(t *testing.T) {
 			"surface probe and pin a record that is not there", logged.TargetID)
 	}
 }
+
+// A resolver asked about a second call reads THAT call.
+//
+// Nothing outside this package can reach a resolver — the New…Call
+// constructors bind one to its command and hand back the call — so this
+// reaches past the constructor deliberately, the same way
+// TestAResolverAskedAboutASecondTargetReadsIt does for the archive: the memo's
+// key is what makes the binding a belt rather than the only thing between two
+// callers and a shared read. The two memos this task adds carry their own keys
+// for that reason, and this is what holds them to it.
+func TestASecondCallOnTheSameResolverIsReadAfresh(t *testing.T) {
+	t.Run("a merge's two halves", func(t *testing.T) {
+		p := &tallyingProvider{records: map[datasource.EntityRef]datasource.Record{}}
+		resolver := &mergeResolver{records: p}
+		ctx := context.Background()
+
+		first, second := mergeFixture(p), mergeFixture(p)
+		if _, err := resolver.Subject(ctx, first); err != nil {
+			t.Fatalf("the first subject answered %v", err)
+		}
+		got, err := resolver.Subject(ctx, second)
+		if err != nil {
+			t.Fatalf("the second subject answered %v", err)
+		}
+
+		if p.reads != 4 {
+			t.Errorf("two merges cost %d reads, want 4 — a remembered pair must not answer for a merge it "+
+				"was not read for", p.reads)
+		}
+		if got.TargetID != second.TargetID {
+			t.Errorf("the second subject named %s, want the second merge's own survivor %s",
+				got.TargetID, second.TargetID)
+		}
+	})
+
+	t.Run("a call's named links", func(t *testing.T) {
+		p := &tallyingProvider{records: map[datasource.EntityRef]datasource.Record{}}
+		links := &namedLinks{records: p}
+		ctx := context.Background()
+
+		first := []RecordLink{{EntityType: string(datasource.EntityOrganization), EntityID: linkFixture(p)}}
+		second := []RecordLink{{EntityType: string(datasource.EntityOrganization), EntityID: linkFixture(p)}}
+		if _, _, err := links.stageable(ctx, first); err != nil {
+			t.Fatalf("the first read answered %v", err)
+		}
+		got, _, err := links.stageable(ctx, second)
+		if err != nil {
+			t.Fatalf("the second read answered %v", err)
+		}
+
+		if p.reads != 2 {
+			t.Errorf("two link lists cost %d reads, want 2 — a remembered list must not answer for links it "+
+				"was not read for", p.reads)
+		}
+		if len(got) != 1 || got[0] != second[0] {
+			t.Errorf("the second read answered %v, want the second list's own link %v", got, second)
+		}
+	})
+}
+
+// mergeFixture adds an authoritative source and survivor to p and returns the
+// merge that names them.
+func mergeFixture(p *tallyingProvider) MergeCommand {
+	source, survivor := ids.NewV7(), ids.NewV7()
+	for _, id := range []ids.UUID{source, survivor} {
+		ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: id}
+		p.records[ref] = nativeRecord(datasource.Record{Ref: ref, Fields: json.RawMessage(`{}`)})
+	}
+	return MergeCommand{RecordType: "person", SourceID: source, TargetID: survivor}
+}
+
+// linkFixture adds one authoritative organization to p and returns its id.
+func linkFixture(p *tallyingProvider) ids.UUID {
+	id := ids.NewV7()
+	ref := datasource.EntityRef{Type: datasource.EntityOrganization, ID: id}
+	p.records[ref] = nativeRecord(datasource.Record{Ref: ref, Fields: json.RawMessage(`{}`)})
+	return id
+}
