@@ -89,10 +89,9 @@ func TestOfferLineItemSummariesNameTheLineItem(t *testing.T) {
 // gradionhq/margince-poc-v1#1046: createOffer's staged target must carry NO
 // id. The routed {id} on POST /v1/deals/{id}/offers is the DEAL the offer
 // nests under, not an offer id — the offer does not exist yet — so pairing
-// target_entity_type=offer with that id (stagedTargetByRoute's guess) would
-// name a target that resolves to no row, or to an unrelated offer that
-// happens to share the id space. A resolver of its own is the fix; this is
-// the assertion that pins it.
+// target_entity_type=offer with that id would name a target that resolves to
+// no row, or to an unrelated offer that happens to share the id space. A
+// resolver of its own is the fix; this is the assertion that pins it.
 func TestCreateOfferStagesNoID(t *testing.T) {
 	dealID := ids.NewV7()
 	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityDeal, dealID, true)}

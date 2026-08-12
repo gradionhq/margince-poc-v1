@@ -7,13 +7,14 @@ package agents
 // a list member add, a tag apply, an offer line item add/update/remove, an
 // offer created under a parent deal, and a partner upsert. All seven are 🟢
 // auto_execute today, so Subject/Guards are unreachable on today's tiers —
-// but a route with no command of its own still answers stagedTargetByRoute's
-// GUESS the moment a tier floor (#982) tightens it, and for createOffer that
-// guess is wrong on its face: the routed {id} is the DEAL the offer is
-// created ON, not an offer id, so the walk would pair
-// target_entity_type=offer with a deal's id — a target that resolves to no
-// row, or to an unrelated offer that happens to share the id space
-// (gradionhq/margince-poc-v1#1046, closed by this file's CreateOfferCommand).
+// but a tier floor (#982) tightening any of them makes this the answer a human
+// decides from, and the REST door has no other one to fall back on. For
+// createOffer that matters on its face: the routed {id} is the DEAL the offer
+// is created ON, not an offer id, so anything reading the target off the route
+// would pair target_entity_type=offer with a deal's id — a target that
+// resolves to no row, or to an unrelated offer that happens to share the id
+// space (gradionhq/margince-poc-v1#1046, closed by this file's
+// CreateOfferCommand).
 //
 // list, tag and offer are all outside the record seam's vocabulary
 // (servedByTheRecordSeam, command.go), the same bound six of the twelve
@@ -269,10 +270,9 @@ type createOfferResolver struct {
 // the shape createResolver stages for every other create (command.go),
 // because an offer does not exist yet either. This is the fix for
 // gradionhq/margince-poc-v1#1046: the routed {id} is the deal, and pairing
-// target_entity_type=offer with the deal's id (stagedTargetByRoute's guess)
-// names a target that resolves to no row, or to an unrelated offer that
-// happens to share the id space. Naming no id at all is the only staged
-// target this create could honestly carry.
+// target_entity_type=offer with the deal's id names a target that resolves to
+// no row, or to an unrelated offer that happens to share the id space. Naming
+// no id at all is the only staged target this create could honestly carry.
 func (r createOfferResolver) Subject(_ context.Context, cmd CreateOfferCommand) (StageInfo, error) {
 	return StageInfo{
 		TargetType: offerRecordType,

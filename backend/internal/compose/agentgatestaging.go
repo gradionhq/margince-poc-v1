@@ -21,8 +21,6 @@ import (
 	"net/http"
 	"strconv"
 
-	chi "github.com/go-chi/chi/v5"
-
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -158,11 +156,11 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // stagedTarget answers what the approval binds to: the record type and the id
 // the human's decision will be scoped and pinned by.
 //
-// An operation this door can decode into a typed command (agentcommand.go) is
-// answered by the SAME resolver the tool door asks, so the two cannot describe
-// one operation differently — and the resolver's guards run here too, refusing
-// a target the caller cannot see before a human is asked about it. Everything
-// else still walks the route below.
+// Every operation this door can stage decodes into a typed command
+// (agentcommand.go) and is answered by the SAME resolver the tool door asks, so
+// the two cannot describe one operation differently — and the resolver's guards
+// run here too, refusing a target the caller cannot see before a human is asked
+// about it.
 //
 // Only the target is taken from the resolver. The line the human reads stays
 // this door's own (restSummary), because a REST summary names the concrete
@@ -176,7 +174,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // It writes the refusal itself and reports ok=false, so a caller that cannot
 // name a target stages nothing.
 func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy, body []byte) (agents.StageInfo, bool) {
-	info, ok := resolveOrWalk(w, r, commands, pol, body)
+	info, ok := resolveStagedTarget(w, r, commands, pol, body)
 	if !ok {
 		return agents.StageInfo{}, false
 	}
@@ -200,18 +198,31 @@ func stagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDe
 	return info, true
 }
 
-// resolveOrWalk answers the staged target from the operation's own resolver
-// where it has one, and from the route where it does not.
+// resolveStagedTarget answers the staged target from the operation's own
+// resolver, which every agent-reachable mutating operation now has
+// (TestEveryAgentReachableMutatingRouteDecodesIntoACommand derives that from
+// the policy table, so a route the contract adds fails there rather than
+// arriving here undescribed).
+//
+// An operation with no entry is a defect this door refuses rather than guesses
+// around. The guess it used to fall back to — the route's own {id} paired with
+// the policy's declared record type — is what this seam replaced: it read the
+// merge's routed id as the survivor, gave createOffer the deal's id as an
+// offer's, and could not tell the two enrich depths apart, all while looking
+// exactly as green as a real answer.
 //
 // body is the same buffered copy stageRefusal already hashed into
 // canonicalRESTCall — passed through rather than re-read off r.Body, so a
 // decoder that needs the request payload (create, patch) is a pure function
 // of values the gate already proved readable, with no second reader of a
 // stream nothing guarantees stays replayable.
-func resolveOrWalk(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy, body []byte) (agents.StageInfo, bool) {
+func resolveStagedTarget(w http.ResponseWriter, r *http.Request, commands restCommandDeps, pol agentPolicy, body []byte) (agents.StageInfo, bool) {
 	decode, described := restCommands[pol.Op]
 	if !described {
-		return stagedTargetByRoute(w, r, pol)
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s decodes into no governed call, so nothing can say what an approval of it would "+
+				"bind to: %w", pol.Op, apperrors.ErrPermissionDenied))
+		return agents.StageInfo{}, false
 	}
 	call, err := decode(pol, commands, r, body)
 	if err != nil {
@@ -224,20 +235,4 @@ func resolveOrWalk(w http.ResponseWriter, r *http.Request, commands restCommandD
 		return agents.StageInfo{}, false
 	}
 	return info, true
-}
-
-// stagedTargetByRoute is the guess the seam above replaces one operation family
-// at a time: the target id read out of the route's {id} parameter, paired with
-// the record type the generated policy declares. It answers for every operation
-// with no command of its own.
-func stagedTargetByRoute(w http.ResponseWriter, r *http.Request, pol agentPolicy) (agents.StageInfo, bool) {
-	var targetID ids.UUID
-	if raw := chi.URLParam(r, "id"); raw != "" {
-		var err error
-		if targetID, err = ids.Parse(raw); err != nil {
-			httperr.Write(w, r, apperrors.ErrNotFound)
-			return agents.StageInfo{}, false
-		}
-	}
-	return agents.StageInfo{TargetType: string(pol.RecordType), TargetID: targetID}, true
 }

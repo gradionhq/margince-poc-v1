@@ -67,47 +67,6 @@ func archiveRequest(path string, id ids.UUID) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
-// Every archive operation the contract lets an agent reach must decode into a
-// command, or the two doors are back to describing the same operation
-// differently — which is the drift this seam exists to end. Derived from the
-// generated policy table rather than from a list of the twelve someone
-// remembered, so an archive route added upstream fails here.
-func TestEveryAgentReachableArchiveOperationDecodesIntoACommand(t *testing.T) {
-	checked := 0
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || pol.Tool != "archive_record" {
-			continue
-		}
-		checked++
-		if _, described := restCommands[pol.Op]; !described {
-			t.Errorf("%s (%s) archives a record but decodes into no command, so its staged target is still "+
-				"guessed from the route while the tool door reads it from the call", route, pol.Op)
-		}
-	}
-	if checked != 12 {
-		t.Errorf("the policy table carries %d agent-reachable archive operations, want 12 — if the contract "+
-			"gained or lost one, this seam's coverage moved with it", checked)
-	}
-}
-
-// The other direction, which no single family's walk above can see on its
-// own now that restCommands holds three of them: a decoder left behind for an
-// operation the contract retired would sit in the table answering for a route
-// nothing routes. Checked once, across every family, rather than each
-// family's own test re-deriving "restCommands holds exactly what I counted" —
-// which stopped being true the moment a second family shared the map.
-func TestEveryRegisteredCommandDecodesAnOperationTheContractStillDeclares(t *testing.T) {
-	known := make(map[string]bool, len(agentPolicies))
-	for _, pol := range agentPolicies {
-		known[pol.Op] = true
-	}
-	for op := range restCommands {
-		if !known[op] {
-			t.Errorf("restCommands[%q] decodes an operation the policy table no longer declares", op)
-		}
-	}
-}
-
 // A record type the seam does not serve still stages, with its own type and
 // its own id. Six of the twelve archivable types are archived by their own
 // module, and the tool's narrow schema is not the operation's vocabulary.

@@ -68,15 +68,18 @@ var contractBodies = map[string]string{
 	"relinkActivity":      `{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000006"}`,
 }
 
-// Every route these fourteen verbs reach must decode into a command, and the
-// decoder bound to it must accept the body its own route declares — a decoder
-// that errored on the shape crm.yaml specifies would answer the whole
-// operation as a refusal the moment a tier floor tightened it.
+// What a registration does not say: that the decoder bound to a route can
+// actually READ the request that route produces. The completeness gate
+// (agentcommandcoverage_test.go) proves every one of these operations has an
+// entry; an entry whose decoder rejects the body crm.yaml declares satisfies it
+// completely, and answers the whole operation as a refusal the moment a tier
+// floor tightens it.
 //
-// Derived from agentPolicies rather than from a list of sixteen operationIds
-// someone remembered, so a route added upstream for any of these verbs fails
-// here rather than quietly falling back to the route walk.
-func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
+// So this walk hands each decoder its own route's minimal contract body and
+// requires a call back. Derived from agentPolicies rather than from a list of
+// operationIds someone remembered, so a route added upstream for any of these
+// verbs is decoded here too.
+func TestEverySinglePurposeToolRouteDecodesTheBodyItsContractDeclares(t *testing.T) {
 	verbs := make(map[string]bool, len(singlePurposeTools))
 	for _, tool := range singlePurposeTools {
 		verbs[tool] = true
@@ -90,8 +93,13 @@ func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
 		checked++
 		decode, described := restCommands[pol.Op]
 		if !described {
-			t.Errorf("%s (%s) is a %s operation that decodes into no command, so its staged target is still "+
-				"guessed from the route while the tool door reads it from the call", route, pol.Op, pol.Tool)
+			// The completeness gate reports this route by name; here it would
+			// only be a nil decoder to dereference.
+			continue
+		}
+		if _, declared := contractBodies[pol.Op]; !declared && !bodilessRoutes[pol.Op] {
+			t.Errorf("%s (%s) has no contract body here and is not one of the routes declared bodiless, so "+
+				"the decode below proves only that commandBody short-circuits an empty payload", route, pol.Op)
 			continue
 		}
 		body := []byte(contractBodies[pol.Op])
@@ -105,16 +113,24 @@ func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
 			t.Errorf("%s (%s): decoded into no call at all", route, pol.Op)
 		}
 	}
-	if checked != 16 {
-		t.Errorf("the policy table carries %d mutating routes for these fourteen verbs, want 16 — if the "+
-			"contract gained or lost one, this seam's coverage moved with it", checked)
+	if checked == 0 {
+		t.Fatal("none of these fourteen verbs reached a mutating route — this walk decoded nothing")
 	}
-	if len(contractBodies) != checked-2 {
-		t.Errorf("contractBodies carries %d bodies for %d routes; the two without one are disqualifyLead "+
-			"and runReport, so any other gap means a route is being decoded from nothing",
-			len(contractBodies), checked)
+	for op := range contractBodies {
+		if bodilessRoutes[op] {
+			t.Errorf("%s is declared bodiless and carries a contract body; one of the two is wrong about the "+
+				"operation, and the walk above trusts whichever it reads first", op)
+		}
 	}
 }
+
+// bodilessRoutes are the two routes of the fourteen that declare no request
+// body at all, named rather than counted: disqualifyLead is a bare DELETE, and
+// runReport's plan arguments are optional and read by nothing this walk
+// asserts. A route that quietly lost its body would otherwise be decoded from
+// nothing and pass — which is what a bare "sixteen routes, fourteen bodies"
+// subtraction could not tell apart from a body someone forgot to write.
+var bodilessRoutes = map[string]bool{"disqualifyLead": true, "runReport": true}
 
 // mergeRequest is a POST against a merge route, carrying the {id} chi would
 // have bound plus the body naming the survivor. body is the caller's own copy

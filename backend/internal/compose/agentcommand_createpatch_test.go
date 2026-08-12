@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -37,80 +36,6 @@ func patchRequest(path string, id ids.UUID, body []byte) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", id.String())
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-}
-
-// Every create operation the contract lets an agent reach must decode into a
-// command. Derived from the generated policy table rather than a remembered
-// list of thirteen: create_record's own tool tag also covers createOffer
-// (POST /v1/deals/{id}/offers), which nests under a parent resource and is
-// out of this family's scope — so the filter is the route shape a top-level
-// collection create actually has, a bare collection path with no `{`, which
-// is what tells the two apart without hand-naming either.
-//
-// Every one of the thirteen belongs here, including the six whose record
-// type (custom_field, list, offer_template, product, saved_view, tag)
-// create_record's own Handle cannot write: createResolver.Guards
-// (command.go) asks nothing about whether the verb "serves" a type, so
-// registering them costs nothing, and the door-dependent question that
-// mattered is answered once, at createRecord.StageInfo, on the door where it
-// is true.
-func TestEveryAgentReachableCreateOperationDecodesIntoACommand(t *testing.T) {
-	checked := 0
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || pol.Tool != "create_record" || strings.Contains(route, "{") {
-			continue
-		}
-		checked++
-		if _, described := restCommands[pol.Op]; !described {
-			t.Errorf("%s (%s) creates a record but decodes into no command, so its staged target is still "+
-				"guessed from the route while the tool door reads it from the call", route, pol.Op)
-		}
-	}
-	if checked != 13 {
-		t.Errorf("the policy table carries %d agent-reachable top-level create operations, want 13 — if the "+
-			"contract gained or lost one, this seam's coverage moved with it", checked)
-	}
-}
-
-// Every whole-record write operation the contract lets an agent reach must
-// decode into a command. update_record's own tool tag covers far more than a
-// whole-record write — child-resource and membership mutations like
-// updateOfferLineItem or applyTag carry a second path segment or a second
-// path parameter after {id}, and agentsplit.go's actionShapedUpdateOps
-// already draws that line for the auto-execute side. The filter here draws
-// the same line independently, by ROUTE SHAPE alone: one path parameter,
-// named id, at the very end, and nothing after it.
-//
-// The shape, not the method. Twelve of these route as PATCH and one — the
-// offer template's — as PUT, a full replace rather than a field patch, and
-// the difference changes nothing this seam answers: both name the record in
-// {id} and carry that record's fields in the body. A method-keyed filter is
-// how the PUT came to be invisible to every gate on this surface at once,
-// including canonicalCollectionRoute (agentcommandnested_test.go), which
-// excused it as covered HERE.
-//
-// Unlike create, this family never had a "verb does not serve" refusal to
-// worry about (see patchResolver.Guards' own comment in command.go), so
-// every one of these thirteen belongs here.
-func TestEveryAgentReachableWholeRecordWriteOperationDecodesIntoACommand(t *testing.T) {
-	checked := 0
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || pol.Tool != "update_record" {
-			continue
-		}
-		if !strings.HasSuffix(route, "/{id}") || strings.Count(route, "{") != 1 {
-			continue
-		}
-		checked++
-		if _, described := restCommands[pol.Op]; !described {
-			t.Errorf("%s (%s) writes a whole record but decodes into no command, so its staged target is "+
-				"still guessed from the route while the tool door reads it from the call", route, pol.Op)
-		}
-	}
-	if checked != 13 {
-		t.Errorf("the policy table carries %d agent-reachable whole-record write operations, want 13 — if the "+
-			"contract gained or lost one, this seam's coverage moved with it", checked)
-	}
 }
 
 // A served create type stages the record TYPE with no id: the row does not

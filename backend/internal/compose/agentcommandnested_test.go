@@ -5,10 +5,16 @@ package compose
 
 // The REST door's half of the seven bespoke auto-execute commands
 // (agentcommandnested.go): the routed {id}'s existence-hiding 404, the
-// offer line items' own {lineItemId} 422, the staged target each decoder
-// resolves to, and the derived coverage gate that pins all seven off the
-// route walk — task 6's sibling of agentcommandoperand_test.go's proof
-// shape for task 5's eight.
+// offer line items' own {lineItemId} 422, and the staged target each decoder
+// resolves to — the sibling of agentcommandoperand_test.go's proof shape for
+// the confirm-first eight.
+//
+// That every one of the seven is REGISTERED is not asserted here:
+// TestEveryAgentReachableMutatingRouteDecodesIntoACommand
+// (agentcommandcoverage_test.go) derives that for the whole surface. What this
+// file adds is what a registration alone does not say — that the decoder bound
+// to each route reads the operands its own route carries, and stages the
+// record they name.
 
 import (
 	"errors"
@@ -239,61 +245,5 @@ func TestANestedCommandOfAnUnseeableParentStagesNothing(t *testing.T) {
 				t.Errorf("an approval was staged for %q against a parent nobody can decide about", staging.last.Tool)
 			}
 		})
-	}
-}
-
-// canonicalCollectionRoute reports the two route shapes
-// TestEveryAgentReachableCreateOperationDecodesIntoACommand and
-// TestEveryAgentReachableWholeRecordWriteOperationDecodesIntoACommand
-// already cover in full: a bare collection path with no path parameter at
-// all (a top-level create), or a path ending in exactly one {id} (a
-// whole-record write, PATCH or PUT alike). Anything else nests under a
-// parent or reaches a child/membership action, which is this file's seven.
-//
-// "In full" is now literally true. It was not: the write walk used to filter
-// on PATCH, so updateOfferTemplate's PUT was canonical by THIS shape and
-// invisible to the test excused for covering it — a hole every gate on the
-// surface pointed at each other about. That filter is keyed on shape alone
-// now, which is the only reason this function may go on standing down.
-func canonicalCollectionRoute(route string) bool {
-	if !strings.Contains(route, "{") {
-		return true
-	}
-	return strings.HasSuffix(route, "/{id}") && strings.Count(route, "{") == 1
-}
-
-// TestEveryAutoExecuteNestedOrActionRouteDecodesIntoACommand is task 6's
-// sibling of TestEveryConfirmFirstOperandRouteDecodesIntoTheRightCommand
-// (agentcommandoperand_test.go): the same derived-coverage shape, for the
-// AUTO-EXECUTE side of create_record/update_record — every such operation
-// whose route is not the canonical collection shape must decode into a
-// command, or its staged target is still guessed from the route the moment
-// a tier floor (#982) promotes it to confirm-first.
-//
-// Derived from agentPolicies rather than the seven names in the brief's own
-// table, so a route the contract adds to this shape fails here rather than
-// silently falling back to the guess.
-func TestEveryAutoExecuteNestedOrActionRouteDecodesIntoACommand(t *testing.T) {
-	checked := 0
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || pol.Tier != tierAutoExecute {
-			continue
-		}
-		if pol.Tool != "create_record" && pol.Tool != "update_record" {
-			continue
-		}
-		if canonicalCollectionRoute(route) {
-			continue
-		}
-		checked++
-		if _, described := restCommands[pol.Op]; !described {
-			t.Errorf("%s (%s) is an auto-execute create/update operation whose route is not the canonical "+
-				"collection shape, but decodes into no command — its staged target is still guessed from "+
-				"the route the moment a tier floor promotes it", route, pol.Op)
-		}
-	}
-	if checked != 7 {
-		t.Errorf("the policy table carries %d auto-execute nested/action create-or-update operations, want "+
-			"7 — if the contract gained or lost one, this seam's coverage moved with it", checked)
 	}
 }

@@ -214,13 +214,12 @@ func (m mixedHumanOwned) HumanOwnedConflicts(context.Context, string, ids.UUID, 
 	return []string{m.conflict}, nil
 }
 
-// TestUpsertPartnerResidueStagesTheOrganizationNotPartner pins the THIRD
-// staging call site a review round found still guessing after
-// TestUpsertPartnerStagesAHumanOwnedPartnerField fixed the first two
-// (stageRefusal and, transitively, resolveOrWalk/stagedTargetByRoute):
-// applyAutoExecuteAndStageResidue used to build its StageRequest straight
-// off pol.RecordType ("partner" for this op) and the routed id, bypassing
-// the resolver seam entirely. "partner" has no rule in either
+// TestUpsertPartnerResidueStagesTheOrganizationNotPartner pins the third
+// staging call site: applyAutoExecuteAndStageResidue builds its StageRequest
+// through the resolver seam (stagedTarget) rather than straight off
+// pol.RecordType ("partner" for this op) and the routed id, which is what the
+// two call sites TestUpsertPartnerStagesAHumanOwnedPartnerField covers already
+// do. "partner" has no rule in either
 // targetProbes or existenceProbes (approvals/targetvisibility.go), so a
 // row staged under it fails closed — invisible in the inbox, undecidable
 // at the decision — the zombie authority object this whole seam exists to

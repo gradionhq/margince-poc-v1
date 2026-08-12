@@ -11,13 +11,12 @@ package integration
 // approval ROW.
 //
 // TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing below
-// is this task's actual proof: registering these eight in restCommands
-// makes Guards run before anything stages, where the route-walk fallback
-// (stagedTargetByRoute) ran none. TestTwoFactKeysOnOneOrganizationStageDistinguishableApprovals
+// is the proof that matters: their restCommands entries make Guards run before
+// anything stages. TestTwoFactKeysOnOneOrganizationStageDistinguishableApprovals
 // does NOT prove that — diff_hash and summary are both derived from the
 // concrete request path upstream of the resolver (canonicalRESTCall,
-// restSummary), so it would pass unchanged against the pre-task route walk
-// too. It stays because it is the one place production's chi parameter
+// restSummary), so it holds whether or not a resolver was consulted at all.
+// It stays because it is the one place production's chi parameter
 // names (factKey, field, person_id) are exercised through the REAL router
 // rather than hand-bound in a unit test's route context.
 
@@ -33,10 +32,10 @@ import (
 // this task's actual behavioral proof: an agent acting for a human whose row
 // scope hides an organization (team-scoped, no shared team with the
 // organization's owner) gets the existence-hiding 404 GetOrganization itself
-// would give, and stages NO approval. Without this task's restCommands entry,
-// stagedTargetByRoute answers the target from the route alone — no read, no
-// refusal — and stages one regardless; that is the entire delta this test
-// exercises through the REAL row-scope predicate (internal/platform/auth),
+// would give, and stages NO approval. A target answered from the route alone
+// asks for no read and so makes no such refusal — it stages one regardless;
+// that is the delta this test exercises through the REAL row-scope predicate
+// (internal/platform/auth),
 // which TestAnOperandCommandOfAnUnseeableRecordStagesNothing (agentcommandoperand_test.go)
 // can only fake.
 func TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing(t *testing.T) {

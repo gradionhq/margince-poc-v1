@@ -9,13 +9,12 @@ package agents
 // question below is reached on today's tiers — the same standing the seven
 // nested commands (commandnested.go) have.
 //
-// They are registered anyway, for that file's reason: a route with no command
-// of its own falls back to stagedTargetByRoute's GUESS the moment a tier floor
-// (#982) tightens it, and the guess is only ever as good as the route's shape.
-// It happens to be right for three of these and empty for the fourth
-// (runReport's route carries a `{report}` key, not an `{id}`), which is
-// exactly the kind of accident this seam replaces with an answer the operation
-// states itself.
+// They are registered anyway, for that file's reason: a tier floor (#982)
+// tightening one makes this the answer a human decides from, and the only
+// alternative a route can offer is its own shape. That shape happens to name
+// the right record for three of these and nothing at all for the fourth
+// (runReport's route carries a `{report}` key, not an `{id}`) — the kind of
+// accident this seam replaces with an answer the operation states itself.
 //
 // What does NOT happen here is the other half of the seam. Their TOOLS gain no
 // StageInfo: a 🟢 tool has no staging path to move a guard off, so there is no

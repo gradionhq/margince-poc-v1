@@ -49,10 +49,12 @@ type restCommandDeps struct {
 // request into the operation's typed command, bound to the resolver that
 // speaks it.
 //
-// The table covers one operation family, not the surface: an operation with no
-// entry resolves its staged target by walking the route
-// (stagedTargetByRoute) instead, which is the guess this seam replaces family
-// by family (gradionhq/margince-poc-v1#928).
+// The table covers the WHOLE agent-reachable mutating surface — all sixty-nine
+// routes, one entry per operation, with nothing left to answer from the route's
+// own shape (gradionhq/margince-poc-v1#928).
+// TestEveryAgentReachableMutatingRouteDecodesIntoACommand derives both
+// directions of that from the policy table, so a route the contract adds fails
+// there rather than reaching a door that has no answer for it.
 //
 // Every create and every whole-record patch route is registered, all
 // twenty-six — thirteen creates and thirteen whole-record writes. Twelve of
@@ -132,9 +134,10 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	// The seven bespoke auto-execute commands (agentcommandnested.go). Six of
 	// the seven — every one but upsertPartner — are nested creates or
 	// child/membership actions that are 🟢 today and have NEVER staged:
-	// registered anyway, because the route walk's guess (stagedTargetByRoute)
-	// is the one this table replaces family by family, and for createOffer
-	// that guess is provably wrong today (gradionhq/margince-poc-v1#1046).
+	// registered anyway, because a tier floor tightening one would otherwise
+	// leave this door with only the route's own shape to name a target from,
+	// and for createOffer that shape is provably wrong: the routed id is the
+	// parent deal (gradionhq/margince-poc-v1#1046).
 	// upsertPartner is the one exception: it stages TODAY, through BOTH
 	// splitOrRedeemUpdate branches a human-owned conflict can take —
 	// stageRefusal when every touched field is human-owned, and

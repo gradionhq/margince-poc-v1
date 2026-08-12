@@ -14,6 +14,7 @@ package compose
 // because the family carries a SECOND path operand those two never had to.
 
 import (
+	"encoding/json"
 	"net/http"
 
 	chi "github.com/go-chi/chi/v5"
@@ -119,13 +120,48 @@ func updateCustomFieldOptionsCommand(_ agentPolicy, deps restCommandDeps, r *htt
 	return agents.NewUpdateCustomFieldOptionsCall(deps.records, agents.UpdateCustomFieldOptionsCommand{ID: id}), nil
 }
 
+// setStakeholderCommand decodes PUT /v1/projects/{id}/stakeholders, whose
+// person_id arrives in the BODY where its DELETE twin carries it in the path.
+//
+// The shape check is the same one removeStakeholderCommand makes for its own
+// operand, and for the same reason: the request the approval stages IS the
+// request its redemption replays, so a person_id that names no person is a call
+// the handler refuses AFTER a human's one-shot approval has been consumed. 422
+// rather than the routed id's 404 — like the path operand, person_id says WHICH
+// edge, not whether the project exists.
+//
+// It is checked here rather than in the resolver because there is nothing for
+// the command to carry it as: neither Guards nor Subject reads the attached
+// person (setStakeholderResolver's own doc says why), and a field with no
+// reader documents no obligation.
+//
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func setStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
+func setStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
 	}
+	if err := requireStakeholderPerson(body); err != nil {
+		return nil, err
+	}
 	return agents.NewSetStakeholderCall(deps.records, agents.SetStakeholderCommand{ID: id}), nil
+}
+
+// requireStakeholderPerson holds the body to the one member the attach cannot
+// run without. crm.yaml's SetProjectStakeholderRequest requires person_id as a
+// uuid; a body that is not even an object is answered as the same missing
+// person_id, since neither carries one.
+func requireStakeholderPerson(body []byte) error {
+	var payload struct {
+		PersonID string `json:"person_id"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.PersonID == "" {
+		return httperr.Validation("person_id", "missing", "person_id is required")
+	}
+	if _, err := ids.Parse(payload.PersonID); err != nil {
+		return httperr.Validation("person_id", "invalid", "person_id must be a uuid")
+	}
+	return nil
 }
 
 // removeStakeholderCommand decodes DELETE /v1/projects/{id}/stakeholders/{person_id}.

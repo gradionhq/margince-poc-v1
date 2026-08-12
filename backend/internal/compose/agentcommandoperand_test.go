@@ -202,8 +202,8 @@ func TestEachOperandCommandStagesTheRoutedRecord(t *testing.T) {
 	}
 }
 
-// This is the actual behavior change registering these eight in restCommands
-// buys over the route-walk fallback (stagedTargetByRoute): Guards now runs.
+// What resolving these eight through their own commands buys, and it is a
+// refusal rather than a label: Guards runs before anything stages.
 // An organization or project the caller cannot see stages NOTHING — the same
 // proof shape TestAnArchiveOfAnUnseeableRecordStagesNothing gives archive —
 // for one op from each seam-served family (organization, project). The two
@@ -284,28 +284,37 @@ func syntheticOperandRequest(route string, id ids.UUID) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
-// Every confirm-first update_record operation whose route carries more than
-// the routed {id} — a second path segment or a second path parameter — must
-// decode into a command, or its staged target is still guessed from the
-// route (stagedTargetByRoute) rather than answered by the resolver that
-// speaks for the operation; and the command it decodes into must be the
-// RIGHT one, staging the policy table's own declared record type and the
-// routed id rather than some other operation's.
+// What a registration does not say: that the decoder bound to an operation is
+// the RIGHT one. TestEveryAgentReachableMutatingRouteDecodesIntoACommand
+// (agentcommandcoverage_test.go) proves every one of these routes HAS an entry;
+// a mis-wired entry satisfies it completely, because a swapped decoder still
+// stages something — often something that looks right, since most of this
+// family stages the routed record.
 //
-// Derived from agentPolicies rather than a hand-listed set of eight op
-// names: TestEachOperandCommandStagesTheRoutedRecord above hand-picks its
-// eight and would not notice a NINTH such operation the contract grows, nor
-// would it notice one of the eight silently bound to the wrong decoder in
-// the restCommands table (a swapped entry still "stages something", and
-// stagedTargetByRoute's fallback answers the identical target for any
-// operation this test skips) — this walk catches both, because it actually
-// invokes the bound decoder and checks what it staged against what the
-// policy table declared, rather than assuming the binding is the one its
-// key implies.
+// So this walk invokes the bound decoder against a synthetic request for the
+// route the policy table names, and checks what it staged against what that
+// same table declared: the record type, and the routed id rather than one of
+// the route's OTHER path parameters.
 //
-// The whole-record patch shape (route ends exactly at /{id}) is excluded:
-// that coverage is TestEveryAgentReachablePatchOperationDecodesIntoACommand's,
-// derived the same way for its own twelve.
+// Derived from agentPolicies rather than a hand-listed set of eight op names:
+// TestEachOperandCommandStagesTheRoutedRecord above hand-picks its eight and
+// would not notice a NINTH such operation the contract grows.
+//
+// The whole-record patch shape (route ends exactly at /{id}) is excluded
+// because a synthetic request cannot exercise it: those decoders read a BODY,
+// and a body is per-operation where a path parameter is not. Their equivalent
+// proof is TestAPatchStagesItsRecordAndID and its siblings above.
+// operandBodies carries a minimal contract body for the one route in this
+// family whose operand is not in the path at all: setProjectStakeholder names
+// its person in the BODY, and its decoder refuses a request that names none
+// (agentcommandoperand.go). Every other route here is decodable from the path
+// alone, which is what lets the walk be synthetic.
+//
+// gatekit:fixture the minimal contract body the one body-carrying route in this family declares — expected input, not a waived cost
+var operandBodies = map[string]string{
+	"setProjectStakeholder": `{"person_id":"019ff000-0000-7000-8000-000000000031","role":"champion"}`,
+}
+
 func TestEveryConfirmFirstOperandRouteDecodesIntoTheRightCommand(t *testing.T) {
 	checked := 0
 	for route, pol := range agentPolicies {
@@ -319,15 +328,15 @@ func TestEveryConfirmFirstOperandRouteDecodesIntoTheRightCommand(t *testing.T) {
 
 		decode, described := restCommands[pol.Op]
 		if !described {
-			t.Errorf("%s (%s) is a confirm-first update_record operation whose route carries more than the "+
-				"routed {id}, but decodes into no command — its staged target is still guessed from the route",
-				route, pol.Op)
+			// The completeness gate reports this route by name; here it would
+			// only be a nil decoder to dereference.
 			continue
 		}
 
 		id := ids.NewV7()
 		req := syntheticOperandRequest(route, id)
-		call, err := decode(pol, restCommandDeps{records: seamRecord{}}, req, nil)
+		body := []byte(operandBodies[pol.Op])
+		call, err := decode(pol, restCommandDeps{records: seamRecord{}}, req, body)
 		if err != nil {
 			t.Errorf("%s (%s): decoding a well-formed request answered %v", route, pol.Op, err)
 			continue
@@ -346,8 +355,12 @@ func TestEveryConfirmFirstOperandRouteDecodesIntoTheRightCommand(t *testing.T) {
 				"WRONG decoder, or the decoder read the wrong path parameter as {id}", route, pol.Op, info.TargetID, id)
 		}
 	}
-	if checked != 8 {
-		t.Errorf("the policy table carries %d confirm-first update_record operand operations, want 8 — if the "+
-			"contract gained or lost one, this seam's coverage moved with it", checked)
+	// No literal count: how many such routes exist is the contract's business,
+	// and the completeness gate is what notices one arriving. What this walk
+	// owes is that it ran at all — a filter that selected nothing would report
+	// every decoder correctly wired without invoking one.
+	if checked == 0 {
+		t.Fatal("no confirm-first update_record route carries more than the routed {id} — this walk invoked " +
+			"no decoder, and would pass against every mis-wiring it exists to catch")
 	}
 }

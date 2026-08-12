@@ -185,8 +185,8 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		return
 	}
 	// The staged target is resolved through the SAME seam stageRefusal uses
-	// (stagedTarget, which is resolveOrWalk plus the untyped-target check),
-	// not read off pol.RecordType directly the way this line used to:
+	// (stagedTarget, which is resolveStagedTarget plus the untyped-target
+	// check), not read off pol.RecordType directly:
 	// upsertPartner's declared record_type is "partner", but its resolver
 	// (modules/agents/commandnested.go) stages "organization" — the row a
 	// human's decision and the approvals surface's own visibility probe
