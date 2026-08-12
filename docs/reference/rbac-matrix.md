@@ -72,6 +72,7 @@ the workspace but changes none of them.
 | `fx_rate` | CRU- | ---- | ---- | ---- | CRU- |
 | `import_run` | CRUD | ---- | ---- | ---- | CRUD |
 | `installation_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |
+| `integrations` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `lead` | CRUD | CRUD | CRUD | -R-- | CRUD |
 | `list` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `offer` | CRUD | CRUD | CRU- | -R-- | CRUD |
