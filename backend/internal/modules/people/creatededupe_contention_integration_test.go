@@ -35,7 +35,7 @@ import (
 // would hang instead.
 func (e *dedupeEnv) beginHeldPhoneCreate(ctx context.Context, t *testing.T, name, phone string) (pgx.Tx, ids.PersonID, int) {
 	t.Helper()
-	tx, err := e.store.pool.Begin(ctx)
+	tx, err := e.store.db.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatalf("opening the in-flight create's transaction: %v", err)
 	}

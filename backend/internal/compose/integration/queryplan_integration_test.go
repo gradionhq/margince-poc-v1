@@ -40,7 +40,7 @@ type queryEnv struct {
 func setupQuery(t *testing.T) *queryEnv {
 	t.Helper()
 	e := SetupSearch(t)
-	columns := search.NewColumnCatalog(e.Pool)
+	columns := search.NewColumnCatalog(e.DB())
 	resolver := search.NewVocabularyResolver().WithColumnReader(columns)
 	return &queryEnv{
 		SearchEnv: e,

@@ -91,8 +91,8 @@ func (w *flipWriters) WithOwnerMap(m map[string]ids.UUID) *flipWriters {
 func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent string) *flipWriters {
 	return &flipWriters{
 		pool:       pool,
-		people:     people.NewStore(pool),
-		deals:      deals.NewStore(pool, DealsInstallation()),
+		people:     people.NewStore(InstallationDB(pool)),
+		deals:      deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		activities: activities.NewStore(pool),
 		ms:         ms,
 		identities: migration.NewRunStore(pool),

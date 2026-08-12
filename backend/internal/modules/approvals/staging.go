@@ -16,7 +16,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -81,7 +80,7 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 		return ids.ApprovalID{}, err
 	}
 	var id ids.ApprovalID
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		if in.JoinPending {
 			id, err = s.stageOrJoinPendingInTx(ctx, tx, in)

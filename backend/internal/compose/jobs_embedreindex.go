@@ -61,7 +61,7 @@ const embedReindexMaxAttempts = 5
 // set on its last attempt) instead of sitting queued forever behind a job no one
 // can work — the deep-read worker's posture.
 func addEmbedReindexJobs(reg *jobRegistry, pool *pgxpool.Pool, embedder search.Embedder) {
-	store := search.NewStore(pool)
+	store := search.NewStore(InstallationDB(pool))
 	addDeclaredWorker[EmbedReindexArgs](reg, &embedReindexWorker{pool: pool, store: store})
 	addDeclaredWorker[EmbedReindexWorkspaceArgs](reg, &embedReindexWorkspaceWorker{store: store, embedder: embedder})
 }

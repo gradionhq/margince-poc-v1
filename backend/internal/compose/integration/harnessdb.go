@@ -6,6 +6,8 @@
 package integration
 
 import (
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -30,4 +32,10 @@ func (e *Env) DB() *database.DB {
 // a store bound to B must not resolve A's row.
 func (e *Env) DBFor(ws ids.UUID) *database.DB {
 	return database.BindTo(e.Pool, ids.From[ids.WorkspaceKind](ws))
+}
+
+// harnessDB pins a pool to a workspace at Setup time, before the Env exists to
+// carry it.
+func harnessDB(pool *pgxpool.Pool, ws ids.UUID) *database.DB {
+	return database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
 }

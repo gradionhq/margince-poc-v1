@@ -50,7 +50,7 @@ func approvalsHandlersWithEffects(pool *pgxpool.Pool, quota approvals.QuotaRelea
 // standing up an HTTP surface. Every kind registered here must carry a
 // decision-grant mapping (TestEveryRegisteredEffectKindHasADecisionGrantMapping).
 func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
-	svc := approvals.NewService(pool)
+	svc := approvals.NewService(InstallationDB(pool))
 	store := newCounterpartyStore(pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
 	svc.WithEffect(enrichProposalKind, scrapeAcceptEffect(svc, store))
@@ -60,9 +60,9 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
-	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool, DealsInstallation())))
+	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(InstallationDB(pool), DealsInstallation())))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
-	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool, DealsInstallation())))
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(InstallationDB(pool), DealsInstallation())))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(InstallationDB(pool))))
 	return svc
 }

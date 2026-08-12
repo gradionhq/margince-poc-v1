@@ -25,7 +25,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -59,7 +58,7 @@ func (s *Store) MyLinkedInMatchTotals(ctx context.Context) (confirmed, suggested
 	if !ok || actor.UserID == ids.Nil {
 		return 0, 0, apperrors.ErrPermissionDenied
 	}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FILTER (WHERE match_status = 'confirmed'),
 			       count(*) FILTER (WHERE match_status = 'suggested')
@@ -79,7 +78,7 @@ func (s *Store) GetMyLinkedInAccount(ctx context.Context) (LinkedInAccount, erro
 		return LinkedInAccount{}, apperrors.ErrPermissionDenied
 	}
 	var out LinkedInAccount
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			SELECT a.profile_url, a.connected_at,
 			       (SELECT count(*) FROM linkedin_connection c
@@ -125,7 +124,7 @@ func (s *Store) SaveMyLinkedInAccount(ctx context.Context, in SaveMyLinkedInAcco
 	if err := validateLinkedInProfileURL(trimmed); err != nil {
 		return LinkedInAccount{}, err
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		before, err := readLinkedInAccountTx(ctx, tx, actor.UserID)
 		if err != nil {
 			return err

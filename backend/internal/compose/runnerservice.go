@@ -76,7 +76,7 @@ func WithSpecResolver(resolve func(string) (runner.AgentSpec, bool)) RunnerOptio
 // (reads and non-SoR tools are unaffected).
 func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, opts ...RunnerOption) *RunnerService {
 	svc := &RunnerService{
-		store:      runner.NewStore(pool),
+		store:      runner.NewStore(InstallationDB(pool)),
 		runner:     runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
 		identity:   identity.NewService(pool),
 		specByName: runner.SpecByName,

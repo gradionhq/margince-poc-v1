@@ -23,7 +23,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -202,7 +201,7 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 	query += fmt.Sprintf(" ORDER BY confidence DESC, id DESC LIMIT $%d", len(args))
 
 	var rows []DedupeCandidateRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		res, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
@@ -236,7 +235,7 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 // existence-hiding).
 func (s *Store) GetDedupeCandidate(ctx context.Context, id ids.UUID) (DedupeCandidateRow, error) {
 	var row DedupeCandidateRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		row, err = readDedupeCandidate(ctx, tx, id)
 		if err != nil {
@@ -352,7 +351,7 @@ func (s *Store) executeDedupeMerge(ctx context.Context, entityType string, loser
 // bus event — the audit ledger is the record (the merge arm's
 // person.merged/organization.merged carries the bus-visible fact).
 func (s *Store) setDedupeDisposition(ctx context.Context, id ids.UUID, disposition string, by ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE dedupe_candidate SET disposition = $2, disposed_by = $3, disposed_at = now()
 			WHERE id = $1 AND disposition = 'open'`, id, disposition, by)
@@ -370,7 +369,7 @@ func (s *Store) setDedupeDisposition(ctx context.Context, id ids.UUID, dispositi
 }
 
 func (s *Store) reopenDedupeCandidate(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE dedupe_candidate SET disposition = 'open', disposed_by = NULL, disposed_at = NULL
 			WHERE id = $1 AND disposition <> 'open'`, id)

@@ -85,7 +85,7 @@ func listIDs(ctx context.Context, t *testing.T, svc *approvals.Service, in appro
 // actions and gets those, not the workspace's queue.
 func TestApprovalListFilteredToOneTarget(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	f := seedSiteReadStagings(t, svc, e)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 	orgType := "organization"
@@ -134,7 +134,7 @@ func TestApprovalListFilteredToOneTarget(t *testing.T) {
 // the whole surface, not for the target-scoped read alone.
 func TestApprovalListKindFilterNarrowsTheWholeInbox(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	f := seedSiteReadStagings(t, svc, e)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 
@@ -156,7 +156,7 @@ func TestApprovalListKindFilterNarrowsTheWholeInbox(t *testing.T) {
 // own read gives.
 func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	theirs := e.SeedOrg(t, "Other Team Account", &e.Rep3)
 	staged := stageFor(t, svc, e, "deepread", "organization", theirs)
@@ -190,7 +190,7 @@ func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 // browse (C3/ADR-0036).
 func TestApprovalListFilteredStillPrunesUndecidableKinds(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	f := seedSiteReadStagings(t, svc, e)
 	orgType := "organization"
 
@@ -229,7 +229,7 @@ func TestApprovalListFilteredStillPrunesUndecidableKinds(t *testing.T) {
 // staged contacts and call it the whole list.
 func TestApprovalListFilteredReportsHasMore(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	for range 5 {
 		stageFor(t, svc, e, "site_lead", "organization", org)
@@ -268,7 +268,7 @@ func TestApprovalListFilteredReportsHasMore(t *testing.T) {
 // server that ignored the cursor would answer the same first page forever.
 func TestApprovalListPagesForwardWithTheCursor(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	const staged = 5
 	for range staged {
@@ -329,7 +329,7 @@ func TestApprovalListPagesForwardWithTheCursor(t *testing.T) {
 // a panic or a 500.
 func TestApprovalListRefusesAMalformedCursor(t *testing.T) {
 	e := Setup(t)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 
 	_, _, err := svc.List(rep, approvals.ListInput{Cursor: "not-a-page-token!!"})

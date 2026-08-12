@@ -46,7 +46,7 @@ func TestApprovalExpiryClosesTheDecisionGate(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	pipeline, open, _ := DealFixture(t, e)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	deal := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
 	approvalID, diffHash := stageAdvance(t, svc, e, deal)
@@ -83,7 +83,7 @@ func TestRedemptionWindowExpiresTheDecision(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	pipeline, open, _ := DealFixture(t, e)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	deal := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)

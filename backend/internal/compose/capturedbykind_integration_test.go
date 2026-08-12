@@ -42,7 +42,7 @@ func seatPersonCapturedBy(t *testing.T, e *integration.Env, fullName, capturedBy
 func TestCapturedByKindSelectsWhoCreatedTheRecord(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 
 	// One of each creator the write paths stamp, plus one whose prefix is in no
 	// enum value at all — the case that decides whether a filter can quietly
@@ -95,7 +95,7 @@ func TestCapturedByKindSelectsWhoCreatedTheRecord(t *testing.T) {
 // values it accepts, and confirm the object exists while doing it.
 func TestCapturedByKindIsRefusedOnlyAfterAuthorization(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 
 	// A rep may read people but NOT organizations, so the organization list is
 	// the natural unauthorized caller here.
@@ -119,7 +119,7 @@ func TestCapturedByKindIsRefusedOnlyAfterAuthorization(t *testing.T) {
 
 func TestCapturedByKindNarrowsRowScopeAndNeverWidensIt(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 
 	// An AI-created person owned by Rep3, who sits in the other team.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -183,7 +183,7 @@ func agentCtx(e *integration.Env) context.Context {
 func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, nil, integration.AdminPerms)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 
 	filled := seatConnectorOrg(t, e, "Acme Filled", "domain")
 	industry := "Robotics"
@@ -241,7 +241,7 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 // nothing about whether the system writes one.
 func TestAiWrittenCatchesAnAgentUpdatingAnOrdinaryColumn(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	org := seatConnectorOrg(t, e, "Delta Industries", "domain")
 
 	industry := "Robotics"

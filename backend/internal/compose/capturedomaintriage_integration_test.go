@@ -57,7 +57,7 @@ func openQuestion(t *testing.T, e *integration.Env, domain string) {
 // lets the trigger be best-effort.
 func stillDue(t *testing.T, e *integration.Env, domain string) bool {
 	t.Helper()
-	due, err := people.NewStore(e.Pool).ListDueDomains(e.Admin(), 50)
+	due, err := people.NewStore(e.DB()).ListDueDomains(e.Admin(), 50)
 	if err != nil {
 		t.Fatal(err)
 	}

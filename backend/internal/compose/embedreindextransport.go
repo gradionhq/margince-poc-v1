@@ -478,7 +478,7 @@ func WithEmbedReindex(router *ai.Router, inserter *jobs.Runner) Option {
 		if identity, _ := router.EmbedIdentity(); identity == "" {
 			return
 		}
-		store := search.NewStore(pool)
+		store := search.NewStore(InstallationDB(pool))
 		estimator := costestimate.NewEmbedReindexEstimator(
 			store, ai.NewRateStore(InstallationDB(pool)), router, NewSeatBudget(pool), ai.NewMeter(InstallationDB(pool)), systemClock{},
 		)

@@ -63,7 +63,7 @@ func setupCFV(t *testing.T) cfvFixture {
 	return cfvFixture{
 		e:     e,
 		svc:   svc,
-		store: people.NewStore(e.Pool).WithFieldCatalog(svc),
+		store: people.NewStore(e.DB()).WithFieldCatalog(svc),
 		ctx:   e.As(e.Rep1, nil, cfvPerms),
 	}
 }

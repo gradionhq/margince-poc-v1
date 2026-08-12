@@ -491,7 +491,7 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
 	blob := &spyBlobStore{Store: blobstore.NewMemory()}
-	h := deals.NewHandlers(e.Pool, installseam.Deals()).WithBlobstore(blob)
+	h := deals.NewHandlers(e.DB(), installseam.Deals()).WithBlobstore(blob)
 
 	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)

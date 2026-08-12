@@ -109,8 +109,8 @@ func Setup(t *testing.T) *Env {
 	// last and sees a package that has genuinely stopped.
 	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
-	e.People = people.NewStore(pool)
-	e.Deals = deals.NewStore(pool, installseam.Deals())
+	e.People = people.NewStore(harnessDB(pool, e.WS))
+	e.Deals = deals.NewStore(harnessDB(pool, e.WS), installseam.Deals())
 	e.Activities = activities.NewStore(pool)
 	return e
 }

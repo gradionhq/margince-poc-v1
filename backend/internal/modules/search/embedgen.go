@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -68,7 +67,7 @@ func (g *EmbedGen) HandleEvent(ctx context.Context, env kevents.Envelope) error 
 	wsCtx := systemWorkspaceContext(ctx, env.WorkspaceID)
 
 	var text string
-	err := database.WithWorkspaceTx(wsCtx, g.store.pool, func(tx pgx.Tx) error {
+	err := g.store.db.Tx(wsCtx, func(tx pgx.Tx) error {
 		return tx.QueryRow(wsCtx, query, env.Entity.ID).Scan(&text)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

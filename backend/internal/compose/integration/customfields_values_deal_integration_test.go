@@ -59,7 +59,7 @@ func setupDealCFV(t *testing.T) dealCFVFixture {
 	return dealCFVFixture{
 		e:        e,
 		svc:      svc,
-		store:    deals.NewStore(e.Pool, installseam.Deals()).WithFieldCatalog(svc),
+		store:    deals.NewStore(e.DB(), installseam.Deals()).WithFieldCatalog(svc),
 		ctx:      e.As(e.Rep1, nil, dealCFVPerms),
 		pipeline: pipeline,
 		stage:    open,

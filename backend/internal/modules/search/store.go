@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -22,11 +21,14 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db}
 }
 
 // Hit is one ranked result. Score is ts_rank_cd over the entity's
@@ -153,7 +155,7 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 	}
 
 	var page Page
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		qPos := arg(query)

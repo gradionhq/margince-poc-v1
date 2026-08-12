@@ -11,11 +11,10 @@ package deals
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -29,8 +28,8 @@ type Provider struct {
 
 // NewProvider wires the datasource verbs over the same store the transport
 // uses, installation seam included.
-func NewProvider(pool *pgxpool.Pool, inst Installation) *Provider {
-	return &Provider{store: NewStore(pool, inst)}
+func NewProvider(db *database.DB, inst Installation) *Provider {
+	return &Provider{store: NewStore(db, inst)}
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

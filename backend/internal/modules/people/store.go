@@ -7,8 +7,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -27,7 +25,8 @@ const ownerIDColumn = "owner_id"
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
-	pool *pgxpool.Pool
+	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
+	db *database.DB
 	// catalog is the fieldcatalog seam (custom-field columns); nil means
 	// no catalog is wired and every read/write runs core-columns-only.
 	catalog fieldcatalog.Reader
@@ -46,8 +45,10 @@ type Store struct {
 // transaction the caller owns. Compose injects capture's implementation.
 type ConsumerMailReader func(context.Context, pgx.Tx) (*freemail.Matcher, error)
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// NewStore opens this module's store on a handle already bound to the
+// workspace it serves.
+func NewStore(db *database.DB) *Store {
+	return &Store{db: db}
 }
 
 // WithConsumerMail wires the reader for the workspace's own consumer-mail
@@ -77,7 +78,7 @@ func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return database.WithWorkspaceTx(ctx, s.pool, fn)
+	return s.db.Tx(ctx, fn)
 }
 
 // scopeAllRows is the row-scope predicate for an actor bounded by nothing.

@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -145,7 +144,7 @@ type liveEntity struct {
 // underneath the whole re-embed pass.
 func (s *Store) liveEntitiesOf(ctx context.Context, entityType string, src pendingSource) ([]liveEntity, error) {
 	var items []liveEntity
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		sql := fmt.Sprintf(`SELECT t.id, %s FROM %s t WHERE t.archived_at IS NULL`, src.text, src.table)
 		rows, err := tx.Query(ctx, sql)
 		if err != nil {

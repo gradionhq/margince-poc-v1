@@ -109,7 +109,7 @@ func stageFor(t *testing.T, svc *approvals.Service, e *Env, kind string, targetT
 func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	theirDeal := e.SeedDeal(t, "Theirs", pipeline, open, &e.Rep3) // team2's
 	approvalID := stageFor(t, svc, e, "advance_deal", "deal", theirDeal)
@@ -159,7 +159,7 @@ func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 func TestApprovalListPagesPastUndecidableBurst(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
-	svc := approvals.NewService(e.Pool)
+	svc := approvals.NewService(e.DB())
 
 	myDeal := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
 	theirDeal := e.SeedDeal(t, "Theirs", pipeline, open, &e.Rep3)

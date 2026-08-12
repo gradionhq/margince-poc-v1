@@ -93,7 +93,7 @@ func stageSiteLead(t *testing.T, e *Env, orgID ids.OrganizationID, page sitePage
 		t.Fatalf("marshalling the identity: %v", err)
 	}
 	digest := sha256.Sum256(proposed)
-	id, err := approvals.NewService(e.Pool).Stage(e.Admin(), approvals.StageInput{
+	id, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
 		Kind:           "site_lead",
 		ProposedChange: proposed,
 		DiffHash:       hex.EncodeToString(digest[:]),
@@ -115,7 +115,7 @@ func stageSiteLead(t *testing.T, e *Env, orgID ids.OrganizationID, page sitePage
 // what the employer already published.
 func newEnricher(e *Env) *compose.PersonAutoEnrich {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return compose.NewPersonAutoEnrich(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool), nil, quiet)
+	return compose.NewPersonAutoEnrich(e.Pool, people.NewStore(e.DB()), approvals.NewService(e.DB()), nil, quiet)
 }
 
 // personCreated is the envelope a newly created contact reaches the consumer on.

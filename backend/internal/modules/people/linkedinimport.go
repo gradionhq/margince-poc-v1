@@ -31,7 +31,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -105,7 +104,7 @@ func (s *Store) ImportLinkedInConnections(ctx context.Context, r io.Reader) (Lin
 	}
 	out := LinkedInImportResult{Rows: len(rows.parsed) + rows.skipped, Skipped: rows.skipped}
 
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// Repair the stored keys BEFORE upserting. normalized_company is a
 		// derived part of the natural key, so rows written under an older
 		// normalizer no longer collide with what this import computes — and

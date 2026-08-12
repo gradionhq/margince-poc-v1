@@ -98,7 +98,7 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 
 	tracer := &countingTracer{}
 	pool := tracedPool(t, tracer)
-	svc := org360svc.NewService(pool, people.NewStore(pool), approvals.NewService(pool),
+	svc := org360svc.NewService(pool, people.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))), approvals.NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))),
 		func() time.Time { return org360Clock })
 	ctx := e.Admin()
 

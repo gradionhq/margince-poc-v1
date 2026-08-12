@@ -32,7 +32,7 @@ import (
 func queryVocabulary(pool *pgxpool.Pool) *search.VocabularyResolver {
 	return search.NewVocabularyResolver().
 		WithFieldCatalog(customfields.NewService(pool, nil)).
-		WithColumnReader(search.NewColumnCatalog(pool))
+		WithColumnReader(search.NewColumnCatalog(InstallationDB(pool)))
 }
 
 // queryRunner joins the three steps a plan takes into the one function the tool
@@ -48,7 +48,7 @@ func queryVocabulary(pool *pgxpool.Pool) *search.VocabularyResolver {
 // which lane ranked it, not why.
 func queryRunner(pool *pgxpool.Pool, embedder search.Embedder) agents.QueryRunner {
 	validator := search.NewPlanValidator(queryVocabulary(pool))
-	executor := search.NewQueryExecutor(search.NewStore(pool), embedder, search.NewColumnCatalog(pool))
+	executor := search.NewQueryExecutor(search.NewStore(InstallationDB(pool)), embedder, search.NewColumnCatalog(InstallationDB(pool)))
 	return func(ctx context.Context, raw json.RawMessage) (agents.QueryAnswer, error) {
 		plan, err := search.DecodePlan(raw)
 		if err != nil {

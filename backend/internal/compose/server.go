@@ -325,7 +325,7 @@ var _ crmcontracts.ServerInterface = Server{}
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
 	// note): active cf_* deal columns ride deal payloads on both surfaces.
-	dealsH := deals.NewHandlers(pool, DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
+	dealsH := deals.NewHandlers(InstallationDB(pool), DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
 	// serves the already-bound singleton organization.
@@ -361,7 +361,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: newActivitiesHandlers(pool),
-		searchHandlers:     search.NewHandlers(pool),
+		searchHandlers:     search.NewHandlers(InstallationDB(pool)),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
 		// read rather than answer anything at all.
@@ -374,17 +374,17 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
 		financeHandlers:    finance.NewHandlers(pool, identity.BaseCurrencyOf),
-		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
+		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(InstallationDB(pool))}),
 		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
 		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
 		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
-		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
+		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))),
 		Reads:             network.NewReads(pool),
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
-		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		strengthHandlers:  strengthHandlers{people: people.NewStore(InstallationDB(pool)), now: time.Now},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
@@ -401,7 +401,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the environment). Without it those paths answer an honest 503.
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
-		dealsStore:       deals.NewStore(pool, DealsInstallation()),
+		dealsStore:       deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh

@@ -14,9 +14,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -35,8 +34,9 @@ type Handlers struct {
 	blob blobstore.Store
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+// NewHandlers builds the module's HTTP surface over a workspace-bound handle.
+func NewHandlers(db *database.DB) Handlers {
+	return Handlers{store: NewStore(db)}
 }
 
 // WithMatchStager wires the pass that turns this member's suggested LinkedIn

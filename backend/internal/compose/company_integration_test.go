@@ -30,7 +30,7 @@ func strptr(s string) *string { return &s }
 
 func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	// A freshly bootstrapped installation (ADR-0061) has an organization row
@@ -140,7 +140,7 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 // saw a 200, and kept the old site.
 func TestCompanyWebsiteCanBeChangedAfterTheFirstSave(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	base := people.SaveCompanyInput{
@@ -200,7 +200,7 @@ func TestCompanyWebsiteCanBeChangedAfterTheFirstSave(t *testing.T) {
 
 func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	saved, err := store.SaveCompany(human, people.SaveCompanyInput{
@@ -259,7 +259,7 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 
 func TestFormResaveDoesNotClobberAHeaderDescriptionEdit(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	// The first form save fills the empty header line from the summary.
@@ -307,7 +307,7 @@ func TestFormResaveDoesNotClobberAHeaderDescriptionEdit(t *testing.T) {
 
 func TestAcceptedOfferSummaryFillsTheDescriptionColumn(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
 	agent := principal.WithActor(base, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "agent:coldstart",
@@ -371,7 +371,7 @@ func TestAcceptedOfferSummaryFillsTheDescriptionColumn(t *testing.T) {
 
 func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
 	agent := principal.WithActor(base, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "agent:coldstart",
@@ -437,7 +437,7 @@ func TestOverlongOfferSummarySkipsTheColumnButKeepsTheEvidence(t *testing.T) {
 
 func TestColdStartCreateWithoutLegalNameUsesDerivedDomainName(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
 	agent := principal.WithActor(base, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "agent:coldstart",
@@ -473,7 +473,7 @@ func TestColdStartCreateWithoutLegalNameUsesDerivedDomainName(t *testing.T) {
 
 func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *testing.T) {
 	e := integration.Setup(t)
-	store := people.NewStore(e.Pool)
+	store := people.NewStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	saved, err := store.SaveCompany(ctx, people.SaveCompanyInput{

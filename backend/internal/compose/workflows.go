@@ -50,7 +50,7 @@ func workflowEngineWithDrafter(db *database.DB, drafter activities.EmailDrafter)
 	// engine depends only on the port; this is the one place a concrete
 	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
 	engine := automation.NewWorkflowEngine(db, identity.NewService(db.Pool()))
-	peopleStore := people.NewStore(db.Pool())
+	peopleStore := people.NewStore(db)
 	// Executors ride the same per-workspace dispatch as every other
 	// datasource consumer: a starter firing for an overlay-mode
 	// workspace reads/writes through the overlay seam, not silently
@@ -60,7 +60,7 @@ func workflowEngineWithDrafter(db *database.DB, drafter activities.EmailDrafter)
 	// fail-closed placeholder (no Redis), never charged.
 	ex := automation.Executors{
 		Provider:  NewDispatcher(NewProvider(db.Pool()), NewOverlayProvider(db.Pool(), failClosedOverlayMeter(), nil), db.Pool()),
-		Approvals: automationApprovalsAdapter{svc: approvals.NewService(db.Pool())},
+		Approvals: automationApprovalsAdapter{svc: approvals.NewService(db)},
 		Lists:     listsAdapter{store: collections.NewStore(db)},
 		// The zero SendPath is the honest one here: a send_email action
 		// stages an approval instead of sending, and automation.Comms

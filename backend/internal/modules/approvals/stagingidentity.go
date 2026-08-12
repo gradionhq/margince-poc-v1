@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -126,7 +125,7 @@ func lockProposalIdentity(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in Stag
 // identical proposals.
 func (s *Service) HasPendingFor(ctx context.Context, kind string, targetID ids.UUID, diffHash string) (bool, error) {
 	var exists bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM approval
 			  WHERE kind = $1 AND target_entity_id = $2 AND diff_hash = $3
@@ -143,7 +142,7 @@ func (s *Service) HasPendingFor(ctx context.Context, kind string, targetID ids.U
 // staging on one still awaiting decision.
 func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.UUID) (bool, error) {
 	var exists bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM approval
 			  WHERE kind = $1 AND target_entity_id = $2
@@ -240,7 +239,7 @@ func declinedProbeSQL(byIdentity bool) string {
 // deciding it wrong.
 func (s *Service) RejectedChangesFor(ctx context.Context, kind string, targetID ids.UUID) ([]json.RawMessage, error) {
 	var out []json.RawMessage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = s.RejectedChangesForTx(ctx, tx, kind, targetID)
 		return err
@@ -321,7 +320,7 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 	}
 	var id ids.ApprovalID
 	staged := false
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		wsID, ok := principal.WorkspaceID(ctx)
 		if !ok {
 			return errors.New("crmapprovals: no workspace bound to context")
