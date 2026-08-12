@@ -892,3 +892,10 @@
 .stat-card-danger {
   color: var(--danger);
 }
+
+/* The whole-tile variant: the slot itself is bad news, not just its figure —
+   see StatCard's `alert` docblock. Two classes deliberately, so this beats
+   `.co-strip > *`'s own background reset regardless of stylesheet order. */
+.stat-card.stat-card-alert {
+  background: var(--dangerBg);
+}

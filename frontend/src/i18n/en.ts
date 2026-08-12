@@ -726,17 +726,11 @@ export const en = {
   "record.profile": "Profile",
   "record.context": "Context",
   "record.accountContext": "Account context",
-  "co.pulse.strongestLead": "Way in",
-  "co.pulse.strengthTail.one": "\u2014 the only contact here",
-  "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
-  "co.pulse.noStrength": "No interactions logged yet",
-  // Two timestamps, never folded into one "last touch": which side wrote
-  // last is the question. Mailed a fortnight ago with no reply, and wrote
-  // to us this morning, are the same date and opposite situations.
-  "co.pulse.lastInbound": "They wrote {when}",
-  "co.pulse.lastOutbound": "We wrote {when}",
-  "co.pulse.noInbound": "They have never written",
-  "co.pulse.noOutbound": "We have never written",
+  "co.pulse.created": "Created {when}",
+  // The later of the two directions \u2014 which side wrote last moved to the
+  // daily brief's own detail line, so the header states only that the
+  // relationship is or is not live.
+  "co.pulse.lastExchange": "Last exchange {when}",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
   "co.owner.notInRoster": "Current owner (no longer in the user list)",

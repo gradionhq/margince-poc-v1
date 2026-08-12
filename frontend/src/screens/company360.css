@@ -37,24 +37,30 @@
   margin-bottom: 0;
 }
 
-/* Lifecycle and owner, stacked at the top right of the header. Right-aligned
- * so the two labelled rows line up against the page edge rather than ragging
- * against the identity block beside them. */
-.co-standing {
+/* The header's ONE meta line: lifecycle, owner, created, last exchange, the
+   decisions chip — folded onto one row under the name rather than scattered
+   over several (mockup's `.under`). Wraps rather than truncates: a long
+   owner name loses nothing here that a second line would keep. */
+.co-under {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
   font-size: 13px;
   color: var(--textMeta);
-  white-space: nowrap;
+}
+/* Owned by the reading that FOLLOWS it, same rule as .today-tile's own
+   separator above: a line that wraps never leaves a dot stranded at its
+   end. */
+.co-sep {
+  color: var(--textTertiary);
 }
 
-/* Where the account STANDS is the header's one prominent control, drawn in
+/* Where the account STANDS is the line's one prominent control, drawn in
    both mockups as a filled button rather than as another grey reading beside
-   Owner. The badge inside it carries that weight: solid accent, and a target
-   big enough to read as something you press. */
-.co-standing .badge {
+   Owner. The badge carries that weight: solid accent, and a target big
+   enough to read as something you press. */
+.co-under .badge {
   font-size: 14px;
   font-weight: 600;
   padding: var(--space-2) var(--space-3);
@@ -557,7 +563,7 @@
 .co-strip > * {
   border: 0;
   border-radius: 0;
-  background: var(--bgCard);
+  background: var(--bgElevated);
   margin: 0;
 }
 
