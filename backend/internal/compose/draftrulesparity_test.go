@@ -57,6 +57,7 @@ func TestTheSharedRulesStillSayTheThingsTheyExistToSay(t *testing.T) {
 		"no follow-up on a first touch":             `At state "none" there is no prior contact`,
 		"do not assume memory after a long gap":     "Name what it was about in your own",
 		"no wellbeing filler after a long gap":      "Do not open with a wellbeing line",
+		"do not declare their side resolved":        "Do not declare their side's state",
 		"no invented figures":                       "do not invent one and do not approximate",
 		"no invented pitch on a first touch":        "You may not describe what your side does",
 		"no reasoning-only grounding in the body":   "Never include a relationship score",

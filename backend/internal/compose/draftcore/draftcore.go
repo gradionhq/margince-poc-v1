@@ -115,7 +115,12 @@ func CorrectOnce[D any](
 	if observe != nil {
 		observe.RetryDidNotClear(ctx, remaining[0].Rule, remaining[0].Phrase, len(remaining))
 	}
-	if len(remaining) < len(findings) {
+	// A TIE goes to the retry. Both attempts carry one finding often enough to
+	// matter — the model swaps "circling back" for "checking in" — and the
+	// retried one was at least written with the correction in hand, so it is
+	// the better bet on everything the check does not measure. Only a retry
+	// that is strictly worse is discarded.
+	if len(remaining) <= len(findings) {
 		return retried, nil
 	}
 	return draft, nil
