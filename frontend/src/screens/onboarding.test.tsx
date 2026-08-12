@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
+import { READ_POLL_MS } from "./onboarding-conversation/use-company-read";
 
 // The onboarding invariants that survived the conversational flip, driven
 // through the ONE onboarding surface (the conversational shell): honest
@@ -360,6 +361,11 @@ beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
 });
 
+// The second dossier is the whole point of the case below: the first poll
+// carries the reading snapshot, the second the completed one that must not
+// clobber what the administrator typed.
+const EXPECTED_READS = 2;
+
 describe("the conversational company act", () => {
   it("loads the detailed AI profile after the public login profile was cached", async () => {
     const calls = stubApi();
@@ -421,6 +427,11 @@ describe("the conversational company act", () => {
     await userEvent.clear(icp);
     await userEvent.type(icp, "Owner-led manufacturers");
 
+    // This waits for a COUNT of polls, not for a condition the render reaches,
+    // so it cannot succeed before the cadence has run twice however fast the
+    // machine is. Derived from the cadence for that reason: a round 3000ms left
+    // 1400ms of headroom over two 800ms periods, which a loaded runner spends
+    // on scheduling alone.
     await waitFor(
       () => {
         const reads = calls.filter(
@@ -428,9 +439,9 @@ describe("the conversational company act", () => {
             request.method === "GET" &&
             request.url.includes("/company/site-reads/"),
         );
-        expect(reads.length).toBeGreaterThanOrEqual(2);
+        expect(reads.length).toBeGreaterThanOrEqual(EXPECTED_READS);
       },
-      { timeout: 3_000 },
+      { timeout: READ_POLL_MS * EXPECTED_READS * 5 },
     );
     expect(icp.value).toBe("Owner-led manufacturers");
   });
