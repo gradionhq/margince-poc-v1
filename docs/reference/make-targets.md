@@ -1,9 +1,10 @@
 # Make targets
 
 The real Makefile is `backend/Makefile`; the root Makefile delegates the
-common backend targets and adds the frontend lane. In `backend/`, `make`
-(or `make help`) lists targets with descriptions; `vuln` is backend-only
-(`make -C backend vuln` from the root).
+backend targets and adds the frontend lane. In `backend/`, `make` (or `make
+help`) lists targets with descriptions. Every target that listing advertises
+also runs as `make <name>` from the repo root, which `make-target-parity`
+enforces — so a command copied out of here works from either directory.
 
 ## Everyday
 
