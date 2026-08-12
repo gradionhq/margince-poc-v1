@@ -32,6 +32,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -69,6 +72,147 @@ type MountedRoute struct {
 // so an unbounded read would be a per-request memory cost any authenticated
 // seat could set.
 const maxExtensionRequestBody = 1 << 20 // 1 MiB
+
+// queryArgs describes a BODYLESS operation's arguments: the JSON type each
+// declared query parameter must become, and which of them the caller must send.
+//
+// Resolved once, at mount, rather than per request. The declaration cannot
+// change while the process runs, and re-parsing the schema on every call would
+// put a JSON decode of the contract in front of every read.
+type queryArgs struct {
+	// types maps each declared argument to its declared JSON type. It is the
+	// closed set of names this route accepts, so an unknown query key is refused
+	// by its absence here rather than by a second list that could disagree.
+	types map[string]string
+	// required names the arguments a call must carry. Sorted at construction, so
+	// the refusal a caller reads names them in a stable order.
+	required []string
+}
+
+// queryArgumentsFor reads a bodyless operation's argument description out of its
+// declared input schema, and answers nil for a method that carries a body.
+//
+// It returns an error rather than tolerating a schema it cannot read.
+// Verb.Validate has already refused everything this could trip on — a non-object
+// root, a property whose type is not a query-encodable primitive — so a failure
+// here means the served declaration did not come through that path, and a route
+// that silently accepted no arguments would be worse than a boot that stops.
+func queryArgumentsFor(v extension.Verb) (*queryArgs, error) {
+	if extension.CarriesBody(v.Method) {
+		return nil, nil
+	}
+	args := &queryArgs{types: map[string]string{}}
+	if v.InputSchema == nil {
+		return args, nil
+	}
+	var doc struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(v.InputSchema, &doc); err != nil {
+		return nil, fmt.Errorf("operation %s declares an input schema this route cannot read: %w", v.OperationID, err)
+	}
+	for name, prop := range doc.Properties {
+		args.types[name] = prop.Type
+	}
+	for _, name := range doc.Required {
+		if _, declared := args.types[name]; !declared {
+			return nil, fmt.Errorf("operation %s requires the argument %q, which its input schema does not declare — nothing could ever satisfy this route", v.OperationID, name)
+		}
+	}
+	args.required = slices.Clone(doc.Required)
+	slices.Sort(args.required)
+	return args, nil
+}
+
+// decode turns a request's query string into the tool's arguments document.
+//
+// It is STRICT, and it is the only thing that is: nothing downstream validates a
+// tool's arguments against its declared schema (this codebase carries no
+// jsonschema dependency by choice), so a value this function lets through
+// reaches the handler as whatever it happened to parse as. Hence an unknown key
+// is refused rather than dropped, a repeated key is refused rather than
+// resolved to one of its values, and a value that is not of its declared type is
+// refused rather than passed along as a string for the handler to re-parse.
+//
+// The refusals go through httperr.Validation so an extension route's bad-input
+// answer has the same shape as the core route beside it.
+func (q queryArgs) decode(values url.Values) (json.RawMessage, error) {
+	args := make(map[string]json.RawMessage, len(values))
+	for name, vals := range values {
+		declared, ok := q.types[name]
+		if !ok {
+			return nil, httperr.Validation(name, "unknown_parameter",
+				"this operation declares no argument by that name")
+		}
+		if len(vals) > 1 {
+			// A repeated key has no meaning in a flat object: the schema says this
+			// argument is one primitive, so picking the first or the last would be
+			// this seam inventing a rule the published contract does not state.
+			return nil, httperr.Validation(name, "repeated_parameter",
+				"this argument was given more than once, and it takes a single value")
+		}
+		encoded, err := encodeQueryValue(declared, vals[0])
+		if err != nil {
+			return nil, httperr.Validation(name, "invalid_type", err.Error())
+		}
+		args[name] = encoded
+	}
+	for _, name := range q.required {
+		if _, sent := args[name]; !sent {
+			return nil, httperr.Validation(name, "missing_parameter",
+				"this operation requires the argument")
+		}
+	}
+	// Marshalled from a map, so the emitted object's keys are sorted and one
+	// call's arguments cannot differ from another's by query order alone.
+	return json.Marshal(args)
+}
+
+// encodeQueryValue turns one query value — always text — into the JSON type its
+// declaration promised a handler it would be.
+//
+// The parsed value is re-marshalled rather than the raw text passed through.
+// Text that parses is not necessarily text JSON accepts in that position: a
+// declared integer given "007" or "+7" parses to 7, and emitting the original
+// would put a token in the arguments document that no JSON reader would accept
+// as a number.
+func encodeQueryValue(declared, text string) (json.RawMessage, error) {
+	switch declared {
+	case "string":
+		return json.Marshal(text)
+	case "boolean":
+		// "true"/"false" only. The looser spellings ("1", "yes", "on") are each a
+		// convention some client uses and none the contract states, and guessing
+		// which one a caller meant is how a flag silently reads false.
+		switch text {
+		case "true":
+			return json.RawMessage(`true`), nil
+		case "false":
+			return json.RawMessage(`false`), nil
+		}
+		return nil, errors.New(`expected a boolean, spelled "true" or "false"`)
+	case "integer":
+		n, err := strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return nil, errors.New("expected an integer")
+		}
+		return json.Marshal(n)
+	case "number":
+		n, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return nil, errors.New("expected a number")
+		}
+		return json.Marshal(n)
+	}
+	// Unreachable through a declaration Verb.Validate admitted, which refuses any
+	// other type on a bodyless method. Named rather than defaulted to string,
+	// because defaulting would serve an argument shape the contract never
+	// published.
+	return nil, fmt.Errorf("declares the unsupported query type %q", declared)
+}
 
 // MountExtensionRoutes mounts one route per declared extension operation onto
 // mux and reports the patterns it registered.
@@ -125,7 +269,14 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 		}
 		seen[pattern] = v.Unit
 		implemented := served[verbKey(v.Unit, v.Tool)]
-		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke))
+		// Resolved HERE rather than inside the handler: this is the one place that
+		// can still refuse, and a declaration whose arguments cannot be described
+		// must stop the boot rather than serve a route that quietly takes none.
+		args, err := queryArgumentsFor(v)
+		if err != nil {
+			return nil, fmt.Errorf("compose: extension %q: %w", v.Unit, err)
+		}
+		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke, args))
 		mounted = append(mounted, MountedRoute{Pattern: pattern, Verb: v, Implemented: implemented})
 	}
 	return mounted, nil
@@ -139,7 +290,10 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 // by the same gate the MCP transport goes through. That is what keeps "an
 // extension gets one governed surface" true rather than "two surfaces that
 // agree today".
-func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoker) http.Handler {
+// query is the operation's argument description for a bodyless method, and nil
+// for one that carries a body — the two argument sources this handler reads,
+// chosen by the declaration rather than by inspecting the request.
+func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoker, query *queryArgs) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !implemented {
 			// A contract-only declaration is a legitimate state, not an error:
@@ -157,20 +311,36 @@ func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoke
 			httperr.NotImplemented(w, r, v.OperationID)
 			return
 		}
-		args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExtensionRequestBody))
-		if err != nil {
-			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body could not be read"))
-			return
-		}
-		if len(args) == 0 {
-			// The declared input schema is an object, so an absent body is the
-			// empty object rather than a refusal: a tool taking no arguments is
-			// callable with no body.
-			args = json.RawMessage(`{}`)
-		}
-		if !json.Valid(args) {
-			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body is not valid JSON"))
-			return
+		var args json.RawMessage
+		if query != nil {
+			// A bodyless method (GET, DELETE): the arguments are the query string,
+			// coerced against the types the declaration published. A body is not
+			// read at all — not even to reject one — because the contract says this
+			// operation has none, and reading one would make the seam's behaviour
+			// depend on something no client was told to send.
+			decoded, err := query.decode(r.URL.Query())
+			if err != nil {
+				httperr.Write(w, r, err)
+				return
+			}
+			args = decoded
+		} else {
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExtensionRequestBody))
+			if err != nil {
+				httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body could not be read"))
+				return
+			}
+			if len(body) == 0 {
+				// The declared input schema is an object, so an absent body is the
+				// empty object rather than a refusal: a tool taking no arguments is
+				// callable with no body.
+				body = []byte(`{}`)
+			}
+			if !json.Valid(body) {
+				httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body is not valid JSON"))
+				return
+			}
+			args = body
 		}
 		// The bare verb is the right key HERE, unlike the served lookup above:
 		// the registry's namespace is global and buildExtensionTools refuses two
