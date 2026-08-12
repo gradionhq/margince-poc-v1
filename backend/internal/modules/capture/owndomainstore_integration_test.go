@@ -240,20 +240,28 @@ func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 // carries no workspace predicate and relies entirely on RLS, so the isolation
 // is asserted rather than assumed.
 func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
-	first, db := ownDomainWorkspace(t)
-	second, _ := ownDomainWorkspace(t)
-	store := capture.NewOwnDomainStore(db)
+	// A store per workspace, because the handle carries the tenant now
+	// (ADR-0091 §9 step 3). One store driven by two contexts would run both
+	// halves against the first workspace, and the isolation this asserts would
+	// be asserted against nothing.
+	first, firstDB := ownDomainWorkspace(t)
+	second, secondDB := ownDomainWorkspace(t)
+	firstStore := capture.NewOwnDomainStore(firstDB)
+	secondStore := capture.NewOwnDomainStore(secondDB)
 
-	for _, ctx := range []context.Context{first, second} {
-		if _, err := store.Add(ctx, "shared.example"); err != nil {
+	for _, s := range []struct {
+		ctx   context.Context
+		store *capture.OwnDomainStore
+	}{{first, firstStore}, {second, secondStore}} {
+		if _, err := s.store.Add(s.ctx, "shared.example"); err != nil {
 			t.Fatalf("Add: %v", err)
 		}
 	}
-	if err := store.Remove(first, "shared.example"); err != nil {
+	if err := firstStore.Remove(first, "shared.example"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	list, err := store.List(second)
+	list, err := secondStore.List(second)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
