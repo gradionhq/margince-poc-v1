@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The edit-scope rule as a table: an edit corrects what a staged action SAYS,
@@ -100,6 +102,31 @@ func TestAssertSameEntityRefsPinsEveryRecordTheProposalNames(t *testing.T) {
 				t.Errorf("refused paths = %v, want %v", retargeted.Paths, tc.wantChanged)
 			}
 		})
+	}
+}
+
+// A REST staging carries its record inside the request PATH, not as a bare field.
+// entityRefs collects only strings that parse wholly as a UUID, so the id in
+// "/v1/deals/<uuid>/advance" is invisible to it — and an edit that rewrites the
+// path therefore looks like a content correction while it re-aims the effect at a
+// different record. The version pin still re-reads the ORIGINAL target, so nothing
+// downstream notices either.
+func TestAnEditMayNotRepointTheRecordNamedInARestPath(t *testing.T) {
+	staged := ids.NewV7()
+	other := ids.NewV7()
+	// toStageID is fixed across both calls so the ONLY thing that differs
+	// between the staged and edited payload is the record named in the path.
+	// A body id that varied too would let assertSameEntityRefs reject the
+	// edit for catching THAT change, which would prove nothing about
+	// whether it can see the one hidden inside the path.
+	toStageID := ids.NewV7().String()
+	rest := func(id ids.UUID) json.RawMessage {
+		return json.RawMessage(`{"operation":"advanceDeal","path":"/v1/deals/` + id.String() +
+			`/advance","body":{"to_stage_id":"` + toStageID + `"}}`)
+	}
+	if err := assertSameEntityRefs(rest(staged), rest(other)); err == nil {
+		t.Fatal("an edit that moved the call from one deal to another was accepted; the approving " +
+			"human judged the first record and the effect would land on the second")
 	}
 }
 
