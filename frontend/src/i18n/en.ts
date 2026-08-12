@@ -1458,6 +1458,8 @@ export const en = {
   "field.addIndustry": "Add industry",
   "field.addLinkedinUrl": "Add LinkedIn URL",
   "field.domain": "Domain",
+  "field.domainRequired":
+    "A domain cannot be cleared here — use the full editor to remove one.",
   "field.emailType": "Type",
   "field.emailWork": "Work",
   "field.emailPersonal": "Personal",

@@ -65,6 +65,18 @@ export type SelectProps = Readonly<{
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
+  // Opens the list on the trigger's first render rather than waiting for a
+  // second interaction — for a caller that mounts this Select AS the click
+  // that started editing (InlineChoice), where the first click already meant
+  // "show me the options" and a second one is one press too many.
+  openOnMount?: boolean;
+  // Fires when the list closes WITHOUT a value having been committed — Escape,
+  // a press outside, the trigger scrolling out of view, or Tab leaving it.
+  // Never fires from `commit`, which is the one path a value actually changes
+  // on: a caller telling "closed, nothing chosen" apart from "closed, picked"
+  // is exactly what InlineChoice needs to revert to its resting view only on
+  // the former.
+  onCancel?: () => void;
 }>;
 
 // The popup sits this far from the trigger, never closer than this to a viewport
@@ -384,33 +396,67 @@ type Listbox = Readonly<{
  * The commit is the only place `onChange` is called, so there is exactly one
  * path by which a value changes.
  */
+// The option a fresh open (by click, arrow key or mount) lands active on: the
+// current value if it holds one, else the edge the direction points at.
+// Shared by `openFrom` and the openOnMount initializer so a Select that opens
+// itself highlights the same option one opened by the reader would.
+function startingActive(
+  options: readonly SelectOption[],
+  selectedIndex: number,
+  step: 1 | -1,
+): number {
+  if (selectedIndex !== -1 && !options[selectedIndex]?.disabled) {
+    return selectedIndex;
+  }
+  return stepEnabled(options, step === 1 ? 0 : options.length - 1, step);
+}
+
 function useSelectListbox(
   options: readonly SelectOption[],
   value: string,
   onChange: (next: string) => void,
+  openOnMount: boolean,
+  onCancel?: () => void,
 ): Listbox {
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(-1);
+  const selectedIndex = options.findIndex((option) => option.value === value);
+  const edge = (step: 1 | -1) =>
+    stepEnabled(options, step === 1 ? 0 : options.length - 1, step);
+
+  const [open, setOpen] = useState(openOnMount);
+  const [active, setActive] = useState(() =>
+    openOnMount ? startingActive(options, selectedIndex, 1) : -1,
+  );
   const trigger = useRef<HTMLButtonElement | null>(null);
   const popup = useRef<HTMLDivElement | null>(null);
   const typed = useRef({ query: "", at: 0 });
   const listboxId = useId();
 
-  // Dismissal WITHOUT moving focus, for the two cases where the reader is
-  // already somewhere else: a press outside, and a trigger scrolled out of view.
-  const dismiss = useCallback(() => setOpen(false), []);
-  const frame = useAnchoredPopup(trigger, popup, open, dismiss);
-  useDismissOnOutsidePress(open, dismiss, trigger, popup);
+  // A caller mounting this already-open (InlineChoice, on the click that
+  // started editing) mounts a TRIGGER THE CLICK NEVER LANDED ON — the DOM
+  // node the reader actually pressed was the previous render's resting
+  // button, gone by the time this one exists. Without this, Escape and the
+  // arrow keys have nothing to reach: keyboard events go to whatever the
+  // browser's default focus is, not to a listbox nobody told it opened.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once, on mount — openOnMount names how this instance came to exist, not a value to keep reacting to on every later render.
+  useEffect(() => {
+    if (openOnMount) {
+      trigger.current?.focus();
+    }
+  }, []);
+
+  // The one place a close that picked nothing is told apart from one that
+  // did: `commit` below never routes through this, because it closes on a
+  // value that DID change.
+  const abandon = useCallback(() => {
+    setOpen(false);
+    onCancel?.();
+  }, [onCancel]);
+  const frame = useAnchoredPopup(trigger, popup, open, abandon);
+  useDismissOnOutsidePress(open, abandon, trigger, popup);
   useActiveOptionVisible(open, active, listboxId);
 
-  const selectedIndex = options.findIndex((option) => option.value === value);
-  const edge = (step: 1 | -1) =>
-    stepEnabled(options, step === 1 ? 0 : options.length - 1, step);
-
   const openFrom = (step: 1 | -1) => {
-    const onSelected =
-      selectedIndex !== -1 && !options[selectedIndex]?.disabled;
-    setActive(onSelected ? selectedIndex : edge(step));
+    setActive(startingActive(options, selectedIndex, step));
     setOpen(true);
   };
 
@@ -449,10 +495,10 @@ function useSelectListbox(
     toEdge: (step) => setActive(edge(step)),
     commitActive: () => commit(active),
     cancel: () => {
-      setOpen(false);
       trigger.current?.focus();
+      abandon();
     },
-    leave: () => setOpen(false),
+    leave: abandon,
     search,
   };
 
@@ -489,8 +535,15 @@ function useActiveOptionVisible(
 }
 
 export function Select(props: SelectProps) {
-  const { options, value, onChange, name, disabled } = props;
-  const listbox = useSelectListbox(options, value, onChange);
+  const { options, value, onChange, name, disabled, openOnMount, onCancel } =
+    props;
+  const listbox = useSelectListbox(
+    options,
+    value,
+    onChange,
+    openOnMount ?? false,
+    onCancel,
+  );
   const reduced = usePrefersReducedMotion();
 
   return (

@@ -6,20 +6,33 @@ import { useCan } from "../app/capability";
 import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
 import { InlineChoice, InlineText } from "../design-system/inlinechoice";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import {
+  CompanyLifecycleControl,
+  CompanyOwnerControl,
   useCompanyFieldPatch,
   useCompanyReadOnlyReason,
 } from "./companyheader";
-import { LIFECYCLE_LABELS, SIZE_BAND_OPTIONS } from "./companylookups";
-import { EntityRef } from "./entityref";
+import { SIZE_BAND_OPTIONS } from "./companylookups";
 
 // The rail's own Details grid (companyrail.tsx's DetailsGrid), split into
 // this file so the rail file stays under the 500-line ceiling: one panel
-// section (Details) and its nine field rows is a natural seam, not an
-// arbitrary cut.
+// section (Details) and its field rows is a natural seam, not an arbitrary
+// cut.
 
 type Organization = components["schemas"]["Organization"];
-type Lifecycle = NonNullable<Organization["lifecycle"]>;
+type OrganizationDomain = NonNullable<Organization["domains"]>[number];
+// Not `keyof Address`: the wire type carries a `[key: string]: unknown` catch-all
+// alongside its six named parts (schema.d.ts's own escape hatch for a future
+// field), which collapses `keyof` down to bare `string` and loses every part's
+// actual value type. The six literals are the only ones this row ever writes.
+type AddressPart =
+  | "line1"
+  | "line2"
+  | "city"
+  | "region"
+  | "postal_code"
+  | "country";
 type UpdateOrganizationRequest =
   components["schemas"]["UpdateOrganizationRequest"];
 
@@ -30,13 +43,14 @@ const DESCRIPTION_MAX_LENGTH = 500;
 
 /**
  * DetailsGrid draws the account's own fields as a label/value grid: legal
- * name, where it stands with us, who owns it, its primary domain, address,
- * industry, size, LinkedIn page and description. EVERY known field draws a
- * row, whether or not the account carries a value: an absent field is a fact
- * about the record (nobody has filled it in yet), and hiding the row along
- * with the fact erases the "yet" — a reader can only add what they can see is
- * missing. An empty row reads as a quiet add affordance (InlineText/
- * InlineChoice's own empty-state button) rather than a blank line.
+ * name, where it stands with us, who owns it, its domain, its address (one
+ * row per part), industry, size, LinkedIn page and description. EVERY known
+ * field draws a row, whether or not the account carries a value: an absent
+ * field is a fact about the record (nobody has filled it in yet), and hiding
+ * the row along with the fact erases the "yet" — a reader can only add what
+ * they can see is missing. An empty row reads as a quiet add affordance
+ * (InlineText/InlineChoice's own empty-state button) rather than a blank
+ * line.
  *
  * Writability gates the VERBS only, never the values: an archived or
  * overlay-mirrored account still shows every field, it simply shows them
@@ -47,26 +61,37 @@ const DESCRIPTION_MAX_LENGTH = 500;
  * gate on — rather than threaded down as a prop, so a caller cannot render
  * this grid writable on a record it should not be able to write.
  *
- * Lifecycle, owner, domain and address stay read-only here. Lifecycle and
- * owner already have their own controls in the header
- * (`CompanyLifecycleControl`/`CompanyOwnerControl`) — a second editable
- * lifecycle picker here PATCHes the same field through a second path, and a
- * page with two "Change Account lifecycle" controls is a page offering the
- * reader two different ways to do the one thing, wired to two independent
- * bits of local edit state. The header is where a reader SETS things about
- * an account; this grid is the reference surface, so it shows the value the
- * header owns rather than a second way to write it. Domain and address are
- * not scalar either, for an unrelated reason: `domains` is a replace-set on
- * the wire (an edit here that wrote only the primary domain back would
- * silently drop every other one) and `address` is a multi-field object no
- * single InlineText round-trips. Both need a purpose-built editor this grid
- * does not attempt.
+ * Every field here edits in place, including lifecycle, domain and address —
+ * none of the three is scalar the way legal name or industry is, so each
+ * keeps its own rule about what "editing this" is allowed to touch:
+ *
+ *   - Lifecycle and owner both reuse the header's OWN control
+ *     (`CompanyLifecycleControl` / `CompanyOwnerControl`) rather than a
+ *     second InlineChoice PATCHing the same field down its own path — one
+ *     implementation of "how this field is written," mounted here and in
+ *     the header, so the two can never disagree about what they last wrote.
+ *   - Domain edits the PRIMARY domain's name only, and always sends the
+ *     record's full domain array back with that one entry changed: `domains`
+ *     is a replace-set on the wire (interfaces.md), so a write that sent
+ *     just the edited entry would silently drop every other domain the
+ *     account has. Clearing the field to empty is refused client-side
+ *     (`field.domainRequired`) rather than sent as a delete — removing a
+ *     domain outright stays in the full editor, which can retarget which
+ *     domain is primary and prompts for confirmation.
+ *   - Address is six rows, one per part (line 1, line 2, city, region,
+ *     postal code, country) rather than one grouped editor: each part reuses
+ *     InlineText exactly as it stands, with zero new commit machinery, at
+ *     the cost of a longer grid than a single "Address" row would be. Every
+ *     write sends the WHOLE address object back with only that one part
+ *     changed (`{...current, [part]: next}`) — `address` replaces the
+ *     object wholesale on the wire, so omitting the untouched parts would
+ *     blank them.
  *
  * ABSENT VS WITHHELD, stated rather than built: this grid does not today
  * distinguish a field nobody has filled in from one the viewer's role cannot
  * see, because `Organization` carries no field-level grant signal to draw
  * that distinction from — only `computed_fields` does (STATE-4), and it is
- * not one of these nine fields. `FieldGuard` (design-system/rbac.tsx) is the
+ * not one of these fields. `FieldGuard` (design-system/rbac.tsx) is the
  * presentation primitive for a withheld value once one exists; its own
  * comment names B-EP03.4 as the wire change this grid is waiting on. Until
  * then every empty row here reads as absent, which is the only fact this
@@ -121,42 +146,133 @@ function LegalNameRow({
   );
 }
 
-// Lifecycle, owner, domain and address stay read-only here — see the
-// docblock above for why each one does. Grouped in one component (rather
-// than each getting its own row function like the editable fields) because
-// none of them needs `DetailsRowProps`' write-side props: no `canEdit`, no
-// `readOnlyReason`, no `patch`, just the record to read from.
-function ReadOnlyFactRows({
+// Lifecycle and owner both reuse the header's OWN control rather than a
+// second InlineChoice wired to the same field — see the docblock above.
+// `hideLabel` leaves the visible label to FieldGrid's own label column, the
+// same way SizeBandRow below suppresses InlineChoice's own prefix.
+function LifecycleRow({
   organization,
 }: Readonly<{ organization: Organization }>) {
   const t = useT();
-  const primaryDomain =
-    organization.domains?.find((domain) => domain.is_primary)?.domain ??
-    organization.domains?.[0]?.domain;
-  const location = [organization.address?.city, organization.address?.country]
-    .filter(Boolean)
-    .join(", ");
   return (
-    <>
-      <FieldRow label={t("org.lifecycle")}>
-        {t(
-          LIFECYCLE_LABELS[(organization.lifecycle ?? "unknown") as Lifecycle],
-        )}
-      </FieldRow>
-      <FieldRow label={t("co.pulse.owner")}>
-        {organization.owner_id ? (
-          <EntityRef kind="user" id={organization.owner_id} />
-        ) : (
-          t("co.pulse.unowned")
-        )}
-      </FieldRow>
-      <FieldRow label={t("field.domain")}>
-        {primaryDomain ?? t("field.unset")}
-      </FieldRow>
-      <FieldRow label={t("co.details.address")}>
-        {location || t("field.unset")}
-      </FieldRow>
-    </>
+    <FieldRow label={t("org.lifecycle")}>
+      <CompanyLifecycleControl org={organization} />
+    </FieldRow>
+  );
+}
+
+function OwnerRow({ organization }: Readonly<{ organization: Organization }>) {
+  const t = useT();
+  return (
+    <FieldRow label={t("co.pulse.owner")}>
+      <CompanyOwnerControl org={organization} hideLabel />
+    </FieldRow>
+  );
+}
+
+// The account's current primary domain — same fallback the header's own read
+// paths use (flagged primary, else the first row): a record with no domain
+// flagged primary still has to name ONE entry as "the" domain this row edits.
+function primaryDomainOf(
+  domains: readonly OrganizationDomain[],
+): OrganizationDomain | undefined {
+  return domains.find((domain) => domain.is_primary) ?? domains[0];
+}
+
+// Renames the primary domain in place, sending the FULL set back with every
+// other entry untouched — see the docblock above for why `domains` cannot
+// take a single-entry write. Clearing the field is refused rather than
+// treated as a delete: this row renames, it does not remove, and a removal
+// here would drop an entry with no confirmation and no way to reconsider.
+function DomainRow({
+  organization,
+  canEdit,
+  readOnlyReason,
+  patch,
+}: DetailsRowProps) {
+  const t = useT();
+  const domains = organization.domains ?? [];
+  const primary = primaryDomainOf(domains);
+  return (
+    <FieldRow label={t("field.domain")}>
+      <InlineText
+        label={t("field.domain")}
+        value={primary?.domain ?? ""}
+        placeholder={t("field.addDomain")}
+        canEdit={canEdit}
+        readOnlyReason={readOnlyReason}
+        onSave={(next) => {
+          if (!next) {
+            throw new Error(t("field.domainRequired"));
+          }
+          const rest = domains.filter((domain) => domain !== primary);
+          return patch({
+            domains: [...rest, { domain: next, is_primary: true }],
+          });
+        }}
+      />
+    </FieldRow>
+  );
+}
+
+// The six address parts this grid draws, in the order the create form's own
+// `ADDRESS_FIELDS` shows them. `normalize` is only non-trivial for country:
+// ISO-3166 alpha-2, canonicalized the same way the full editor's own
+// `addressPatch` does — the server compares on the uppercase spelling, so
+// "de" typed here and "DE" typed in the edit modal read as the same value.
+const ADDRESS_PARTS: ReadonlyArray<{
+  part: AddressPart;
+  labelKey: MessageKey;
+  normalize?: (next: string) => string;
+}> = [
+  { part: "line1", labelKey: "create.addressLine1" },
+  { part: "line2", labelKey: "create.addressLine2" },
+  { part: "postal_code", labelKey: "create.postalCode" },
+  { part: "city", labelKey: "create.city" },
+  { part: "region", labelKey: "create.region" },
+  {
+    part: "country",
+    labelKey: "create.country",
+    normalize: (next) => next.toUpperCase(),
+  },
+];
+
+// One InlineText per address part, each sending the WHOLE object back with
+// only its own part changed — see the docblock above for why a part cannot
+// PATCH alone. `label`/`placeholder` share the create form's own keys
+// rather than minting new ones for the same six facts.
+function AddressPartRow({
+  organization,
+  canEdit,
+  readOnlyReason,
+  patch,
+  part,
+  labelKey,
+  normalize = (next) => next,
+}: DetailsRowProps & {
+  part: AddressPart;
+  labelKey: MessageKey;
+  normalize?: (next: string) => string;
+}) {
+  const t = useT();
+  return (
+    <FieldRow label={t(labelKey)}>
+      <InlineText
+        label={t(labelKey)}
+        value={organization.address?.[part] ?? ""}
+        placeholder={t(labelKey)}
+        canEdit={canEdit}
+        readOnlyReason={readOnlyReason}
+        onSave={(next) =>
+          patch({
+            address: {
+              ...organization.address,
+              [part]: normalize(next) || null,
+            },
+          })
+        }
+      />
+    </FieldRow>
   );
 }
 
@@ -211,6 +327,10 @@ function SizeBandRow({
   );
 }
 
+// Always InlineText, whether or not the account has a URL yet: the header's
+// own LinkedIn chip (companyheader.tsx) already gives a reader the clickable
+// link once one is set, so this row's job is writing the value, not a second
+// place to click through to it.
 function LinkedinRow({
   organization,
   canEdit,
@@ -220,20 +340,14 @@ function LinkedinRow({
   const t = useT();
   return (
     <FieldRow label={t("create.linkedinUrl")}>
-      {organization.linkedin_url ? (
-        <a href={organization.linkedin_url} target="_blank" rel="noreferrer">
-          {t("co.chip.linkedin")}
-        </a>
-      ) : (
-        <InlineText
-          label={t("create.linkedinUrl")}
-          value=""
-          placeholder={t("field.addLinkedinUrl")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) => patch({ linkedin_url: next || null })}
-        />
-      )}
+      <InlineText
+        label={t("create.linkedinUrl")}
+        value={organization.linkedin_url ?? ""}
+        placeholder={t("field.addLinkedinUrl")}
+        canEdit={canEdit}
+        readOnlyReason={readOnlyReason}
+        onSave={(next) => patch({ linkedin_url: next || null })}
+      />
     </FieldRow>
   );
 }
@@ -275,7 +389,12 @@ function DetailsGridBody({
   return (
     <FieldGrid>
       <LegalNameRow {...row} />
-      <ReadOnlyFactRows organization={organization} />
+      <OwnerRow organization={organization} />
+      <LifecycleRow organization={organization} />
+      <DomainRow {...row} />
+      {ADDRESS_PARTS.map((field) => (
+        <AddressPartRow key={field.part} {...row} {...field} />
+      ))}
       <IndustryRow {...row} />
       <SizeBandRow {...row} />
       <LinkedinRow {...row} />

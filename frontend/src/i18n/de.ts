@@ -1460,6 +1460,8 @@ export const de = {
   "field.addIndustry": "Branche hinzufügen",
   "field.addLinkedinUrl": "LinkedIn-URL hinzufügen",
   "field.domain": "Domain",
+  "field.domainRequired":
+    "Eine Domain kann hier nicht gelöscht werden — dafür den vollständigen Editor verwenden.",
   "field.emailType": "Typ",
   "field.emailWork": "Geschäftlich",
   "field.emailPersonal": "Privat",

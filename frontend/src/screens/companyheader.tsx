@@ -203,10 +203,13 @@ export function useCompanyReadOnlyReason(
   return undefined;
 }
 
-// Exported so the call site can pass it straight into RecordView's
-// `nameBadge` slot — the record's standing belongs on the name's own line
-// (mockup's target header), not folded into CompanyIdentityLine's meta line
-// with everything else the account carries.
+// Exported for its two mount points: the header passes it into RecordView's
+// `nameBadge` slot, where the record's standing belongs on the name's own
+// line, and the rail's Details grid mounts the SAME control rather than a
+// second InlineChoice with its own PATCH. One implementation of how lifecycle
+// is written, two places it is drawn, so the two cannot disagree about what
+// they last wrote. `hideLabel` is unconditional: both callers name the field
+// themselves, the badge beside the name and the grid's own label column.
 export function CompanyLifecycleControl({
   org,
 }: Readonly<{ org: Organization }>) {
@@ -247,7 +250,17 @@ export function CompanyLifecycleControl({
   );
 }
 
-function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
+// Exported for the same reason as useCompanyFieldPatch/useCompanyReadOnlyReason
+// above: the rail's Details grid edits the SAME field through the SAME
+// roster read, the SAME not-in-roster fallback and the SAME
+// unowned-only-while-unowned rule, rather than a second picker that could
+// silently diverge from any of the three. `hideLabel` lets the rail's own
+// FieldRow label column say "Owner" once instead of this control saying it
+// again — the header call site omits it and keeps its current prose.
+export function CompanyOwnerControl({
+  org,
+  hideLabel,
+}: Readonly<{ org: Organization; hideLabel?: boolean }>) {
   const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
@@ -278,11 +291,10 @@ function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
   return (
     <InlineChoice
       label={t("co.pulse.owner")}
-      // The meta line prints "Owner" itself, immediately before this control
-      // (mockup target: "Owner Demo Admin", no colon) — the same "say it
-      // once" rule the lifecycle badge follows above. `label` still drives
-      // the accessible name regardless.
-      hideLabel
+      // The caller names the field: the header's meta line prints "Owner"
+      // immediately before this control, and the grid has its own label
+      // column. `label` still drives the accessible name either way.
+      hideLabel={hideLabel}
       value={org.owner_id ?? ""}
       options={options}
       canEdit={canUpdate && !readOnlyReason}
