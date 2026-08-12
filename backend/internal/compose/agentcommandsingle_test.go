@@ -80,9 +80,11 @@ func TestEverySinglePurposeToolRouteDecodesIntoACommand(t *testing.T) {
 }
 
 // mergeRequest is a POST against a merge route, carrying the {id} chi would
-// have bound plus the body naming the survivor.
-func mergeRequest(collection string, routed, target ids.UUID) *http.Request {
-	body := []byte(`{"target_id":"` + target.String() + `"}`)
+// have bound plus the body naming the survivor. body is the caller's own copy
+// — the gate buffers it once and hands the same bytes to the decoder, so a
+// request built with different bytes than the test passes on would prove
+// nothing about the pair that actually travels together.
+func mergeRequest(collection string, routed ids.UUID, body []byte) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, collection+"/"+routed.String()+"/merge", bytes.NewReader(body))
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", routed.String())
@@ -111,7 +113,7 @@ func TestAMergeStagesTheSurvivorTheBodyNamesRatherThanTheRoutedRecord(t *testing
 			pol := agentPolicy{Op: c.op, Access: accessTool, Tool: "merge_records", RecordType: c.recordType}
 			body := []byte(`{"target_id":"` + survivor.String() + `"}`)
 
-			stageRefusal(httptest.NewRecorder(), mergeRequest(c.collection, source, survivor), staging,
+			stageRefusal(httptest.NewRecorder(), mergeRequest(c.collection, source, body), staging,
 				restCommandDeps{records: seamRecord{}}, pol, body)
 
 			if staging.last.TargetID != survivor {
