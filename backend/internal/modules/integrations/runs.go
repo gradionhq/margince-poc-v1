@@ -279,7 +279,9 @@ func (s *Store) queueOne(ctx context.Context, tx pgx.Tx, desc provider.Descripto
 	if err := s.enqueueSubmit(ctx, tx, runID, ws.String()); err != nil {
 		return provider.Run{}, fmt.Errorf("integrations: scheduling the submission: %w", err)
 	}
-	if _, err := storekit.Audit(ctx, tx, "queue", "provider_run", uuidOf(&runID),
+	// "create", not "queue": the audit vocabulary is closed (0018), and
+	// queueing a run IS the creation of the run row.
+	if _, err := storekit.Audit(ctx, tx, "create", "provider_run", uuidOf(&runID),
 		nil, map[string]any{"provider": in.Provider, "trigger": string(in.Trigger)}); err != nil {
 		return provider.Run{}, err
 	}
