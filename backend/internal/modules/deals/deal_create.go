@@ -27,11 +27,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// dealNameField is the deal's own name key, as the audit row and the patch
-// spell it. Named here rather than repeated: the offer-template surface has a
-// constant of its own for a different record's field of the same name.
-const dealNameField = "name"
-
 // CreateDealInput is one deal birth: the record's own fields plus the pipeline
 // placement it is born on. CustomFields carries the request body's extra
 // top-level keys.
@@ -189,7 +184,7 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 		return crmcontracts.Deal{}, fmt.Errorf("record stage history: %w", err)
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", "deal", id.UUID, nil, map[string]any{dealNameField: in.Name})
+	auditID, err := storekit.Audit(ctx, tx, "create", "deal", id.UUID, nil, map[string]any{dealNameColumn: in.Name})
 	if err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("audit deal create: %w", err)
 	}

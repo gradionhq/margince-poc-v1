@@ -90,7 +90,7 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crm
 func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, in UpdateDealInput) (*storekit.Patch, error) {
 	p := storekit.NewPatch()
 	if in.Name != nil {
-		p.Set("name", current.Name, *in.Name)
+		p.Set(dealNameColumn, current.Name, *in.Name)
 	}
 	if in.AmountMinor != nil {
 		p.Set("amount_minor", current.AmountMinor, *in.AmountMinor)

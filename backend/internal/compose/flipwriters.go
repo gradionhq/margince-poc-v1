@@ -220,9 +220,9 @@ func (w *flipWriters) cacheLanded(object, ext string, id ids.UUID) {
 //
 // create returns the id it wrote; the identity row goes in beside it, so a
 // process that dies mid-landing leaves neither — rather than a record the
-// resume cannot name and would create a second time. flipreconcile.go remains
-// the repair for the classes that still land in two steps (see remember), and
-// for orphans already in the estate.
+// resume cannot name and would create a second time. Every class lands this
+// way, which is what leaves flipreconcile.go with one job: the orphans an
+// estate already carries from attempts made before it did.
 func (w *flipWriters) landRecord(ctx context.Context, object, ext string, create func(tx pgx.Tx) (ids.UUID, error)) (ids.UUID, error) {
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
@@ -247,13 +247,14 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 		// row cannot differ from what is stored: nothing to rewrite, and
 		// the report says so rather than claiming an update.
 		//
-		// A deal is the exception, because landing it takes TWO steps —
-		// born open, then advanced to its terminal stage. An adopted
-		// orphan (created before a crash, recovered by the reconcile)
-		// completed only the first, so returning Unchanged here would
-		// leave a closed-won estate deal parked open forever, reported as
-		// converged. Re-asserting the close is idempotent: a deal that
-		// already reached its terminal stage needs nothing.
+		// A deal is the exception, because CLOSING it takes a second
+		// transaction: the store births it on an open stage and the
+		// terminal stage is asserted afterwards. A deal whose landing
+		// committed and whose advance did not is mapped and open, so
+		// returning Unchanged here would leave a closed-won estate deal
+		// parked open forever, reported as converged. Re-asserting the
+		// close is idempotent: a deal that already reached its terminal
+		// stage needs nothing.
 		if object == flipObjectDeal {
 			return w.settleAdoptedDeal(ctx, ids.From[ids.DealKind](id), row)
 		}
