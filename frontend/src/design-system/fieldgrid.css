@@ -43,3 +43,28 @@
   box-shadow: inset 0 0 0 1px var(--borderSubtle);
   cursor: text;
 }
+
+/* A VALUE reads as a value, not as a link. InlineText and InlineChoice make
+   their trigger a button so the whole value is pressable, and a button both
+   centres its own text and — as `.link-button` — paints it in the accent at
+   link weight. In a grid that turns every editable fact green and centred
+   while the read-only ones beside it sit black and left, so the two kinds of
+   row read as two kinds of fact rather than one column of values.
+   The pressable box stays; only its type goes back to the row's own. */
+.fieldgrid-value .inlinetext {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  font-size: inherit;
+  font-weight: var(--fw-regular);
+  color: inherit;
+}
+/* The exception, and the reason the accent exists here at all: a field with
+   nothing in it offers to be filled. That IS an invitation, so it keeps the
+   accent — but only on the empty row, where there is no value for it to
+   misrepresent. */
+.fieldgrid-value .inlinetext[data-empty="true"] {
+  color: var(--accent);
+  font-weight: var(--fw-medium);
+}

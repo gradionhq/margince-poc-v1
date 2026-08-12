@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -2260,11 +2267,25 @@ type Health = NonNullable<Organization360["health"]>;
 // actually rendered. A fixed template reserves a cell for a reading the account
 // does not have, and an empty cell in a bordered row reads as a figure that
 // failed to load.
-function fitStripColumns(node: HTMLElement | null) {
-  if (!node) {
-    return;
-  }
-  node.style.setProperty("--co-strip-slots", String(node.childElementCount));
+function useStripColumns() {
+  const ref = useRef<HTMLElement | null>(null);
+  // After EVERY render, not only on mount. The slot count is a fact about the
+  // account — a prospect draws four readings, a customer draws the money row's
+  // six — so it changes while the node stays put. A callback ref fires when
+  // the element attaches and never again, which left the grid sized for the
+  // lifecycle the account had when the page opened: promote a prospect and six
+  // slots wrapped into a four-column template, the two cells over the end
+  // showing the strip's own fill as though a reading had failed to load.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) {
+      node.style.setProperty(
+        "--co-strip-slots",
+        String(node.childElementCount),
+      );
+    }
+  });
+  return ref;
 }
 
 /**
@@ -2348,6 +2369,9 @@ export function StateStrip({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  // Above the early returns: a hook cannot be called conditionally, and this
+  // component returns before its grid on a withheld or absent reading.
+  const stripRef = useStripColumns();
   const strip = view?.state_strip;
   if (!strip) {
     // Absent for two different reasons, and only `sections_omitted` tells
@@ -2385,7 +2409,7 @@ export function StateStrip({
       // on their own (engagement with no grant, pipeline with no deals), so an
       // expression here would have to restate every one of their conditions and
       // would drift the moment one changed.
-      ref={fitStripColumns}
+      ref={stripRef}
     >
       {/* SIX slots, as both mockups draw them. On a CUSTOMER the row is money
           and how it is held: what they have ever been worth, what lately,

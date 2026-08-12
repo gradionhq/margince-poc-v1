@@ -223,12 +223,10 @@
   margin: 8px 0;
 }
 
-/* No margin of its own. The bar is the last child of the record's band, whose
-   gap already sets the interval above it and whose bottom margin sets the one
-   below — a margin here is counted a second time and opens a trough between
-   the bar and the columns it labels. */
+/* The bar leads the column it governs, so it owns the interval between
+   itself and the first panel beneath it. */
 .co-tabs {
-  margin-bottom: 0;
+  margin-bottom: var(--space-5);
 }
 
 /* A card holding two independently-governed sections labels each one, so a

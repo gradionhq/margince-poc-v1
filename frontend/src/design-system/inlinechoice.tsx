@@ -209,6 +209,10 @@ export function InlineText({
       <button
         type="button"
         className="link-button inlinetext"
+        // An empty field is an invitation to fill it and reads as one; a
+        // field with a value is a value, and styling it as a link would say
+        // the fact itself is a place to go.
+        data-empty={value ? undefined : "true"}
         aria-label={t("inlineChoice.change", { field: label })}
         title={t("inlineChoice.change", { field: label })}
         onClick={() => {
