@@ -136,7 +136,7 @@ func TestFxRateCrossWorkspaceIsolation(t *testing.T) {
 		t.Fatalf("set in workspace A: %v", err)
 	}
 	// A second tenant must not see workspace A's row (FORCE RLS on fx_rate).
-	wsB, _ := seedSecondWorkspace(t, OwnerConn(t))
+	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t))
 	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
 	var n int
 	if err := database.WithWorkspaceTx(ctxB, e.Pool, func(tx pgx.Tx) error {

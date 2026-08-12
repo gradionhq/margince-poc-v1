@@ -3,10 +3,10 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // HTTP-level coverage for the five /custom-fields operations
-// (customfields.Handlers, wired in compose/server.go over
+// (customfieldsmod.Handlers, wired in compose/server.go over
 // compose.WithSchemaPool). The store/engine-level suites
 // (customfields_integration_test.go, customfields_lifecycle_integration_test.go)
 // already prove the transaction shape, the collision resolution, and the
@@ -37,6 +37,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
@@ -83,7 +84,7 @@ type customFieldProblem struct {
 }
 
 // cfColumnName is the cf_-prefixed physical identifier shape
-// (customfields.ColumnName); every successful create must answer one,
+// (customfieldsmod.ColumnName); every successful create must answer one,
 // however hostile the source label.
 var cfColumnName = regexp.MustCompile(`^cf_[a-z0-9_]+$`)
 
@@ -94,7 +95,7 @@ var cfColumnName = regexp.MustCompile(`^cf_[a-z0-9_]+$`)
 // admin config with no per-row scope to isolate between subtests.
 func schemaWiredEnv(t *testing.T) *apptest.AppEnv {
 	t.Helper()
-	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(SchemaPool(t)))
+	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
 	e.BootstrapWorkspace(t)
 	return e
 }

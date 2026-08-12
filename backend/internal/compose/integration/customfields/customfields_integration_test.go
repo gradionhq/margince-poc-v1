@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The customfields engine suite: the one-transaction
 // schema-pool dance — real ALTER TABLE + catalog INSERT + audit row
@@ -18,24 +18,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// CFAdminPerms is the admin RBAC posture narrowed to what this
-// suite exercises: full custom_field config authority plus the person
-// grants the value-preservation assertions need.
-var cfAdminPerms = principal.Permissions{
-	RoleKeys: []string{"admin"},
-	Objects: map[string]principal.ObjectGrant{
-		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
-		"person":       {Create: true, Read: true, Update: true, Delete: true},
-	},
-	RowScope: principal.RowScopeAll,
-}
 
 // cfReadPerms mirrors the rep/manager/read_only posture: catalog read
 // only, never a schema change.
@@ -63,7 +52,7 @@ func columnOnTable(t *testing.T, owner *pgx.Conn, table, column string) bool {
 
 // wsExecErr runs one statement workspace-bound and returns its error —
 // for assertions that a write is REFUSED by the database (WsExec fatals).
-func wsExecErr(e *Env, ws ids.UUID, sql string, args ...any) error {
+func wsExecErr(e *integration.Env, ws ids.UUID, sql string, args ...any) error {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	return database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, sql, args...)
@@ -71,40 +60,15 @@ func wsExecErr(e *Env, ws ids.UUID, sql string, args ...any) error {
 	})
 }
 
-// seedSecondWorkspace provisions a second tenant (workspace + one user)
-// and returns an admin-shaped context bound to it, for the cross-tenant
-// suites.
-func seedSecondWorkspace(t *testing.T, owner *pgx.Conn) (ids.UUID, context.Context) {
-	t.Helper()
-	ws, user := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "tenant-b-"+ws.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
-		user, ws, "b@tenant-b.test"); err != nil {
-		t.Fatal(err)
-	}
-	ctx := principal.WithWorkspaceID(context.Background(), ws)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user, Permissions: cfAdminPerms,
-	})
-	return ws, ctx
-}
-
-func dateSpec(label string) customfields.FieldSpec {
-	return customfields.FieldSpec{Object: "deal", Label: label, Type: customfields.TypeDate, Source: "ui"}
+func dateSpec(label string) customfieldsmod.FieldSpec {
+	return customfieldsmod.FieldSpec{Object: "deal", Label: label, Type: customfieldsmod.TypeDate, Source: "ui"}
 }
 
 func TestCustomFieldCreate_ColumnCatalogAndAuditLandTogether(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
 	created, err := svc.Create(ctx, dateSpec("Renewal date"))
 	if err != nil {
@@ -140,10 +104,10 @@ func TestCustomFieldCreate_ColumnCatalogAndAuditLandTogether(t *testing.T) {
 // whole transaction, physical column included, must roll back. Postgres
 // DDL is transactional; this is the real proof, not a mock.
 func TestCustomFieldCreate_AtomicRollback_OnCatalogConflict(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
 	// Same (workspace, object, slug), different column_name: invisible to
 	// the pre-check, fatal to the INSERT.
@@ -167,17 +131,17 @@ func TestCustomFieldCreate_AtomicRollback_OnCatalogConflict(t *testing.T) {
 }
 
 func TestCustomFieldCreate_CrossWorkspaceCollision_AnswersColumnTaken(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
 
-	if _, err := svc.Create(e.As(e.Rep1, nil, cfAdminPerms), dateSpec("Renewal date")); err != nil {
+	if _, err := svc.Create(e.As(e.Rep1, nil, integration.CFAdminPerms), dateSpec("Renewal date")); err != nil {
 		t.Fatalf("first workspace's create: %v", err)
 	}
-	wsB, ctxB := seedSecondWorkspace(t, owner)
+	wsB, ctxB := integration.SeedSecondWorkspace(t, owner)
 
 	_, err := svc.Create(ctxB, dateSpec("Renewal date"))
-	var taken *customfields.ColumnTakenError
+	var taken *customfieldsmod.ColumnTakenError
 	if !errors.As(err, &taken) {
 		t.Fatalf("the second workspace's identical slug must answer ColumnTakenError, got %v", err)
 	}
@@ -198,18 +162,18 @@ func TestCustomFieldCreate_CrossWorkspaceCollision_AnswersColumnTaken(t *testing
 }
 
 func TestCustomFieldCreate_RefusalsWriteNothing(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
-	if _, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "deal", Label: "Link to invoice system", Type: customfields.TypeText, Source: "ui",
-	}); !errors.Is(err, customfields.ErrStructural) {
+	if _, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "deal", Label: "Link to invoice system", Type: customfieldsmod.TypeText, Source: "ui",
+	}); !errors.Is(err, customfieldsmod.ErrStructural) {
 		t.Fatalf("structural label must refuse with ErrStructural, got %v", err)
 	}
-	var verr *customfields.ValidationError
-	if _, err := svc.Create(ctx, customfields.FieldSpec{
+	var verr *customfieldsmod.ValidationError
+	if _, err := svc.Create(ctx, customfieldsmod.FieldSpec{
 		Object: "deal", Label: "Budget", Type: "money", Source: "ui",
 	}); !errors.As(err, &verr) {
 		t.Fatalf("unknown type must refuse with ValidationError, got %v", err)
@@ -234,11 +198,11 @@ func TestCustomFieldCreate_RefusalsWriteNothing(t *testing.T) {
 // Postgres's own server-side lock wait, not a test sleep, and the retry
 // after the blocker releases proves the answer means what it says.
 func TestCustomFieldCreate_BusyTableAnswersRetryableConflict(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
-	blocker := OwnerConn(t)
+	blocker := integration.OwnerConn(t)
 	blockTx, err := blocker.Begin(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -248,9 +212,9 @@ func TestCustomFieldCreate_BusyTableAnswersRetryableConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	spec := customfields.FieldSpec{Object: "organization", Label: "Region", Type: customfields.TypeText, Source: "ui"}
+	spec := customfieldsmod.FieldSpec{Object: "organization", Label: "Region", Type: customfieldsmod.TypeText, Source: "ui"}
 	_, err = svc.Create(ctx, spec)
-	if !errors.Is(err, customfields.ErrTableBusy) {
+	if !errors.Is(err, customfieldsmod.ErrTableBusy) {
 		t.Fatalf("a busy table must answer ErrTableBusy, got %v", err)
 	}
 	if !errors.Is(err, apperrors.ErrConflict) {
@@ -272,19 +236,19 @@ func TestCustomFieldCreate_BusyTableAnswersRetryableConflict(t *testing.T) {
 // same 55P03 answer on the second DDL path: the CHECK regeneration's
 // ALTER hits the same bounded lock wait when a reader holds the table.
 func TestCustomFieldSetOptions_BusyTableAnswersRetryableConflict(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
-	created, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Procurement route", Type: customfields.TypePicklist,
+	created, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Procurement route", Type: customfieldsmod.TypePicklist,
 		Options: []string{"direct", "reseller"}, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	blocker := OwnerConn(t)
+	blocker := integration.OwnerConn(t)
 	blockTx, err := blocker.Begin(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +258,7 @@ func TestCustomFieldSetOptions_BusyTableAnswersRetryableConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.SetOptions(ctx, ids.UUID(created.Id), []string{"direct"}); !errors.Is(err, customfields.ErrTableBusy) {
+	if _, err := svc.SetOptions(ctx, ids.UUID(created.Id), []string{"direct"}); !errors.Is(err, customfieldsmod.ErrTableBusy) {
 		t.Fatalf("a busy table must answer ErrTableBusy on the options path too, got %v", err)
 	}
 	if err := blockTx.Rollback(context.Background()); err != nil {
@@ -306,14 +270,14 @@ func TestCustomFieldSetOptions_BusyTableAnswersRetryableConflict(t *testing.T) {
 }
 
 func TestCustomFieldCreate_UnwiredSchemaPool_Answers501Sentinel(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, nil)
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, nil)
+	ctx := e.As(e.Rep1, nil, integration.CFAdminPerms)
 
-	if _, err := svc.Create(ctx, dateSpec("Renewal date")); !errors.Is(err, customfields.ErrSchemaChangesUnavailable) {
+	if _, err := svc.Create(ctx, dateSpec("Renewal date")); !errors.Is(err, customfieldsmod.ErrSchemaChangesUnavailable) {
 		t.Fatalf("an unwired schema pool must refuse with ErrSchemaChangesUnavailable, got %v", err)
 	}
-	if _, err := svc.SetOptions(ctx, ids.NewV7(), []string{"a"}); !errors.Is(err, customfields.ErrSchemaChangesUnavailable) {
+	if _, err := svc.SetOptions(ctx, ids.NewV7(), []string{"a"}); !errors.Is(err, customfieldsmod.ErrSchemaChangesUnavailable) {
 		t.Fatalf("SetOptions on an unwired schema pool must refuse too, got %v", err)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM custom_field`); n != 0 {

@@ -31,7 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// cfvPerms is cfAdminPerms plus the organization grants this suite's
+// cfvPerms is CFAdminPerms plus the organization grants this suite's
 // org round trip needs.
 var cfvPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
@@ -150,13 +150,13 @@ func TestCustomFieldValues_OrganizationRoundTrip(t *testing.T) {
 	}
 	assertCF(t, created.AdditionalProperties, col, "emea")
 
-	got, err := f.store.GetOrganization(f.ctx, orgIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	got, err := f.store.GetOrganization(f.ctx, OrgIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("GetOrganization: %v", err)
 	}
 	assertCF(t, got.AdditionalProperties, col, "emea")
 
-	updated, err := f.store.UpdateOrganization(f.ctx, orgIDOf(ids.UUID(created.Id)), people.UpdateOrganizationInput{
+	updated, err := f.store.UpdateOrganization(f.ctx, OrgIDOf(ids.UUID(created.Id)), people.UpdateOrganizationInput{
 		CustomFields: map[string]any{col: "apac"},
 	})
 	if err != nil {
@@ -429,7 +429,7 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "gold")
 
-	_, ctxB := seedSecondWorkspace(t, OwnerConn(t))
+	_, ctxB := SeedSecondWorkspace(t, OwnerConn(t))
 	inB, err := f.store.CreatePerson(ctxB, people.CreatePersonInput{
 		FullName: "Tenant B Person", Source: "ui",
 		CustomFields: map[string]any{col: "gold"},

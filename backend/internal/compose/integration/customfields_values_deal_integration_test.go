@@ -133,7 +133,7 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	}
 	assertCF(t, inA.AdditionalProperties, col, "enterprise")
 
-	wsB, ctxB := seedSecondWorkspace(t, OwnerConn(t))
+	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t))
 	ctxB = withPerms(ctxB, t, wsB, dealCFVPerms)
 	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
 	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
@@ -168,7 +168,7 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 }
 
 // withPerms rebinds a second-tenant context under the given permission
-// set (seedSecondWorkspace fixes catalog-admin perms; the deal suites
+// set (SeedSecondWorkspace fixes catalog-admin perms; the deal suites
 // need the deal + pipeline grants too).
 func withPerms(ctx context.Context, t *testing.T, ws ids.UUID, perms principal.Permissions) context.Context {
 	t.Helper()
@@ -202,5 +202,5 @@ func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (i
 	return ids.PipelineID{}, ids.StageID{}
 }
 
-// dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.
+// dealIDOf mirrors PersonIDOf/OrgIDOf for the deal suites.
 func dealIDOf(u ids.UUID) ids.DealID { return ids.From[ids.DealKind](u) }

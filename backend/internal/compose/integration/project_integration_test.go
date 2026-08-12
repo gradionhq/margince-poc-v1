@@ -38,7 +38,7 @@ func seedProject(ctx context.Context, t *testing.T, e *Env, name string, key *st
 	in := deals.CreateProjectInput{
 		Name:           name,
 		Key:            key,
-		OrganizationID: orgIDOf(org),
+		OrganizationID: OrgIDOf(org),
 		OwnerID:        userIDPtr(owner),
 		Source:         "manual",
 	}
@@ -80,7 +80,7 @@ func TestProjectKeyIsUniqueAmongLiveProjectsAndFreedByArchiving(t *testing.T) {
 	first := seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), org, nil)
 
 	_, err := e.Deals.CreateProject(e.Admin(), deals.CreateProjectInput{
-		Name: "Second", Key: strPtr("erp-27"), OrganizationID: orgIDOf(org), Source: "manual",
+		Name: "Second", Key: strPtr("erp-27"), OrganizationID: OrgIDOf(org), Source: "manual",
 	})
 	var taken *deals.ProjectKeyTakenError
 	if !errors.As(err, &taken) {
@@ -95,7 +95,7 @@ func TestProjectKeyIsUniqueAmongLiveProjectsAndFreedByArchiving(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.Deals.CreateProject(e.Admin(), deals.CreateProjectInput{
-		Name: "Reused", Key: strPtr("ERP-27"), OrganizationID: orgIDOf(org), Source: "manual",
+		Name: "Reused", Key: strPtr("ERP-27"), OrganizationID: OrgIDOf(org), Source: "manual",
 	}); err != nil {
 		t.Fatalf("archiving did not free the key: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestADealCannotPointAtAnotherCompanysProject(t *testing.T) {
 	orgB := e.SeedOrg(t, "Kessler GmbH", nil)
 	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, orgA, nil)
 
-	orgBID := orgIDOf(orgB)
+	orgBID := OrgIDOf(orgB)
 	_, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "Wrong company", PipelineID: pipeline, StageID: open,
 		OrganizationID: &orgBID, ProjectID: &p.ID, Source: "manual",
@@ -187,7 +187,7 @@ func TestADealCannotPointAtAnotherCompanysProject(t *testing.T) {
 		t.Fatalf("a cross-company pointer produced %v, want DealProjectOrgMismatchError", err)
 	}
 
-	orgAID := orgIDOf(orgA)
+	orgAID := OrgIDOf(orgA)
 	if _, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "Right company", PipelineID: pipeline, StageID: open,
 		OrganizationID: &orgAID, ProjectID: &p.ID, Source: "manual",
@@ -205,7 +205,7 @@ func TestArchivingAProjectKeepsWhatItGrouped(t *testing.T) {
 	org := e.SeedOrg(t, "BAER Pharma", nil)
 	p := seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), org, nil)
 
-	orgID := orgIDOf(org)
+	orgID := OrgIDOf(org)
 	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "Phase one", PipelineID: pipeline, StageID: open,
 		OrganizationID: &orgID, ProjectID: &p.ID, Source: "manual",
@@ -290,7 +290,7 @@ func TestMergingCompaniesReAnchorsTheProjectWithItsDeals(t *testing.T) {
 	target := e.SeedOrg(t, "BAER Pharma", nil)
 	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, source, nil)
 
-	sourceID := orgIDOf(source)
+	sourceID := OrgIDOf(source)
 	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
 		Name: "Phase one", PipelineID: pipeline, StageID: open,
 		OrganizationID: &sourceID, ProjectID: &p.ID, Source: "manual",
@@ -299,7 +299,7 @@ func TestMergingCompaniesReAnchorsTheProjectWithItsDeals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := e.People.MergeOrganization(e.Admin(), sourceID, orgIDOf(target)); err != nil {
+	if _, err := e.People.MergeOrganization(e.Admin(), sourceID, OrgIDOf(target)); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
 
@@ -328,7 +328,7 @@ func TestMergingTwoCompaniesThatBothCarryProjectsIsRefused(t *testing.T) {
 	seedProject(e.Admin(), t, e, "ERP replacement", nil, source, nil)
 	kept := seedProject(e.Admin(), t, e, "Validation", nil, target, nil)
 
-	_, err := e.People.MergeOrganization(e.Admin(), orgIDOf(source), orgIDOf(target))
+	_, err := e.People.MergeOrganization(e.Admin(), OrgIDOf(source), OrgIDOf(target))
 	var both *people.BothCompaniesCarryProjectsError
 	if !errors.As(err, &both) {
 		t.Fatalf("merging two project-carrying companies produced %v, want a refusal", err)
@@ -346,7 +346,7 @@ func TestMergingTwoCompaniesThatBothCarryProjectsIsRefused(t *testing.T) {
 	if _, err := e.Deals.ArchiveProject(e.Admin(), kept.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.People.MergeOrganization(e.Admin(), orgIDOf(source), orgIDOf(target)); err != nil {
+	if _, err := e.People.MergeOrganization(e.Admin(), OrgIDOf(source), OrgIDOf(target)); err != nil {
 		t.Errorf("archiving one side did not unblock the merge: %v", err)
 	}
 }
@@ -394,7 +394,7 @@ func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
 	seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), wanted, nil)
 	seedProject(e.Admin(), t, e, "Rollout A", nil, other, nil)
 
-	orgID := orgIDOf(wanted)
+	orgID := OrgIDOf(wanted)
 	byOrg, _, err := e.Deals.ListProjects(e.Admin(), deals.ListProjectsInput{OrganizationID: &orgID})
 	if err != nil {
 		t.Fatalf("list by organization: %v", err)
@@ -451,7 +451,7 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 		RowScope: principal.RowScopeOwn,
 	})
 
-	_, err := e.People.MergeOrganization(outsider, orgIDOf(source), orgIDOf(target))
+	_, err := e.People.MergeOrganization(outsider, OrgIDOf(source), OrgIDOf(target))
 	var both *people.BothCompaniesCarryProjectsError
 	if !errors.As(err, &both) {
 		t.Fatalf("the merge produced %v, want a refusal — invisible work still blocks it", err)
@@ -498,7 +498,7 @@ func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 		RowScope: principal.RowScopeOwn,
 	})
 
-	_, err := e.People.MergeOrganization(owner, orgIDOf(source), orgIDOf(target))
+	_, err := e.People.MergeOrganization(owner, OrgIDOf(source), OrgIDOf(target))
 	var both *people.BothCompaniesCarryProjectsError
 	if !errors.As(err, &both) {
 		t.Fatalf("the merge produced %v, want a refusal", err)

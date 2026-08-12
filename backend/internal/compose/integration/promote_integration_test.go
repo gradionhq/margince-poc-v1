@@ -36,7 +36,7 @@ func seedLead(t *testing.T, e *Env, name, email string, owner *ids.UUID) ids.Lea
 	if err != nil {
 		t.Fatalf("seeding lead %s: %v", name, err)
 	}
-	return leadIDOf(ids.UUID(l.Id))
+	return LeadIDOf(ids.UUID(l.Id))
 }
 
 func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 	if merged {
 		t.Error("fresh email should create, not merge")
 	}
-	if person.ConvertedFromLeadId == nil || leadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
+	if person.ConvertedFromLeadId == nil || LeadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
 		t.Error("person lost the converted_from_lead_id origin pointer")
 	}
 	if person.OwnerId == nil || ids.UUID(*person.OwnerId) != e.Rep1 {
@@ -138,7 +138,7 @@ func TestPromoteMergesIntoAnExistingPersonNotADuplicate(t *testing.T) {
 	if !merged || ids.UUID(person.Id) != ids.UUID(existing.Id) {
 		t.Fatalf("merged=%v into %s, want merge into the one existing person %s", merged, person.Id, existing.Id)
 	}
-	if person.ConvertedFromLeadId == nil || leadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
+	if person.ConvertedFromLeadId == nil || LeadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
 		t.Error("merge did not record the lead origin")
 	}
 	if person.FullName != "Grace Known" {

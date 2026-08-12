@@ -7,12 +7,17 @@ package integration
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
 
@@ -30,6 +35,63 @@ import (
 // imports compose, and compose's white-box tests import this package, so an
 // ordinary file here that reaches apptest closes an import cycle. A fixture that
 // takes an *apptest.AppEnv therefore belongs in apptest, not here.
+
+// CraftCursor encodes a keyset cursor the way the wire does, so a suite can hand
+// a list endpoint a cursor it never issued.
+//
+// Crafting it rather than replaying one the API returned is the point: the
+// pagination contract has to hold for a cursor pointing at a row that has since
+// moved or gone, and only a hand-made one can name that position.
+func CraftCursor(t *testing.T, c storekit.Cursor) string {
+	t.Helper()
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshaling crafted cursor: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// CFAdminPerms is the admin RBAC posture narrowed to full custom_field config
+// authority plus the person grants the value-preservation assertions need. It is
+// narrower than AdminPerms on purpose: a suite proving a custom-field refusal
+// must not be holding grants the refusal could be mistaken for.
+var CFAdminPerms = principal.Permissions{
+	RoleKeys: []string{"admin"},
+	Objects: map[string]principal.ObjectGrant{
+		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
+		"person":       {Create: true, Read: true, Update: true, Delete: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
+// SeedSecondWorkspace inserts a second tenant with its own admin user and returns
+// an admin-shaped context bound to it, for the cross-tenant suites.
+//
+// It carries CFAdminPerms rather than AdminPerms, which is not incidental: the
+// suites that read this context assert what a caller in ANOTHER workspace cannot
+// see, and widening the grants would let a passing assertion mean less than it
+// says.
+func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn) (ids.UUID, context.Context) {
+	t.Helper()
+	ws, user := ids.NewV7(), ids.NewV7()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
+		ws, "tenant-b-"+ws.String()[:8]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
+		user, ws, "b@tenant-b.test"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := principal.WithWorkspaceID(context.Background(), ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
+		UserID: user, Permissions: CFAdminPerms,
+	})
+	return ws, ctx
+}
 
 // ExtractStagedApprovalID pulls the staged approval's id out of the 403
 // approval_required detail — the same reference the human inbox lists.

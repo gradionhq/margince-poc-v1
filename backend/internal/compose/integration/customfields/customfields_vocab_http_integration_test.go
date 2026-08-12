@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The HTTP half of the sort/filter vocabulary coverage (the store-level
 // semantics live in customfields_vocab_integration_test.go): the sort
@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -113,7 +114,7 @@ func assertCursorSortRefusals(t *testing.T, e *apptest.AppEnv) {
 
 	t.Run("crafted cursor sort key answers 422 malformed_cursor, never 500", func(t *testing.T) {
 		badKey := "abc"
-		crafted := craftCursor(t, storekit.Cursor{
+		crafted := integration.CraftCursor(t, storekit.Cursor{
 			CreatedAt: time.Now().UTC(), ID: ids.NewV7(),
 			SortField: score.ColumnName, SortKey: &badKey,
 		})

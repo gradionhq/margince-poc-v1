@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The HTTP half of the custom-field VALUES coverage (the store-level
 // semantics live in customfields_values_integration_test.go): proves
