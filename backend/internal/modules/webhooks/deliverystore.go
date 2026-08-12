@@ -165,8 +165,13 @@ func (s *Store) matchingSubscriptions(ctx context.Context, eventType string) ([]
 	var out []subCandidate
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
+			-- The workspace predicate is the fan-out's own, and it is the one
+			-- that matters most in this file: the caller creates a delivery
+			-- for every subscription this returns, so an unscoped match sends
+			-- one tenant's event payload to another tenant's target_url.
 			SELECT id, owner_id FROM webhook_subscription
-			WHERE state = 'active' AND archived_at IS NULL
+			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			  AND state = 'active' AND archived_at IS NULL
 			  AND event_types @> ARRAY[$1]::text[]`, eventType)
 		if err != nil {
 			return err
@@ -276,7 +281,11 @@ func (s *Store) loadTarget(ctx context.Context, deliveryID ids.UUID) (attemptTar
 			FROM webhook_delivery d
 			JOIN webhook_subscription s
 			  ON s.workspace_id = d.workspace_id AND s.id = d.subscription_id
-			WHERE d.id = $1`, deliveryID).
+			-- Scoped as well as keyed: a delivery id from another workspace
+			-- must answer not-found rather than hand back that tenant's
+			-- target_url and sealed signing secret.
+			WHERE d.id = $1
+			  AND d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, deliveryID).
 			Scan(&t.deliveryID, &t.subID, &t.targetURL, &t.sealedSecret,
 				&t.eventType, &t.eventID, &t.payload, &t.priorAttempts)
 	})

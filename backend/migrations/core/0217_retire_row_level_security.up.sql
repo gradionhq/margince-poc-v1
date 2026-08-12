@@ -30,11 +30,29 @@
 -- other half. Both are catalog sweeps and idempotent, so running both in
 -- either order is harmless.
 
--- Pre-flight (§8): refuse against a database holding more than one live
+-- Pre-flight (§8): refuse against a database holding more than one LIVE
 -- workspace. ADR-0061 §3 already makes the API refuse to start in that state,
 -- so this should be unreachable — but collapsing two tenants' rows into one
 -- un-scoped table is the single failure in this change that no `down` can
 -- undo, and "unreachable" is not a reason to leave it unchecked.
+--
+-- LIVE is the deliberate boundary, and what it leaves behind is worth saying
+-- out loud rather than discovering later. Archiving a workspace does not
+-- delete its rows: they keep their workspace_id in every tenant table, and
+-- once the policies are gone they sit in the same un-scoped tables as the
+-- remaining tenant's, readable by anything that reads the installation.
+--
+-- Counting them anyway would contradict the invariant this repo actually
+-- implements. ADR-0061 §3 defines the single-organization rule on LIVE
+-- workspaces, and archiving is the affordance the product gives an operator
+-- for resolving to one — the upgrade-replay fixtures use exactly that. A
+-- guard stricter than the rule it enforces would refuse the documented
+-- upgrade path.
+--
+-- So the residue is accepted and named: an installation that archived a
+-- previous tenant rather than deleting its rows keeps those rows visible
+-- after this migration. An operator who does not want that deletes them
+-- before running it; nothing here can tell the two intentions apart.
 DO $$
 DECLARE live int;
 BEGIN

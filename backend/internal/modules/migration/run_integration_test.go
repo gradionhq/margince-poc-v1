@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -26,6 +27,11 @@ import (
 // needs (the overlay module's testsupport_integration.go pattern). It
 // fails loudly rather than skipping — a silently skipped gate looks
 // exactly like a passing one.
+var (
+	migrationResetMu  sync.Mutex
+	migrationResetFor = map[string]bool{}
+)
+
 func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (context.Context, *database.DB) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -48,10 +54,26 @@ func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (co
 	// Every test in this package seeds its own workspace into ONE database, and
 	// what used to keep their rows apart was deny-on-unset RLS. With tenant
 	// isolation retired (ADR-0091 §8 phase A) the separation has to be real:
-	// reset before seeding, the way compose/integration's harness already does.
-	if err := testdb.Reset(ctx, owner); err != nil {
-		t.Fatal(err)
+	// reset before seeding, as compose/integration's harness does.
+	//
+	// Once per TEST, not per call. The tenant-fence tests here ask this helper
+	// twice — once for workspace A, once for B — and a reset on the second call
+	// would delete A before the cross-workspace assertions ran, leaving them
+	// asserting nothing.
+	migrationResetMu.Lock()
+	if !migrationResetFor[t.Name()] {
+		if err := testdb.Reset(ctx, owner); err != nil {
+			migrationResetMu.Unlock()
+			t.Fatal(err)
+		}
+		migrationResetFor[t.Name()] = true
+		t.Cleanup(func() {
+			migrationResetMu.Lock()
+			defer migrationResetMu.Unlock()
+			delete(migrationResetFor, t.Name())
+		})
 	}
+	migrationResetMu.Unlock()
 
 	if _, err := owner.Exec(ctx,
 		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,

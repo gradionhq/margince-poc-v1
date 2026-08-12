@@ -118,7 +118,9 @@ func (s *RunStore) Get(ctx context.Context, id RunID) (Run, error) {
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, report, error
-			FROM import_run WHERE id = $1`, id)
+			-- Scoped as well as keyed: a run id from another workspace owes the
+			-- existence-hiding not-found, not that run's status and report.
+			FROM import_run WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id)
 		var report []byte
 		var runErr *string
 		if err := row.Scan(&run.ID, &run.Connector, &run.Status, &run.SourceRef, &run.Checkpoint,
@@ -155,7 +157,9 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at
-			FROM import_run WHERE connector = $1 ORDER BY created_at DESC LIMIT 1`, connector)
+			FROM import_run
+			 WHERE connector = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			 ORDER BY created_at DESC LIMIT 1`, connector)
 		if err := scanRun(row, &run); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return apperrors.ErrNotFound

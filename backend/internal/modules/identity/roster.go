@@ -198,6 +198,7 @@ const listTeamsQuery = `
 const listTeamsFilteredQuery = `
 	SELECT ` + teamColumns + teamFromJoin + `
 	WHERE t.archived_at IS NULL AND t.name ILIKE $1
+	  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (t.created_at, t.id) > ($2, $3))
 	GROUP BY t.id
 	ORDER BY t.created_at, t.id

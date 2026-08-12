@@ -145,7 +145,11 @@ LEFT JOIN mirror_user_map m
        ON m.app_user_id = u.id AND m.incumbent = $1
 LEFT JOIN mirror_user_automap_block b
        ON b.app_user_id = u.id AND b.incumbent = $1
-WHERE u.id > $2
+-- Scoped like the target resolver beside it: this list is what an admin
+-- picks a mapping FROM, so an unscoped page discloses another workspace's
+-- colleagues by email and display name.
+WHERE u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+  AND u.id > $2
   AND NOT u.is_agent
   AND u.archived_at IS NULL
 ORDER BY u.id
